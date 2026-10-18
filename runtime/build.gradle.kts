@@ -9,6 +9,7 @@ evaluationDependsOn(":platform")
 dependencies {
     api(project(":api"))
     api(project(":platform"))
+    testImplementation(project(":adapter-fake"))
 }
 
 mibsdk {
