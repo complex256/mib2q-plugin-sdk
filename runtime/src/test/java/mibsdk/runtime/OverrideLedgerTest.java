@@ -258,6 +258,13 @@ class OverrideLedgerTest {
         assertEquals(n, a.threads.size(), "apply attempts");
     }
 
+    private static void awaitFirst(List<String> calls, String value) throws InterruptedException {
+        for (int i = 0; i < 500 && !calls.contains(value); i++) {
+            Thread.sleep(10);
+        }
+        assertTrue(calls.contains(value), calls.toString());
+    }
+
     /** Records every apply; optionally fails the first {@code failures} calls. */
     private static final class RecordingApplier implements OverrideLedger.Applier {
         final List<String> calls = Collections.synchronizedList(new ArrayList<String>());
@@ -726,6 +733,95 @@ class OverrideLedgerTest {
         assertTrue(l.active().isEmpty());
         assertEquals(1, a.calls.size(), "completed without another write");
         assertTrue(logContains(log, "reported by the car"), log.snapshot().toString());
+    }
+
+    /**
+     * Controller ruling (Task 11 re-review): an adapter that publishes the current value after every rejected
+     * write must not turn observation-triggered retries into a tight loop; retries stay on the Clock backoff.
+     */
+    @Test
+    void identicalObservationsAfterRejectedRestoreDoNotRetryStorm() throws Exception {
+        RingLog log = new RingLog(50);
+        final OverrideLedger[] ref = new OverrideLedger[1];
+        final List<String> restores = Collections.synchronizedList(new ArrayList<String>());
+        OverrideLedger.Applier rejecting = new OverrideLedger.Applier() {
+            public void apply(String key, String value) throws Exception {
+                if (value.equals("NEW")) {
+                    restores.add("applied");
+                    return; // the override itself goes through
+                }
+                restores.add(value);
+                ref[0].onObserved(key, "NEW"); // the ECU re-reports its (unchanged) value
+                throw new IllegalStateException("rejected");
+            }
+        };
+        OverrideLedger l = ledger(log);
+        ref[0] = l;
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", rejecting);
+        awaitFirst(restores, "applied");
+        restores.clear();
+
+        ov.release();
+        Thread.sleep(500); // real time only: without coalescing this is hundreds of attempts
+        int early = restores.size();
+        assertEquals(2, early, "the release, plus one retry for the first (changed) report: " + restores);
+
+        for (int i = 0; i < 10; i++) { // ten minutes of simulated time
+            clock.advance(60000);
+            Thread.sleep(100);
+        }
+        Thread.sleep(200);
+        int total = restores.size();
+        assertTrue(total > early, "backoff retries still happen: " + total);
+        assertTrue(total <= early + 10, "at most one retry per elapsed backoff: " + total);
+        assertTrue(l.active().get(0).restorePending());
+
+        l.onObserved("k", "OLD"); // a different value (the prior) still completes it at once
+        awaitActiveSize(l, 0);
+    }
+
+    @Test
+    void distinctObservationsQueuedBeforeTheWorkerRunsCoalesce() throws Exception {
+        RingLog log = new RingLog(50);
+        final Object gate = new Object();
+        final boolean[] open = {true};
+        final List<String> restores = Collections.synchronizedList(new ArrayList<String>());
+        OverrideLedger.Applier blocking = new OverrideLedger.Applier() {
+            public void apply(String key, String value) throws Exception {
+                if (value.equals("NEW")) {
+                    restores.add("applied");
+                    return;
+                }
+                restores.add(value);
+                synchronized (gate) {
+                    while (!open[0]) {
+                        gate.wait();
+                    }
+                }
+                throw new IllegalStateException("rejected");
+            }
+        };
+        OverrideLedger l = ledger(log);
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", blocking);
+        awaitFirst(restores, "applied");
+        restores.clear();
+        synchronized (gate) {
+            open[0] = false;
+        }
+        ov.release();
+        for (int i = 0; i < 500 && restores.isEmpty(); i++) {
+            Thread.sleep(10);
+        }
+        assertEquals(1, restores.size());
+        for (int i = 0; i < 20; i++) { // the worker is busy: every distinct report would queue one retry
+            l.onObserved("k", "V" + i);
+        }
+        synchronized (gate) {
+            open[0] = true;
+            gate.notifyAll();
+        }
+        Thread.sleep(500);
+        assertEquals(2, restores.size(), "twenty reports while busy queue one retry: " + restores);
     }
 
     @Test

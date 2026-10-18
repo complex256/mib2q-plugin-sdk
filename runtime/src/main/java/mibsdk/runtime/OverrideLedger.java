@@ -45,9 +45,10 @@ import mibsdk.api.VehicleOverride;
  * <p>Failures: an apply or restore that throws is logged and retried with backoff on the Clock (5 s,
  * doubling, capped at 60 s). An apply gives up after 5 attempts (the car keeps its value). A restore is
  * never given up while the runtime runs: it is also retried at once by {@link #retryPendingRestores()}
- * (ignition on) and by any {@link #onObserved} of its key, and an observed value equal to the prior
- * completes it. Until then the entry stays in the file and in {@link #active()} with
- * {@link ActiveOverride#restorePending()}.
+ * (ignition on) and by an {@link #onObserved} of its key that reports a different value than the
+ * previous report (repeats wait for the backoff, and reports arriving while such a retry is queued share it),
+ * and an observed value equal to the prior completes it. Until then the entry stays in the file and in
+ * {@link #active()} with {@link ActiveOverride#restorePending()}.
  */
 public final class OverrideLedger {
 
@@ -82,6 +83,7 @@ public final class OverrideLedger {
         String applied; // value last applied successfully, null if unknown
         int failures; // consecutive failed applies/restores for the current generation
         int retrySeq; // only the newest scheduled retry runs
+        boolean syncQueued; // an observation-triggered sync is queued and has not started yet
         // sticky re-apply
         String lastObserved;
         long lastDeviationAt;
@@ -316,8 +318,9 @@ public final class OverrideLedger {
 
     /**
      * The car reported {@code observedEncoded} for {@code key}. While an override is in force this drives the
-     * sticky re-apply; while a restore is pending it retries the restore at once, and an observed value equal
-     * to the prior completes it. Never blocks (memory only, plus queueing), so the platform host may call it
+     * sticky re-apply; while a restore is pending a changed value retries the restore at once (a repeated value
+     * waits for the backoff; reports while that retry is queued share it), and an observed value equal to the
+     * prior completes it. Never blocks (memory only, plus queueing), so the platform host may call it
      * while publishing.
      */
     public void onObserved(String key, String observedEncoded) {
@@ -331,7 +334,15 @@ public final class OverrideLedger {
                 return;
             }
             if (e.restoring) {
+                // Retry at once only for news: a changed value, and no observation-triggered sync already
+                // queued. An adapter that re-reports the same value after each rejected write would otherwise
+                // spin apply/fail/observe; those retries stay on the Clock backoff instead.
+                boolean changed = !observedEncoded.equals(e.lastObserved);
                 e.lastObserved = observedEncoded; // sync() treats an observed prior as restored
+                if (!changed || e.syncQueued) {
+                    return;
+                }
+                e.syncQueued = true;
                 seq = -1;
             } else if (e.gaveUp) {
                 return;
@@ -535,6 +546,7 @@ public final class OverrideLedger {
             if (e == null) {
                 return;
             }
+            e.syncQueued = false; // this run serves any queued observation; later ones may queue again
             restore = e.restoring;
             alreadyBack = restore && e.prior.equals(e.lastObserved);
             value = restore ? e.prior : e.active;
