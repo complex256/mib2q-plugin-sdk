@@ -19,6 +19,15 @@ public final class Toolchain {
     public static final String JUNIT = "org.junit.jupiter:junit-jupiter:5.10.2";
     public static final String JUNIT_LAUNCHER = "org.junit.platform:junit-platform-launcher:1.10.2";
 
+    /** ProGuard (run as {@code proguard.ProGuard} under JDK 8) and its runtime, pinned and non-transitive. */
+    public static final List<String> PROGUARD = Collections.unmodifiableList(Arrays.asList(
+            "com.guardsquare:proguard-base:7.6.0",
+            "com.guardsquare:proguard-core:9.1.6",
+            "org.apache.logging.log4j:log4j-api:2.23.1",
+            "org.apache.logging.log4j:log4j-core:2.23.1",
+            "com.google.code.gson:gson:2.11.0",
+            "org.jetbrains.kotlin:kotlin-stdlib:2.0.21"));
+
     /** The only class-file major version J9 2.3 loads (Java 1.4). */
     public static final int CAR_CLASS_VERSION = 48;
 
@@ -37,6 +46,28 @@ public final class Toolchain {
             "-Xno-param-assertions",
             "-Xno-call-assertions",
             "-Xno-receiver-assertions"));
+
+    /**
+     * ProGuard rules for Kotlin plugins, after the {@code -keep class <main> { *; }} rule. The keepnames
+     * pass exists only so LocalVariableTable is dropped: Kotlin's {@code $i$a$-...} names are illegal in v48.
+     */
+    public static final List<String> KOTLIN_PROGUARD_RULES = Collections.unmodifiableList(Arrays.asList(
+            "-keepnames class ** { *; }",
+            "-keepattributes !LocalVariableTable,!LocalVariableTypeTable,*",
+            "-dontoptimize",
+            "-dontwarn **",
+            "-ignorewarnings"));
+
+    /**
+     * Added to the Kotlin ProGuard rules. ProGuard's obfuscation pass (needed to drop LocalVariableTable)
+     * rewrites stdlib calls {@code Intrinsics.checkNotNull(Object, String)} to {@code checkNotNull(Object)}
+     * after shrinking, so that overload must survive the shrink even when nothing called it before.
+     */
+    public static final String KOTLIN_PROGUARD_INTRINSICS_RULE =
+            "-keepclassmembers class kotlin.jvm.internal.Intrinsics { public static void checkNotNull(java.lang.Object); }";
+
+    /** The manifest permission that lifts the build's (and the runtime's) escape-route ban. */
+    public static final String PLATFORM_UNRESTRICTED = "platform.unrestricted";
 
     /** Class-loader parent of a plugin may only expose these package prefixes. */
     public static final List<String> ALLOWED_PARENT_PREFIXES = Collections.unmodifiableList(Arrays.asList(

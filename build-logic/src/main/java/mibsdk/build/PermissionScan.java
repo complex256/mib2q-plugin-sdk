@@ -15,7 +15,7 @@ import org.objectweb.asm.Opcodes;
 /**
  * Finds calls that need {@code platform.unrestricted}: reflection, process execution, VM exit, native
  * loading and {@code Thread.stop}. Ignores the {@code class$} helper javac emits for class literals
- * and the Kotlin stdlib (classes under {@code kotlin/}).
+ * and, when given, the Kotlin stdlib classes shrunk into a plugin (see {@link #run(File, Set)}).
  */
 public final class PermissionScan {
     private PermissionScan() {}
@@ -50,9 +50,18 @@ public final class PermissionScan {
     }
 
     public static Result run(File dirOrJar) throws IOException {
+        return run(dirOrJar, Collections.<String>emptySet());
+    }
+
+    /**
+     * As {@link #run(File)}, skipping the {@code kotlin/} classes named in {@code exemptKotlinStdlib} (internal
+     * names of the kotlin-stdlib classes the plugin did not declare itself). Any other {@code kotlin/} class,
+     * such as one from the plugin's own sources, is scanned like the rest.
+     */
+    public static Result run(File dirOrJar, Set<String> exemptKotlinStdlib) throws IOException {
         Set<String> findings = new TreeSet<String>();
         ClassSource.forEach(dirOrJar, e -> {
-            if (e.name.startsWith("kotlin/")) {
+            if (e.name.startsWith("kotlin/") && exemptKotlinStdlib.contains(e.name)) {
                 return;
             }
             new ClassReader(e.bytes).accept(new ClassVisitor(Opcodes.ASM9) {

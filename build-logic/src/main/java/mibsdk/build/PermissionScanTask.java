@@ -4,6 +4,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.TreeSet;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
@@ -11,6 +13,7 @@ import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.CacheableTask;
+import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.IgnoreEmptyDirectories;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
@@ -21,8 +24,8 @@ import org.gradle.api.tasks.TaskAction;
 
 /**
  * Lists calls that need {@code platform.unrestricted} (reflection, exec, exit, ...). Report-only unless
- * {@link #getFailOnFindings()} is set; the {@code mibsdk.plugin} convention (Task 13) sets it unless
- * the manifest grants {@code platform.unrestricted}.
+ * {@link #getFailOnFindings()} is set; the {@code mibsdk.plugin} convention sets it unless the manifest
+ * grants {@code platform.unrestricted}.
  */
 @CacheableTask
 public abstract class PermissionScanTask extends DefaultTask {
@@ -31,6 +34,19 @@ public abstract class PermissionScanTask extends DefaultTask {
     @IgnoreEmptyDirectories
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract ConfigurableFileCollection getClasses();
+
+    /**
+     * kotlin-stdlib jars shrunk into the scanned classes. Their {@code kotlin/} classes are exempt (the stdlib
+     * legitimately reflects), except those {@link #getOwnClasses()} also declares.
+     */
+    @Classpath
+    public abstract ConfigurableFileCollection getKotlinStdlib();
+
+    /** The module's own compiled classes (pre-shrink); a {@code kotlin/} class found here is never exempt. */
+    @InputFiles
+    @IgnoreEmptyDirectories
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getOwnClasses();
 
     /** Fail the build on findings (default false: report only). */
     @Input
@@ -41,10 +57,12 @@ public abstract class PermissionScanTask extends DefaultTask {
 
     @TaskAction
     public void scan() throws IOException {
+        Set<String> exempt = kotlinClassNames(getKotlinStdlib().getFiles());
+        exempt.removeAll(kotlinClassNames(getOwnClasses().getFiles()));
         TreeSet<String> findings = new TreeSet<String>();
         for (File f : getClasses().getFiles()) {
             if (f.exists()) {
-                findings.addAll(PermissionScan.run(f).findings());
+                findings.addAll(PermissionScan.run(f, exempt).findings());
             }
         }
         String report = String.join("\n", findings) + (findings.isEmpty() ? "" : "\n");
@@ -57,5 +75,17 @@ public abstract class PermissionScanTask extends DefaultTask {
             throw new GradleException("permissionScan: " + text);
         }
         getLogger().lifecycle("permissionScan (report only): {}", text);
+    }
+
+    private static Set<String> kotlinClassNames(Set<File> dirsOrJars) throws IOException {
+        Set<String> names = new HashSet<String>();
+        for (File f : dirsOrJars) {
+            ClassSource.forEach(f, e -> {
+                if (e.name.startsWith("kotlin/")) {
+                    names.add(e.name);
+                }
+            });
+        }
+        return names;
     }
 }

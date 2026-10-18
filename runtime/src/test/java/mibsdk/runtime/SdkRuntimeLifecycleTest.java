@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -494,5 +495,94 @@ class SdkRuntimeLifecycleTest {
         assertTrue(stopWithin(3000), "stop() released its caller");
         assertTrue(rt.log().snapshot().toString().contains("runtime step stop still running"),
                 rt.log().snapshot().toString());
+    }
+
+    // ---- the real sample plugins (plugins/hello, plugins/crashy), built by mibsdk.plugin ----
+
+    /** A sample plugin jar built by {@code :plugins:<id>:mibPluginJar}; :runtime:test passes its path. */
+    private static File samplePluginJar(String id) {
+        String path = System.getProperty("mibsdk.sampleJar." + id);
+        File jar = new File(path != null ? path : "../plugins/" + id + "/build/mibsdk/" + id + ".jar");
+        assertTrue(jar.isFile(), "missing " + jar + ": run ./gradlew :plugins:" + id + ":mibPluginJar");
+        return jar;
+    }
+
+    /** Fresh base dir with the real hello and crashy jars; crashy's storage key {@code mode} preset. */
+    private void installSamples(String crashyMode) throws IOException {
+        base = new File(tmp, "mibsdk-" + crashyMode);
+        plugins = new File(base, "plugins");
+        plugins.mkdirs();
+        for (String id : new String[] {"hello", "crashy"}) {
+            Files.copy(samplePluginJar(id).toPath(), new File(plugins, id + ".jar").toPath());
+        }
+        writeFile(new File(base, "data/crashy.properties"), "mode=" + crashyMode + "\n");
+        grants.clear();
+        grants.put("hello", new String[] {"vehicle.read"});
+    }
+
+    @Test
+    void helloSampleLogsIgnitionAndCountsEnables() throws Exception {
+        installSamples("none");
+        start(null);
+
+        assertEquals(PluginState.ENABLED, status("hello").state());
+        assertEquals(1, count("hello", "hello enabled"));
+        fake.setIgnition(true);
+        awaitCount("hello", "ignition=true", 1);
+        rt.reload("hello");
+        assertEquals(2, count("hello", "hello enabled"));
+        assertTrue(stopWithin(5000), "stop() returned");
+        String data = new String(Files.readAllBytes(new File(base, "data/hello.properties").toPath()),
+                StandardCharsets.ISO_8859_1);
+        assertTrue(data.contains("enables=2"), data);
+    }
+
+    @Test
+    void crashyModesAreContained() throws Exception {
+        String[] modes = {"throw-on-enable", "throw-on-event", "hang-on-event", "busy-loop"};
+        for (String mode : modes) {
+            installSamples(mode);
+            start("callback.hung.ms=1000\n");
+            assertEquals(PluginState.ENABLED, status("hello").state(), mode);
+            assertEquals(1, count("crashy", "mode=" + mode), mode + "\n" + rt.log().snapshot());
+
+            if (mode.equals("throw-on-enable")) {
+                assertEquals(PluginState.FAILED, status("crashy").state(), mode);
+                assertTrue(status("crashy").reason().contains("throw-on-enable"), status("crashy").reason());
+                fake.setIgnition(true);
+                awaitCount("hello", "ignition=true", 1);
+            } else if (mode.equals("throw-on-event")) {
+                fake.setIgnition(true);
+                fake.setIgnition(false);
+                fake.setIgnition(true);
+                awaitState("crashy", PluginState.QUARANTINED);
+                awaitCount("hello", "ignition=true", 2);
+                awaitCount("hello", "ignition=false", 1);
+            } else if (mode.equals("hang-on-event")) {
+                fake.setIgnition(true);
+                awaitCount("crashy", "hanging", 1);
+                awaitCount("hello", "ignition=true", 1);
+                Thread.sleep(50); // let hello's task finish so only crashy's is running when the clock jumps
+                clock.advance(1001);
+                awaitState("crashy", PluginState.QUARANTINED);
+                assertTrue(status("crashy").reason().contains("hung"), status("crashy").reason());
+            } else {
+                awaitCount("crashy", "spinning", 1);
+                clock.advance(1001);
+                awaitState("crashy", PluginState.QUARANTINED);
+                assertTrue(status("crashy").reason().contains("hung"), status("crashy").reason());
+                fake.setIgnition(true);
+                awaitCount("hello", "ignition=true", 1);
+            }
+
+            // Contained: crashy holds no subscription any more and hello keeps receiving events.
+            assertEquals(PluginState.ENABLED, status("hello").state(), mode);
+            assertEquals(1, rt.eventSubscriberCount(), mode + ": only hello's subscription is left");
+            int offs = count("hello", "ignition=false");
+            fake.setIgnition(false);
+            awaitCount("hello", "ignition=false", offs + 1);
+            assertTrue(stopWithin(5000), mode + ": stop() returned");
+            rt = null;
+        }
     }
 }

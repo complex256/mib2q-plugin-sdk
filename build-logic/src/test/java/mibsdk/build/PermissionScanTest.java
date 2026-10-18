@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.objectweb.asm.ClassWriter;
@@ -51,7 +52,23 @@ class PermissionScanTest {
         kw.visitEnd();
         write(dir.resolve("kotlin/internal/Impl.class"), kw.toByteArray());
 
-        assertEquals(List.of(), PermissionScan.run(dir.toFile()).findings());
+        assertEquals(List.of(), PermissionScan.run(dir.toFile(), Set.of("kotlin/internal/Impl")).findings());
+    }
+
+    @Test
+    void kotlinPackageClassNotFromTheStdlibIsFlagged() throws Exception {
+        // A plugin's own class in a kotlin.* package is not exempt: only the stdlib's classes are.
+        Path dir = tmp.resolve("classes");
+        ClassWriter kw = new ClassWriter(0);
+        kw.visit(Opcodes.V1_4, Opcodes.ACC_PUBLIC, "kotlin/internal/Sneaky", null, "java/lang/Object", null);
+        forNameMethod(kw, Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "load");
+        kw.visitEnd();
+        write(dir.resolve("kotlin/internal/Sneaky.class"), kw.toByteArray());
+
+        assertEquals(List.of("kotlin/internal/Sneaky.load -> java/lang/Class.forName"),
+                PermissionScan.run(dir.toFile(), Set.of("kotlin/internal/Impl")).findings());
+        assertEquals(List.of("kotlin/internal/Sneaky.load -> java/lang/Class.forName"),
+                PermissionScan.run(dir.toFile()).findings());
     }
 
     @Test

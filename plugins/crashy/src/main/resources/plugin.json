@@ -1,0 +1,10 @@
+{
+  "id": "crashy",
+  "name": "Crashy",
+  "version": "1.0",
+  "author": "complex256",
+  "api": 1,
+  "main": "sample.crashy.CrashyPlugin",
+  "permissions": [],
+  "dependencies": []
+}
