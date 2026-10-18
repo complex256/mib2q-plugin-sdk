@@ -52,11 +52,13 @@ public final class LinkCheck {
 
     public static Result run(File checkedDirOrJar, List<File> classpath, List<File> transitiveLibs) throws IOException {
         Checker c = new Checker();
-        for (File f : classpath) {
-            c.index(f, false);
-        }
+        // Transitive libs first: indexing is first-wins, and only these keep their bodies. A jar listed in
+        // both lists must not lose its bodies to the plain classpath entry.
         for (File f : transitiveLibs) {
             c.index(f, true);
+        }
+        for (File f : classpath) {
+            c.index(f, false);
         }
         c.index(checkedDirOrJar, false);
         c.checkAll(checkedDirOrJar);

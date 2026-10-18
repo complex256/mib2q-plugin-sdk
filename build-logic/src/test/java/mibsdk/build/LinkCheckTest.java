@@ -62,6 +62,18 @@ class LinkCheckTest {
     }
 
     @Test
+    void followsTransitiveLibraryBodiesWhenLibIsAlsoOnClasspath() throws Exception {
+        File jcl = Fixtures.stubJcl(tmp.resolve("jcl"));
+        File libClasses = Fixtures.compileV48(tmp.resolve("libclasses"), Map.of("lib.L",
+                "package lib; public class L { public static void f() { java.util.regex.Pattern.compile(\"x\"); } }"));
+        File lib = Fixtures.jar(tmp.resolve("lib.jar"), libClasses);
+        File classes = Fixtures.compileV48(tmp.resolve("classes"), Map.of("fixture.Caller",
+                "package fixture; public class Caller { public void m() { lib.L.f(); } }"), libClasses);
+        LinkCheck.Result r = LinkCheck.run(classes, List.of(jcl, classes, lib), List.of(lib));
+        assertTrue(r.missing().contains("class java/util/regex/Pattern (via lib/L.f()V)"), r.missing().toString());
+    }
+
+    @Test
     void treatsKnownUnreadableAsPresent() throws Exception {
         LinkCheck.Result r = check(Map.of("fixture.Boxer",
                 "package fixture; public class Boxer { public Object m() { return Double.valueOf(1.0); } }"));
@@ -77,7 +89,8 @@ class LinkCheckTest {
 
     @Test
     void realStockLsdJarFlagsAutoCloseableAndAcceptsDouble() throws Exception {
-        File lsd = new File(System.getProperty("user.home"), "projects/audi-mib2/patching/lsd.jar");
+        File lsd = new File(System.getProperty("mibsdk.stockLsdJar",
+                System.getProperty("user.home") + "/projects/audi-mib2/patching/lsd.jar"));
         Assumptions.assumeTrue(lsd.isFile(), "stock lsd.jar not present");
         File classes = Fixtures.compileV48(tmp.resolve("classes"), Map.of(
                 "fixture.Res", "package fixture; public class Res implements AutoCloseable { public void close() {} }",

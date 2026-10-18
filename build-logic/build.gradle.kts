@@ -22,6 +22,7 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    providers.gradleProperty("mibsdk.stockLsdJar").orNull?.let { systemProperty("mibsdk.stockLsdJar", it) }
 }
 
 gradlePlugin {
