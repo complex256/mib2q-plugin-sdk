@@ -15,12 +15,17 @@ import java.util.Properties;
  * unhealthyBoots=&lt;n&gt;
  * lastShutdownClean=&lt;true|false&gt;
  * </pre>
- * A boot is unhealthy if it neither became healthy ({@link #markHealthy}: ran healthyAfterMs with plugins
- * enabled) nor shut down clean ({@link #markCleanShutdown}: the ignition went off). {@link #beginBoot} counts
- * the previous boot: it increments {@code unhealthyBoots} unless {@code lastShutdownClean}, then records this
- * boot as running ({@code lastShutdownClean=false}). Safe mode when the count reaches the threshold or the
+ * This class is the single owner of the format ({@link #reset()} content is
+ * {@code unhealthyBoots=0\nlastShutdownClean=true\n}).
+ *
+ * <p>Only a boot that started loading plugins can count (spec: restarts "with plugins enabled"). A boot is
+ * unhealthy if, after {@link #markPluginsLoading} (the start of the plugin load), it neither became healthy
+ * ({@link #markHealthy}: ran healthyAfterMs with plugins enabled) nor saw the ignition go off
+ * ({@link #markCleanShutdown}). {@link #beginBoot} counts the previous boot (increments {@code unhealthyBoots}
+ * unless {@code lastShutdownClean}) and records this one as clean: a safe-mode boot, an adapter failure or a
+ * restart during the plugin-start delay never counts. Safe mode when the count reaches the threshold or the
  * {@code SAFE_MODE} marker exists. A missing, unreadable or malformed file reads as a fresh unit (0, clean).
- * Safe mode loads no plugins, so it never marks a boot healthy: it lasts until the counter is reset.
+ * Safe mode loads no plugins, so it never lowers the count: it lasts until {@link #reset()}.
  *
  * <p>Writes go to a temp file, fsync, rename (as the ledger does); they never throw (logged instead).
  * Called on the runtime control thread and, for {@link #markCleanShutdown}, on the publishing thread.
@@ -31,12 +36,19 @@ public final class BootGuard {
     static final String LAST_SHUTDOWN_CLEAN = "lastShutdownClean";
     private static final String SOURCE = "mibsdk";
 
+    /** One reading of boot.state. */
+    private static final class State {
+        int unhealthyBoots;
+        boolean lastShutdownClean = true; // nothing before: a fresh unit
+    }
+
     private final File bootState;
     private final File safeModeMarker;
     private final int threshold;
     private final RingLog log;
     private int unhealthyBoots; // guarded by this
     private boolean lastShutdownClean; // guarded by this
+    private boolean ignitionOffSeen; // guarded by this; in memory only: this run saw IgnitionChanged(false)
     private boolean loaded; // guarded by this; the mark methods never write state they have not read
 
     public BootGuard(File bootState, File safeModeMarker, int threshold) {
@@ -50,15 +62,41 @@ public final class BootGuard {
         this.log = log;
     }
 
-    /** Counts the previous boot and records this one as running; true means SAFE MODE. */
+    /**
+     * What {@link #beginBoot} would return now, without writing anything (for the configurator, which runs
+     * before the runtime). Never throws.
+     */
+    public static boolean wouldEnterSafeMode(File bootState, File safeModeMarker, int threshold) {
+        try {
+            if (safeModeMarker != null && safeModeMarker.exists()) {
+                return true;
+            }
+            State st = load(bootState, null);
+            return counted(st) >= threshold;
+        } catch (Throwable t) {
+            return true; // as beginBoot's caller: cannot count crashes, do not risk a boot loop
+        }
+    }
+
+    /** Counts the previous boot and records this one as clean until plugins load; true means SAFE MODE. */
     public synchronized boolean beginBoot() {
         read();
-        if (!lastShutdownClean && unhealthyBoots < Integer.MAX_VALUE) {
-            unhealthyBoots++;
-        }
-        lastShutdownClean = false;
+        unhealthyBoots = counted(currentState());
+        lastShutdownClean = true; // this boot counts only once plugins start loading
         write();
         return markerPresent() || unhealthyBoots >= threshold;
+    }
+
+    /**
+     * Plugins start loading: from here a restart without ignition-off or health counts as unhealthy (unless
+     * the ignition already went off during this run).
+     */
+    synchronized void markPluginsLoading() {
+        loadOnce();
+        if (!ignitionOffSeen && lastShutdownClean) {
+            lastShutdownClean = false;
+            write();
+        }
     }
 
     /** This boot ran long enough with plugins enabled: unhealthyBoots=0. */
@@ -73,10 +111,19 @@ public final class BootGuard {
     /** The ignition went off: whatever ends this run (usually power-off) is a clean shutdown. */
     public synchronized void markCleanShutdown() {
         loadOnce();
+        ignitionOffSeen = true;
         if (!lastShutdownClean) {
             lastShutdownClean = true;
             write();
         }
+    }
+
+    /** Leaves safe mode on the next boot (unless the marker exists): unhealthyBoots=0, lastShutdownClean=true. */
+    public synchronized void reset() {
+        loaded = true;
+        unhealthyBoots = 0;
+        lastShutdownClean = true;
+        write();
     }
 
     synchronized int unhealthyBoots() {
@@ -88,7 +135,20 @@ public final class BootGuard {
         return safeModeMarker != null && safeModeMarker.exists();
     }
 
-    private File tmpFile() {
+    /** The count after counting the boot recorded in {@code st}. */
+    private static int counted(State st) {
+        return !st.lastShutdownClean && st.unhealthyBoots < Integer.MAX_VALUE ? st.unhealthyBoots + 1
+                : st.unhealthyBoots;
+    }
+
+    private State currentState() {
+        State st = new State();
+        st.unhealthyBoots = unhealthyBoots;
+        st.lastShutdownClean = lastShutdownClean;
+        return st;
+    }
+
+    private static File tmpFile(File bootState) {
         return new File(bootState.getPath() + ".tmp");
     }
 
@@ -100,13 +160,18 @@ public final class BootGuard {
 
     private void read() {
         loaded = true;
-        unhealthyBoots = 0;
-        lastShutdownClean = true; // nothing before: a fresh unit
+        State st = load(bootState, log);
+        unhealthyBoots = st.unhealthyBoots;
+        lastShutdownClean = st.lastShutdownClean;
+    }
+
+    private static State load(File bootState, RingLog log) {
+        State st = new State();
         File f = bootState;
         if (!f.isFile()) {
-            f = tmpFile(); // died between delete and rename: the temp file is complete (fsynced)
+            f = tmpFile(bootState); // died between delete and rename: the temp file is complete (fsynced)
             if (!f.isFile()) {
-                return;
+                return st;
             }
         }
         Properties p = new Properties();
@@ -115,8 +180,8 @@ public final class BootGuard {
             in = new FileInputStream(f);
             p.load(in);
         } catch (Throwable t) {
-            append("WARN", f.getName() + " unreadable, treated as fresh: " + SdkRuntime.describe(t));
-            return;
+            append(log, "WARN", f.getName() + " unreadable, treated as fresh: " + SdkRuntime.describe(t));
+            return st;
         } finally {
             if (in != null) {
                 try {
@@ -129,18 +194,19 @@ public final class BootGuard {
         String n = p.getProperty(UNHEALTHY_BOOTS);
         try {
             int v = n == null ? 0 : Integer.parseInt(n.trim());
-            unhealthyBoots = v < 0 ? 0 : v;
+            st.unhealthyBoots = v < 0 ? 0 : v;
         } catch (NumberFormatException e) {
-            append("WARN", bootState.getName() + ": bad " + UNHEALTHY_BOOTS + ", treated as 0");
+            append(log, "WARN", bootState.getName() + ": bad " + UNHEALTHY_BOOTS + ", treated as 0");
         }
         String clean = p.getProperty(LAST_SHUTDOWN_CLEAN);
-        lastShutdownClean = clean == null || !"false".equals(clean.trim());
+        st.lastShutdownClean = clean == null || !"false".equals(clean.trim());
+        return st;
     }
 
     private void write() {
         String text = UNHEALTHY_BOOTS + "=" + unhealthyBoots + "\n" + LAST_SHUTDOWN_CLEAN + "=" + lastShutdownClean
                 + "\n";
-        File tmp = tmpFile();
+        File tmp = tmpFile(bootState);
         FileOutputStream out = null;
         try {
             File dir = bootState.getAbsoluteFile().getParentFile();
@@ -159,7 +225,7 @@ public final class BootGuard {
                 }
             }
         } catch (Throwable t) {
-            append("ERROR", "cannot write " + bootState.getName() + ": " + SdkRuntime.describe(t));
+            append(log, "ERROR", "cannot write " + bootState.getName() + ": " + SdkRuntime.describe(t));
         } finally {
             if (out != null) {
                 try {
@@ -171,7 +237,7 @@ public final class BootGuard {
         }
     }
 
-    private void append(String level, String msg) {
+    private static void append(RingLog log, String level, String msg) {
         if (log != null) {
             log.append(level, SOURCE, msg);
         }

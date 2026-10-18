@@ -72,9 +72,12 @@ import mibsdk.platform.PlatformHost;
  * <p>Boot: {@link #start()} first asks the {@link BootGuard} ({@code boot.state}, {@code SAFE_MODE}) whether
  * this is a safe-mode boot. Safe mode: the adapter starts, every pending ledger entry is restored
  * ({@link OverrideLedger#restorePendingOnBoot}), the {@link DevChannel} runs, and no plugin is discovered or
- * loaded, not even through {@link #reload}. Otherwise plugins load {@code pluginStartDelayMs} later on the
- * {@link Clock} (scheduled on the control thread; {@code start()} does not wait for it; 0 loads during
- * {@code start()}), and {@code healthyAfterMs} after loading the boot is marked healthy. Every
+ * loaded, not even through {@link #reload}. Otherwise stale ledger entries (UNTIL_IGNITION_OFF left by a
+ * crash, entries of uninstalled plugins) are restored at once, and plugins load {@code pluginStartDelayMs}
+ * later on the {@link Clock} (scheduled on the control thread; {@code start()} does not wait for it; 0 loads
+ * during {@code start()}); a {@link #reload} before that load is deferred (logged; the load takes the
+ * current jar). The boot counts toward safe mode only from the start of the plugin load
+ * ({@link BootGuard#markPluginsLoading}), and {@code healthyAfterMs} after loading it is marked healthy. Every
  * {@code IgnitionChanged(false)} marks a clean shutdown. A {@link HeapWatch} samples free heap every
  * {@code heapCheckMs} once plugins are loaded. With no adapter (null: no adapter supports this HMI version)
  * the runtime logs the STATUS line with {@code adapter=none} and stops at once, leaving the boot guard and
@@ -143,6 +146,8 @@ public final class SdkRuntime {
     private volatile boolean adapterStarted;
     /** Set once in start(), before the STATUS line: no plugin loads, not even through reload(). */
     private volatile boolean safeMode;
+    /** Set on the control thread once the initial plugin load ran; reload() is deferred until then. */
+    private volatile boolean pluginsLoaded;
     private PluginScheduler timer; // posts to the control executor; guarded by this
     private final List timers = new ArrayList(); // Subscription; cancelled by stop(); guarded by this
     private DevChannel dev; // guarded by this
@@ -259,6 +264,13 @@ public final class SdkRuntime {
         if (!adapterStarted || safeMode) {
             return;
         }
+        c.submit("restore-stale", new Runnable() { // now, not after the start delay: e.g. "rear PDC muted"
+            public void run() {
+                if (!isStopped()) {
+                    restoreStaleOverrides(); // idempotent; loadAll runs it again
+                }
+            }
+        });
         dispatcher.start();
         Runnable load = new Runnable() {
             public void run() {
@@ -294,15 +306,15 @@ public final class SdkRuntime {
             boolean safe = bootGuard.beginBoot();
             int n = bootGuard.unhealthyBoots();
             if (safe && bootGuard.markerPresent()) {
-                log.append("WARN", SOURCE, "safe mode: the SAFE_MODE marker is present; no plugin loads");
+                log.append("WARN", SOURCE, "safeMode=true reason=marker (SAFE_MODE present; no plugin loads)");
             }
             if (safe && n >= cfg.safeModeAfterUnhealthyBoots()) {
-                log.append("WARN", SOURCE, "safe mode: " + n + " unhealthy boots in a row (threshold "
-                        + cfg.safeModeAfterUnhealthyBoots() + "); no plugin loads until the boot state is reset");
+                log.append("WARN", SOURCE, "safeMode=true reason=unhealthy-boots n=" + n + " (threshold "
+                        + cfg.safeModeAfterUnhealthyBoots() + "; no plugin loads until the boot state is reset)");
             }
             return safe;
         } catch (Throwable e) { // cannot count crashes: do not risk a boot loop
-            log.append("ERROR", SOURCE, "safe mode: the boot guard failed: " + describe(e));
+            log.append("ERROR", SOURCE, "safeMode=true reason=boot-guard-error: " + describe(e));
             return true;
         }
     }
@@ -454,7 +466,10 @@ public final class SdkRuntime {
         if (isStopped()) {
             return;
         }
-        if (!loadAll()) {
+        bootGuard.markPluginsLoading(); // from here a restart counts as unhealthy (unless the ignition went off)
+        boolean done = loadAll();
+        pluginsLoaded = true; // reload() is serviced from now on (same control thread, so never mid-load)
+        if (!done) {
             return;
         }
         PluginScheduler t;
@@ -502,7 +517,9 @@ public final class SdkRuntime {
                 continue;
             }
             PluginHost h = discover(files[i]);
-            addHost(h, null);
+            if (!addHost(h, null)) {
+                continue;
+            }
             if (h.state == PluginState.DISCOVERED) {
                 pending.add(h);
             }
@@ -750,6 +767,10 @@ public final class SdkRuntime {
             log.append("WARN", SOURCE, "reload ignored: the adapter did not start, so no plugin may load");
             return;
         }
+        if (!pluginsLoaded) { // the initial load snapshots the current jar anyway
+            log.append("INFO", SOURCE, "reload deferred: plugins not loaded yet");
+            return;
+        }
         if (!ManifestParser.isValidId(id)) {
             log.append("WARN", SOURCE, "reload ignored: invalid plugin id");
             return;
@@ -769,7 +790,9 @@ public final class SdkRuntime {
             return;
         }
         PluginHost h = discover(jar);
-        addHost(h, old);
+        if (!addHost(h, old)) {
+            return;
+        }
         if (h.state == PluginState.DISCOVERED) {
             List deps = h.manifest.dependencies();
             if (deps.contains(id)) {
@@ -1047,14 +1070,19 @@ public final class SdkRuntime {
         return false;
     }
 
-    private synchronized void addHost(PluginHost h, PluginHost replacing) {
+    /** Records a discovered host; false (logged) if another host already has its id and is not being replaced. */
+    private synchronized boolean addHost(PluginHost h, PluginHost replacing) {
         int i = replacing == null ? -1 : hosts.indexOf(replacing);
         if (i >= 0) {
             hosts.set(i, h);
+        } else if (findHost(h.id) != null) {
+            log.append("WARN", SOURCE, "plugin " + h.id + " is already known; the second copy is ignored");
+            return false;
         } else {
             hosts.add(h);
         }
         log.append("STATUS", h.id, h.state + " " + h.reason);
+        return true;
     }
 
     private void setState(PluginHost h, PluginState state, String reason) {

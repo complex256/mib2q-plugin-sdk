@@ -43,29 +43,40 @@ class BootGuardTest {
         return p;
     }
 
+    /** A boot that loads plugins and then dies without ignition-off or health: returns beginBoot's verdict. */
+    private boolean crashingBoot() {
+        BootGuard g = boot();
+        boolean safe = g.beginBoot();
+        if (!safe) {
+            g.markPluginsLoading();
+        }
+        return safe;
+    }
+
     @Test
     void threeUncleanBootsEnterSafeMode() throws Exception {
         for (int i = 0; i < 3; i++) {
-            assertFalse(boot().beginBoot(), "boot " + (i + 1)); // each crashes before healthy, no ignition off
+            assertFalse(crashingBoot(), "boot " + (i + 1)); // each crashes after loading, before healthy
         }
         assertTrue(boot().beginBoot(), "the boot after three unhealthy ones is in safe mode");
         assertEquals("3", props().getProperty("unhealthyBoots"));
-        assertEquals("false", props().getProperty("lastShutdownClean"));
-        assertTrue(boot().beginBoot(), "safe mode stays until a healthy boot or a reset");
+        assertTrue(boot().beginBoot(), "safe mode stays until a reset (it loads no plugins)");
+        assertEquals("3", props().getProperty("unhealthyBoots"), "safe-mode boots do not count");
     }
 
     @Test
     void healthyResetsCounter() throws Exception {
-        assertFalse(boot().beginBoot());
-        assertFalse(boot().beginBoot());
+        assertFalse(crashingBoot());
+        assertFalse(crashingBoot());
         BootGuard g = boot();
         assertFalse(g.beginBoot());
+        g.markPluginsLoading();
         assertEquals("2", props().getProperty("unhealthyBoots"));
         g.markHealthy(); // ran healthyAfterMs with plugins enabled, then crashed
         assertEquals("0", props().getProperty("unhealthyBoots"));
 
-        assertFalse(boot().beginBoot()); // counts the crash of the healthy boot (it never shut down clean): 1
-        assertFalse(boot().beginBoot()); // 2
+        assertFalse(crashingBoot()); // counts the crash of the healthy boot (it never shut down clean): 1
+        assertFalse(crashingBoot()); // 2
         assertTrue(boot().beginBoot(), "three in a row since the healthy boot"); // 3
     }
 
@@ -75,6 +86,8 @@ class BootGuardTest {
         for (int i = 0; i < 3; i++) {
             BootGuard g = boot();
             assertFalse(g.beginBoot(), "boot " + (i + 1));
+            g.markPluginsLoading();
+            assertEquals("false", props().getProperty("lastShutdownClean"));
             g.markCleanShutdown(); // IgnitionChanged(false) before healthyAfterMs
             assertEquals("true", props().getProperty("lastShutdownClean"));
         }
@@ -83,15 +96,69 @@ class BootGuardTest {
     }
 
     @Test
-    void cleanShutdownDoesNotResetEarlierUnhealthyBoots() throws Exception {
+    void ignitionOffBeforePluginsLoadStillCountsAsClean() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            BootGuard g = boot();
+            assertFalse(g.beginBoot());
+            g.markCleanShutdown(); // during the plugin-start delay
+            g.markPluginsLoading(); // the delay ends before power-off
+            assertEquals("true", props().getProperty("lastShutdownClean"));
+        }
         assertFalse(boot().beginBoot());
-        assertFalse(boot().beginBoot()); // previous crashed: 1
+        assertEquals("0", props().getProperty("unhealthyBoots"));
+    }
+
+    @Test
+    void bootsThatNeverLoadPluginsDoNotCount() throws Exception {
+        for (int i = 0; i < 5; i++) { // restarts during the start delay, adapter failures, safe-mode boots
+            assertFalse(boot().beginBoot(), "boot " + (i + 1));
+            assertEquals("true", props().getProperty("lastShutdownClean"));
+        }
+        assertEquals("0", props().getProperty("unhealthyBoots"));
+    }
+
+    @Test
+    void cleanShutdownDoesNotResetEarlierUnhealthyBoots() throws Exception {
+        assertFalse(crashingBoot());
         BootGuard g = boot();
-        assertFalse(g.beginBoot()); // 2
+        assertFalse(g.beginBoot()); // previous crashed: 1
+        g.markPluginsLoading();
         g.markCleanShutdown();
-        assertFalse(boot().beginBoot()); // clean: still 2
-        assertEquals("2", props().getProperty("unhealthyBoots"));
+        assertFalse(crashingBoot()); // clean: still 1
+        assertEquals("1", props().getProperty("unhealthyBoots"));
+        assertFalse(crashingBoot()); // 2
         assertTrue(boot().beginBoot(), "the previous boot crashed: 3");
+    }
+
+    @Test
+    void resetLeavesSafeMode() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            crashingBoot();
+        }
+        assertTrue(boot().beginBoot());
+        boot().reset();
+        assertEquals("unhealthyBoots=0\nlastShutdownClean=true\n", text(state));
+        assertFalse(new File(tmp, "boot.state.tmp").exists());
+        assertFalse(BootGuard.wouldEnterSafeMode(state, marker, 3));
+        assertFalse(boot().beginBoot());
+    }
+
+    @Test
+    void wouldEnterSafeModePredictsBeginBootWithoutWriting() throws Exception {
+        assertFalse(BootGuard.wouldEnterSafeMode(state, marker, 3), "fresh unit");
+        assertFalse(state.exists(), "read-only");
+        crashingBoot();
+        crashingBoot();
+        crashingBoot(); // count 2 on disk, the last boot unclean: the next beginBoot makes it 3
+        assertEquals("2", props().getProperty("unhealthyBoots"));
+        String before = text(state);
+        assertTrue(BootGuard.wouldEnterSafeMode(state, marker, 3));
+        assertEquals(before, text(state));
+        assertTrue(boot().beginBoot());
+
+        boot().reset();
+        assertTrue(marker.createNewFile());
+        assertTrue(BootGuard.wouldEnterSafeMode(state, marker, 3), "marker");
     }
 
     @Test
@@ -109,13 +176,15 @@ class BootGuardTest {
         out.close();
         assertFalse(boot().beginBoot());
         assertEquals("0", props().getProperty("unhealthyBoots"));
-        assertEquals("false", props().getProperty("lastShutdownClean"));
+        assertEquals("true", props().getProperty("lastShutdownClean"));
     }
 
     @Test
     void stateFileFormatIsExact() throws Exception {
         BootGuard g = boot();
         g.beginBoot();
+        g.markPluginsLoading();
+        assertEquals("unhealthyBoots=0\nlastShutdownClean=false\n", text(state));
         g.markCleanShutdown();
         assertEquals("unhealthyBoots=0\nlastShutdownClean=true\n", text(state));
         assertFalse(new File(tmp, "boot.state.tmp").exists());

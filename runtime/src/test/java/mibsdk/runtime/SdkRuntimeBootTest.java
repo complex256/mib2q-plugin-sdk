@@ -275,7 +275,7 @@ class SdkRuntimeBootTest {
 
         assertTrue(rt.safeMode());
         assertEquals(1, count("mibsdk", "runtime started adapter=fake safeMode=true"), rt.log().snapshot().toString());
-        assertTrue(logContains("SAFE_MODE marker"), rt.log().snapshot().toString());
+        assertTrue(logContains("safeMode=true reason=marker"), rt.log().snapshot().toString());
         for (int i = 0; i < 500 && fake.appliedLog().isEmpty(); i++) {
             Thread.sleep(10);
         }
@@ -308,8 +308,9 @@ class SdkRuntimeBootTest {
         start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
 
         assertTrue(rt.safeMode());
-        assertTrue(logContains("3 unhealthy boots"), rt.log().snapshot().toString());
+        assertTrue(logContains("safeMode=true reason=unhealthy-boots n=3"), rt.log().snapshot().toString());
         assertEquals("3", bootState().getProperty("unhealthyBoots"));
+        assertEquals("true", bootState().getProperty("lastShutdownClean"), "a safe-mode boot does not count");
         assertTrue(rt.statuses().isEmpty());
 
         clock.advance(60000); // no plugins enabled: safe mode never marks the boot healthy
@@ -379,5 +380,110 @@ class SdkRuntimeBootTest {
         awaitState("b-second", PluginState.QUARANTINED);
         assertTrue(status("b-second").reason().contains("heap low"), status("b-second").reason());
         assertEquals(PluginState.ENABLED, status("a-first").state(), "only the most recently enabled one");
+    }
+
+    // ---- fix round 1 ----
+
+    @Test
+    void reloadDuringStartDelayIsDeferredAndHarmless() throws Exception {
+        plugin("hello");
+        plugin("keeper");
+        write(new File(base, "ledger.properties"), "parking.soundDirections=keeper|PERSISTENT|F1R1L0X0|F1R0L0X0\n");
+        File marker = new File(plugins, "hello.reload");
+        assertTrue(marker.createNewFile());
+        start("plugin.start.delay.ms=30000\nheap.low.bytes=0\ndev.poll.ms=2000\n");
+
+        clock.advance(2000); // the runtime's dev channel polls during the start delay
+        for (int i = 0; i < 500 && !logContains("reload deferred: plugins not loaded yet"); i++) {
+            Thread.sleep(10);
+        }
+        assertTrue(logContains("reload deferred: plugins not loaded yet"), rt.log().snapshot().toString());
+        assertFalse(marker.exists());
+        assertTrue(rt.statuses().isEmpty(), "nothing loaded by the deferred reload");
+
+        clock.advance(30000);
+        awaitState("hello", PluginState.ENABLED);
+        awaitState("keeper", PluginState.ENABLED);
+        Thread.sleep(200);
+        int hellos = 0;
+        for (PluginStatus st : rt.statuses()) {
+            hellos += st.id().equals("hello") ? 1 : 0;
+        }
+        assertEquals(1, hellos, rt.statuses().toString());
+        assertEquals(1, count("hello", "hi"), "exactly one instance enabled");
+        assertTrue(fake.appliedLog().isEmpty(), "keeper's PERSISTENT override was not restored: " + fake.appliedLog());
+        assertEquals(1, rt.activeOverrides().size());
+        assertFalse(rt.activeOverrides().get(0).restorePending());
+    }
+
+    @Test
+    void staleUntilIgnitionOffOverrideRestoredAtStartNotAfterTheDelay() throws Exception {
+        plugin("muter");
+        write(new File(base, "ledger.properties"),
+                "parking.soundDirections=muter|UNTIL_IGNITION_OFF|F1R1L0X0|F1R0L0X0\n");
+        start("plugin.start.delay.ms=30000\nheap.low.bytes=0\n");
+        for (int i = 0; i < 500 && fake.appliedLog().isEmpty(); i++) {
+            Thread.sleep(10);
+        }
+        assertEquals(Arrays.asList(F1R1L0X0), fake.appliedLog(), "prior back without any Clock advance");
+        assertTrue(rt.statuses().isEmpty(), "plugins still wait for the delay");
+    }
+
+    @Test
+    void safeModeBootDoesNotCount() throws Exception {
+        File marker = new File(base, "SAFE_MODE");
+        write(marker, "");
+        for (int i = 0; i < 3; i++) { // three safe-mode boots that all "crash" (stop() marks nothing)
+            start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
+            assertTrue(rt.safeMode());
+            rt.stop();
+        }
+        assertEquals("0", bootState().getProperty("unhealthyBoots"));
+        assertTrue(marker.delete());
+        start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
+        assertFalse(rt.safeMode());
+    }
+
+    @Test
+    void restartsDuringTheStartDelayDoNotCount() throws Exception {
+        plugin("hello");
+        for (int i = 0; i < 4; i++) { // e.g. slay -s11 j9 on the bench before plugins load
+            start("plugin.start.delay.ms=30000\nheap.low.bytes=0\n");
+            assertFalse(rt.safeMode(), "boot " + (i + 1));
+            assertEquals("true", bootState().getProperty("lastShutdownClean"));
+            rt.stop();
+        }
+        assertEquals("0", bootState().getProperty("unhealthyBoots"));
+    }
+
+    @Test
+    void restartsAfterPluginsLoadedCount() throws Exception {
+        plugin("hello");
+        for (int i = 0; i < 3; i++) {
+            start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
+            assertFalse(rt.safeMode(), "boot " + (i + 1));
+            assertEquals("false", bootState().getProperty("lastShutdownClean"));
+            rt.stop(); // like a crash: no ignition-off, not healthy yet
+        }
+        start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
+        assertTrue(rt.safeMode());
+    }
+
+    /** Review Focus 3 through the runtime: the ignition goes off before the delay ends. */
+    @Test
+    void ignitionOffDuringStartDelayKeepsTheBootClean() throws Exception {
+        plugin("hello");
+        for (int i = 0; i < 3; i++) {
+            start("plugin.start.delay.ms=30000\nheap.low.bytes=0\n");
+            assertFalse(rt.safeMode(), "boot " + (i + 1));
+            fake.setIgnition(false);
+            clock.advance(30000);
+            awaitState("hello", PluginState.ENABLED); // the delay ends before power-off
+            assertEquals("true", bootState().getProperty("lastShutdownClean"));
+            rt.stop();
+        }
+        start("plugin.start.delay.ms=30000\nheap.low.bytes=0\n");
+        assertFalse(rt.safeMode());
+        assertEquals("0", bootState().getProperty("unhealthyBoots"));
     }
 }

@@ -3,8 +3,9 @@ package mibsdk.runtime;
 /**
  * Low-heap guard. J9 1.4 has no per-plugin heap limit, so the runtime samples free heap every heapCheckMs
  * (on its control thread, via the shared timer) and, after {@code lowChecks} consecutive readings below
- * {@code lowBytes}, quarantines the most recently enabled plugin, then starts counting afresh. A reading at
- * or above {@code lowBytes} breaks the streak. {@code lowBytes = 0} disables it (readings are never negative).
+ * {@code lowBytes}, it asks for a full GC once and reads again ({@code freeMemory()} also counts garbage not yet
+ * collected), and only if that reading is still low quarantines the most recently enabled plugin; either way
+ * it then starts counting afresh. A reading at or above {@code lowBytes} breaks the streak. {@code lowBytes = 0} disables it (readings are never negative).
  * Not thread-safe: one caller ({@link #check()} on the control thread).
  */
 public final class HeapWatch {
@@ -32,10 +33,23 @@ public final class HeapWatch {
     private final MemorySource mem;
     private final long lowBytes;
     private final int lowChecks;
+    private static final Runnable SYSTEM_GC = new Runnable() {
+        public void run() {
+            System.gc();
+        }
+    };
+
     private final Victim victim;
+    private final Runnable gc;
     private int lowStreak;
 
     public HeapWatch(MemorySource mem, long lowBytes, int lowChecks, Victim victim) {
+        this(mem, lowBytes, lowChecks, victim, SYSTEM_GC);
+    }
+
+    /** {@code gc} replaces {@code System.gc()} (tests). */
+    HeapWatch(MemorySource mem, long lowBytes, int lowChecks, Victim victim, Runnable gc) {
+        this.gc = gc;
         this.mem = mem;
         this.lowBytes = lowBytes;
         this.lowChecks = lowChecks < 1 ? 1 : lowChecks;
@@ -58,7 +72,10 @@ public final class HeapWatch {
                 return;
             }
             lowStreak = 0;
-            victim.quarantineMostRecentlyEnabled(REASON);
+            gc.run(); // the low readings may be garbage; quarantining frees nothing visible before a GC either
+            if (mem.freeBytes() < lowBytes) {
+                victim.quarantineMostRecentlyEnabled(REASON);
+            }
         } catch (Throwable t) {
             // a broken source or victim must not break the timer task; the next check tries again
         }

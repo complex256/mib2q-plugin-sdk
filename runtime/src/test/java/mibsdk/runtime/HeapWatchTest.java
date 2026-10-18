@@ -33,10 +33,20 @@ class HeapWatchTest {
         }
     }
 
-    private static Victims run(long... readingsMb) {
+    /** Counts GC requests; never really collects. */
+    private static final class Gcs implements Runnable {
+        int n;
+
+        public void run() {
+            n++;
+        }
+    }
+
+    /** {@code checks} calls of check() over the readings (MB); a full streak consumes one more (after the GC). */
+    private static Victims run(int checks, Gcs gcs, long... readingsMb) {
         Victims v = new Victims();
-        HeapWatch w = new HeapWatch(new Readings(readingsMb), 8 * MB, 3, v);
-        for (int i = 0; i < readingsMb.length; i++) {
+        HeapWatch w = new HeapWatch(new Readings(readingsMb), 8 * MB, 3, v, gcs);
+        for (int i = 0; i < checks; i++) {
             w.check();
         }
         return v;
@@ -44,22 +54,34 @@ class HeapWatchTest {
 
     @Test
     void quarantinesMostRecentAfterConsecutiveLowReadings() {
-        Victims v = run(9, 7, 7, 7);
+        Gcs gcs = new Gcs();
+        Victims v = run(4, gcs, 9, 7, 7, 7, 7); // the last 7 is the reading after the GC
         assertEquals(1, v.reasons.size());
         assertEquals("heap low", v.reasons.get(0));
+        assertEquals(1, gcs.n);
 
-        assertEquals(0, run(7, 7, 9, 7).reasons.size(), "a good reading breaks the streak");
+        Gcs none = new Gcs();
+        assertEquals(0, run(4, none, 7, 7, 9, 7).reasons.size(), "a good reading breaks the streak");
+        assertEquals(0, none.n);
+    }
+
+    @Test
+    void garbageOnlyLowStreakQuarantinesNothing() {
+        Gcs gcs = new Gcs();
+        Victims v = run(6, gcs, 7, 7, 7, 20, 7, 7, 7, 20); // each streak recovers after the GC
+        assertEquals(0, v.reasons.size());
+        assertEquals(2, gcs.n, "one GC per full streak; the streak restarts after it");
     }
 
     @Test
     void resetsAfterVictimSoTheNextNeedsAnotherFullStreak() {
-        assertEquals(1, run(7, 7, 7, 7, 7).reasons.size());
-        assertEquals(2, run(7, 7, 7, 7, 7, 7).reasons.size());
+        assertEquals(1, run(5, new Gcs(), 7, 7, 7, 7, 7, 7).reasons.size());
+        assertEquals(2, run(6, new Gcs(), 7, 7, 7, 7, 7, 7, 7, 7).reasons.size());
     }
 
     @Test
     void exactlyLowBytesIsNotLow() {
-        assertEquals(0, run(8, 8, 8, 8).reasons.size());
+        assertEquals(0, run(4, new Gcs(), 8, 8, 8, 8).reasons.size());
     }
 
     @Test
@@ -68,14 +90,14 @@ class HeapWatchTest {
             public long freeBytes() {
                 throw new IllegalStateException("bug");
             }
-        }, 8 * MB, 1, new Victims());
+        }, 8 * MB, 1, new Victims(), new Gcs());
         w.check(); // must not throw
 
-        HeapWatch w2 = new HeapWatch(new Readings(1, 1), 8 * MB, 1, new HeapWatch.Victim() {
+        HeapWatch w2 = new HeapWatch(new Readings(1, 1, 1, 1), 8 * MB, 1, new HeapWatch.Victim() {
             public void quarantineMostRecentlyEnabled(String reason) {
                 throw new IllegalStateException("bug");
             }
-        });
+        }, new Gcs());
         w2.check();
         w2.check();
     }
