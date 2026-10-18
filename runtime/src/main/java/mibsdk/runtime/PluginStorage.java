@@ -25,10 +25,15 @@ public final class PluginStorage implements Storage {
     private final File file;
     private final Clock clock;
     private final long debounceMs;
-    private final Properties props = new Properties(); // guarded by this
+    /**
+     * Guards props/dirty/dirtySince. Private on purpose: plugins hold this object (ctx.storage()), so a
+     * plugin doing {@code synchronized (ctx.storage())} must never block the SDK's flushes.
+     */
+    private final Object lock = new Object();
+    private final Properties props = new Properties(); // guarded by lock
     private final Object writeLock = new Object();
-    private boolean dirty; // guarded by this
-    private long dirtySince; // guarded by this
+    private boolean dirty; // guarded by lock
+    private long dirtySince; // guarded by lock
 
     public PluginStorage(File file, Clock clock) {
         this(file, clock, DEFAULT_DEBOUNCE_MS);
@@ -42,8 +47,11 @@ public final class PluginStorage implements Storage {
     }
 
     @Override
-    public synchronized String get(String key, String def) {
-        String v = props.getProperty(key);
+    public String get(String key, String def) {
+        String v;
+        synchronized (lock) {
+            v = props.getProperty(key);
+        }
         return v == null ? def : v;
     }
 
@@ -53,7 +61,7 @@ public final class PluginStorage implements Storage {
             remove(key);
             return;
         }
-        synchronized (this) {
+        synchronized (lock) {
             props.setProperty(key, value);
         }
         markDirty();
@@ -61,7 +69,7 @@ public final class PluginStorage implements Storage {
 
     @Override
     public void remove(String key) {
-        synchronized (this) {
+        synchronized (lock) {
             props.remove(key);
         }
         markDirty();
@@ -71,7 +79,7 @@ public final class PluginStorage implements Storage {
     public void flushNow() {
         synchronized (writeLock) {
             Properties snapshot;
-            synchronized (this) {
+            synchronized (lock) {
                 if (!dirty) {
                     return;
                 }
@@ -79,7 +87,7 @@ public final class PluginStorage implements Storage {
                 snapshot = (Properties) props.clone();
             }
             if (!write(snapshot)) {
-                synchronized (this) {
+                synchronized (lock) {
                     if (!dirty) {
                         dirty = true;
                         dirtySince = clock.uptimeMs();
@@ -92,7 +100,7 @@ public final class PluginStorage implements Storage {
 
     /** Writes pending changes if the debounce interval has elapsed on the clock. Also the test hook. */
     void flushIfDue() {
-        synchronized (this) {
+        synchronized (lock) {
             if (!dirty || clock.uptimeMs() - dirtySince < debounceMs) {
                 return;
             }
@@ -100,12 +108,14 @@ public final class PluginStorage implements Storage {
         flushNow();
     }
 
-    private synchronized boolean isDirty() {
-        return dirty;
+    private boolean isDirty() {
+        synchronized (lock) {
+            return dirty;
+        }
     }
 
     private void markDirty() {
-        synchronized (this) {
+        synchronized (lock) {
             if (!dirty) {
                 dirty = true;
                 dirtySince = clock.uptimeMs();
@@ -123,7 +133,7 @@ public final class PluginStorage implements Storage {
         try {
             in = new FileInputStream(file);
             loaded.load(in);
-            synchronized (this) {
+            synchronized (lock) {
                 props.putAll(loaded);
             }
         } catch (Throwable corrupt) {

@@ -19,6 +19,10 @@ import mibsdk.api.Veto;
  * A plugin's view of the SDK. Every {@link Subscription} handed out (events, timers) is tracked in the
  * plugin's {@link Registrations} so disable/quarantine/reload cancels it.
  *
+ * <p>Locking rule: no object reachable by plugin code (this context, its Log/Events/Scheduler, the
+ * storage, the returned subscriptions) is ever used as a monitor by SDK code; they lock private objects.
+ * Otherwise a plugin could hold the monitor and wedge the runtime's control thread.
+ *
  * <p>Until Task 10/11: {@link #hooks()} returns a stub whose methods throw
  * {@link UnsupportedOperationException}; {@link #vehicle()} returns a {@link Vehicle} whose
  * {@code parking()} throws {@link UnsupportedOperationException}; {@link #granted} is false for every
@@ -26,11 +30,16 @@ import mibsdk.api.Veto;
  */
 final class PluginContextImpl implements PluginContext {
 
-    /** Wraps a subscription so cancelling it also forgets it in the plugin's {@link Registrations}. */
+    /**
+     * Wraps a subscription so cancelling it also forgets it in the plugin's {@link Registrations}. The
+     * plugin holds this object, so its state is guarded by a private lock, never {@code this}: a plugin
+     * doing {@code synchronized (subscription)} must not block the runtime's cancelAll().
+     */
     private static final class Tracked implements Subscription {
         private final Registrations registrations;
-        private Subscription inner; // guarded by this
-        private boolean cancelled; // guarded by this
+        private final Object lock = new Object();
+        private Subscription inner; // guarded by lock
+        private boolean cancelled; // guarded by lock
 
         Tracked(Registrations registrations) {
             this.registrations = registrations;
@@ -38,7 +47,7 @@ final class PluginContextImpl implements PluginContext {
 
         void attach(Subscription s) {
             boolean c;
-            synchronized (this) {
+            synchronized (lock) {
                 inner = s;
                 c = cancelled;
             }
@@ -50,7 +59,7 @@ final class PluginContextImpl implements PluginContext {
         @Override
         public void cancel() {
             Subscription s;
-            synchronized (this) {
+            synchronized (lock) {
                 cancelled = true;
                 s = inner;
             }

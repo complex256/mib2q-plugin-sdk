@@ -34,6 +34,12 @@ final class PluginJars {
      */
     File write(File pluginsDir, String id, String version, String[] dependencies, String[] permissions,
             String onEnableBody, String members) throws IOException {
+        return write(pluginsDir, id, version, dependencies, permissions, onEnableBody, members, "");
+    }
+
+    /** As above; {@code onDisableBody} runs in onDisable after it logs {@code "disabled"}. */
+    File write(File pluginsDir, String id, String version, String[] dependencies, String[] permissions,
+            String onEnableBody, String members, String onDisableBody) throws IOException {
         String source = "package fx;\n"
                 + "import mibsdk.api.*;\n"
                 + "public class Main extends MibPlugin {\n"
@@ -43,7 +49,8 @@ final class PluginJars {
                 + "    this.ctx = ctx;\n"
                 + onEnableBody + "\n"
                 + "  }\n"
-                + "  protected void onDisable() throws Exception { ctx.log().info(\"disabled\"); }\n"
+                + "  protected void onDisable() throws Exception { ctx.log().info(\"disabled\");\n"
+                + onDisableBody + "\n  }\n"
                 + "}\n";
         String json = "{\"id\":\"" + id + "\",\"version\":\"" + version + "\",\"api\":1,\"main\":\"fx.Main\""
                 + ",\"permissions\":" + array(permissions) + ",\"dependencies\":" + array(dependencies) + "}";

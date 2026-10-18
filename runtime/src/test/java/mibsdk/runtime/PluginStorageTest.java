@@ -77,4 +77,43 @@ class PluginStorageTest {
         PluginStorage s = new PluginStorage(new File(dir, "nope.properties"), clock, 2000);
         assertEquals("d", s.get("k", "d"));
     }
+
+    @Test
+    void pluginHoldingStorageMonitorDoesNotBlockSdk() throws Exception {
+        File file = new File(dir, "data/p.properties");
+        final PluginStorage s = new PluginStorage(file, clock, 2000);
+        final java.util.concurrent.CountDownLatch held = new java.util.concurrent.CountDownLatch(1);
+        Thread hog = new Thread() {
+            public void run() {
+                synchronized (s) { // what a hostile plugin can do with ctx.storage()
+                    held.countDown();
+                    try {
+                        Thread.sleep(600000);
+                    } catch (InterruptedException ignored) {
+                        // test over
+                    }
+                }
+            }
+        };
+        hog.setDaemon(true);
+        hog.start();
+        assertTrue(held.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        try {
+            Thread sdk = new Thread() {
+                public void run() {
+                    s.put("k", "v");
+                    s.get("k", null);
+                    s.flushNow();
+                    s.flushIfDue();
+                }
+            };
+            sdk.setDaemon(true);
+            sdk.start();
+            sdk.join(5000);
+            assertFalse(sdk.isAlive(), "SDK-side storage calls blocked on the plugin-held monitor");
+            assertTrue(file.exists());
+        } finally {
+            hog.interrupt();
+        }
+    }
 }

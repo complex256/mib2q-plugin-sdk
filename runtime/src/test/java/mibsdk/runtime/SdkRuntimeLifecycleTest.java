@@ -15,9 +15,13 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import mibsdk.adapter.fake.FakePlatform;
 import mibsdk.api.Features;
 import mibsdk.platform.HookTable;
+import mibsdk.platform.ParkingIo;
+import mibsdk.platform.PlatformAdapter;
+import mibsdk.platform.PlatformHost;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,11 +56,25 @@ class SdkRuntimeLifecycleTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws InterruptedException {
         if (rt != null) {
-            rt.stop();
+            stopWithin(15000); // off-thread: a wedged runtime must fail the test, not hang the JVM
         }
         SerialExecutor.watchdogPeriodMs = 1000;
+    }
+
+    /** Calls rt.stop() on another thread; true if it returned within {@code ms}. */
+    private boolean stopWithin(long ms) throws InterruptedException {
+        final SdkRuntime r = rt;
+        Thread t = new Thread() {
+            public void run() {
+                r.stop();
+            }
+        };
+        t.setDaemon(true);
+        t.start();
+        t.join(ms);
+        return !t.isAlive();
     }
 
     // ---- helpers ----
@@ -73,6 +91,10 @@ class SdkRuntimeLifecycleTest {
     }
 
     private SdkRuntime start(String sdkProperties) throws IOException {
+        return start(sdkProperties, fake);
+    }
+
+    private SdkRuntime start(String sdkProperties, PlatformAdapter platform) throws IOException {
         writeFile(new File(base, "sdk.properties"), "log.file=" + new File(tmp, "mibsdk.log").getPath() + "\n"
                 + (sdkProperties == null ? "" : sdkProperties));
         StringBuilder g = new StringBuilder();
@@ -85,7 +107,7 @@ class SdkRuntimeLifecycleTest {
             g.append('\n');
         }
         writeFile(new File(base, "grants.properties"), g.toString());
-        rt = new SdkRuntime(RuntimeConfig.load(base), fake, clock, new HookTable(64), new RingLog(500));
+        rt = new SdkRuntime(RuntimeConfig.load(base), platform, clock, new HookTable(64), new RingLog(500));
         rt.start();
         return rt;
     }
@@ -346,5 +368,131 @@ class SdkRuntimeLifecycleTest {
         rt.stop();
         assertTrue(indexOf("a-child", "disabled") < indexOf("z-base", "disabled"), rt.log().snapshot().toString());
         assertEquals(PluginState.DISABLED, status("z-base").state());
+    }
+
+    @Test
+    void pluginHoldingSdkObjectMonitorsCannotWedgeRuntime() throws Exception {
+        plugin("lock-storage", "1", null, "ctx.events().on(IgnitionChanged.class, e -> {"
+                + " synchronized (ctx.storage()) { ctx.log().info(\"locked\"); Thread.sleep(600000L); } });");
+        plugin("lock-sub", "1", null, "final Subscription[] s = new Subscription[1];"
+                + " s[0] = ctx.events().on(IgnitionChanged.class, e -> {"
+                + " synchronized (s[0]) { ctx.log().info(\"locked\"); Thread.sleep(600000L); } });");
+        plugin("good", "1", null, LOG_IGNITION);
+        start("callback.hung.ms=1000\n");
+
+        fake.setIgnition(true);
+        awaitCount("lock-storage", "locked", 1);
+        awaitCount("lock-sub", "locked", 1);
+        awaitCount("good", "ignition=true", 1);
+        Thread.sleep(50);
+        clock.advance(1001);
+
+        awaitState("lock-storage", PluginState.QUARANTINED);
+        awaitState("lock-sub", PluginState.QUARANTINED);
+        assertEquals(PluginState.ENABLED, status("good").state());
+        rt.disable("good", "test");
+        assertEquals(PluginState.DISABLED, status("good").state());
+        rt.reload("good");
+        assertEquals(PluginState.ENABLED, status("good").state());
+        assertTrue(stopWithin(5000), "stop() returned");
+        assertEquals(PluginState.DISABLED, status("good").state());
+    }
+
+    @Test
+    void hungOnDisableIsQuarantined() throws Exception {
+        jars.write(plugins, "slow-off", "1", null, null, "", null, "Thread.sleep(600000L);");
+        start("callback.hung.ms=1000\n");
+
+        Thread disabler = new Thread() {
+            public void run() {
+                rt.disable("slow-off", "test");
+            }
+        };
+        disabler.setDaemon(true);
+        disabler.start();
+        awaitCount("slow-off", "disabled", 1);
+        Thread.sleep(50);
+        clock.advance(1001);
+        disabler.join(5000);
+        assertTrue(!disabler.isAlive(), "disable returned once the watchdog flagged onDisable");
+        assertEquals(PluginState.QUARANTINED, status("slow-off").state());
+        assertEquals("hung in onDisable", status("slow-off").reason());
+    }
+
+    @Test
+    void sdkSideFailureWhileEnablingFailsOnlyThatPlugin() throws Exception {
+        plugin("boom", "1", null, LOG_IGNITION);
+        jars.writeRaw(new File(plugins, "no-main.jar"), "package fx; class Other {}",
+                "{\"id\":\"no-main\",\"api\":1,\"main\":\"fx.Main\"}");
+        plugin("good", "1", null, LOG_IGNITION);
+        SdkRuntime.testEnableHook = new SdkRuntime.EnableHook() {
+            public void afterResources(String pluginId) {
+                if (pluginId.equals("boom")) {
+                    throw new OutOfMemoryError("test: cannot create thread");
+                }
+            }
+        };
+        try {
+            start(null);
+        } finally {
+            SdkRuntime.testEnableHook = null;
+        }
+
+        assertEquals(PluginState.FAILED, status("boom").state());
+        assertTrue(status("boom").reason().contains("OutOfMemoryError"), status("boom").reason());
+        assertEquals(PluginState.FAILED, status("no-main").state());
+        assertEquals(PluginState.ENABLED, status("good").state());
+        assertEquals(1, new File(base, "cache").listFiles().length, "failed plugins' snapshots cleaned up");
+        assertEquals(1, rt.eventSubscriberCount());
+        fake.setIgnition(true);
+        awaitCount("good", "ignition=true", 1);
+    }
+
+    @Test
+    void adapterStartFailureLoadsNothingEvenOnReload() throws Exception {
+        plugin("hello", "1", null, LOG_IGNITION);
+        PlatformAdapter broken = new PlatformAdapter() {
+            public String id() {
+                return "broken";
+            }
+
+            public boolean supports(String hmiVersion) {
+                return true;
+            }
+
+            public Set<String> features() {
+                return new HashSet<String>();
+            }
+
+            public void start(PlatformHost host) throws Exception {
+                throw new IllegalStateException("no DSI");
+            }
+
+            public void stop() {
+            }
+
+            public ParkingIo parking() {
+                return null;
+            }
+        };
+        start(null, broken);
+        assertTrue(rt.statuses().isEmpty());
+
+        rt.reload("hello");
+        assertTrue(rt.statuses().isEmpty(), "reload must not load plugins without an adapter");
+        assertTrue(rt.log().snapshot().toString().contains("reload ignored"), rt.log().snapshot().toString());
+    }
+
+    @Test
+    void stopReleasesCallerWhenStepOutlivesBound() throws Exception {
+        // Clock frozen, so the watchdog never fires: each hanging onDisable costs its ~2 x hungMs real-time
+        // backstop, and two of them outlast the caller's ~2 x hungMs bound.
+        jars.write(plugins, "hang-a", "1", null, null, "", null, "Thread.sleep(600000L);");
+        jars.write(plugins, "hang-b", "1", null, null, "", null, "Thread.sleep(600000L);");
+        start("callback.hung.ms=200\n");
+
+        assertTrue(stopWithin(3000), "stop() released its caller");
+        assertTrue(rt.log().snapshot().toString().contains("runtime step stop still running"),
+                rt.log().snapshot().toString());
     }
 }

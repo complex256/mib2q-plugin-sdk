@@ -30,7 +30,12 @@ import mibsdk.platform.PlatformHost;
  * {@code onDisable}, callbacks) runs only on the plugin's own {@link SerialExecutor}; the control thread
  * waits for it, but never longer than until the watchdog reports the executor hung (hungMs on the
  * {@link Clock}), with a backstop of about 2 x hungMs of real time in case the watchdog is gone.
- * {@link #start()}, {@link #stop()} and {@link #reload} block their caller until the step is done.
+ * {@link #start()}, {@link #stop()} and {@link #reload} block their caller until the step is done, but
+ * never longer than about 2 x hungMs of real time; after that the step keeps running on the control
+ * thread and the caller is released (logged as a WARN).
+ *
+ * <p>Locking: the control thread never locks an object plugin code can reach (see
+ * {@link PluginContextImpl}), so a plugin holding a monitor cannot wedge the lifecycle.
  *
  * <p>Containment: an exception while loading or in {@code onEnable} gives FAILED; quarantineFailures
  * callback failures within quarantineWindowMs, or one hung callback, give QUARANTINED. Disable always
@@ -46,6 +51,13 @@ public final class SdkRuntime {
     private static final String MANIFEST_ENTRY = "plugin.json";
     private static final int MAX_MANIFEST_BYTES = 64 * 1024;
     private static final long WAIT_SLICE_MS = 50;
+
+    /** Test hook: simulates an SDK-side failure (e.g. OOM creating a thread) while enabling. */
+    interface EnableHook {
+        void afterResources(String pluginId);
+    }
+
+    static volatile EnableHook testEnableHook;
 
     private static Method onEnableMethod;
     private static Method onDisableMethod;
@@ -85,6 +97,8 @@ public final class SdkRuntime {
     private SerialExecutor control; // guarded by this
     private boolean started; // guarded by this
     private boolean stopped; // guarded by this
+    /** False if the adapter failed to start: then no plugin loads, not even through reload(). */
+    private volatile boolean adapterStarted;
 
     private final PlatformHost platformHost = new PlatformHost() {
         @Override
@@ -142,11 +156,12 @@ public final class SdkRuntime {
             platform.start(platformHost);
             features = Collections.unmodifiableSet(new HashSet<String>(platform.features()));
             adapterId = platform.id();
+            adapterStarted = true;
         } catch (Throwable t) {
             log.append("ERROR", SOURCE, "adapter failed to start, no plugins will load: " + describe(t));
         }
         log.append("STATUS", SOURCE, "runtime started adapter=" + adapterId + " safeMode=" + safeMode());
-        if (!"none".equals(adapterId)) {
+        if (adapterStarted) {
             runOnControl(c, "load", new Runnable() {
                 public void run() {
                     loadAll();
@@ -256,7 +271,12 @@ public final class SdkRuntime {
         }
         List order = resolveOrder(pending);
         for (int i = 0; i < order.size(); i++) {
-            enableIfDependenciesEnabled((PluginHost) order.get(i));
+            PluginHost h = (PluginHost) order.get(i);
+            try {
+                enableIfDependenciesEnabled(h);
+            } catch (Throwable t) { // one plugin's SDK-side failure must not stop the others loading
+                abortEnable(h, "runtime error while enabling: " + describe(t));
+            }
         }
         purgeSnapshots();
     }
@@ -317,7 +337,38 @@ public final class SdkRuntime {
         enable(h);
     }
 
-    private void enable(final PluginHost h) {
+    private void enable(PluginHost h) {
+        try {
+            enableUnguarded(h);
+        } catch (Throwable t) { // SDK-side failure (e.g. OOM creating the executor thread)
+            abortEnable(h, "runtime error while enabling: " + describe(t));
+        }
+    }
+
+    /** Releases whatever {@link #enableUnguarded} created so far and records FAILED. Never throws. */
+    private void abortEnable(PluginHost h, String reason) {
+        try {
+            synchronized (this) {
+                h.active = false;
+                enabledOrder.remove(h);
+            }
+            if (h.registrations != null) {
+                h.registrations.cancelAll();
+            }
+            if (h.exec != null) {
+                h.exec.shutdown();
+            }
+            h.plugin = null;
+            if (h.snapshot != null) {
+                h.snapshot.delete();
+            }
+            setState(h, PluginState.FAILED, reason);
+        } catch (Throwable ignored) {
+            // nothing more can be done for this plugin; the caller moves on
+        }
+    }
+
+    private void enableUnguarded(final PluginHost h) {
         final ClassLoader loader;
         final PluginManifest m;
         File snap = null;
@@ -344,6 +395,10 @@ public final class SdkRuntime {
         h.exec = new SerialExecutor("plugin-" + h.id, clock, cfg.slowMs(), cfg.hungMs(), executorListener(h));
         h.scheduler = new PluginScheduler(h.exec, clock);
         h.ctx = new PluginContextImpl(h.id, log, h.storage, bus, h.exec, h.scheduler, h.registrations, features);
+        EnableHook hook = testEnableHook;
+        if (hook != null) {
+            hook.afterResources(h.id);
+        }
         synchronized (this) {
             h.active = true;
         }
@@ -381,7 +436,8 @@ public final class SdkRuntime {
 
     /**
      * Cancels registrations, flushes storage, runs onDisable (unless hung), shuts the executor down, then
-     * records the state. Does nothing if the host is not active (already disabled).
+     * records the state; an onDisable that hangs turns the state into QUARANTINED "hung in onDisable".
+     * Does nothing if the host is not active (already disabled).
      */
     private void disableHost(final PluginHost h, PluginState state, String reason, boolean runOnDisable) {
         synchronized (this) {
@@ -408,6 +464,8 @@ public final class SdkRuntime {
             });
             if (submitted && !await(h, done)) {
                 log.append("WARN", h.id, "onDisable did not finish within " + cfg.hungMs() + " ms; abandoned");
+                state = PluginState.QUARANTINED;
+                reason = "hung in onDisable";
             } else if (submitted && done.failure() != null) {
                 log.append("ERROR", h.id, "onDisable failed: " + done.failure());
             }
@@ -419,6 +477,10 @@ public final class SdkRuntime {
     }
 
     private void reloadNow(String id) {
+        if (!adapterStarted) {
+            log.append("WARN", SOURCE, "reload ignored: the adapter did not start, so no plugin may load");
+            return;
+        }
         if (!ManifestParser.isValidId(id)) {
             log.append("WARN", SOURCE, "reload ignored: invalid plugin id");
             return;
@@ -533,7 +595,10 @@ public final class SdkRuntime {
         return control;
     }
 
-    /** Runs {@code r} on the control thread and waits for it; returns at once if the runtime is stopped. */
+    /**
+     * Runs {@code r} on the control thread and waits for it, at most about 2 x hungMs of real time (counted
+     * wait slices, not wall-clock deltas); returns at once if the runtime is stopped.
+     */
     private void runOnControl(SerialExecutor c, String label, final Runnable r) {
         if (c == null) {
             return;
@@ -551,16 +616,22 @@ public final class SdkRuntime {
         if (!submitted) {
             return;
         }
+        long slices = 2 * cfg.hungMs() / WAIT_SLICE_MS + 1;
         synchronized (done) {
-            while (!done.isDone()) {
+            for (long i = 0; !done.isDone() && i < slices; i++) {
                 try {
-                    done.wait();
+                    done.wait(WAIT_SLICE_MS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return;
                 }
             }
+            if (done.isDone()) {
+                return;
+            }
         }
+        log.append("WARN", SOURCE, "runtime step " + label + " still running after about " + 2 * cfg.hungMs()
+                + " ms; caller released");
     }
 
     /**
