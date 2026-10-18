@@ -1,0 +1,5 @@
+Product = mmx2qc
+Branch = dev/main
+Up to CL = 10753977
+HMI = HMI_AU_MIB2_HQC_NAR_G22_C10_180803
+JavaVM = j9_1.16+ObjectSwapper_1.02

@@ -22,6 +22,7 @@ import mibsdk.api.MibPlugin;
 import mibsdk.api.OverrideScope;
 import mibsdk.api.ParkingSoundChanged;
 import mibsdk.api.PluginContext;
+import mibsdk.api.Subscription;
 import mibsdk.platform.HookTable;
 import mibsdk.platform.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
@@ -67,10 +68,18 @@ import mibsdk.platform.PlatformHost;
  * restores UNTIL_IGNITION_OFF overrides but keeps PERSISTENT ones in the ledger for the next boot (where
  * the plugin re-claims them with their original prior, or they are restored as above), unless the plugin
  * releases them itself in {@code onDisable}.
- * {@link #ledger()}{@code .restorePendingOnBoot} is the safe-mode restore (wired by Task 12).
  *
- * <p>Task 9 scope: {@code start()} loads plugins immediately (the {@code pluginStartDelayMs} delay,
- * boot guard and safe mode arrive with Task 12).
+ * <p>Boot: {@link #start()} first asks the {@link BootGuard} ({@code boot.state}, {@code SAFE_MODE}) whether
+ * this is a safe-mode boot. Safe mode: the adapter starts, every pending ledger entry is restored
+ * ({@link OverrideLedger#restorePendingOnBoot}), the {@link DevChannel} runs, and no plugin is discovered or
+ * loaded, not even through {@link #reload}. Otherwise plugins load {@code pluginStartDelayMs} later on the
+ * {@link Clock} (scheduled on the control thread; {@code start()} does not wait for it; 0 loads during
+ * {@code start()}), and {@code healthyAfterMs} after loading the boot is marked healthy. Every
+ * {@code IgnitionChanged(false)} marks a clean shutdown. A {@link HeapWatch} samples free heap every
+ * {@code heapCheckMs} once plugins are loaded. With no adapter (null: no adapter supports this HMI version)
+ * the runtime logs the STATUS line with {@code adapter=none} and stops at once, leaving the boot guard and
+ * the ledger untouched. Once {@link #stop()} is requested no plugin is enabled any more: a delayed or
+ * in-flight load bails, and a plugin whose {@code onEnable} was running is disabled again.
  */
 public final class SdkRuntime {
 
@@ -121,6 +130,7 @@ public final class SdkRuntime {
     private final PluginJarCache jarCache;
     private final ClassLoader pluginParent;
     private final OverrideLedger ledger;
+    private final BootGuard bootGuard;
 
     private final List hosts = new ArrayList(); // PluginHost in discovery order; guarded by this
     private final List enabledOrder = new ArrayList(); // active PluginHost, oldest enable first; guarded by this
@@ -131,10 +141,32 @@ public final class SdkRuntime {
     private boolean stopped; // guarded by this
     /** False if the adapter failed to start: then no plugin loads, not even through reload(). */
     private volatile boolean adapterStarted;
+    /** Set once in start(), before the STATUS line: no plugin loads, not even through reload(). */
+    private volatile boolean safeMode;
+    private PluginScheduler timer; // posts to the control executor; guarded by this
+    private final List timers = new ArrayList(); // Subscription; cancelled by stop(); guarded by this
+    private DevChannel dev; // guarded by this
+
+    /** Quarantines the most recently enabled plugin; HeapWatch calls it on the control thread. */
+    private final HeapWatch.Victim heapVictim = new HeapWatch.Victim() {
+        public void quarantineMostRecentlyEnabled(String reason) {
+            PluginHost h;
+            synchronized (SdkRuntime.this) {
+                h = enabledOrder.isEmpty() ? null : (PluginHost) enabledOrder.get(enabledOrder.size() - 1);
+            }
+            if (h == null) {
+                return;
+            }
+            log.append("WARN", SOURCE, "free heap below " + cfg.heapLowBytes() + " bytes for " + cfg.heapLowChecks()
+                    + " checks: quarantining " + h.id + ", the most recently enabled plugin");
+            disableHost(h, PluginState.QUARANTINED, reason, true);
+        }
+    };
 
     private final PlatformHost platformHost = new PlatformHost() {
         @Override
         public void publish(Object apiEvent) {
+            noteIgnition(apiEvent);
             feedLedger(apiEvent); // before plugins see it: ignition off restores first
             bus.publish(apiEvent);
         }
@@ -173,30 +205,42 @@ public final class SdkRuntime {
                 RuntimeConstants.PLUGIN_PARENT_PREFIXES);
         log.setClock(clock);
         this.ledger = new OverrideLedger(new File(cfg.baseDir(), "ledger.properties"), clock, log);
+        this.bootGuard = new BootGuard(cfg.bootStateFile(), cfg.safeModeMarker(), cfg.safeModeAfterUnhealthyBoots(),
+                log);
     }
 
-    /** Starts the adapter, then loads and enables every plugin (blocks until done). Only the first call counts. */
+    /**
+     * Boot guard, adapter, then (unless safe mode) plugins: during this call if pluginStartDelayMs is 0
+     * (blocks until loaded, bounded as documented above), else scheduled on the Clock. Only the first call
+     * counts. A null adapter logs {@code adapter=none} and stops the runtime.
+     */
     public void start() {
         SerialExecutor c;
+        PluginScheduler t;
         synchronized (this) {
             if (started) {
                 return;
             }
             started = true;
-            control = new SerialExecutor("runtime", clock, Long.MAX_VALUE, Long.MAX_VALUE,
-                    new SerialExecutor.Listener() {
-                        public void onFailure(String label, Throwable t) {
-                            log.append("ERROR", SOURCE, "runtime task " + label + " failed: " + describe(t));
-                        }
-
-                        public void onSlow(String label, long ms) {
-                        }
-
-                        public void onHung(String label) {
-                        }
-                    }, false);
-            c = control;
+            if (platform == null) {
+                stopped = true; // nothing to run: stop() and reload() become no-ops
+                c = null;
+                t = null;
+            } else {
+                control = newControlExecutor();
+                timer = new PluginScheduler(control, clock);
+                c = control;
+                t = timer;
+            }
         }
+        if (c == null) {
+            log.append("WARN", SOURCE, "no adapter supports this HMI version: the SDK stays off and no plugin loads");
+            log.append("STATUS", SOURCE, "runtime started adapter=none safeMode=false");
+            log.append("STATUS", SOURCE, "runtime stopped");
+            writeLogFile();
+            return;
+        }
+        safeMode = beginBoot();
         String adapterId = "none";
         ledger.attach(platformApplier); // before the adapter can publish: creates the ledger thread here
         try {
@@ -204,29 +248,108 @@ public final class SdkRuntime {
             features = Collections.unmodifiableSet(new HashSet<String>(platform.features()));
             adapterId = platform.id();
             adapterStarted = true;
-        } catch (Throwable t) {
-            log.append("ERROR", SOURCE, "adapter failed to start, no plugins will load: " + describe(t));
+        } catch (Throwable e) {
+            log.append("ERROR", SOURCE, "adapter failed to start, no plugins will load: " + describe(e));
         }
-        log.append("STATUS", SOURCE, "runtime started adapter=" + adapterId + " safeMode=" + safeMode());
-        if (adapterStarted) {
-            dispatcher.start();
-            runOnControl(c, "load", new Runnable() {
-                public void run() {
-                    loadAll();
-                }
-            });
+        if (safeMode && adapterStarted) {
+            ledger.restorePendingOnBoot(platformApplier); // safe mode: no plugin will re-claim anything
         }
+        log.append("STATUS", SOURCE, "runtime started adapter=" + adapterId + " safeMode=" + safeMode);
+        startDevChannel();
+        if (!adapterStarted || safeMode) {
+            return;
+        }
+        dispatcher.start();
+        Runnable load = new Runnable() {
+            public void run() {
+                loadPlugins();
+            }
+        };
+        long delay = cfg.pluginStartDelayMs();
+        if (delay == 0) {
+            runOnControl(c, "load", load);
+        } else {
+            log.append("INFO", SOURCE, "plugins load in " + delay + " ms");
+            schedule(t.after(delay, load));
+        }
+    }
+
+    private SerialExecutor newControlExecutor() {
+        return new SerialExecutor("runtime", clock, Long.MAX_VALUE, Long.MAX_VALUE, new SerialExecutor.Listener() {
+            public void onFailure(String label, Throwable t) {
+                log.append("ERROR", SOURCE, "runtime task " + label + " failed: " + describe(t));
+            }
+
+            public void onSlow(String label, long ms) {
+            }
+
+            public void onHung(String label) {
+            }
+        }, false);
+    }
+
+    /** {@link BootGuard#beginBoot()} plus the logged reason; true means safe mode. Never throws. */
+    private boolean beginBoot() {
+        try {
+            boolean safe = bootGuard.beginBoot();
+            int n = bootGuard.unhealthyBoots();
+            if (safe && bootGuard.markerPresent()) {
+                log.append("WARN", SOURCE, "safe mode: the SAFE_MODE marker is present; no plugin loads");
+            }
+            if (safe && n >= cfg.safeModeAfterUnhealthyBoots()) {
+                log.append("WARN", SOURCE, "safe mode: " + n + " unhealthy boots in a row (threshold "
+                        + cfg.safeModeAfterUnhealthyBoots() + "); no plugin loads until the boot state is reset");
+            }
+            return safe;
+        } catch (Throwable e) { // cannot count crashes: do not risk a boot loop
+            log.append("ERROR", SOURCE, "safe mode: the boot guard failed: " + describe(e));
+            return true;
+        }
+    }
+
+    private void startDevChannel() {
+        DevChannel d = new DevChannel(this, cfg.pluginsDir(), cfg.logFile(), cfg.devPollMs(), clock);
+        synchronized (this) {
+            if (stopped) {
+                return;
+            }
+            dev = d;
+        }
+        d.start();
+    }
+
+    /** Keeps a timer subscription for stop() to cancel (or cancels it at once if already stopping). */
+    private void schedule(Subscription sub) {
+        synchronized (this) {
+            if (!stopped) {
+                timers.add(sub);
+                return;
+            }
+        }
+        sub.cancel();
     }
 
     /** Disables every plugin (most recently enabled first), stops the adapter. Blocks until done; idempotent. */
     public void stop() {
         SerialExecutor c;
+        Subscription[] subs;
+        DevChannel d;
         synchronized (this) {
             if (!started || stopped) {
                 return;
             }
-            stopped = true;
+            stopped = true; // from here no plugin is enabled any more (see loadPlugins/enableUnguarded)
             c = control;
+            subs = (Subscription[]) timers.toArray(new Subscription[timers.size()]);
+            timers.clear();
+            d = dev;
+            dev = null;
+        }
+        for (int i = 0; i < subs.length; i++) {
+            subs[i].cancel();
+        }
+        if (d != null) {
+            d.stop();
         }
         runOnControl(c, "stop", new Runnable() {
             public void run() {
@@ -252,6 +375,16 @@ public final class SdkRuntime {
         c.shutdown();
         ledger.shutdown();
         log.append("STATUS", SOURCE, "runtime stopped");
+        writeLogFile();
+    }
+
+    /** Best effort: the log file holds the last lines even after the dev channel stopped. */
+    private void writeLogFile() {
+        try {
+            log.writeTo(cfg.logFile());
+        } catch (Throwable ignored) {
+            // the dev channel logs write failures; nothing more to do here
+        }
     }
 
     /** Disables the plugin (if enabled), snapshots {@code plugins/<id>.jar} again and enables it. Blocks. */
@@ -285,9 +418,14 @@ public final class SdkRuntime {
         return out;
     }
 
-    /** Always false until the boot guard exists (Task 12). */
+    /** True if this boot is in safe mode (SDK on, no plugins); fixed by start(). */
     public boolean safeMode() {
-        return false;
+        return safeMode;
+    }
+
+    /** True once stop() has been requested (also after a start() without adapter). */
+    synchronized boolean isStopped() {
+        return stopped;
     }
 
     public RingLog log() {
@@ -299,7 +437,7 @@ public final class SdkRuntime {
         return ledger.active();
     }
 
-    /** The override ledger (Task 12 calls {@code restorePendingOnBoot} on it in safe mode). */
+    /** The override ledger ({@code restorePendingOnBoot} runs on it at a safe-mode start). */
     OverrideLedger ledger() {
         return ledger;
     }
@@ -311,7 +449,41 @@ public final class SdkRuntime {
 
     // ---- control thread ----
 
-    private void loadAll() {
+    /** Loads every plugin, then starts the health timer and the heap watch. Bails if stop() was requested. */
+    private void loadPlugins() {
+        if (isStopped()) {
+            return;
+        }
+        if (!loadAll()) {
+            return;
+        }
+        PluginScheduler t;
+        synchronized (this) {
+            t = timer;
+        }
+        schedule(t.after(cfg.healthyAfterMs(), new Runnable() {
+            public void run() {
+                if (!isStopped()) {
+                    bootGuard.markHealthy();
+                    log.append("INFO", SOURCE, "boot healthy: plugins enabled for " + cfg.healthyAfterMs() + " ms");
+                }
+            }
+        }));
+        if (cfg.heapLowBytes() > 0) {
+            final HeapWatch heap = new HeapWatch(HeapWatch.runtimeMemory(), cfg.heapLowBytes(), cfg.heapLowChecks(),
+                    heapVictim);
+            schedule(t.every(cfg.heapCheckMs(), new Runnable() {
+                public void run() {
+                    if (!isStopped()) {
+                        heap.check();
+                    }
+                }
+            }));
+        }
+    }
+
+    /** False if it bailed because stop() was requested (then the stop step owns the ledger and the plugins). */
+    private boolean loadAll() {
         grants = Grants.load(cfg.grantsFile());
         purgeSnapshots(); // stale copies from a previous run
         restoreStaleOverrides();
@@ -338,14 +510,22 @@ public final class SdkRuntime {
         List order = resolveOrder(pending);
         for (int i = 0; i < order.size(); i++) {
             PluginHost h = (PluginHost) order.get(i);
+            if (isStopped()) {
+                log.append("INFO", SOURCE, "stop requested: plugin loading abandoned");
+                return false;
+            }
             try {
                 enableIfDependenciesEnabled(h);
             } catch (Throwable t) { // one plugin's SDK-side failure must not stop the others loading
                 abortEnable(h, "runtime error while enabling: " + describe(t));
             }
         }
+        if (isStopped()) {
+            return false; // PERSISTENT overrides of plugins not loaded stay for the next boot
+        }
         restoreOrphanedOverrides();
         purgeSnapshots();
+        return true;
     }
 
     /** Topological order of {@code pending}; blocks the ones with a missing, blocked or cyclic dependency. */
@@ -437,6 +617,9 @@ public final class SdkRuntime {
     }
 
     private void enableUnguarded(final PluginHost h) {
+        if (isStopped()) {
+            return;
+        }
         final ClassLoader loader;
         final PluginManifest m;
         File snap = null;
@@ -498,6 +681,9 @@ public final class SdkRuntime {
             disableHost(h, PluginState.QUARANTINED, "hung in onEnable", false);
         } else if (done.failure() != null) {
             disableHost(h, PluginState.FAILED, done.failure(), true);
+        } else if (isStopped()) { // stop() was requested while onEnable ran: undo it as the stop step would,
+            ledger.beginShutdown(); // which first keeps PERSISTENT overrides in the ledger for the next boot
+            disableHost(h, PluginState.DISABLED, "runtime stopped", true);
         } else {
             synchronized (this) {
                 if (!h.active) {
@@ -553,6 +739,13 @@ public final class SdkRuntime {
     }
 
     private void reloadNow(String id) {
+        if (isStopped()) {
+            return;
+        }
+        if (safeMode) {
+            log.append("WARN", SOURCE, "reload ignored: safe mode (no plugin loads until safe mode is cleared)");
+            return;
+        }
         if (!adapterStarted) {
             log.append("WARN", SOURCE, "reload ignored: the adapter did not start, so no plugin may load");
             return;
@@ -647,6 +840,21 @@ public final class SdkRuntime {
         } catch (Throwable t) {
             log.append("ERROR", SOURCE, "adapter parking() failed: " + describe(t));
             return null;
+        }
+    }
+
+    /**
+     * IgnitionChanged(false) marks a clean shutdown in boot.state, before publish returns: the unit may lose
+     * power any time after the ignition goes off. The one write per ignition-off is the only I/O on the
+     * publishing thread (adapters publish from their own threads, never from stock ones). Never throws.
+     */
+    private void noteIgnition(Object event) {
+        try {
+            if (event instanceof IgnitionChanged && !((IgnitionChanged) event).isOn()) {
+                bootGuard.markCleanShutdown();
+            }
+        } catch (Throwable t) {
+            log.append("ERROR", SOURCE, "cannot record the clean shutdown: " + describe(t));
         }
     }
 

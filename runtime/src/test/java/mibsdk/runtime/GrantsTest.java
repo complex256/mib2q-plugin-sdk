@@ -83,7 +83,7 @@ class GrantsTest {
         File base = new File(tmp, "mibsdk");
         File plugins = new File(base, "plugins");
         plugins.mkdirs();
-        write("mibsdk/sdk.properties", "log.file=" + new File(tmp, "mibsdk.log").getPath() + "\n");
+        write("mibsdk/sdk.properties", "plugin.start.delay.ms=0\nheap.low.bytes=0\nlog.file=" + new File(tmp, "mibsdk.log").getPath() + "\n");
         if (grantsText != null) {
             write("mibsdk/grants.properties", grantsText);
         }

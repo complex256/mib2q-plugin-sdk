@@ -13,7 +13,7 @@ import java.util.Properties;
  * Runtime settings from {@code <baseDir>/sdk.properties}. A missing file, a missing key, or a value that
  * does not parse or is out of range falls back to the default. Keys:
  * <pre>
- * plugin.start.delay.ms             30000   delay before plugins load (applied from Task 12)
+ * plugin.start.delay.ms             30000   delay (on the Clock) before plugins load; 0 loads during start()
  * tick.ms                            1000   MonotonicClock tick
  * callback.slow.ms                   5000   plugin task duration logged as slow
  * callback.hung.ms                  30000   plugin task duration that quarantines
@@ -24,7 +24,7 @@ import java.util.Properties;
  * chain.configurator               (none)   configurator class to chain to
  * hook.services   org.dsi.ifc.carparkingsystem.DSICarParkingSystem   comma-separated
  * dev.poll.ms                        2000
- * heap.low.bytes                  8388608
+ * heap.low.bytes                  8388608   0 disables the heap watch
  * heap.low.checks                       3
  * heap.check.ms                      5000
  * log.file                /tmp/mibsdk.log
@@ -120,6 +120,16 @@ public final class RuntimeConfig {
 
     public File cacheDir() {
         return new File(baseDir, "cache");
+    }
+
+    /** The boot guard's crash counter ({@link BootGuard}). */
+    public File bootStateFile() {
+        return new File(baseDir, "boot.state");
+    }
+
+    /** Marker file that forces safe mode while it exists. */
+    public File safeModeMarker() {
+        return new File(baseDir, "SAFE_MODE");
     }
 
     public File logFile() {

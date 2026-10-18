@@ -95,7 +95,7 @@ class SdkRuntimeLifecycleTest {
     }
 
     private SdkRuntime start(String sdkProperties, PlatformAdapter platform) throws IOException {
-        writeFile(new File(base, "sdk.properties"), "log.file=" + new File(tmp, "mibsdk.log").getPath() + "\n"
+        writeFile(new File(base, "sdk.properties"), "plugin.start.delay.ms=0\nheap.low.bytes=0\nlog.file=" + new File(tmp, "mibsdk.log").getPath() + "\n"
                 + (sdkProperties == null ? "" : sdkProperties));
         StringBuilder g = new StringBuilder();
         for (Map.Entry<String, String[]> e : grants.entrySet()) {

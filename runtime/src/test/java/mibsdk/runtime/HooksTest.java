@@ -70,7 +70,7 @@ class HooksTest {
     }
 
     private void start(String sdkProperties) throws IOException {
-        write("sdk.properties", "log.file=" + new File(tmp, "mibsdk.log").getPath() + "\n"
+        write("sdk.properties", "plugin.start.delay.ms=0\nheap.low.bytes=0\nlog.file=" + new File(tmp, "mibsdk.log").getPath() + "\n"
                 + (sdkProperties == null ? "" : sdkProperties));
         write("grants.properties", grants.toString());
         rt = new SdkRuntime(RuntimeConfig.load(base), fake, clock, new HookTable(64), new RingLog(500));
