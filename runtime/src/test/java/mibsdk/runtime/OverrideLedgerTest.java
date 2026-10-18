@@ -1,0 +1,865 @@
+package mibsdk.runtime;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Properties;
+import java.util.Set;
+import mibsdk.adapter.fake.FakePlatform;
+import mibsdk.api.Features;
+import mibsdk.api.OverrideConflictException;
+import mibsdk.api.OverrideScope;
+import mibsdk.api.SoundDirections;
+import mibsdk.api.VehicleOverride;
+import mibsdk.platform.HookTable;
+import mibsdk.platform.ParkingIo;
+import mibsdk.platform.PlatformAdapter;
+import mibsdk.platform.PlatformHost;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class OverrideLedgerTest {
+
+    private static final String KEY = "parking.soundDirections";
+    private static final SoundDirections F1R1L0X0 = new SoundDirections(true, true, false, false);
+    private static final SoundDirections F1R0L0X0 = new SoundDirections(true, false, false, false);
+    private static final SoundDirections F1R1L1X1 = new SoundDirections(true, true, true, true);
+    private static final SoundDirections F1R0L1X1 = new SoundDirections(true, false, true, true);
+    private static final String[] READ_WRITE = {"vehicle.read", "vehicle.parking.write"};
+
+    /**
+     * On every IgnitionChanged(true): the first acquires rear=false (scope from storage key "scope"), the
+     * next releases it. A conflict is logged.
+     */
+    private static final String TOGGLE_MEMBERS = "VehicleOverride ov;";
+    private static final String TOGGLE_BODY =
+            "final OverrideScope scope = OverrideScope.valueOf(ctx.storage().get(\"scope\", \"UNTIL_IGNITION_OFF\"));\n"
+            + "ctx.events().on(IgnitionChanged.class, e -> {\n"
+            + "  if (!e.isOn()) return;\n"
+            + "  if (ov == null) {\n"
+            + "    try {\n"
+            + "      ov = ctx.vehicle().parking().overrideSoundDirections(\n"
+            + "          ctx.vehicle().parking().soundDirections().withRear(false), scope);\n"
+            + "      ctx.log().info(\"override active=\" + ov.isActive());\n"
+            + "    } catch (OverrideConflictException x) { ctx.log().info(\"conflict \" + x.getMessage()); }\n"
+            + "  } else { ov.release(); ctx.log().info(\"released active=\" + ov.isActive()); ov = null; }\n"
+            + "});";
+
+    @TempDir
+    File tmp;
+
+    private File base;
+    private File plugins;
+    private PluginJars jars;
+    private final FakeClock clock = new FakeClock();
+    private FakePlatform fake;
+    private SdkRuntime rt;
+    private final StringBuilder grants = new StringBuilder();
+    private final List<OverrideLedger> ledgers = new ArrayList<OverrideLedger>();
+
+    @BeforeEach
+    void setUp() {
+        base = new File(tmp, "mibsdk");
+        plugins = new File(base, "plugins");
+        plugins.mkdirs();
+        jars = new PluginJars(new File(tmp, "fixtures"));
+        SerialExecutor.watchdogPeriodMs = 10;
+        fake = platform(Features.IGNITION, Features.PARKING, Features.HOOK_PARKING);
+    }
+
+    @AfterEach
+    void tearDown() throws InterruptedException {
+        if (rt != null) {
+            final SdkRuntime r = rt;
+            Thread t = new Thread() {
+                public void run() {
+                    r.stop();
+                }
+            };
+            t.setDaemon(true);
+            t.start();
+            t.join(15000);
+        }
+        for (OverrideLedger l : ledgers) {
+            l.shutdown();
+        }
+        SerialExecutor.watchdogPeriodMs = 1000;
+    }
+
+    // ---- helpers ----
+
+    private static FakePlatform platform(String... features) {
+        return new FakePlatform("HMI_TEST", new HashSet<String>(Arrays.asList(features)));
+    }
+
+    private void plugin(String id, String[] perms, String[] granted, String body, String members) throws IOException {
+        jars.write(plugins, id, "1", null, perms, body, members);
+        grants.append(id).append('=');
+        for (int i = 0; i < granted.length; i++) {
+            grants.append(i > 0 ? "," : "").append(granted[i]);
+        }
+        grants.append('\n');
+    }
+
+    private void togglePlugin(String id, String scope) throws IOException {
+        plugin(id, READ_WRITE, READ_WRITE, TOGGLE_BODY, TOGGLE_MEMBERS);
+        if (scope != null) {
+            write(new File(base, "data/" + id + ".properties"), "scope=" + scope + "\n");
+        }
+    }
+
+    private void start(String sdkProperties) throws IOException {
+        start(sdkProperties, fake);
+    }
+
+    private void start(String sdkProperties, PlatformAdapter platform) throws IOException {
+        write(new File(base, "sdk.properties"), "log.file=" + new File(tmp, "mibsdk.log").getPath() + "\n"
+                + (sdkProperties == null ? "" : sdkProperties));
+        write(new File(base, "grants.properties"), grants.toString());
+        rt = new SdkRuntime(RuntimeConfig.load(base), platform, clock, new HookTable(64), new RingLog(500));
+        rt.start();
+    }
+
+    private static void write(File f, String text) throws IOException {
+        f.getParentFile().mkdirs();
+        FileOutputStream out = new FileOutputStream(f);
+        try {
+            out.write(text.getBytes(StandardCharsets.ISO_8859_1));
+        } finally {
+            out.close();
+        }
+    }
+
+    private File ledgerFile() {
+        return new File(base, "ledger.properties");
+    }
+
+    private static Properties readProps(File f) throws IOException {
+        Properties p = new Properties();
+        FileInputStream in = new FileInputStream(f);
+        try {
+            p.load(in);
+        } finally {
+            in.close();
+        }
+        return p;
+    }
+
+    private static String text(File f) throws IOException {
+        return new String(Files.readAllBytes(f.toPath()), StandardCharsets.ISO_8859_1);
+    }
+
+    private PluginStatus status(String id) {
+        for (PluginStatus s : rt.statuses()) {
+            if (s.id().equals(id)) {
+                return s;
+            }
+        }
+        throw new AssertionError("no status for " + id + " in " + rt.statuses());
+    }
+
+    private int count(RingLog log, String source, String msg) {
+        int n = 0;
+        for (String line : log.snapshot()) {
+            if (line.endsWith(" " + source + " " + msg)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    private void awaitCount(String source, String msg, int n) throws InterruptedException {
+        for (int i = 0; i < 500; i++) {
+            if (count(rt.log(), source, msg) >= n) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        fail("expected " + n + " x '" + source + " " + msg + "' in\n" + rt.log().snapshot());
+    }
+
+    private boolean logContains(RingLog log, String fragment) {
+        for (String line : log.snapshot()) {
+            if (line.contains(fragment)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void awaitLog(RingLog log, String fragment) throws InterruptedException {
+        for (int i = 0; i < 500; i++) {
+            if (logContains(log, fragment)) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        fail("expected '" + fragment + "' in\n" + log.snapshot());
+    }
+
+    private void awaitApplied(int size, SoundDirections last) throws InterruptedException {
+        List<SoundDirections> log = null;
+        for (int i = 0; i < 500; i++) {
+            log = fake.appliedLog();
+            if (log.size() >= size) {
+                break;
+            }
+            Thread.sleep(10);
+        }
+        assertEquals(size, log.size(), "applied " + log + "\n" + (rt == null ? "" : rt.log().snapshot().toString()));
+        assertEquals(last, log.get(size - 1));
+    }
+
+    private void awaitNoOverrides() throws InterruptedException {
+        for (int i = 0; i < 500 && !rt.activeOverrides().isEmpty(); i++) {
+            Thread.sleep(10);
+        }
+        assertTrue(rt.activeOverrides().isEmpty(), rt.activeOverrides().toString());
+    }
+
+    private void awaitLedgerEmpty() throws Exception {
+        for (int i = 0; i < 500; i++) {
+            if (ledgerFile().isFile() && readProps(ledgerFile()).isEmpty()) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        fail("ledger file still holds entries: " + (ledgerFile().isFile() ? text(ledgerFile()) : "(missing)"));
+    }
+
+    /** Records every apply; optionally fails the first {@code failures} calls. */
+    private static final class RecordingApplier implements OverrideLedger.Applier {
+        final List<String> calls = Collections.synchronizedList(new ArrayList<String>());
+        final List<String> threads = Collections.synchronizedList(new ArrayList<String>());
+        volatile int failures;
+
+        @Override
+        public void apply(String key, String encodedValue) throws Exception {
+            threads.add(Thread.currentThread().getName());
+            if (failures > 0) {
+                failures--;
+                throw new IllegalStateException("ECU busy");
+            }
+            calls.add(key + "=" + encodedValue);
+        }
+
+        void await(int n) throws InterruptedException {
+            for (int i = 0; i < 500 && calls.size() < n; i++) {
+                Thread.sleep(10);
+            }
+            assertEquals(n, calls.size(), calls.toString());
+        }
+    }
+
+    private OverrideLedger ledger(RingLog log) {
+        OverrideLedger l = new OverrideLedger(ledgerFile(), clock, log);
+        ledgers.add(l);
+        return l;
+    }
+
+    // ---- brief: runtime + FakePlatform via ParkingImpl ----
+
+    @Test
+    void overrideAppliesAndReleaseRestoresPrior() throws Exception {
+        togglePlugin("muter", null);
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+
+        fake.setIgnition(true);
+        awaitCount("muter", "override active=true", 1);
+        awaitApplied(1, F1R0L0X0);
+        assertEquals("parking.soundDirections=muter|UNTIL_IGNITION_OFF|F1R1L0X0|F1R0L0X0\n", text(ledgerFile()));
+        List<ActiveOverride> active = rt.activeOverrides();
+        assertEquals(1, active.size());
+        assertEquals(KEY, active.get(0).key());
+        assertEquals("muter", active.get(0).pluginId());
+        assertEquals(OverrideScope.UNTIL_IGNITION_OFF, active.get(0).scope());
+        assertEquals("F1R0L0X0", active.get(0).activeValue());
+
+        fake.setIgnition(true); // second press releases
+        awaitCount("muter", "released active=false", 1);
+        awaitApplied(2, F1R1L0X0);
+        awaitLedgerEmpty();
+        awaitNoOverrides();
+    }
+
+    @Test
+    void ignitionOffRestoresUntilIgnitionOffScopeOnly() throws Exception {
+        // Ledger level: two keys, one per scope.
+        RingLog log = new RingLog(100);
+        OverrideLedger l = ledger(log);
+        RecordingApplier a = new RecordingApplier();
+        VehicleOverride temp = l.acquire("k.temp", "p", OverrideScope.UNTIL_IGNITION_OFF, "A0", "A1", a);
+        VehicleOverride keep = l.acquire("k.keep", "p", OverrideScope.PERSISTENT, "B0", "B1", a);
+        a.await(2);
+
+        l.releaseScope(OverrideScope.UNTIL_IGNITION_OFF);
+        a.await(3);
+        assertEquals("k.temp=A0", a.calls.get(2));
+        assertFalse(temp.isActive());
+        assertTrue(keep.isActive());
+        assertEquals(1, l.active().size());
+        assertEquals("k.keep", l.active().get(0).key());
+        l.shutdown();
+        assertTrue(ledgerFile().delete()); // the runtime half starts from a clean ledger
+
+        // Runtime level: IgnitionChanged(false) restores an UNTIL_IGNITION_OFF parking override, not a PERSISTENT one.
+        togglePlugin("temp", "UNTIL_IGNITION_OFF");
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+        fake.setIgnition(false);
+        awaitApplied(2, F1R1L0X0);
+        awaitNoOverrides();
+        awaitLedgerEmpty();
+    }
+
+    @Test
+    void persistentOverrideSurvivesIgnitionOff() throws Exception {
+        togglePlugin("keeper", "PERSISTENT");
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+
+        fake.setIgnition(false);
+        Thread.sleep(200);
+        assertEquals(1, fake.appliedLog().size(), "a persistent override is not restored on ignition off");
+        assertEquals(1, rt.activeOverrides().size());
+        assertEquals(OverrideScope.PERSISTENT, rt.activeOverrides().get(0).scope());
+    }
+
+    @Test
+    void stickyReapplyWhenEcuChangesBack() throws Exception {
+        togglePlugin("muter", null);
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+
+        fake.ecuSetSoundDirections(F1R1L0X0); // the car flips it back
+        clock.advance(500);
+        Thread.sleep(300);
+        assertEquals(1, fake.appliedLog().size(), "no re-apply before the 1000 ms debounce");
+        clock.advance(500);
+        awaitApplied(2, F1R0L0X0);
+        assertEquals(F1R0L0X0, fake.ecuSoundDirections());
+
+        fake.ecuSetSoundDirections(F1R0L0X0); // a report of our own value changes nothing
+        clock.advance(2000);
+        Thread.sleep(300);
+        assertEquals(2, fake.appliedLog().size());
+    }
+
+    @Test
+    void stickyDebounceRestartsOnEveryChange() throws Exception {
+        togglePlugin("muter", null);
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        clock.advance(800);
+        fake.ecuSetSoundDirections(F1R1L1X1); // still flapping
+        clock.advance(800);
+        Thread.sleep(300);
+        assertEquals(1, fake.appliedLog().size(), "debounce counts from the last change");
+        clock.advance(200);
+        awaitApplied(2, F1R0L0X0);
+    }
+
+    @Test
+    void stickyGivesUpAfterFiveReappliesPerMinute() throws Exception {
+        togglePlugin("muter", null);
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+
+        for (int i = 1; i <= 5; i++) {
+            fake.ecuSetSoundDirections(F1R1L0X0);
+            clock.advance(1000);
+            awaitApplied(1 + i, F1R0L0X0);
+        }
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        clock.advance(1000);
+        awaitLog(rt.log(), "giving up");
+        Thread.sleep(200);
+        assertEquals(6, fake.appliedLog().size(), "the sixth re-apply within 60 s is not attempted");
+        clock.advance(120000);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        clock.advance(1000);
+        Thread.sleep(300);
+        assertEquals(6, fake.appliedLog().size(), "once given up, the override is no longer sticky");
+        assertEquals(1, rt.activeOverrides().size(), "giving up does not drop the restore obligation");
+    }
+
+    @Test
+    void stickyBudgetIsPerSixtySecondWindow() throws Exception {
+        RingLog log = new RingLog(100);
+        OverrideLedger l = ledger(log);
+        RecordingApplier a = new RecordingApplier();
+        l.acquire(KEY, "p", OverrideScope.PERSISTENT, "F1R1L0X0", "F1R0L0X0", a);
+        a.await(1);
+        for (int i = 1; i <= 7; i++) {
+            l.onObserved(KEY, "F1R1L0X0");
+            clock.advance(15000); // 15 s apart: never 5 within any 60 s window... until the window fills
+            a.await(1 + i);
+        }
+        assertFalse(logContains(log, "giving up"), log.snapshot().toString());
+    }
+
+    @Test
+    void pendingEntriesRestoredOnBoot() throws Exception {
+        write(ledgerFile(), "parking.soundDirections=muter|PERSISTENT|F1R1L0X0|F1R0L0X0\n"
+                + "other.key=gone|UNTIL_IGNITION_OFF|V0|V1\n");
+        OverrideLedger l = ledger(new RingLog(100));
+        assertEquals(2, l.active().size());
+        RecordingApplier a = new RecordingApplier();
+
+        l.restorePendingOnBoot(a);
+        a.await(2);
+        assertTrue(a.calls.contains("parking.soundDirections=F1R1L0X0"), a.calls.toString());
+        assertTrue(a.calls.contains("other.key=V0"), a.calls.toString());
+        awaitLedgerEmpty();
+        assertTrue(l.active().isEmpty());
+        assertEquals(0, ledgerFile().length(), "an empty ledger is an empty file (no date comment)");
+    }
+
+    @Test
+    void uninstalledPluginEntryRestored() throws Exception {
+        write(ledgerFile(), "parking.soundDirections=gone|PERSISTENT|F1R1L1X1|F1R0L1X1\n");
+        togglePlugin("present", null); // unrelated plugin, no override
+        start(null);
+
+        awaitApplied(1, F1R1L1X1);
+        awaitLedgerEmpty();
+        awaitNoOverrides();
+        assertTrue(logContains(rt.log(), "gone"), rt.log().snapshot().toString());
+    }
+
+    @Test
+    void revokedPluginEntryRestoredAtBoot() throws Exception {
+        write(ledgerFile(), "parking.soundDirections=revoked|PERSISTENT|F1R1L1X1|F1R0L1X1\n");
+        jars.write(plugins, "revoked", "1", null, READ_WRITE, "", null); // no grants line: BLOCKED_PERMISSIONS
+        start(null);
+
+        assertEquals(PluginState.BLOCKED_PERMISSIONS, status("revoked").state());
+        awaitApplied(1, F1R1L1X1);
+        awaitLedgerEmpty();
+        awaitNoOverrides();
+    }
+
+    @Test
+    void untilIgnitionOffEntryLeftByCrashRestoredAtBoot() throws Exception {
+        togglePlugin("muter", null);
+        write(ledgerFile(), "parking.soundDirections=muter|UNTIL_IGNITION_OFF|F1R1L1X1|F1R0L1X1\n");
+        start(null);
+
+        assertEquals(PluginState.ENABLED, status("muter").state());
+        awaitApplied(1, F1R1L1X1);
+        awaitLedgerEmpty();
+    }
+
+    @Test
+    void persistentEntryReadoptedKeepsOriginalPrior() throws Exception {
+        write(ledgerFile(), "parking.soundDirections=keeper|PERSISTENT|F1R1L0X0|F1R0L0X0\n");
+        togglePlugin("keeper", "PERSISTENT");
+        start(null);
+        assertEquals(1, rt.activeOverrides().size(), "kept for its still-installed, enabled plugin");
+        fake.ecuSetSoundDirections(F1R0L0X0); // the ECU still holds the override from the last boot
+
+        fake.setIgnition(true); // re-acquire: current() is the overridden value, must not become the prior
+        awaitCount("keeper", "override active=true", 1);
+        awaitApplied(1, F1R0L0X0);
+        assertEquals("parking.soundDirections=keeper|PERSISTENT|F1R1L0X0|F1R0L0X0\n", text(ledgerFile()));
+
+        fake.setIgnition(true); // release
+        awaitApplied(2, F1R1L0X0);
+        awaitLedgerEmpty();
+    }
+
+    @Test
+    void conflictingOverrideRejected() throws Exception {
+        togglePlugin("alpha", null);
+        togglePlugin("beta", null);
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+
+        fake.setIgnition(true);
+        for (int i = 0; i < 500 && count(rt.log(), "alpha", "override active=true")
+                + count(rt.log(), "beta", "override active=true") < 1; i++) {
+            Thread.sleep(10);
+        }
+        String holder = count(rt.log(), "alpha", "override active=true") == 1 ? "alpha" : "beta";
+        String loser = holder.equals("alpha") ? "beta" : "alpha";
+        awaitCount(loser, "conflict override parking.soundDirections is held by " + holder, 1);
+        assertEquals(0, count(rt.log(), loser, "override active=true"));
+        assertEquals(holder, rt.activeOverrides().get(0).pluginId());
+
+        // Ledger level, with the holder id in the exception.
+        OverrideLedger l = ledger(new RingLog(10));
+        RecordingApplier a = new RecordingApplier();
+        l.acquire("k", "one", OverrideScope.PERSISTENT, "0", "1", a);
+        OverrideConflictException e = assertThrows(OverrideConflictException.class,
+                () -> l.acquire("k", "two", OverrideScope.PERSISTENT, "0", "2", a));
+        assertTrue(e.getMessage().contains("one"), e.getMessage());
+    }
+
+    // ---- carried obligations ----
+
+    @Test
+    void disablingPluginRestores() throws Exception {
+        togglePlugin("muter", null);
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+
+        rt.disable("muter", "test");
+        assertEquals(PluginState.DISABLED, status("muter").state());
+        awaitApplied(2, F1R1L0X0);
+        awaitLedgerEmpty();
+    }
+
+    @Test
+    void quarantineRestoresPersistentOverride() throws Exception {
+        plugin("flaky", READ_WRITE, READ_WRITE, TOGGLE_BODY
+                + "\nctx.events().on(IgnitionChanged.class, e -> { if (!e.isOn()) throw new RuntimeException(\"x\"); });",
+                TOGGLE_MEMBERS);
+        write(new File(base, "data/flaky.properties"), "scope=PERSISTENT\n");
+        start("quarantine.failures=1\n");
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+
+        fake.setIgnition(false); // PERSISTENT: not restored by ignition off, but the plugin throws → quarantined
+        for (int i = 0; i < 500 && status("flaky").state() != PluginState.QUARANTINED; i++) {
+            Thread.sleep(10);
+        }
+        assertEquals(PluginState.QUARANTINED, status("flaky").state());
+        awaitApplied(2, F1R1L0X0);
+        awaitNoOverrides();
+    }
+
+    @Test
+    void parkingWriteRequiresPermission() throws Exception {
+        String body = "ctx.log().info(\"read \" + ctx.vehicle().parking().soundDirections());\n"
+                + "try { ctx.vehicle().parking().overrideSoundDirections(new SoundDirections(true, false, false, false),"
+                + " OverrideScope.UNTIL_IGNITION_OFF); ctx.log().info(\"write allowed\"); }\n"
+                + "catch (PermissionDeniedException e) { ctx.log().info(\"write denied \" + e.permission()); }";
+        plugin("reader", new String[] {"vehicle.read"}, new String[] {"vehicle.read"}, body, null);
+        start(null);
+
+        awaitCount("reader", "read " + F1R1L1X1, 1);
+        awaitCount("reader", "write denied vehicle.parking.write", 1);
+        assertTrue(fake.appliedLog().isEmpty());
+        assertTrue(rt.activeOverrides().isEmpty());
+    }
+
+    @Test
+    void grantedButUndeclaredPermissionIsNotUsable() throws Exception {
+        String body = "ctx.log().info(\"granted write=\" + ctx.granted(Permissions.VEHICLE_PARKING_WRITE)"
+                + " + \" read=\" + ctx.granted(Permissions.VEHICLE_READ));\n"
+                + "try { ctx.vehicle().parking().overrideSoundDirections(new SoundDirections(true, false, false, false),"
+                + " OverrideScope.UNTIL_IGNITION_OFF); ctx.log().info(\"write allowed\"); }\n"
+                + "catch (PermissionDeniedException e) { ctx.log().info(\"write denied \" + e.permission()); }";
+        // The manifest declares only vehicle.read; the owner's grants file also lists vehicle.parking.write.
+        plugin("sneaky", new String[] {"vehicle.read"}, READ_WRITE, body, null);
+        start(null);
+
+        assertEquals(PluginState.ENABLED, status("sneaky").state());
+        awaitCount("sneaky", "granted write=false read=true", 1);
+        awaitCount("sneaky", "write denied vehicle.parking.write", 1);
+        assertTrue(fake.appliedLog().isEmpty());
+    }
+
+    @Test
+    void missingParkingFeatureIsUnsupported() throws Exception {
+        fake = platform(Features.IGNITION);
+        plugin("nopark", READ_WRITE, READ_WRITE,
+                "try { ctx.vehicle().parking(); ctx.log().info(\"parking ok\"); }\n"
+                + "catch (UnsupportedOperationException e) { ctx.log().info(\"parking unsupported\"); }", null);
+        start(null);
+
+        awaitCount("nopark", "parking unsupported", 1);
+    }
+
+    @Test
+    void applyRunsOnLedgerThreadAndFailureIsContained() throws Exception {
+        final List<String> threads = Collections.synchronizedList(new ArrayList<String>());
+        final int[] failNext = {1};
+        PlatformAdapter flaky = new DelegatingAdapter(fake) {
+            @Override
+            void beforeApply(SoundDirections v) throws Exception {
+                threads.add(Thread.currentThread().getName());
+                synchronized (failNext) {
+                    if (failNext[0] > 0) {
+                        failNext[0]--;
+                        throw new IllegalStateException("DSI not ready");
+                    }
+                }
+            }
+        };
+        togglePlugin("muter", null);
+        start(null, flaky);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+
+        fake.setIgnition(true); // apply fails once
+        awaitCount("muter", "override active=true", 1);
+        awaitLog(rt.log(), "DSI not ready");
+        assertEquals(1, rt.activeOverrides().size(), "a failed apply keeps the entry (and its prior)");
+        assertTrue(fake.appliedLog().isEmpty());
+
+        fake.setIgnition(true); // release → restore succeeds
+        awaitApplied(1, F1R1L0X0);
+        awaitLedgerEmpty();
+        for (String t : threads) {
+            assertEquals("mibsdk-ledger", t, "ParkingIo.apply runs only on the ledger thread: " + threads);
+        }
+    }
+
+    @Test
+    void restoreFailureIsRetriedAndKeptInLedger() throws Exception {
+        RingLog log = new RingLog(100);
+        OverrideLedger l = ledger(log);
+        RecordingApplier a = new RecordingApplier();
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        a.await(1);
+
+        a.failures = 1;
+        ov.release();
+        assertFalse(ov.isActive());
+        awaitLog(log, "ECU busy");
+        assertTrue(text(ledgerFile()).contains("k=p|PERSISTENT|OLD|NEW"), "kept until the prior is really back");
+
+        clock.advance(5000); // retry delay on the Clock
+        a.await(2);
+        assertEquals("k=OLD", a.calls.get(1));
+        awaitLedgerEmpty();
+    }
+
+    @Test
+    void reacquireWhileRestorePendingInheritsPrior() throws Exception {
+        RingLog log = new RingLog(100);
+        OverrideLedger l = ledger(log);
+        final Object gate = new Object();
+        final boolean[] open = {false};
+        final List<String> calls = Collections.synchronizedList(new ArrayList<String>());
+        OverrideLedger.Applier slow = new OverrideLedger.Applier() {
+            public void apply(String key, String v) throws Exception {
+                synchronized (gate) {
+                    while (!open[0]) {
+                        gate.wait();
+                    }
+                }
+                calls.add(v);
+            }
+        };
+        VehicleOverride first = l.acquire("k", "p", OverrideScope.PERSISTENT, "ORIG", "X", slow);
+        first.release(); // restore queued behind the blocked apply
+        // The ECU has not been restored yet, so the caller's notion of "prior" is the overridden value.
+        VehicleOverride second = l.acquire("k", "q", OverrideScope.PERSISTENT, "X", "Y", slow);
+        assertTrue(second.isActive());
+        synchronized (gate) {
+            open[0] = true;
+            gate.notifyAll();
+        }
+        for (int i = 0; i < 500 && !calls.contains("Y"); i++) {
+            Thread.sleep(10);
+        }
+        assertEquals("Y", calls.get(calls.size() - 1), calls.toString());
+        assertEquals("k=q|PERSISTENT|ORIG|Y\n", text(ledgerFile()));
+        second.release();
+        for (int i = 0; i < 500 && !"ORIG".equals(calls.get(calls.size() - 1)); i++) {
+            Thread.sleep(10);
+        }
+        assertEquals("ORIG", calls.get(calls.size() - 1));
+    }
+
+    @Test
+    void corruptLedgerFileIsEmptyButLogged() throws Exception {
+        write(ledgerFile(), "parking.soundDirections=only-two|fields\nk2=p|NOT_A_SCOPE|A|B\nk3=p|PERSISTENT|A|B\n");
+        RingLog log = new RingLog(100);
+        OverrideLedger l = ledger(log);
+        assertEquals(1, l.active().size(), "well-formed lines survive");
+        assertEquals("k3", l.active().get(0).key());
+        assertTrue(logContains(log, "corrupt"), log.snapshot().toString());
+
+        write(ledgerFile(), "bad=\\u12zz\n");
+        RingLog log2 = new RingLog(100);
+        OverrideLedger l2 = ledger(log2);
+        assertTrue(l2.active().isEmpty());
+        assertTrue(logContains(log2, "corrupt"), log2.snapshot().toString());
+    }
+
+    @Test
+    void ledgerFileHasNoWallClockAndSurvivesRestart() throws Exception {
+        OverrideLedger l = ledger(new RingLog(10));
+        RecordingApplier a = new RecordingApplier();
+        l.acquire(KEY, "muter", OverrideScope.PERSISTENT, "F1R1L0X0", "F1R0L0X0", a);
+        assertEquals("parking.soundDirections=muter|PERSISTENT|F1R1L0X0|F1R0L0X0\n", text(ledgerFile()),
+                "the prior is on disk before acquire returns, and nothing else is");
+        assertFalse(new File(ledgerFile().getPath() + ".tmp").exists());
+
+        OverrideLedger again = ledger(new RingLog(10));
+        assertEquals(1, again.active().size());
+        ActiveOverride o = again.active().get(0);
+        assertEquals("muter", o.pluginId());
+        assertEquals(OverrideScope.PERSISTENT, o.scope());
+        assertEquals("F1R0L0X0", o.activeValue());
+    }
+
+    @Test
+    void releaseAllForRestoresOnlyThatPlugin() throws Exception {
+        OverrideLedger l = ledger(new RingLog(10));
+        RecordingApplier a = new RecordingApplier();
+        VehicleOverride x = l.acquire("k1", "p1", OverrideScope.PERSISTENT, "A0", "A1", a);
+        VehicleOverride y = l.acquire("k2", "p2", OverrideScope.UNTIL_IGNITION_OFF, "B0", "B1", a);
+        a.await(2);
+
+        l.releaseAllFor("p1");
+        a.await(3);
+        assertEquals("k1=A0", a.calls.get(2));
+        assertFalse(x.isActive());
+        assertTrue(y.isActive());
+        x.release(); // already released: no second restore
+        Thread.sleep(100);
+        assertEquals(3, a.calls.size());
+    }
+
+    @Test
+    void shutdownKeepsPersistentForNextBootAndRestoresUntilIgnitionOff() throws Exception {
+        OverrideLedger l = ledger(new RingLog(10));
+        RecordingApplier a = new RecordingApplier();
+        l.acquire("k1", "p", OverrideScope.PERSISTENT, "A0", "A1", a);
+        l.acquire("k2", "p", OverrideScope.UNTIL_IGNITION_OFF, "B0", "B1", a);
+        a.await(2);
+
+        l.beginShutdown();
+        l.releaseAllFor("p"); // what disabling the plugin does during runtime stop
+        assertTrue(l.awaitIdle(5000));
+        assertEquals(3, a.calls.size(), a.calls.toString());
+        assertEquals("k2=B0", a.calls.get(2));
+        assertEquals("k1=p|PERSISTENT|A0|A1\n", text(ledgerFile()));
+    }
+
+    @Test
+    void pluginHoldingOverrideMonitorCannotWedgeStop() throws Exception {
+        plugin("locker", READ_WRITE, READ_WRITE,
+                "final VehicleOverride v = ctx.vehicle().parking().overrideSoundDirections(\n"
+                + "    new SoundDirections(true, false, true, true), OverrideScope.UNTIL_IGNITION_OFF);\n"
+                + "Thread t = new Thread(() -> { synchronized (v) { ctx.log().info(\"locked\");"
+                + " try { Thread.sleep(600000L); } catch (InterruptedException e) { } } });\n"
+                + "t.setDaemon(true); t.start();", null);
+        start(null);
+        awaitCount("locker", "locked", 1);
+        awaitApplied(1, F1R0L1X1);
+
+        final SdkRuntime r = rt;
+        Thread stopper = new Thread() {
+            public void run() {
+                r.stop();
+            }
+        };
+        stopper.setDaemon(true);
+        stopper.start();
+        stopper.join(10000);
+        assertFalse(stopper.isAlive(), "stop() must not block on monitors the plugin holds");
+        awaitApplied(2, F1R1L1X1); // UNTIL_IGNITION_OFF does not outlive the runtime
+    }
+
+    @Test
+    void soundDirectionsEncoding() {
+        assertEquals("F1R0L0X0", ParkingImpl.encode(F1R0L0X0));
+        assertEquals("F0R1L0X1", ParkingImpl.encode(new SoundDirections(false, true, false, true)));
+        assertEquals(F1R1L0X0, ParkingImpl.decode("F1R1L0X0"));
+        assertEquals(new SoundDirections(false, false, true, true), ParkingImpl.decode("F0R0L1X1"));
+        assertThrows(IllegalArgumentException.class, () -> ParkingImpl.decode("F1R1L0"));
+        assertThrows(IllegalArgumentException.class, () -> ParkingImpl.decode("F1R2L0X0"));
+        assertThrows(IllegalArgumentException.class, () -> ParkingImpl.decode("F1R1X0L0"));
+        assertThrows(IllegalArgumentException.class, () -> ParkingImpl.decode(null));
+        assertEquals(KEY, ParkingImpl.KEY);
+    }
+
+    @Test
+    void acquireRejectsValuesThatWouldBreakTheFileFormat() {
+        OverrideLedger l = ledger(new RingLog(10));
+        RecordingApplier a = new RecordingApplier();
+        assertThrows(IllegalArgumentException.class, () -> l.acquire("k", "p|q", OverrideScope.PERSISTENT, "0", "1", a));
+        assertThrows(IllegalArgumentException.class, () -> l.acquire("k=x", "p", OverrideScope.PERSISTENT, "0", "1", a));
+        assertThrows(IllegalArgumentException.class, () -> l.acquire("k", "p", OverrideScope.PERSISTENT, "0\n", "1", a));
+        assertThrows(IllegalArgumentException.class, () -> l.acquire("k", "p", null, "0", "1", a));
+        assertThrows(IllegalArgumentException.class, () -> l.acquire("k", "p", OverrideScope.PERSISTENT, "0", "1", null));
+        assertTrue(l.active().isEmpty());
+        assertFalse(ledgerFile().exists());
+    }
+
+    // ---- fixtures ----
+
+    /** Delegates to a {@link FakePlatform}, with a hook before every ParkingIo.apply. */
+    private static class DelegatingAdapter implements PlatformAdapter {
+        private final FakePlatform inner;
+
+        DelegatingAdapter(FakePlatform inner) {
+            this.inner = inner;
+        }
+
+        void beforeApply(SoundDirections v) throws Exception {
+        }
+
+        public String id() {
+            return inner.id();
+        }
+
+        public boolean supports(String hmiVersion) {
+            return inner.supports(hmiVersion);
+        }
+
+        public Set<String> features() {
+            return inner.features();
+        }
+
+        public void start(PlatformHost host) {
+            inner.start(host);
+        }
+
+        public void stop() {
+            inner.stop();
+        }
+
+        public ParkingIo parking() {
+            final ParkingIo io = inner.parking();
+            assertNotNull(io);
+            return new ParkingIo() {
+                public SoundDirections current() {
+                    return io.current();
+                }
+
+                public void apply(SoundDirections value) throws Exception {
+                    beforeApply(value);
+                    io.apply(value);
+                }
+            };
+        }
+    }
+}

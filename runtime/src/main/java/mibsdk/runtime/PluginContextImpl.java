@@ -2,6 +2,7 @@ package mibsdk.runtime;
 
 import java.util.Set;
 import mibsdk.api.Events;
+import mibsdk.api.Features;
 import mibsdk.api.HookObserved;
 import mibsdk.api.HookPoint;
 import mibsdk.api.Hooks;
@@ -16,6 +17,7 @@ import mibsdk.api.Storage;
 import mibsdk.api.Subscription;
 import mibsdk.api.Vehicle;
 import mibsdk.platform.HookTable;
+import mibsdk.platform.ParkingIo;
 
 /**
  * A plugin's view of the SDK. Every {@link Subscription} handed out (events, timers) is tracked in the
@@ -25,9 +27,11 @@ import mibsdk.platform.HookTable;
  * storage, the returned subscriptions) is ever used as a monitor by SDK code; they lock private objects.
  * Otherwise a plugin could hold the monitor and wedge the runtime's control thread.
  *
- * <p>Permissions: {@link #granted} and the checks in {@link #vehicle()}, {@link #hooks()} and
- * {@code events().on(HookObserved.class)} use the grant set the runtime read for this plugin when it was
- * enabled. Until Task 11, {@code vehicle().parking()} throws {@link UnsupportedOperationException}.
+ * <p>Permissions: {@link #granted} and the checks in {@link #vehicle()}, {@link #hooks()},
+ * {@code events().on(HookObserved.class)} and {@code parking().overrideSoundDirections} use the plugin's
+ * effective permissions, fixed when it was enabled: the permissions its manifest declares that the owner
+ * also granted (a granted but undeclared permission is not usable). {@code vehicle().parking()} throws
+ * {@link UnsupportedOperationException} when the adapter has no {@link Features#PARKING}.
  */
 final class PluginContextImpl implements PluginContext {
 
@@ -149,16 +153,15 @@ final class PluginContextImpl implements PluginContext {
         }
     };
 
-    private static final Vehicle VEHICLE_UNAVAILABLE = new Vehicle() {
-        @Override
-        public Parking parking() {
-            throw new UnsupportedOperationException("parking is not available in this SDK build");
-        }
-    };
+    private final Vehicle vehicle;
 
+    /**
+     * @param granted the effective permissions (manifest permissions that are also granted)
+     * @param parkingIo the adapter's parking I/O, or null when it has none
+     */
     PluginContextImpl(String id, RingLog ringLog, PluginStorage storage, EventBus bus, SerialExecutor exec,
             PluginScheduler pluginScheduler, Registrations registrations, Set<String> features,
-            Set<String> granted, HookTable hookTable) {
+            Set<String> granted, HookTable hookTable, ParkingIo parkingIo, OverrideLedger ledger) {
         this.id = id;
         this.ringLog = ringLog;
         this.storage = storage;
@@ -169,6 +172,17 @@ final class PluginContextImpl implements PluginContext {
         this.features = features;
         this.granted = granted;
         this.hooks = new HooksImpl(hookTable, bus, id, exec, registrations, features, granted);
+        final Parking parking = parkingIo == null || !features.contains(Features.PARKING) ? null
+                : new ParkingImpl(id, parkingIo, ledger, registrations, granted);
+        this.vehicle = new Vehicle() {
+            @Override
+            public Parking parking() {
+                if (parking == null) {
+                    throw new UnsupportedOperationException("parking is not available on this platform");
+                }
+                return parking;
+            }
+        };
     }
 
     @Override
@@ -199,7 +213,7 @@ final class PluginContextImpl implements PluginContext {
     @Override
     public Vehicle vehicle() {
         requirePermission(Permissions.VEHICLE_READ);
-        return VEHICLE_UNAVAILABLE;
+        return vehicle;
     }
 
     @Override

@@ -259,7 +259,9 @@ class HooksTest {
 
     @Test
     void grantedFlagsReflectGrantsFile() throws Exception {
-        plugin("full", PERMS, new String[] {"vehicle.read", HOOKS, "vehicle.parking.write"},
+        // Effective permissions are declared AND granted, so the manifest declares vehicle.parking.write too.
+        plugin("full", new String[] {"vehicle.read", HOOKS, "vehicle.parking.write"},
+                new String[] {"vehicle.read", HOOKS, "vehicle.parking.write", "platform.unrestricted"},
                 "ctx.log().info(\"w=\" + ctx.granted(Permissions.VEHICLE_PARKING_WRITE) + \" u=\""
                 + " + ctx.granted(Permissions.PLATFORM_UNRESTRICTED));");
         start(null);

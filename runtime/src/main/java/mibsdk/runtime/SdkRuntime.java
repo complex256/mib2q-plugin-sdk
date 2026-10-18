@@ -16,9 +16,14 @@ import java.util.List;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+import mibsdk.api.Features;
+import mibsdk.api.IgnitionChanged;
 import mibsdk.api.MibPlugin;
+import mibsdk.api.OverrideScope;
+import mibsdk.api.ParkingSoundChanged;
 import mibsdk.api.PluginContext;
 import mibsdk.platform.HookTable;
+import mibsdk.platform.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
 
@@ -45,7 +50,20 @@ import mibsdk.platform.PlatformHost;
  * <p>Permissions: {@code grants.properties} is read when plugins are loaded and again on every
  * {@link #reload}; a plugin whose manifest asks for a permission that is not granted is
  * {@code BLOCKED_PERMISSIONS} and never runs. Hooks are declarative (see {@link HooksImpl}); a
- * {@link HookDispatcher} thread forwards observations to the plugins' executors.
+ * {@link HookDispatcher} thread forwards observations to the plugins' executors. A plugin's effective
+ * permissions are those its manifest declares that are also granted; a granted but undeclared one is unusable.
+ *
+ * <p>Overrides: writes to persistent vehicle state go through the {@link OverrideLedger}
+ * ({@code <baseDir>/ledger.properties}), which applies and restores on its own {@code mibsdk-ledger}
+ * thread. The runtime restores a plugin's overrides when it is disabled, quarantined, revoked (reload with
+ * fewer grants) or uninstalled; {@code IgnitionChanged(false)} restores every UNTIL_IGNITION_OFF override
+ * before plugins see the event, and {@code ParkingSoundChanged} feeds the ledger's sticky re-apply. At
+ * start, before plugins load: UNTIL_IGNITION_OFF entries left by a run that ended without a clean stop
+ * are restored (the ignition may have been off since), as are entries whose plugin jar is gone; after
+ * loading (and after every reload), entries whose plugin is not ENABLED are restored. {@link #stop()}
+ * restores UNTIL_IGNITION_OFF overrides but keeps PERSISTENT ones in the ledger for the next boot (where
+ * the plugin re-claims them with their original prior, or they are restored as above).
+ * {@link #ledger()}{@code .restorePendingOnBoot} is the safe-mode restore (wired by Task 12).
  *
  * <p>Task 9 scope: {@code start()} loads plugins immediately (the {@code pluginStartDelayMs} delay,
  * boot guard and safe mode arrive with Task 12).
@@ -56,6 +74,8 @@ public final class SdkRuntime {
     private static final String MANIFEST_ENTRY = "plugin.json";
     private static final int MAX_MANIFEST_BYTES = 64 * 1024;
     private static final long WAIT_SLICE_MS = 50;
+    /** How long stop() waits (real time) for queued restores before stopping the adapter. */
+    private static final long LEDGER_DRAIN_MS = 5000;
 
     /** Test hook: simulates an SDK-side failure (e.g. OOM creating a thread) while enabling. */
     interface EnableHook {
@@ -96,6 +116,7 @@ public final class SdkRuntime {
     private final HookDispatcher dispatcher;
     private final PluginJarCache jarCache;
     private final ClassLoader pluginParent;
+    private final OverrideLedger ledger;
 
     private final List hosts = new ArrayList(); // PluginHost in discovery order; guarded by this
     private final List enabledOrder = new ArrayList(); // active PluginHost, oldest enable first; guarded by this
@@ -110,6 +131,7 @@ public final class SdkRuntime {
     private final PlatformHost platformHost = new PlatformHost() {
         @Override
         public void publish(Object apiEvent) {
+            feedLedger(apiEvent); // before plugins see it: ignition off restores first
             bus.publish(apiEvent);
         }
 
@@ -124,6 +146,17 @@ public final class SdkRuntime {
         }
     };
 
+    /** Applies ledger values through the adapter; used for entries loaded from the ledger file. */
+    private final OverrideLedger.Applier platformApplier = new OverrideLedger.Applier() {
+        public void apply(String key, String encodedValue) throws Exception {
+            ParkingIo io = platform.parking();
+            if (io == null) {
+                throw new UnsupportedOperationException("the adapter has no parking I/O");
+            }
+            ParkingImpl.applier(io).apply(key, encodedValue);
+        }
+    };
+
     public SdkRuntime(RuntimeConfig cfg, PlatformAdapter platform, Clock clock, HookTable hooks, RingLog log) {
         this.cfg = cfg;
         this.platform = platform;
@@ -135,6 +168,7 @@ public final class SdkRuntime {
         this.pluginParent = new FilteringParentLoader(SdkRuntime.class.getClassLoader(),
                 RuntimeConstants.PLUGIN_PARENT_PREFIXES);
         log.setClock(clock);
+        this.ledger = new OverrideLedger(new File(cfg.baseDir(), "ledger.properties"), clock, log);
     }
 
     /** Starts the adapter, then loads and enables every plugin (blocks until done). Only the first call counts. */
@@ -164,6 +198,7 @@ public final class SdkRuntime {
             platform.start(platformHost);
             features = Collections.unmodifiableSet(new HashSet<String>(platform.features()));
             adapterId = platform.id();
+            ledger.attach(platformApplier);
             adapterStarted = true;
         } catch (Throwable t) {
             log.append("ERROR", SOURCE, "adapter failed to start, no plugins will load: " + describe(t));
@@ -189,6 +224,7 @@ public final class SdkRuntime {
             stopped = true;
             c = control;
         }
+        ledger.beginShutdown(); // PERSISTENT overrides stay in the ledger for the next boot
         runOnControl(c, "stop", new Runnable() {
             public void run() {
                 PluginHost[] active;
@@ -200,6 +236,9 @@ public final class SdkRuntime {
                 }
             }
         });
+        if (!ledger.awaitIdle(LEDGER_DRAIN_MS)) { // restores need the adapter: let them finish first
+            log.append("WARN", SOURCE, "override restores still pending at stop; the ledger keeps them for the next boot");
+        }
         dispatcher.stop();
         try {
             platform.stop();
@@ -207,6 +246,7 @@ public final class SdkRuntime {
             log.append("ERROR", SOURCE, "adapter stop failed: " + describe(t));
         }
         c.shutdown();
+        ledger.shutdown();
         log.append("STATUS", SOURCE, "runtime stopped");
     }
 
@@ -250,6 +290,16 @@ public final class SdkRuntime {
         return log;
     }
 
+    /** Every override of vehicle state currently in force, sorted by key (for the indicator UI). */
+    public List<ActiveOverride> activeOverrides() {
+        return ledger.active();
+    }
+
+    /** The override ledger (Task 12 calls {@code restorePendingOnBoot} on it in safe mode). */
+    OverrideLedger ledger() {
+        return ledger;
+    }
+
     /** Test hook: live event subscriptions across all plugins. */
     int eventSubscriberCount() {
         return bus.subscriberCount();
@@ -260,6 +310,7 @@ public final class SdkRuntime {
     private void loadAll() {
         grants = Grants.load(cfg.grantsFile());
         purgeSnapshots(); // stale copies from a previous run
+        restoreStaleOverrides();
         File[] files = cfg.pluginsDir().listFiles();
         if (files == null) {
             files = new File[0];
@@ -289,6 +340,7 @@ public final class SdkRuntime {
                 abortEnable(h, "runtime error while enabling: " + describe(t));
             }
         }
+        restoreOrphanedOverrides();
         purgeSnapshots();
     }
 
@@ -366,6 +418,7 @@ public final class SdkRuntime {
             if (h.registrations != null) {
                 h.registrations.cancelAll();
             }
+            ledger.releaseAllFor(h.id);
             if (h.exec != null) {
                 h.exec.shutdown();
             }
@@ -412,7 +465,7 @@ public final class SdkRuntime {
         h.exec = new SerialExecutor("plugin-" + h.id, clock, cfg.slowMs(), cfg.hungMs(), executorListener(h));
         h.scheduler = new PluginScheduler(h.exec, clock);
         h.ctx = new PluginContextImpl(h.id, log, h.storage, bus, h.exec, h.scheduler, h.registrations, features,
-                grants.granted(h.id), hooks);
+                effectivePermissions(m), hooks, parkingIo(), ledger);
         EnableHook hook = testEnableHook;
         if (hook != null) {
             hook.afterResources(h.id);
@@ -465,7 +518,8 @@ public final class SdkRuntime {
             h.active = false;
             enabledOrder.remove(h);
         }
-        h.registrations.cancelAll();
+        h.registrations.cancelAll(); // releases the plugin's live overrides
+        ledger.releaseAllFor(h.id); // and any it owns from a previous run
         h.storage.flushNow();
         final MibPlugin p = h.plugin;
         if (runOnDisable && p != null && !h.hung) {
@@ -513,6 +567,7 @@ public final class SdkRuntime {
             if (old != null) {
                 setState(old, PluginState.DISABLED, "plugin jar not found");
             }
+            restoreOrphanedOverrides();
             purgeSnapshots();
             return;
         }
@@ -526,7 +581,83 @@ public final class SdkRuntime {
                 enableIfDependenciesEnabled(h);
             }
         }
+        restoreOrphanedOverrides();
         purgeSnapshots();
+    }
+
+    /** The manifest's permissions that are also granted: what the plugin may actually use. */
+    private Set<String> effectivePermissions(PluginManifest m) {
+        Set<String> granted = grants.granted(m.id());
+        List<String> declared = m.permissions();
+        Set<String> out = new HashSet<String>();
+        for (int i = 0; i < declared.size(); i++) {
+            String p = (String) declared.get(i);
+            if (granted.contains(p)) {
+                out.add(p);
+            }
+        }
+        return Collections.unmodifiableSet(out);
+    }
+
+    /** At start, before plugins load: restores ledger entries that must not survive into this run. */
+    private void restoreStaleOverrides() {
+        List<ActiveOverride> left = ledger.active();
+        boolean untilIgnitionOff = false;
+        for (int i = 0; i < left.size(); i++) {
+            ActiveOverride o = (ActiveOverride) left.get(i);
+            untilIgnitionOff |= o.scope() == OverrideScope.UNTIL_IGNITION_OFF;
+        }
+        if (untilIgnitionOff) {
+            log.append("INFO", SOURCE, "restoring UNTIL_IGNITION_OFF overrides left by the previous run");
+            ledger.releaseScope(OverrideScope.UNTIL_IGNITION_OFF);
+        }
+        left = ledger.active();
+        for (int i = 0; i < left.size(); i++) {
+            ActiveOverride o = (ActiveOverride) left.get(i);
+            if (!new File(cfg.pluginsDir(), o.pluginId() + ".jar").isFile()) {
+                log.append("INFO", SOURCE, "restoring " + o.key() + " of " + o.pluginId() + ": plugin is not installed");
+                ledger.releaseAllFor(o.pluginId());
+            }
+        }
+    }
+
+    /** Restores ledger entries whose plugin is not running (blocked, failed, revoked, removed). */
+    private void restoreOrphanedOverrides() {
+        List<ActiveOverride> all = ledger.active();
+        for (int i = 0; i < all.size(); i++) {
+            ActiveOverride o = (ActiveOverride) all.get(i);
+            PluginHost h = findHost(o.pluginId());
+            PluginState s = h == null ? null : stateOf(h);
+            if (s != PluginState.ENABLED) {
+                log.append("INFO", SOURCE, "restoring " + o.key() + " of " + o.pluginId() + ": plugin is "
+                        + (s == null ? "not installed" : s.toString()));
+                ledger.releaseAllFor(o.pluginId());
+            }
+        }
+    }
+
+    /** The adapter's parking I/O, or null (no Features.PARKING, or the adapter failed). */
+    private ParkingIo parkingIo() {
+        try {
+            return features.contains(Features.PARKING) ? platform.parking() : null;
+        } catch (Throwable t) {
+            log.append("ERROR", SOURCE, "adapter parking() failed: " + describe(t));
+            return null;
+        }
+    }
+
+    /** Feeds platform events to the ledger. Called while publishing; never blocks, never throws. */
+    private void feedLedger(Object event) {
+        try {
+            if (event instanceof IgnitionChanged && !((IgnitionChanged) event).isOn()) {
+                ledger.releaseScope(OverrideScope.UNTIL_IGNITION_OFF);
+            } else if (event instanceof ParkingSoundChanged && ((ParkingSoundChanged) event).value() != null) {
+                ledger.onObserved(ParkingImpl.KEY, ParkingImpl.encode(((ParkingSoundChanged) event).value()));
+            }
+        } catch (Throwable t) {
+            log.append("ERROR", SOURCE, "override ledger could not process " + event.getClass().getName() + ": "
+                    + describe(t));
+        }
     }
 
     /** "missing permissions: a, b" when the manifest asks for permissions that are not granted, else null. */
