@@ -42,8 +42,13 @@ import mibsdk.platform.PlatformHost;
  * cancels the plugin's registrations, flushes its storage, runs {@code onDisable} on its executor
  * (skipped when the executor is hung; abandoned if it hangs) and shuts the executor down.
  *
+ * <p>Permissions: {@code grants.properties} is read when plugins are loaded and again on every
+ * {@link #reload}; a plugin whose manifest asks for a permission that is not granted is
+ * {@code BLOCKED_PERMISSIONS} and never runs. Hooks are declarative (see {@link HooksImpl}); a
+ * {@link HookDispatcher} thread forwards observations to the plugins' executors.
+ *
  * <p>Task 9 scope: {@code start()} loads plugins immediately (the {@code pluginStartDelayMs} delay,
- * boot guard and safe mode arrive with Task 12); grants are not enforced yet (Task 10).
+ * boot guard and safe mode arrive with Task 12).
  */
 public final class SdkRuntime {
 
@@ -88,11 +93,13 @@ public final class SdkRuntime {
     private final HookTable hooks;
     private final RingLog log;
     private final EventBus bus = new EventBus();
+    private final HookDispatcher dispatcher;
     private final PluginJarCache jarCache;
     private final ClassLoader pluginParent;
 
     private final List hosts = new ArrayList(); // PluginHost in discovery order; guarded by this
     private final List enabledOrder = new ArrayList(); // active PluginHost, oldest enable first; guarded by this
+    private volatile Grants grants = Grants.load(null); // re-read by loadAll and reload on the control thread
     private volatile Set<String> features = Collections.emptySet(); // written once on the control thread before loading
     private SerialExecutor control; // guarded by this
     private boolean started; // guarded by this
@@ -123,6 +130,7 @@ public final class SdkRuntime {
         this.clock = clock;
         this.hooks = hooks;
         this.log = log;
+        this.dispatcher = new HookDispatcher(hooks, bus);
         this.jarCache = new PluginJarCache(cfg.cacheDir());
         this.pluginParent = new FilteringParentLoader(SdkRuntime.class.getClassLoader(),
                 RuntimeConstants.PLUGIN_PARENT_PREFIXES);
@@ -162,6 +170,7 @@ public final class SdkRuntime {
         }
         log.append("STATUS", SOURCE, "runtime started adapter=" + adapterId + " safeMode=" + safeMode());
         if (adapterStarted) {
+            dispatcher.start();
             runOnControl(c, "load", new Runnable() {
                 public void run() {
                     loadAll();
@@ -191,6 +200,7 @@ public final class SdkRuntime {
                 }
             }
         });
+        dispatcher.stop();
         try {
             platform.stop();
         } catch (Throwable t) {
@@ -248,6 +258,7 @@ public final class SdkRuntime {
     // ---- control thread ----
 
     private void loadAll() {
+        grants = Grants.load(cfg.grantsFile());
         purgeSnapshots(); // stale copies from a previous run
         File[] files = cfg.pluginsDir().listFiles();
         if (files == null) {
@@ -387,6 +398,12 @@ public final class SdkRuntime {
                     "cannot load jar: " + describe(t));
             return;
         }
+        String missing = missingPermissions(m); // the snapshot is what runs, so check what it asks for
+        if (missing != null) {
+            snap.delete();
+            setState(h, PluginState.BLOCKED_PERMISSIONS, missing);
+            return;
+        }
         h.manifest = m;
         h.snapshot = snap;
         h.failures = new FailureTracker(cfg.quarantineFailures(), cfg.quarantineWindowMs(), clock);
@@ -394,7 +411,8 @@ public final class SdkRuntime {
         h.storage = new PluginStorage(new File(cfg.dataDir(), h.id + ".properties"), clock);
         h.exec = new SerialExecutor("plugin-" + h.id, clock, cfg.slowMs(), cfg.hungMs(), executorListener(h));
         h.scheduler = new PluginScheduler(h.exec, clock);
-        h.ctx = new PluginContextImpl(h.id, log, h.storage, bus, h.exec, h.scheduler, h.registrations, features);
+        h.ctx = new PluginContextImpl(h.id, log, h.storage, bus, h.exec, h.scheduler, h.registrations, features,
+                grants.granted(h.id), hooks);
         EnableHook hook = testEnableHook;
         if (hook != null) {
             hook.afterResources(h.id);
@@ -485,6 +503,7 @@ public final class SdkRuntime {
             log.append("WARN", SOURCE, "reload ignored: invalid plugin id");
             return;
         }
+        grants = Grants.load(cfg.grantsFile());
         PluginHost old = findHost(id);
         if (old != null) {
             disableHost(old, PluginState.DISABLED, "reloading", true);
@@ -510,6 +529,27 @@ public final class SdkRuntime {
         purgeSnapshots();
     }
 
+    /** "missing permissions: a, b" when the manifest asks for permissions that are not granted, else null. */
+    private String missingPermissions(PluginManifest m) {
+        Set<String> granted = grants.granted(m.id());
+        List<String> wanted = m.permissions();
+        List missing = new ArrayList();
+        for (int i = 0; i < wanted.size(); i++) {
+            String p = (String) wanted.get(i);
+            if (!granted.contains(p) && !missing.contains(p)) {
+                missing.add(p);
+            }
+        }
+        if (missing.isEmpty()) {
+            return null;
+        }
+        StringBuffer b = new StringBuffer("missing permissions: ");
+        for (int i = 0; i < missing.size(); i++) {
+            b.append(i > 0 ? ", " : "").append((String) missing.get(i));
+        }
+        return b.toString();
+    }
+
     /** Reads plugin.json; the host is DISCOVERED, or BLOCKED_INVALID with the reason. */
     private PluginHost discover(File jar) {
         String base = jar.getName().substring(0, jar.getName().length() - ".jar".length());
@@ -518,6 +558,10 @@ public final class SdkRuntime {
             if (!jar.getName().equals(m.id() + ".jar")) {
                 return new PluginHost(safeLabel(base), jar, null, PluginState.BLOCKED_INVALID,
                         "jar of plugin " + m.id() + " must be named " + m.id() + ".jar");
+            }
+            String missing = missingPermissions(m);
+            if (missing != null) {
+                return new PluginHost(m.id(), jar, m, PluginState.BLOCKED_PERMISSIONS, missing);
             }
             return new PluginHost(m.id(), jar, m, PluginState.DISCOVERED, "discovered");
         } catch (Throwable t) {

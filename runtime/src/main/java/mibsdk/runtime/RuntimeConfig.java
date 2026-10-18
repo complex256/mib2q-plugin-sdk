@@ -110,6 +110,10 @@ public final class RuntimeConfig {
         return new File(baseDir, "plugins");
     }
 
+    public File grantsFile() {
+        return new File(baseDir, "grants.properties");
+    }
+
     public File dataDir() {
         return new File(baseDir, "data");
     }

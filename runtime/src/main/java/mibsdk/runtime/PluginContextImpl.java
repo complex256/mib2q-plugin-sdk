@@ -8,12 +8,14 @@ import mibsdk.api.Hooks;
 import mibsdk.api.Listener;
 import mibsdk.api.Log;
 import mibsdk.api.Parking;
+import mibsdk.api.PermissionDeniedException;
+import mibsdk.api.Permissions;
 import mibsdk.api.PluginContext;
 import mibsdk.api.Scheduler;
 import mibsdk.api.Storage;
 import mibsdk.api.Subscription;
 import mibsdk.api.Vehicle;
-import mibsdk.api.Veto;
+import mibsdk.platform.HookTable;
 
 /**
  * A plugin's view of the SDK. Every {@link Subscription} handed out (events, timers) is tracked in the
@@ -23,10 +25,9 @@ import mibsdk.api.Veto;
  * storage, the returned subscriptions) is ever used as a monitor by SDK code; they lock private objects.
  * Otherwise a plugin could hold the monitor and wedge the runtime's control thread.
  *
- * <p>Until Task 10/11: {@link #hooks()} returns a stub whose methods throw
- * {@link UnsupportedOperationException}; {@link #vehicle()} returns a {@link Vehicle} whose
- * {@code parking()} throws {@link UnsupportedOperationException}; {@link #granted} is false for every
- * permission (no grants are loaded yet).
+ * <p>Permissions: {@link #granted} and the checks in {@link #vehicle()}, {@link #hooks()} and
+ * {@code events().on(HookObserved.class)} use the grant set the runtime read for this plugin when it was
+ * enabled. Until Task 11, {@code vehicle().parking()} throws {@link UnsupportedOperationException}.
  */
 final class PluginContextImpl implements PluginContext {
 
@@ -35,7 +36,7 @@ final class PluginContextImpl implements PluginContext {
      * plugin holds this object, so its state is guarded by a private lock, never {@code this}: a plugin
      * doing {@code synchronized (subscription)} must not block the runtime's cancelAll().
      */
-    private static final class Tracked implements Subscription {
+    static final class Tracked implements Subscription {
         private final Registrations registrations;
         private final Object lock = new Object();
         private Subscription inner; // guarded by lock
@@ -78,6 +79,8 @@ final class PluginContextImpl implements PluginContext {
     private final PluginScheduler pluginScheduler;
     private final Registrations registrations;
     private final Set<String> features;
+    private final Set<String> granted;
+    private final Hooks hooks;
 
     private final Log log = new Log() {
         @Override
@@ -101,6 +104,10 @@ final class PluginContextImpl implements PluginContext {
         public <E> Subscription on(Class<E> type, Listener<? super E> listener) {
             if (type == null || listener == null) {
                 throw new IllegalArgumentException("type and listener are required");
+            }
+            if (type.isAssignableFrom(HookObserved.class)) {
+                // Hook observations travel on this bus; they are only for plugins allowed to hook.
+                requirePermission(HooksImpl.permissionFor(HookPoint.PARKING_SOUND_SET));
             }
             Tracked t = new Tracked(registrations);
             registrations.add(t);
@@ -142,18 +149,6 @@ final class PluginContextImpl implements PluginContext {
         }
     };
 
-    private static final Hooks HOOKS_UNAVAILABLE = new Hooks() {
-        @Override
-        public Veto veto(HookPoint point) {
-            throw new UnsupportedOperationException("hooks are not available in this SDK build");
-        }
-
-        @Override
-        public Subscription observe(HookPoint point, Listener<HookObserved> l) {
-            throw new UnsupportedOperationException("hooks are not available in this SDK build");
-        }
-    };
-
     private static final Vehicle VEHICLE_UNAVAILABLE = new Vehicle() {
         @Override
         public Parking parking() {
@@ -162,7 +157,8 @@ final class PluginContextImpl implements PluginContext {
     };
 
     PluginContextImpl(String id, RingLog ringLog, PluginStorage storage, EventBus bus, SerialExecutor exec,
-            PluginScheduler pluginScheduler, Registrations registrations, Set<String> features) {
+            PluginScheduler pluginScheduler, Registrations registrations, Set<String> features,
+            Set<String> granted, HookTable hookTable) {
         this.id = id;
         this.ringLog = ringLog;
         this.storage = storage;
@@ -171,6 +167,8 @@ final class PluginContextImpl implements PluginContext {
         this.pluginScheduler = pluginScheduler;
         this.registrations = registrations;
         this.features = features;
+        this.granted = granted;
+        this.hooks = new HooksImpl(hookTable, bus, id, exec, registrations, features, granted);
     }
 
     @Override
@@ -195,11 +193,12 @@ final class PluginContextImpl implements PluginContext {
 
     @Override
     public Hooks hooks() {
-        return HOOKS_UNAVAILABLE;
+        return hooks;
     }
 
     @Override
     public Vehicle vehicle() {
+        requirePermission(Permissions.VEHICLE_READ);
         return VEHICLE_UNAVAILABLE;
     }
 
@@ -215,6 +214,12 @@ final class PluginContextImpl implements PluginContext {
 
     @Override
     public boolean granted(String permission) {
-        return false;
+        return permission != null && granted.contains(permission);
+    }
+
+    private void requirePermission(String permission) {
+        if (!granted.contains(permission)) {
+            throw new PermissionDeniedException(permission);
+        }
     }
 }
