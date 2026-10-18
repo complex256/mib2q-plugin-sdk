@@ -1,0 +1,12 @@
+build/
+.gradle/
+.superpowers/
+*.class
+spikes/modern-java/tools/
+spikes/modern-java/out/
+spikes/modern-java/out-k/
+spikes/modern-java/carjcl/
+spikes/modern-java/compat/out/
+spikes/modern-java/car/payload/
+spikes/modern-java/car/build/
+spikes/modern-java/car/results-*.log

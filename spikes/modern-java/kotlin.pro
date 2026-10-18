@@ -1,0 +1,10 @@
+-injars out/k8.jar
+-injars tools/kotlinc/lib/kotlin-stdlib.jar(!META-INF/**)
+-outjars out/k8-shrunk.jar
+-libraryjars <java.home>/lib/rt.jar
+-keep class spikek.HelloK { public static void main(java.lang.String[]); }
+-keepnames class ** { *; }
+-dontoptimize
+-dontwarn **
+-ignorewarnings
+-keepattributes !LocalVariableTable,!LocalVariableTypeTable,*
