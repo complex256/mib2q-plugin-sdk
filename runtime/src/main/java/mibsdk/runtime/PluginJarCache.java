@@ -24,16 +24,25 @@ public final class PluginJarCache {
 
     /** Copies {@code pluginJar} to {@code cache/<name>-<n>.jar} and returns the copy. */
     public File snapshot(File pluginJar) throws IOException {
-        if (!cacheDir.isDirectory() && !cacheDir.mkdirs() && !cacheDir.isDirectory()) {
-            throw new IOException("cannot create cache dir " + cacheDir);
-        }
         String base = pluginJar.getName();
         if (base.endsWith(".jar")) {
             base = base.substring(0, base.length() - 4);
         }
+        return snapshot(pluginJar, base);
+    }
+
+    /**
+     * Copies {@code pluginJar} to {@code cache/<baseName>-<n>.jar}. The runtime passes the validated
+     * manifest id: {@code File.toURL()} does not escape {@code #} or {@code %}, so an arbitrary jar file
+     * name could make the snapshot unloadable.
+     */
+    public File snapshot(File pluginJar, String baseName) throws IOException {
+        if (!cacheDir.isDirectory() && !cacheDir.mkdirs() && !cacheDir.isDirectory()) {
+            throw new IOException("cannot create cache dir " + cacheDir);
+        }
         File copy;
         do {
-            copy = new File(cacheDir, base + "-" + nextId() + ".jar");
+            copy = new File(cacheDir, baseName + "-" + nextId() + ".jar");
         } while (copy.exists());
         try {
             copyFile(pluginJar, copy);

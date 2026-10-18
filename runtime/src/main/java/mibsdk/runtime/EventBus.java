@@ -59,7 +59,8 @@ public final class EventBus {
                 continue;
             }
             try {
-                s.exec.submit("event:" + s.pluginId + ":" + event.getClass().getName(), new Runnable() {
+                String label = "event:" + s.pluginId + ":" + event.getClass().getName();
+                boolean accepted = s.exec.submit(label, new Runnable() {
                     public void run() {
                         if (s.cancelled) {
                             return;
@@ -72,10 +73,18 @@ public final class EventBus {
                         }
                     }
                 });
+                if (!accepted) {
+                    s.cancel(); // the executor was shut down: this subscription can never fire again
+                }
             } catch (Throwable ignored) {
                 // a broken executor must not stop delivery to the others
             }
         }
+    }
+
+    /** Test hook. */
+    synchronized int subscriberCount() {
+        return subs.size();
     }
 
     private synchronized void remove(Sub s) {

@@ -185,4 +185,19 @@ class EventBusTest {
         assertEquals(1, seen.size());
         assertFalse(failures.failures.contains(null));
     }
+
+    @Test
+    void subscriptionOnShutDownExecutorIsPruned() {
+        SerialExecutor exec = executor("plugin-a");
+        bus.subscribe("a", IgnitionChanged.class, new Listener<IgnitionChanged>() {
+            public void on(IgnitionChanged e) {
+            }
+        }, exec);
+        assertEquals(1, bus.subscriberCount());
+        exec.shutdown();
+
+        bus.publish(new IgnitionChanged(true));
+
+        assertEquals(0, bus.subscriberCount());
+    }
 }

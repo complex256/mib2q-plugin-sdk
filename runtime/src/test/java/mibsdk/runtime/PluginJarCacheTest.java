@@ -96,4 +96,13 @@ class PluginJarCacheTest {
         assertTrue(b.exists());
         assertFalse(c.exists());
     }
+
+    @Test
+    void snapshotUsesGivenBaseNameNotJarFileName() throws Exception {
+        File jar = tmp.resolve("we#ird%name.jar").toFile();
+        writeJar(jar, "x");
+        File copy = new PluginJarCache(tmp.resolve("cache").toFile()).snapshot(jar, "plugin-id");
+        assertTrue(copy.getName().startsWith("plugin-id-"), copy.getName());
+        assertEquals("x", loadAndDescribe(copy));
+    }
 }
