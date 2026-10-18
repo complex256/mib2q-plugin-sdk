@@ -57,12 +57,16 @@ import mibsdk.platform.PlatformHost;
  * ({@code <baseDir>/ledger.properties}), which applies and restores on its own {@code mibsdk-ledger}
  * thread. The runtime restores a plugin's overrides when it is disabled, quarantined, revoked (reload with
  * fewer grants) or uninstalled; {@code IgnitionChanged(false)} restores every UNTIL_IGNITION_OFF override
- * before plugins see the event, and {@code ParkingSoundChanged} feeds the ledger's sticky re-apply. At
+ * before plugins see the event, and {@code ParkingSoundChanged} feeds the ledger's sticky re-apply. A
+ * failed restore is retried with backoff for as long as the runtime runs, and at once on
+ * {@code IgnitionChanged(true)} or any parking observation; until it succeeds the entry stays in
+ * {@link #activeOverrides()} with {@code restorePending()}. At
  * start, before plugins load: UNTIL_IGNITION_OFF entries left by a run that ended without a clean stop
  * are restored (the ignition may have been off since), as are entries whose plugin jar is gone; after
  * loading (and after every reload), entries whose plugin is not ENABLED are restored. {@link #stop()}
  * restores UNTIL_IGNITION_OFF overrides but keeps PERSISTENT ones in the ledger for the next boot (where
- * the plugin re-claims them with their original prior, or they are restored as above).
+ * the plugin re-claims them with their original prior, or they are restored as above), unless the plugin
+ * releases them itself in {@code onDisable}.
  * {@link #ledger()}{@code .restorePendingOnBoot} is the safe-mode restore (wired by Task 12).
  *
  * <p>Task 9 scope: {@code start()} loads plugins immediately (the {@code pluginStartDelayMs} delay,
@@ -194,11 +198,11 @@ public final class SdkRuntime {
             c = control;
         }
         String adapterId = "none";
+        ledger.attach(platformApplier); // before the adapter can publish: creates the ledger thread here
         try {
             platform.start(platformHost);
             features = Collections.unmodifiableSet(new HashSet<String>(platform.features()));
             adapterId = platform.id();
-            ledger.attach(platformApplier);
             adapterStarted = true;
         } catch (Throwable t) {
             log.append("ERROR", SOURCE, "adapter failed to start, no plugins will load: " + describe(t));
@@ -224,9 +228,9 @@ public final class SdkRuntime {
             stopped = true;
             c = control;
         }
-        ledger.beginShutdown(); // PERSISTENT overrides stay in the ledger for the next boot
         runOnControl(c, "stop", new Runnable() {
             public void run() {
+                ledger.beginShutdown(); // from here PERSISTENT overrides stay in the ledger for the next boot
                 PluginHost[] active;
                 synchronized (SdkRuntime.this) {
                     active = (PluginHost[]) enabledOrder.toArray(new PluginHost[enabledOrder.size()]);
@@ -605,7 +609,7 @@ public final class SdkRuntime {
         boolean untilIgnitionOff = false;
         for (int i = 0; i < left.size(); i++) {
             ActiveOverride o = (ActiveOverride) left.get(i);
-            untilIgnitionOff |= o.scope() == OverrideScope.UNTIL_IGNITION_OFF;
+            untilIgnitionOff |= !o.restorePending() && o.scope() == OverrideScope.UNTIL_IGNITION_OFF;
         }
         if (untilIgnitionOff) {
             log.append("INFO", SOURCE, "restoring UNTIL_IGNITION_OFF overrides left by the previous run");
@@ -614,7 +618,7 @@ public final class SdkRuntime {
         left = ledger.active();
         for (int i = 0; i < left.size(); i++) {
             ActiveOverride o = (ActiveOverride) left.get(i);
-            if (!new File(cfg.pluginsDir(), o.pluginId() + ".jar").isFile()) {
+            if (!o.restorePending() && !new File(cfg.pluginsDir(), o.pluginId() + ".jar").isFile()) {
                 log.append("INFO", SOURCE, "restoring " + o.key() + " of " + o.pluginId() + ": plugin is not installed");
                 ledger.releaseAllFor(o.pluginId());
             }
@@ -628,7 +632,7 @@ public final class SdkRuntime {
             ActiveOverride o = (ActiveOverride) all.get(i);
             PluginHost h = findHost(o.pluginId());
             PluginState s = h == null ? null : stateOf(h);
-            if (s != PluginState.ENABLED) {
+            if (!o.restorePending() && s != PluginState.ENABLED) {
                 log.append("INFO", SOURCE, "restoring " + o.key() + " of " + o.pluginId() + ": plugin is "
                         + (s == null ? "not installed" : s.toString()));
                 ledger.releaseAllFor(o.pluginId());
@@ -649,8 +653,12 @@ public final class SdkRuntime {
     /** Feeds platform events to the ledger. Called while publishing; never blocks, never throws. */
     private void feedLedger(Object event) {
         try {
-            if (event instanceof IgnitionChanged && !((IgnitionChanged) event).isOn()) {
-                ledger.releaseScope(OverrideScope.UNTIL_IGNITION_OFF);
+            if (event instanceof IgnitionChanged) {
+                if (((IgnitionChanged) event).isOn()) {
+                    ledger.retryPendingRestores(); // the ECUs are awake: a failed restore should go through now
+                } else {
+                    ledger.releaseScope(OverrideScope.UNTIL_IGNITION_OFF);
+                }
             } else if (event instanceof ParkingSoundChanged && ((ParkingSoundChanged) event).value() != null) {
                 ledger.onObserved(ParkingImpl.KEY, ParkingImpl.encode(((ParkingSoundChanged) event).value()));
             }

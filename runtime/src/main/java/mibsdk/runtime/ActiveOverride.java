@@ -2,19 +2,21 @@ package mibsdk.runtime;
 
 import mibsdk.api.OverrideScope;
 
-/** Immutable snapshot of one override the ledger holds (for the indicator UI and diagnostics). */
+/** Immutable snapshot of one ledger entry whose effect may still be on the car (for the indicator UI). */
 public final class ActiveOverride {
 
     private final String key;
     private final String pluginId;
     private final OverrideScope scope;
     private final String activeValue;
+    private final boolean restorePending;
 
-    ActiveOverride(String key, String pluginId, OverrideScope scope, String activeValue) {
+    ActiveOverride(String key, String pluginId, OverrideScope scope, String activeValue, boolean restorePending) {
         this.key = key;
         this.pluginId = pluginId;
         this.scope = scope;
         this.activeValue = activeValue;
+        this.restorePending = restorePending;
     }
 
     public String key() {
@@ -34,8 +36,16 @@ public final class ActiveOverride {
         return activeValue;
     }
 
+    /**
+     * True once the override has ended but its prior value is not back on the car yet (the restore failed
+     * and is being retried). The indicator should keep showing it, e.g. as "restoring".
+     */
+    public boolean restorePending() {
+        return restorePending;
+    }
+
     @Override
     public String toString() {
-        return key + "=" + activeValue + " by " + pluginId + " (" + scope + ")";
+        return key + "=" + activeValue + " by " + pluginId + " (" + scope + (restorePending ? ", restoring" : "") + ")";
     }
 }

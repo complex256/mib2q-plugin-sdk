@@ -22,7 +22,8 @@ import mibsdk.api.VehicleOverride;
  * <p>File: {@code <baseDir>/ledger.properties}, one line per key, {@code <key>=<pluginId>|<scope>|<prior>|<active>},
  * sorted by key, no comments and no wall-clock values (an empty ledger is an empty file). Written with
  * temp file + fsync + rename on every change. The prior is on disk before {@link #acquire} returns and
- * before anything is applied; an entry leaves the file only once its prior has been applied successfully.
+ * before anything is applied; an entry leaves the file only once its prior is back (applied, or reported
+ * by the car).
  * An unreadable file is treated as empty (logged, and kept aside as {@code ledger.properties.corrupt});
  * a malformed line is skipped (logged).
  *
@@ -41,8 +42,12 @@ import mibsdk.api.VehicleOverride;
  * <p>Sticky: while an override is in force, an observed value different from it is re-applied
  * 1000 ms after the last change, at most 5 times per 60000 ms (all on the {@link Clock}); then the ledger gives up re-applying (logged) but still restores later.
  *
- * <p>Failures: an apply or restore that throws is logged and retried every 5000 ms (Clock), at most
- * 5 attempts; a restore that never succeeds stays in the file for the next boot.
+ * <p>Failures: an apply or restore that throws is logged and retried with backoff on the Clock (5 s,
+ * doubling, capped at 60 s). An apply gives up after 5 attempts (the car keeps its value). A restore is
+ * never given up while the runtime runs: it is also retried at once by {@link #retryPendingRestores()}
+ * (ignition on) and by any {@link #onObserved} of its key, and an observed value equal to the prior
+ * completes it. Until then the entry stays in the file and in {@link #active()} with
+ * {@link ActiveOverride#restorePending()}.
  */
 public final class OverrideLedger {
 
@@ -55,6 +60,8 @@ public final class OverrideLedger {
     static final int MAX_REAPPLIES = 5;
     static final long REAPPLY_WINDOW_MS = 60000;
     static final long RETRY_MS = 5000;
+    static final long MAX_RETRY_MS = 60000;
+    /** Attempts for applying an override; a restore is never given up while the runtime runs. */
     static final int MAX_ATTEMPTS = 5;
     private static final String SOURCE = "ledger";
     private static final int MAX_TOKEN = 128;
@@ -68,11 +75,13 @@ public final class OverrideLedger {
         OverrideScope scope;
         String active;
         Applier applier; // null for an entry loaded from the file: the attached fallback is used
-        Handle holder; // null when orphaned (loaded from the file, or detached at shutdown)
+        Handle holder; // null when orphaned (loaded from the file)
+        boolean detached; // runtime stopping: kept for the next boot, but the holder may still release it
         boolean restoring;
         int generation; // bumped on every ownership/state change
         String applied; // value last applied successfully, null if unknown
         int failures; // consecutive failed applies/restores for the current generation
+        int retrySeq; // only the newest scheduled retry runs
         // sticky re-apply
         String lastObserved;
         long lastDeviationAt;
@@ -94,6 +103,7 @@ public final class OverrideLedger {
             c.active = active;
             c.applier = applier;
             c.holder = holder;
+            c.detached = detached;
             c.restoring = restoring;
             c.applied = applied;
             return c;
@@ -105,6 +115,7 @@ public final class OverrideLedger {
             active = c.active;
             applier = c.applier;
             holder = c.holder;
+            detached = c.detached;
             restoring = c.restoring;
             applied = c.applied;
             failures = 0;
@@ -203,6 +214,7 @@ public final class OverrideLedger {
                 e.active = activeEncoded;
                 e.applier = applier;
                 e.holder = h;
+                e.detached = false;
                 e.restoring = false;
                 e.applied = null;
                 e.failures = 0;
@@ -243,7 +255,7 @@ public final class OverrideLedger {
         synchronized (lock) {
             for (int i = 0; i < entries.size(); i++) {
                 Entry e = (Entry) entries.get(i);
-                if (!e.restoring && e.pluginId.equals(pluginId) && endOrDetach(e, false)) {
+                if (!e.restoring && !e.detached && e.pluginId.equals(pluginId) && endOrDetach(e, false)) {
                     keys.add(e.key);
                 }
             }
@@ -281,12 +293,32 @@ public final class OverrideLedger {
                 keys.add(e.key);
             }
         }
+        timer(); // create the ledger thread now, not later on a publishing thread
         enqueueSyncs(keys, "pending restore on boot");
     }
 
     /**
-     * Sticky re-apply: the car reported {@code observedEncoded} for {@code key}. Never blocks (memory only,
-     * plus scheduling the debounced check), so the platform host may call it while publishing.
+     * Retries every pending restore now (ignition on, or any sign the car is awake). Never blocks, so the
+     * platform host may call it while publishing.
+     */
+    public void retryPendingRestores() {
+        List keys = new ArrayList();
+        synchronized (lock) {
+            for (int i = 0; i < entries.size(); i++) {
+                Entry e = (Entry) entries.get(i);
+                if (e.restoring) {
+                    keys.add(e.key);
+                }
+            }
+        }
+        enqueueSyncs(keys, null);
+    }
+
+    /**
+     * The car reported {@code observedEncoded} for {@code key}. While an override is in force this drives the
+     * sticky re-apply; while a restore is pending it retries the restore at once, and an observed value equal
+     * to the prior completes it. Never blocks (memory only, plus queueing), so the platform host may call it
+     * while publishing.
      */
     public void onObserved(String key, String observedEncoded) {
         if (key == null || observedEncoded == null) {
@@ -295,35 +327,53 @@ public final class OverrideLedger {
         int seq;
         synchronized (lock) {
             Entry e = find(key);
-            if (e == null || e.restoring || e.gaveUp || shutdown) {
+            if (e == null || shutdown) {
                 return;
             }
-            e.lastObserved = observedEncoded;
-            if (observedEncoded.equals(e.active)) {
-                e.applied = e.active;
+            if (e.restoring) {
+                e.lastObserved = observedEncoded; // sync() treats an observed prior as restored
+                seq = -1;
+            } else if (e.gaveUp) {
                 return;
+            } else {
+                seq = observeActive(e, observedEncoded);
             }
-            e.applied = null;
-            e.lastDeviationAt = clock.uptimeMs();
-            if (e.checkPending) {
-                return;
-            }
-            e.checkPending = true;
-            seq = e.checkSeq;
         }
-        scheduleCheck(key, seq, DEBOUNCE_MS);
+        if (seq == -1) {
+            enqueueSync(key);
+        } else if (seq != -2) {
+            scheduleCheck(key, seq, DEBOUNCE_MS);
+        }
     }
 
-    /** Every override in force (live or orphaned), sorted by key. */
+    /** Sticky bookkeeping for an override in force; the check sequence to schedule, or -2 for none. Under lock. */
+    private int observeActive(Entry e, String observedEncoded) {
+        e.lastObserved = observedEncoded;
+        if (observedEncoded.equals(e.active)) {
+            e.applied = e.active;
+            return -2;
+        }
+        e.applied = null;
+        e.lastDeviationAt = clock.uptimeMs();
+        if (e.checkPending) {
+            return -2;
+        }
+        e.checkPending = true;
+        return e.checkSeq;
+    }
+
+    /**
+     * Every override whose effect may still be on the car, sorted by key: live, orphaned, and those whose
+     * restore has not succeeded yet ({@link ActiveOverride#restorePending()}). An entry disappears only once
+     * its prior is back.
+     */
     public List<ActiveOverride> active() {
         List<ActiveOverride> out = new ArrayList<ActiveOverride>();
         synchronized (lock) {
             List sorted = sortedEntries();
             for (int i = 0; i < sorted.size(); i++) {
                 Entry e = (Entry) sorted.get(i);
-                if (!e.restoring) {
-                    out.add(new ActiveOverride(e.key, e.pluginId, e.scope, e.active));
-                }
+                out.add(new ActiveOverride(e.key, e.pluginId, e.scope, e.active, e.restoring));
             }
         }
         return out;
@@ -331,6 +381,7 @@ public final class OverrideLedger {
 
     /** Sets the applier for entries loaded from the file and starts any restore that was waiting for one. */
     void attach(Applier applier) {
+        timer(); // create the ledger thread now, not later on a publishing thread
         List keys = new ArrayList();
         synchronized (lock) {
             fallback = applier;
@@ -426,13 +477,13 @@ public final class OverrideLedger {
         }
     }
 
-    /** Ends the entry (true: a restore is needed) or, during shutdown, detaches a PERSISTENT one. Under lock. */
+    /**
+     * Ends the entry (true: a restore is needed) or, during shutdown, detaches a PERSISTENT one: it stays in
+     * the file for the next boot, but its holder can still release it (e.g. in onDisable). Under lock.
+     */
     private boolean endOrDetach(Entry e, boolean byPlugin) {
         if (!byPlugin && retainPersistent && e.scope == OverrideScope.PERSISTENT) {
-            if (e.holder != null) {
-                e.holder = null;
-                e.generation++;
-            }
+            e.detached = true;
             return false;
         }
         markRestoring(e);
@@ -442,6 +493,7 @@ public final class OverrideLedger {
     private static void markRestoring(Entry e) {
         e.restoring = true;
         e.holder = null;
+        e.detached = false;
         e.failures = 0;
         e.resetSticky();
         e.generation++;
@@ -477,12 +529,14 @@ public final class OverrideLedger {
         Applier a;
         int gen;
         boolean restore;
+        boolean alreadyBack; // the car reported the prior while the restore was pending
         synchronized (lock) {
             e = find(key);
             if (e == null) {
                 return;
             }
             restore = e.restoring;
+            alreadyBack = restore && e.prior.equals(e.lastObserved);
             value = restore ? e.prior : e.active;
             if (!restore && value.equals(e.applied)) {
                 return; // already in force
@@ -490,11 +544,11 @@ public final class OverrideLedger {
             a = e.applier != null ? e.applier : fallback;
             gen = e.generation;
         }
-        if (a == null) {
+        if (a == null && !alreadyBack) {
             warn((restore ? "restore of " : "apply of ") + key + " waits: no platform applier yet");
             return;
         }
-        Throwable failure = applyQuietly(a, key, value);
+        Throwable failure = alreadyBack ? null : applyQuietly(a, key, value);
         if (failure != null) {
             onSyncFailed(e, gen, restore, value, failure);
             return;
@@ -515,15 +569,21 @@ public final class OverrideLedger {
         }
         if (removed) {
             write();
-            info("restored " + key + "=" + value + " (override of " + owner + " ended)");
+            info("restored " + key + "=" + value + (alreadyBack ? " (reported by the car)" : "")
+                    + " (override of " + owner + " ended)");
         } else if (!restore) {
             info("applied " + key + "=" + value + " for " + owner);
         }
     }
 
-    /** Logs a failed apply/restore and schedules a retry while attempts remain (same generation only). */
+    /**
+     * Logs a failed apply/restore and schedules a retry (same generation only). A restore is retried with
+     * backoff (5 s doubling, capped at 60 s, on the Clock) for as long as the runtime runs; an apply gives up
+     * after MAX_ATTEMPTS.
+     */
     private void onSyncFailed(Entry e, int gen, boolean restore, String value, Throwable failure) {
         int attempts = 0;
+        int seq = 0;
         String owner;
         synchronized (lock) {
             if (find(e.key) != e) {
@@ -533,15 +593,28 @@ public final class OverrideLedger {
             e.applied = null;
             if (e.generation == gen) {
                 attempts = ++e.failures;
+                seq = ++e.retrySeq;
             }
         }
+        boolean retry = attempts > 0 && (restore || attempts < MAX_ATTEMPTS);
+        long delay = retryDelay(attempts);
         error((restore ? "restore of " + e.key + " to " : "apply of " + e.key + "=") + value + " for " + owner
-                + " failed (attempt " + attempts + "/" + MAX_ATTEMPTS + "): " + SdkRuntime.describe(failure));
-        if (attempts > 0 && attempts < MAX_ATTEMPTS) {
-            scheduleSync(e.key, gen, RETRY_MS);
+                + " failed (attempt " + attempts + (restore ? "" : "/" + MAX_ATTEMPTS) + "): "
+                + SdkRuntime.describe(failure) + (retry ? "; retrying in " + delay + " ms" : ""));
+        if (retry) {
+            scheduleSync(e.key, gen, seq, delay);
         } else if (attempts >= MAX_ATTEMPTS) {
-            error("stopped retrying " + e.key + (restore ? "; the entry stays in the ledger for the next boot" : ""));
+            error("stopped retrying the apply of " + e.key + "; the car keeps its current value");
         }
+    }
+
+    /** RETRY_MS doubling per failed attempt, capped at MAX_RETRY_MS. */
+    static long retryDelay(int attempts) {
+        long d = RETRY_MS;
+        for (int i = 1; i < attempts && d < MAX_RETRY_MS; i++) {
+            d *= 2;
+        }
+        return Math.min(d, MAX_RETRY_MS);
     }
 
     /** Sticky budget: records a re-apply at {@code now} unless MAX_REAPPLIES happened in the window. Under lock. */
@@ -629,7 +702,7 @@ public final class OverrideLedger {
         }
     }
 
-    private void scheduleSync(final String key, final int gen, long delayMs) {
+    private void scheduleSync(final String key, final int gen, final int seq, long delayMs) {
         PluginScheduler t = timer();
         if (t != null) {
             t.after(delayMs, new Runnable() {
@@ -637,7 +710,7 @@ public final class OverrideLedger {
                     boolean current;
                     synchronized (lock) {
                         Entry e = find(key);
-                        current = e != null && e.generation == gen;
+                        current = e != null && e.generation == gen && e.retrySeq == seq;
                     }
                     if (current) {
                         sync(key);
