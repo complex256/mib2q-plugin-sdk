@@ -7,3 +7,4 @@ rootProject.name = "mibsdk"
 include("compat")
 include("api")
 include("platform")
+include("runtime")
