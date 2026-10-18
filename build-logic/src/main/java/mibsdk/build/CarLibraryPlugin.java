@@ -49,6 +49,9 @@ public class CarLibraryPlugin implements Plugin<Project> {
         Configuration retrolambda = tool(project, "retrolambda", false, Toolchain.RETROLAMBDA);
         Configuration retrotranslator = tool(project, "retrotranslator", true,
                 Toolchain.RETROTRANSLATOR_TRANSFORMER, Toolchain.RETROTRANSLATOR_RUNTIME);
+        // Non-embedded Retrotranslator runtime ships on the car as mibsdk-rt-retrotranslator.jar; LinkCheck resolves against it.
+        Configuration retrotranslatorRuntime = tool(project, "retrotranslatorRuntime", false,
+                Toolchain.RETROTRANSLATOR_RUNTIME);
         project.getDependencies().add("annotationProcessor", Toolchain.JABEL);
         project.getDependencies().add("annotationProcessor", Toolchain.BYTE_BUDDY);
         project.getDependencies().add("annotationProcessor", Toolchain.BYTE_BUDDY_AGENT);
@@ -102,6 +105,7 @@ public class CarLibraryPlugin implements Plugin<Project> {
             t.getClasspath().from(carJcl.flatMap(CarJclTask::getOutputDir));
             t.getClasspath().from(backport.flatMap(BackportTask::getOutputDir));
             t.getClasspath().from(ext.getCarClasspath());
+            t.getClasspath().from(retrotranslatorRuntime);
             t.getReport().set(project.getLayout().getBuildDirectory().file("reports/mibsdk/linkcheck.txt"));
         });
 
