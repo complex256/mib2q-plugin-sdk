@@ -5,3 +5,4 @@ pluginManagement {
 rootProject.name = "mibsdk"
 
 include("compat")
+include("api")
