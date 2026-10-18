@@ -1,0 +1,2 @@
+# Classes the car JCL has but ASM cannot read (jxe2jar emits a malformed class). Treated as present.
+java/lang/Double

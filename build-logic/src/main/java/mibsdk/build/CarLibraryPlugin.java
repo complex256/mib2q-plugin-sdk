@@ -69,7 +69,7 @@ public class CarLibraryPlugin implements Plugin<Project> {
         project.afterEvaluate(p -> configureMainCompile(p, ext, toolchains));
 
         SourceSet main = java.getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME);
-        registerCarJcl(project);
+        TaskProvider<CarJclTask> carJcl = registerCarJcl(project);
 
         TaskProvider<BackportTask> backport = project.getTasks().register("backport", BackportTask.class, t -> {
             t.setGroup("build");
@@ -94,7 +94,28 @@ public class CarLibraryPlugin implements Plugin<Project> {
                     t.setDescription("Fails if any backported class is not class-file version 48.");
                     t.getClasses().from(backport.flatMap(BackportTask::getOutputDir));
                 });
-        project.getTasks().named("check").configure(t -> t.dependsOn(versionCheck));
+
+        TaskProvider<LinkCheckTask> linkCheck = project.getTasks().register("linkCheck", LinkCheckTask.class, t -> {
+            t.setGroup("verification");
+            t.setDescription("Fails if the v48 classes reference anything the car JCL / car classpath lacks.");
+            t.getChecked().from(backport.flatMap(BackportTask::getOutputDir));
+            t.getClasspath().from(carJcl.flatMap(CarJclTask::getOutputDir));
+            t.getClasspath().from(backport.flatMap(BackportTask::getOutputDir));
+            t.getClasspath().from(ext.getCarClasspath());
+            t.getReport().set(project.getLayout().getBuildDirectory().file("reports/mibsdk/linkcheck.txt"));
+        });
+
+        // Report-only here: SDK internals legitimately use reflection. The mibsdk.plugin convention enforces.
+        TaskProvider<PermissionScanTask> permissionScan = project.getTasks().register(
+                "permissionScan", PermissionScanTask.class, t -> {
+                    t.setGroup("verification");
+                    t.setDescription("Lists calls that need platform.unrestricted (reflection, exec, exit, ...).");
+                    t.getClasses().from(backport.flatMap(BackportTask::getOutputDir));
+                    t.getFailOnFindings().convention(false);
+                    t.getReport().set(project.getLayout().getBuildDirectory().file("reports/mibsdk/permissions.txt"));
+                });
+
+        project.getTasks().named("check").configure(t -> t.dependsOn(versionCheck, linkCheck, permissionScan));
 
         project.getTasks().register("carJar", Jar.class, t -> {
             t.setGroup("build");
@@ -158,7 +179,7 @@ public class CarLibraryPlugin implements Plugin<Project> {
             root.getTasks().register("carJcl", CarJclTask.class, t -> {
                 t.setGroup("build");
                 t.setDescription("Extracts the car JCL from the stock lsd.jar into build/carjcl/.");
-                t.getStockLsdJar().set(root.provider(() -> Toolchain.stockLsdJar(root).getPath()));
+                t.getStockLsdJar().set(root.getLayout().file(root.provider(() -> Toolchain.stockLsdJar(root))));
                 t.getOutputDir().set(root.getLayout().getBuildDirectory().dir("carjcl"));
             });
         }
