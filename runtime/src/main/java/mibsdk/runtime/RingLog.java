@@ -15,6 +15,7 @@ import java.util.List;
  */
 public final class RingLog {
 
+    private final Object writeLock = new Object();
     private final String[] lines;
     private int head;
     private int size;
@@ -59,23 +60,35 @@ public final class RingLog {
         List<String> snap = snapshot();
         File dir = f.getAbsoluteFile().getParentFile();
         File tmp = new File(dir, f.getName() + ".tmp");
-        Writer w = new OutputStreamWriter(new FileOutputStream(tmp), "UTF-8");
-        try {
-            for (int i = 0; i < snap.size(); i++) {
-                w.write(snap.get(i));
-                w.write('\n');
-            }
-        } catch (IOException e) {
-            w.close();
-            tmp.delete();
-            throw e;
-        }
-        w.close();
-        if (!tmp.renameTo(f)) {
-            f.delete(); // some filesystems refuse to rename over an existing file
-            if (!tmp.renameTo(f)) {
-                tmp.delete();
-                throw new IOException("cannot rename " + tmp + " to " + f);
+        synchronized (writeLock) { // serializes writers on the shared temp name; appenders are unaffected
+            Writer w = null;
+            boolean ok = false;
+            try {
+                w = new OutputStreamWriter(new FileOutputStream(tmp), "UTF-8");
+                for (int i = 0; i < snap.size(); i++) {
+                    w.write(snap.get(i));
+                    w.write('\n');
+                }
+                w.close();
+                w = null;
+                if (!tmp.renameTo(f)) {
+                    f.delete(); // some filesystems refuse to rename over an existing file
+                    if (!tmp.renameTo(f)) {
+                        throw new IOException("cannot rename " + tmp + " to " + f);
+                    }
+                }
+                ok = true;
+            } finally {
+                if (w != null) {
+                    try {
+                        w.close();
+                    } catch (IOException ignored) {
+                        // the original failure wins
+                    }
+                }
+                if (!ok) {
+                    tmp.delete();
+                }
             }
         }
     }

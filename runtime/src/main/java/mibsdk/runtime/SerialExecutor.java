@@ -34,7 +34,10 @@ public final class SerialExecutor {
         }
     }
 
-    private static final long WATCHDOG_PERIOD_MS = 1000;
+    private static final long DEFAULT_WATCHDOG_PERIOD_MS = 1000;
+    /** Test hooks: poll period, and a callback run at the start of every watchdog iteration. */
+    static volatile long watchdogPeriodMs = DEFAULT_WATCHDOG_PERIOD_MS;
+    static volatile Runnable watchdogIterationHook;
     private static final List<SerialExecutor> LIVE = new ArrayList<SerialExecutor>();
     private static Thread watchdog;
 
@@ -50,6 +53,11 @@ public final class SerialExecutor {
     private boolean hungReported;
 
     public SerialExecutor(String name, Clock clock, long slowMs, long hungMs, Listener listener) {
+        this(name, clock, slowMs, hungMs, listener, true);
+    }
+
+    /** {@code useWatchdog=false} skips the shared watchdog; tests then drive {@link #checkWatchdog()} by hand. */
+    SerialExecutor(String name, Clock clock, long slowMs, long hungMs, Listener listener, boolean useWatchdog) {
         this.clock = clock;
         this.slowMs = slowMs;
         this.hungMs = hungMs;
@@ -61,8 +69,10 @@ public final class SerialExecutor {
         };
         worker.setDaemon(true);
         worker.setPriority(Thread.NORM_PRIORITY - 1);
-        register(this);
         worker.start();
+        if (useWatchdog) {
+            register(this);
+        }
     }
 
     /** Queues a task; false if the executor has been shut down. Never blocks. */
@@ -86,11 +96,17 @@ public final class SerialExecutor {
         unregister(this);
     }
 
+    /** Test hook: waits for the worker thread to exit (after shutdown). */
+    boolean awaitWorkerExit(long timeoutMs) throws InterruptedException {
+        worker.join(timeoutMs);
+        return !worker.isAlive();
+    }
+
     /** Reports the running task as hung (once) if it has exceeded hungMs on the clock. */
     void checkWatchdog() {
         String label;
         synchronized (this) {
-            if (currentLabel == null || hungReported || clock.uptimeMs() - currentStart < hungMs) {
+            if (shutdown || currentLabel == null || hungReported || clock.uptimeMs() - currentStart < hungMs) {
                 return;
             }
             hungReported = true;
@@ -119,6 +135,9 @@ public final class SerialExecutor {
                     return;
                 }
                 t = (Task) queue.removeFirst();
+                // Clear a stale interrupt (done under the lock: shutdown() sets its flag under the same
+                // lock before interrupting, so a real shutdown interrupt can never be swallowed here).
+                Thread.interrupted();
                 currentLabel = t.label;
                 start = clock.uptimeMs();
                 currentStart = start;
@@ -127,7 +146,9 @@ public final class SerialExecutor {
             try {
                 t.run.run();
             } catch (Throwable e) {
-                notifyFailure(t.label, e);
+                if (!isShutdown()) { // a task interrupted by shutdown is not a plugin failure
+                    notifyFailure(t.label, e);
+                }
             }
             boolean hung;
             synchronized (this) {
@@ -135,7 +156,7 @@ public final class SerialExecutor {
                 currentLabel = null;
             }
             long elapsed = clock.uptimeMs() - start;
-            if (!hung && elapsed >= slowMs) {
+            if (!hung && elapsed >= slowMs && !isShutdown()) {
                 try {
                     listener.onSlow(t.label, elapsed);
                 } catch (Throwable ignored) {
@@ -143,6 +164,10 @@ public final class SerialExecutor {
                 }
             }
         }
+    }
+
+    private synchronized boolean isShutdown() {
+        return shutdown;
     }
 
     private void notifyFailure(String label, Throwable e) {
@@ -172,23 +197,43 @@ public final class SerialExecutor {
         LIVE.remove(e);
     }
 
+    /**
+     * Polls every live executor. Each iteration is guarded so one failure (e.g. OutOfMemoryError) cannot
+     * end hang detection; if the thread ever does end, it clears {@code watchdog} so register() restarts it.
+     */
     private static void watchLoop() {
-        while (true) {
-            SerialExecutor[] snapshot;
-            synchronized (SerialExecutor.class) {
-                if (LIVE.isEmpty()) {
-                    watchdog = null; // restarted by the next register()
-                    return;
+        try {
+            while (true) {
+                try {
+                    Runnable hook = watchdogIterationHook;
+                    if (hook != null) {
+                        hook.run();
+                    }
+                    SerialExecutor[] snapshot;
+                    synchronized (SerialExecutor.class) {
+                        if (LIVE.isEmpty()) {
+                            watchdog = null; // restarted by the next register()
+                            return;
+                        }
+                        snapshot = (SerialExecutor[]) LIVE.toArray(new SerialExecutor[LIVE.size()]);
+                    }
+                    for (int i = 0; i < snapshot.length; i++) {
+                        snapshot[i].checkWatchdog();
+                    }
+                } catch (Throwable ignored) {
+                    // keep polling
                 }
-                snapshot = (SerialExecutor[]) LIVE.toArray(new SerialExecutor[LIVE.size()]);
+                try {
+                    Thread.sleep(watchdogPeriodMs);
+                } catch (InterruptedException ignored) {
+                    // keep polling
+                }
             }
-            for (int i = 0; i < snapshot.length; i++) {
-                snapshot[i].checkWatchdog();
-            }
-            try {
-                Thread.sleep(WATCHDOG_PERIOD_MS);
-            } catch (InterruptedException ignored) {
-                // keep polling
+        } finally {
+            synchronized (SerialExecutor.class) {
+                if (watchdog == Thread.currentThread()) {
+                    watchdog = null;
+                }
             }
         }
     }

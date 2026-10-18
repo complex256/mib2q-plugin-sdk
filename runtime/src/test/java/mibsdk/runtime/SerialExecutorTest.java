@@ -49,7 +49,7 @@ class SerialExecutorTest {
 
     @Test
     void runsTasksInOrderOffCallerThread() throws Exception {
-        exec = new SerialExecutor("p1", clock, 5000, 30000, rec);
+        exec = new SerialExecutor("p1", clock, 5000, 30000, rec, false);
         final List<Integer> order = Collections.synchronizedList(new ArrayList<Integer>());
         final List<Thread> threads = Collections.synchronizedList(new ArrayList<Thread>());
         final CountDownLatch done = new CountDownLatch(3);
@@ -74,7 +74,7 @@ class SerialExecutorTest {
 
     @Test
     void exceptionReportedNotPropagated() throws Exception {
-        exec = new SerialExecutor("p1", clock, 5000, 30000, rec);
+        exec = new SerialExecutor("p1", clock, 5000, 30000, rec, false);
         final CountDownLatch next = new CountDownLatch(1);
         exec.submit("bad", new Runnable() {
             public void run() {
@@ -93,7 +93,7 @@ class SerialExecutorTest {
 
     @Test
     void errorsAreReportedToo() throws Exception {
-        exec = new SerialExecutor("p1", clock, 5000, 30000, rec);
+        exec = new SerialExecutor("p1", clock, 5000, 30000, rec, false);
         final CountDownLatch next = new CountDownLatch(1);
         exec.submit("oom", new Runnable() {
             public void run() {
@@ -111,7 +111,7 @@ class SerialExecutorTest {
 
     @Test
     void hungTaskReportedAndExecutorKeepsAccepting() throws Exception {
-        exec = new SerialExecutor("p1", clock, 5000, 30000, rec);
+        exec = new SerialExecutor("p1", clock, 5000, 30000, rec, false);
         final CountDownLatch started = new CountDownLatch(1);
         final CountDownLatch release = new CountDownLatch(1);
         exec.submit("stuck", new Runnable() {
@@ -148,7 +148,7 @@ class SerialExecutorTest {
 
     @Test
     void slowTaskReportedOnCompletion() throws Exception {
-        exec = new SerialExecutor("p1", clock, 5000, 30000, rec);
+        exec = new SerialExecutor("p1", clock, 5000, 30000, rec, false);
         final CountDownLatch done = new CountDownLatch(1);
         exec.submit("slowpoke", new Runnable() {
             public void run() {
@@ -168,7 +168,7 @@ class SerialExecutorTest {
 
     @Test
     void submitAfterShutdownIsRejected() {
-        exec = new SerialExecutor("p1", clock, 5000, 30000, rec);
+        exec = new SerialExecutor("p1", clock, 5000, 30000, rec, false);
         exec.shutdown();
         assertFalse(exec.submit("late", new Runnable() {
             public void run() {}
@@ -177,7 +177,7 @@ class SerialExecutorTest {
 
     @Test
     void shutdownInterruptsRunningTaskWithoutWaiting() throws Exception {
-        exec = new SerialExecutor("p1", clock, 5000, 30000, rec);
+        exec = new SerialExecutor("p1", clock, 5000, 30000, rec, false);
         final CountDownLatch started = new CountDownLatch(1);
         final CountDownLatch interrupted = new CountDownLatch(1);
         exec.submit("sleeper", new Runnable() {
@@ -193,5 +193,103 @@ class SerialExecutorTest {
         assertTrue(started.await(5, TimeUnit.SECONDS));
         exec.shutdown();
         assertTrue(interrupted.await(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void shutdownSuppressesListenerCallbacks() throws Exception {
+        exec = new SerialExecutor("p1", clock, 5000, 30000, rec, false);
+        final CountDownLatch started = new CountDownLatch(1);
+        exec.submit("victim", new Runnable() {
+            public void run() {
+                started.countDown();
+                try {
+                    Thread.sleep(60000);
+                } catch (InterruptedException e) {
+                    clock.advance(60000); // would be slow and hung if reported
+                    throw new IllegalStateException("interrupted by shutdown");
+                }
+            }
+        });
+        assertTrue(started.await(5, TimeUnit.SECONDS));
+        exec.shutdown();
+        assertTrue(exec.awaitWorkerExit(5000));
+        exec.checkWatchdog();
+        assertEquals(0, rec.failures.size());
+        assertEquals(0, rec.slow.size());
+        assertEquals(0, rec.hung.size());
+    }
+
+    @Test
+    void interruptDoesNotLeakIntoNextTask() throws Exception {
+        exec = new SerialExecutor("p1", clock, 5000, 30000, rec, false);
+        final CountDownLatch started = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        final CountDownLatch done = new CountDownLatch(1);
+        final boolean[] leaked = new boolean[1];
+        exec.submit("gate", new Runnable() {
+            public void run() {
+                started.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+        });
+        assertTrue(started.await(5, TimeUnit.SECONDS));
+        exec.submit("interrupter", new Runnable() {
+            public void run() {
+                Thread.currentThread().interrupt();
+            }
+        });
+        exec.submit("observer", new Runnable() {
+            public void run() {
+                leaked[0] = Thread.currentThread().isInterrupted();
+                done.countDown();
+            }
+        });
+        release.countDown();
+        assertTrue(done.await(5, TimeUnit.SECONDS));
+        assertFalse(leaked[0]);
+    }
+
+    @Test
+    void watchdogSurvivesIterationFailureAndStillReportsHang() throws Exception {
+        final int[] calls = new int[1];
+        SerialExecutor.watchdogPeriodMs = 10;
+        SerialExecutor.watchdogIterationHook = new Runnable() {
+            public void run() {
+                if (calls[0]++ < 3) {
+                    throw new OutOfMemoryError("simulated");
+                }
+            }
+        };
+        try {
+            exec = new SerialExecutor("p1", clock, 5000, 30000, rec); // registers with the shared watchdog
+            final CountDownLatch started = new CountDownLatch(1);
+            final CountDownLatch release = new CountDownLatch(1);
+            exec.submit("stuck", new Runnable() {
+                public void run() {
+                    started.countDown();
+                    try {
+                        release.await();
+                    } catch (InterruptedException e) {
+                        // shutdown
+                    }
+                }
+            });
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            clock.advance(31000);
+            long deadline = System.currentTimeMillis() + 5000;
+            while (rec.hung.isEmpty() && System.currentTimeMillis() < deadline) {
+                Thread.sleep(10);
+            }
+            assertEquals(1, rec.hung.size());
+            assertTrue(calls[0] > 3);
+            release.countDown();
+        } finally {
+            SerialExecutor.watchdogIterationHook = null;
+            SerialExecutor.watchdogPeriodMs = 1000;
+        }
     }
 }
