@@ -5,6 +5,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
 import mibsdk.api.Storage;
@@ -13,11 +14,17 @@ import mibsdk.api.Storage;
  * A plugin's key/value store backed by one {@code .properties} file. Reads and writes hit memory; the
  * file is written (temp file, then rename) at most {@code debounceMs} after the first unsaved change.
  * A shared daemon thread (priority NORM-1) drives the debounce while any store is dirty.
+ *
+ * <p>With a {@link StorageQuota}, a {@code put} that would grow the file past the plugin's or the total cap throws
+ * {@code IllegalStateException} and stores nothing. The size counted is {@link #estimatedBytes()}, an upper bound of
+ * what {@code Properties.store} writes, kept up to date on every change.
  */
 public final class PluginStorage implements Storage {
 
     public static final long DEFAULT_DEBOUNCE_MS = 2000;
     private static final long POLL_MS = 250;
+    /** Properties.store's date comment line, with room to spare. */
+    private static final long HEADER_BYTES = 48;
 
     private static final List DIRTY = new ArrayList(); // PluginStorage with unsaved changes
     private static Thread flusher;
@@ -25,6 +32,7 @@ public final class PluginStorage implements Storage {
     private final File file;
     private final Clock clock;
     private final long debounceMs;
+    private final StorageQuota quota; // null: unlimited
     /**
      * Guards props/dirty/dirtySince. Private on purpose: plugins hold this object (ctx.storage()), so a
      * plugin doing {@code synchronized (ctx.storage())} must never block the SDK's flushes.
@@ -34,16 +42,25 @@ public final class PluginStorage implements Storage {
     private final Object writeLock = new Object();
     private boolean dirty; // guarded by lock
     private long dirtySince; // guarded by lock
+    private long estimate = HEADER_BYTES; // guarded by lock
 
     public PluginStorage(File file, Clock clock) {
         this(file, clock, DEFAULT_DEBOUNCE_MS);
     }
 
     public PluginStorage(File file, Clock clock, long debounceMs) {
+        this(file, clock, debounceMs, null);
+    }
+
+    PluginStorage(File file, Clock clock, long debounceMs, StorageQuota quota) {
         this.file = file;
         this.clock = clock;
         this.debounceMs = debounceMs;
+        this.quota = quota;
         load();
+        if (quota != null) {
+            quota.set(file, estimatedBytes());
+        }
     }
 
     @Override
@@ -62,7 +79,15 @@ public final class PluginStorage implements Storage {
             return;
         }
         synchronized (lock) {
+            long next = estimate - entryBytes(key, props.getProperty(key)) + entryBytes(key, value);
+            if (quota != null && next > estimate) {
+                String refused = quota.resize(file, next);
+                if (refused != null) {
+                    throw new IllegalStateException(refused + "; " + key + " not stored");
+                }
+            }
             props.setProperty(key, value);
+            estimate = next;
         }
         markDirty();
     }
@@ -70,9 +95,40 @@ public final class PluginStorage implements Storage {
     @Override
     public void remove(String key) {
         synchronized (lock) {
+            estimate -= entryBytes(key, props.getProperty(key));
             props.remove(key);
+            if (quota != null) {
+                quota.resize(file, estimate); // shrinking: never refused
+            }
         }
         markDirty();
+    }
+
+    /** Upper bound of the file {@code Properties.store} would write now. */
+    long estimatedBytes() {
+        synchronized (lock) {
+            return estimate;
+        }
+    }
+
+    /** {@code key=value\n} as Properties.store escapes it, worst case; 0 for a missing value. */
+    private static long entryBytes(String key, String value) {
+        return value == null ? 0 : escapedBytes(key) + 1 + escapedBytes(value) + 1;
+    }
+
+    private static long escapedBytes(String s) {
+        long n = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < 0x20 || c > 0x7e) {
+                n += 6; // a six-byte unicode escape (tab, newline, CR and form feed take 2)
+            } else if (c == ' ' || c == '\\' || c == '=' || c == ':' || c == '#' || c == '!') {
+                n += 2;
+            } else {
+                n++;
+            }
+        }
+        return n;
     }
 
     /** Writes pending changes immediately. A failed write keeps the changes pending for the next attempt. */
@@ -135,6 +191,10 @@ public final class PluginStorage implements Storage {
             loaded.load(in);
             synchronized (lock) {
                 props.putAll(loaded);
+                for (Iterator it = loaded.keySet().iterator(); it.hasNext();) {
+                    String k = (String) it.next();
+                    estimate += entryBytes(k, loaded.getProperty(k));
+                }
             }
         } catch (Throwable corrupt) {
             // A damaged file reads as empty; the next flush replaces it.

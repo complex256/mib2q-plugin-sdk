@@ -335,6 +335,28 @@ class SdkRuntimeLifecycleTest {
         assertEquals(1, new File(roots.ram(), "cache").listFiles().length, "old snapshot purged");
     }
 
+    /** /mnt/persist is shared with the stock database: a put past the configured cap fails in the plugin. */
+    @Test
+    void storagePutPastTheConfiguredCapFailsInThePlugin() throws Exception {
+        plugin("hog", "1", null, "ctx.storage().put(\"small\", \"v\");"
+                + "try { ctx.storage().put(\"big\", new String(new char[2000]).replace('\\0', 'x'));"
+                + " ctx.log().info(\"stored\"); }"
+                + " catch (IllegalStateException e) { ctx.log().info(\"refused \" + e.getMessage()); }");
+        start("storage.plugin.max.bytes=1000\n");
+
+        assertEquals(PluginState.ENABLED, status("hog").state());
+        assertEquals(0, count("hog", "stored"));
+        boolean refused = false;
+        for (String line : rt.log().snapshot()) {
+            refused |= line.contains(" hog refused storage full");
+        }
+        assertTrue(refused, rt.log().snapshot().toString());
+        assertTrue(stopWithin(5000));
+        String data = new String(Files.readAllBytes(new File(roots.persist(), "data/hog.properties").toPath()),
+                StandardCharsets.ISO_8859_1);
+        assertTrue(data.contains("small=v") && !data.contains("big="), data);
+    }
+
     @Test
     void disableRunsOnDisableAndCancelsAll() throws Exception {
         plugin("first", "1", null, LOG_IGNITION + "ctx.storage().put(\"k\", \"v\");"

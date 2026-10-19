@@ -138,6 +138,7 @@ public final class SdkRuntime {
     private final ClassLoader pluginParent;
     private final OverrideLedger ledger;
     private final BootGuard bootGuard;
+    private final StorageQuota storageQuota;
 
     private final List hosts = new ArrayList(); // PluginHost in discovery order; guarded by this
     private final List enabledOrder = new ArrayList(); // active PluginHost, oldest enable first; guarded by this
@@ -223,6 +224,7 @@ public final class SdkRuntime {
         this.ledger = new OverrideLedger(cfg.ledgerFile(), clock, log);
         this.bootGuard = new BootGuard(cfg.bootStateFile(), cfg.safeModeMarker(), cfg.safeModeAfterUnhealthyBoots(),
                 log);
+        this.storageQuota = new StorageQuota(cfg.dataDir(), cfg.storagePluginMaxBytes(), cfg.storageTotalMaxBytes());
     }
 
     /**
@@ -726,7 +728,8 @@ public final class SdkRuntime {
         h.snapshot = snap;
         h.failures = new FailureTracker(cfg.quarantineFailures(), cfg.quarantineWindowMs(), clock);
         h.registrations = new Registrations();
-        h.storage = new PluginStorage(new File(cfg.dataDir(), h.id + ".properties"), clock);
+        h.storage = new PluginStorage(new File(cfg.dataDir(), h.id + ".properties"), clock,
+                PluginStorage.DEFAULT_DEBOUNCE_MS, storageQuota);
         h.exec = new SerialExecutor("plugin-" + h.id, clock, cfg.slowMs(), cfg.hungMs(), executorListener(h));
         h.scheduler = new PluginScheduler(h.exec, clock);
         h.ctx = new PluginContextImpl(h.id, log, h.storage, bus, h.exec, h.scheduler, h.registrations, features,

@@ -2,6 +2,7 @@ package mibsdk.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
@@ -115,5 +116,74 @@ class PluginStorageTest {
         } finally {
             hog.interrupt();
         }
+    }
+
+    // ---- quota: /mnt/persist is shared with the stock persistence database, data/ must never fill it ----
+
+    private static String chars(int n, char c) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            b.append(c);
+        }
+        return b.toString();
+    }
+
+    @Test
+    void putBeyondThePluginCapFailsAndKeepsTheOldValue() {
+        File data = new File(dir, "data");
+        StorageQuota q = new StorageQuota(data, 1000, 100000);
+        PluginStorage s = new PluginStorage(new File(data, "p.properties"), clock, 2000, q);
+
+        s.put("k", chars(500, 'a'));
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> s.put("k", chars(1000, 'b')));
+        assertTrue(e.getMessage().contains("storage full"), e.getMessage());
+        assertEquals(chars(500, 'a'), s.get("k", null), "the refused write changed nothing");
+        s.put("k", "small"); // shrinking is always allowed
+        s.put("j", chars(500, 'c')); // ... and frees room
+        assertEquals("small", s.get("k", null));
+    }
+
+    @Test
+    void totalCapCountsEveryPluginIncludingFilesOnDisk() throws IOException {
+        File data = new File(dir, "data");
+        data.mkdirs();
+        Files.write(new File(data, "absent.properties").toPath(), new byte[600]); // a plugin not loaded now
+        StorageQuota q = new StorageQuota(data, 100000, 2000);
+        PluginStorage a = new PluginStorage(new File(data, "a.properties"), clock, 2000, q);
+        PluginStorage b = new PluginStorage(new File(data, "b.properties"), clock, 2000, q);
+
+        a.put("k", chars(600, 'a'));
+        assertThrows(IllegalStateException.class, () -> b.put("k", chars(900, 'b')));
+        b.put("k", chars(500, 'b'));
+        a.remove("k");
+        b.put("k", chars(900, 'b')); // a's room is free again
+        assertEquals(900, b.get("k", "").length());
+    }
+
+    @Test
+    void reloadingAStoreReplacesItsShareInsteadOfAddingToIt() {
+        File data = new File(dir, "data");
+        StorageQuota q = new StorageQuota(data, 100000, 1500);
+        File file = new File(data, "p.properties");
+        PluginStorage s = new PluginStorage(file, clock, 2000, q);
+        s.put("k", chars(1000, 'a'));
+        s.flushNow();
+        for (int i = 0; i < 3; i++) { // a plugin reloaded three times
+            PluginStorage again = new PluginStorage(file, clock, 2000, q);
+            again.put("k", chars(1100, 'a'));
+        }
+    }
+
+    /** The estimate the quota uses never undercounts what Properties.store writes (escapes, \\uXXXX). */
+    @Test
+    void estimateIsAnUpperBoundOfTheWrittenFile() {
+        File file = new File(dir, "p.properties");
+        PluginStorage s = new PluginStorage(file, clock, 2000, new StorageQuota(dir, 1 << 20, 1 << 20));
+        s.put("plain", "value");
+        s.put(" key with=special:chars#!", "\t\n\r\f\\ value\u00e9\u20ac\u0001 trailing ");
+        s.put("\u00fcnicode-key", chars(100, '\u4e2d'));
+        s.flushNow();
+        assertTrue(file.length() <= s.estimatedBytes(), file.length() + " > " + s.estimatedBytes());
+        assertTrue(s.estimatedBytes() < 2 * file.length() + 64, "not absurdly pessimistic: " + s.estimatedBytes());
     }
 }
