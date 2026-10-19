@@ -19,6 +19,13 @@ public final class SdkGlobals {
     public static volatile boolean wrappingEnabled;
 
     /**
+     * Set with {@link #wrappingEnabled}: why hook services are not wrapped this boot ({@code unsupported-hmi},
+     * {@code safe-mode}, {@code wrap-boots}, {@code boot-state-unwritable}, {@code init-failed}); null while
+     * wrapping. Shown on the seam STATUS line.
+     */
+    public static volatile String wrapOffReason;
+
+    /**
      * Set first thing by {@link ChainingConfigurator#initConfigurator()}. Read by the activator for the seam STATUS
      * line: false there means LSD ran no configurator of ours, or ran it in another class loader (whose
      * SdkGlobals the runtime cannot see).

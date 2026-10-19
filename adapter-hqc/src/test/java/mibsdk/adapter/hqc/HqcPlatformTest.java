@@ -159,8 +159,10 @@ class HqcPlatformTest {
     void seamLineReportsWhatTheConfiguratorLeft() {
         boolean wrapping = SdkGlobals.wrappingEnabled;
         boolean seen = SdkGlobals.configuratorSeen;
+        String reason = SdkGlobals.wrapOffReason;
         try {
             RawServices.clear();
+            SdkGlobals.wrapOffReason = null;
             SdkGlobals.configuratorSeen = false;
             SdkGlobals.wrappingEnabled = false;
             assertEquals("seam configurator=absent wrapping=false raw.parking=false", SdkBoot.seamLine());
@@ -168,7 +170,12 @@ class HqcPlatformTest {
             SdkGlobals.wrappingEnabled = true;
             RawServices.record(PARKING, new Object());
             assertEquals("seam configurator=seen wrapping=true raw.parking=true", SdkBoot.seamLine());
+            SdkGlobals.wrappingEnabled = false;
+            SdkGlobals.wrapOffReason = "safe-mode";
+            assertEquals("seam configurator=seen wrapping=false reason=safe-mode raw.parking=true",
+                    SdkBoot.seamLine());
         } finally {
+            SdkGlobals.wrapOffReason = reason;
             SdkGlobals.wrappingEnabled = wrapping;
             SdkGlobals.configuratorSeen = seen;
             RawServices.clear();

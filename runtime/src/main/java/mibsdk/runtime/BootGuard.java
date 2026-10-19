@@ -110,16 +110,20 @@ public final class BootGuard {
     /**
      * For the configurator, once at init when it wraps this boot: wrapBoots + 1, every other key kept. The only
      * write outside the runtime; the runtime reads the file only later, in {@link #beginBoot}. Never throws.
+     *
+     * @return true only if the count was written. False means a wrap loop could not be caught, so the caller
+     *         must not wrap this boot (fail safe, as when the file cannot be judged).
      */
-    public static void countWrapBoot(File bootState, RingLog log) {
+    public static boolean countWrapBoot(File bootState, RingLog log) {
         try {
             State st = load(bootState, log);
             if (st.wrapBoots < Integer.MAX_VALUE) {
                 st.wrapBoots++;
             }
-            write(bootState, st, log);
+            return write(bootState, st, log);
         } catch (Throwable t) {
             append(log, "ERROR", "cannot count the wrap boot: " + SdkRuntime.describe(t));
+            return false;
         }
     }
 

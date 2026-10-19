@@ -43,13 +43,15 @@ final class SdkBoot {
 
     /**
      * What this class loader sees of the configurator's work: {@code seam configurator=<seen|absent>
-     * wrapping=<bool> raw.parking=<bool>}. {@code absent} with a ChainingConfigurator line in bundles.properties
-     * means the activator and the configurator got different SdkGlobals (a split class loader). raw.parking may
-     * still be false this early if the parking service has not registered yet.
+     * wrapping=<bool> [reason=<why not>] raw.parking=<bool>}. {@code absent} with a ChainingConfigurator line in
+     * bundles.properties means the activator and the configurator got different SdkGlobals (a split class
+     * loader). raw.parking may still be false this early if the parking service has not registered yet.
      */
     static String seamLine() {
+        boolean wrapping = SdkGlobals.wrappingEnabled;
+        String why = SdkGlobals.wrapOffReason;
         return "seam configurator=" + (SdkGlobals.configuratorSeen ? "seen" : "absent") + " wrapping="
-                + SdkGlobals.wrappingEnabled + " raw.parking="
+                + wrapping + (!wrapping && why != null ? " reason=" + why : "") + " raw.parking="
                 + (RawServices.get(DSICarParkingSystem.class.getName()) != null);
     }
 

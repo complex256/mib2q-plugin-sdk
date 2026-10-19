@@ -320,4 +320,16 @@ class BootGuardTest {
         assertFalse(g.inert(), "writable again");
         assertEquals("false", props().getProperty("lastShutdownClean"));
     }
+
+    /** Review fix: the configurator wraps only if it could record the wrap boot (fail safe). */
+    @Test
+    void countWrapBootSaysWhetherItRecordedTheBoot() throws IOException {
+        assertTrue(BootGuard.countWrapBoot(state, null));
+        assertEquals("1", props().getProperty("wrapBoots"));
+
+        File dir = new File(tmp, "ro2");
+        FileOutputStream f = new FileOutputStream(dir); // a file where the directory should be
+        f.close();
+        assertFalse(BootGuard.countWrapBoot(new File(dir, "boot.state"), null));
+    }
 }

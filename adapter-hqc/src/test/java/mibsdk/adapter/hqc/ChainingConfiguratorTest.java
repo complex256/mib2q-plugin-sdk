@@ -455,6 +455,29 @@ class ChainingConfiguratorTest {
         assertFalse(new File(base, "boot.state").exists());
     }
 
+    /**
+     * Review fix (fail safe): a wrap boot that cannot be counted is a wrap loop that could never be caught, so
+     * the configurator passes everything through, says why, and the seam STATUS line shows it.
+     */
+    @Test
+    void wrapIsSkippedWhenTheWrapBootCannotBeRecorded() throws IOException {
+        write(persist, ""); // a file where the persistent root should be: unmounted / read-only / full
+        ChainingConfigurator c = init();
+        assertFalse(SdkGlobals.wrappingEnabled);
+        assertTrue(logContains("wrap skipped: cannot record wrap boot in " + persist),
+                SdkGlobals.LOG.snapshot().toString());
+        assertTrue(logContains("wrappingEnabled=false"), SdkGlobals.LOG.snapshot().toString());
+        assertTrue(SdkBoot.seamLine().contains("wrapping=false reason=boot-state-unwritable"), SdkBoot.seamLine());
+        assertNull(c.getServiceRegistration(d, new String[] {PARKING}, service, props()));
+        assertTrue(delegator.calls.isEmpty());
+        assertNull(RawServices.get(PARKING));
+
+        assertTrue(persist.delete());
+        init();
+        assertTrue(SdkGlobals.wrappingEnabled);
+        assertEquals(-1, SdkBoot.seamLine().indexOf("reason="), SdkBoot.seamLine());
+    }
+
     /** F5: J9's unmodifiable list prints as Collections$UnmodifiableRandomAccessList@hash; log the names. */
     @Test
     void initLogsTheHookServiceNames() throws IOException {

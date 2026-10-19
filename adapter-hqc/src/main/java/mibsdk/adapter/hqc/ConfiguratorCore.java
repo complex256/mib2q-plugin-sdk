@@ -66,6 +66,7 @@ final class ConfiguratorCore {
     private void configure(SdkRoots roots, File versionInfo) {
         SdkGlobals.configuratorSeen = true;
         boolean on = false;
+        String reason = null;
         try {
             String version = AdapterSelector.readHmiVersion(versionInfo);
             RuntimeConfig cfg = RuntimeConfig.load(roots);
@@ -73,13 +74,20 @@ final class ConfiguratorCore {
             boolean safeMode = BootGuard.wouldEnterSafeMode(cfg.bootStateFile(), cfg.safeModeMarker(), threshold);
             boolean wrapLoop = BootGuard.wrapLoopDetected(cfg.bootStateFile(), threshold);
             on = HqcVersion.SUPPORTED.equals(version) && !safeMode && !wrapLoop;
+            reason = !HqcVersion.SUPPORTED.equals(version) ? "unsupported-hmi" : safeMode ? "safe-mode"
+                    : wrapLoop ? "wrap-boots" : null;
             if (wrapLoop) {
                 warn("configurator: wrapping=off reason=wrap-boots (" + threshold + " boots in a row wrapped the DSI"
                         + " services and died before the HMI ran healthy; passing everything through until the boot"
                         + " state is reset: mibsdk-dev safe-mode off)");
             }
-            if (on) {
-                BootGuard.countWrapBoot(cfg.bootStateFile(), log); // cleared by the runtime once the HMI is healthy
+            // Cleared by the runtime once the HMI is healthy. A wrap boot that cannot be counted is a wrap loop
+            // that could never be caught: fail safe, as when boot.state cannot be judged.
+            if (on && !BootGuard.countWrapBoot(cfg.bootStateFile(), log)) {
+                on = false;
+                reason = "boot-state-unwritable";
+                warn("configurator: wrap skipped: cannot record wrap boot in "
+                        + cfg.bootStateFile().getAbsoluteFile().getParent() + " (passing everything through)");
             }
             List names = cfg.hookServices();
             hookServices = (String[]) names.toArray(new String[names.size()]);
@@ -89,9 +97,11 @@ final class ConfiguratorCore {
             loadChain(cfg.chainConfigurator());
         } catch (Throwable t) {
             on = false;
+            reason = "init-failed";
             warn("configurator init failed, passing everything through: " + t);
         }
         enabled = on;
+        SdkGlobals.wrapOffReason = on ? null : reason;
         SdkGlobals.wrappingEnabled = on;
     }
 
