@@ -176,6 +176,28 @@ reports a **feature set** (e.g. `slot.statusbar`, `hook.dsi.carparkingsystem`), 
   force-release them.
 - Plugins live outside `lsd/jars/`, so they never enter the boot classpath. The directory is the
   builder's call; it must be on a writable, persistent partition that mibpkg manages.
+- **On-unit paths** (decided after the bench run: `/mnt/app` is read-only while the HMI runs, and mibpkg and
+  `mibsdk-dev` remount it read-write only around their own writes). The runtime never names these paths: they
+  come from the platform side (`SdkRoots`, supplied by adapter-hqc's `SdkFiles`; tests use temp dirs).
+
+  | Root | Path | Writable at runtime | Holds |
+  |------|------|---------------------|-------|
+  | install | `/mnt/app/eso/hmi/lsd/mibsdk/` | no (installer only, after `mount -uw`) | `sdk.properties`, `grants.properties`, `SAFE_MODE`, `plugins/<id>.jar`, `plugins/<id>.reload`, `stock/` |
+  | persist | `/mnt/persist/mibsdk/` | yes (qnx6, from boot) | `boot.state`, `ledger.properties`, `data/<id>.properties` |
+  | ram | `/ramdisk/mibsdk/` | yes (lost at power-off) | `cache/<id>-<n>.jar` |
+  | SDK jars | `/mnt/app/eso/hmi/lsd/jars/` | no | `mibsdk-runtime.jar`, `mibsdk-adapter-hqc.jar`, `mibsdk-rt-retrotranslator.jar` |
+  | log | `/tmp/mibsdk.log` | yes (`/dev/shmem`: no rename, no directories) | the ring log, rewritten in place |
+
+  - `/mnt/persist` is about 8 MB (6.6 MB free) and shared with the stock `persistence.sqlite`, so `data/` is
+    capped (default 256 KiB per plugin, 1 MiB in total; `storage.*.max.bytes` in `sdk.properties`). A plugin
+    write past the cap fails; it never fills the partition.
+  - The runtime never deletes a reload marker. It reloads once per new or changed marker, tracking the ones
+    it consumed in memory; markers present at start count as consumed. `mibsdk-dev push` writes a fresh token.
+  - The configurator reads and writes `boot.state` in the persistent root on the LSD thread at init, with no
+    remount and no exec.
+  - A root the runtime cannot write is reported (`STATUS mibsdk state persist=… UNWRITABLE … bootGuard=inert`);
+    an inert boot guard never reports a healthy boot.
+  - Uninstall keeps `/mnt/persist/mibsdk/` (plugin data) unless `--purge`.
 
 ## 6. Containment (G4)
 

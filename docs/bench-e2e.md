@@ -15,13 +15,13 @@ the network (see "Bench state at the end").**
 
 | # | Finding | Status |
 |---|---------|--------|
-| B1 | **`/mnt/app` is read-only while the HMI runs.** It boots read-only, and mibpkg (and `mibsdk-dev` itself, by design) put it back to read-only after each of their writes; during the run it went back to read-only on its own within minutes of a manual `mount -uw`. The runtime writes `boot.state`, `cache/<id>-<n>.jar`, `data/<id>.properties`, `ledger.properties` and deletes `plugins/<id>.reload` under `/mnt/app/eso/hmi/lsd/mibsdk/`, so on every normal boot: every plugin is `FAILED cannot load jar: java.io.FileNotFoundException: .../cache/<id>-1.jar`, reload markers are never consumed (`cannot delete hello.reload; not reloading`), and `cannot write boot.state` means **the boot guard's crash-loop / wrap-loop counting does not work at all**. Needs a design ruling: where should runtime-mutable state live, or should the runtime remount, and when? | **open, design decision** |
+| B1 | **`/mnt/app` is read-only while the HMI runs.** It boots read-only, and mibpkg (and `mibsdk-dev` itself, by design) put it back to read-only after each of their writes; during the run it went back to read-only on its own within minutes of a manual `mount -uw`. The runtime writes `boot.state`, `cache/<id>-<n>.jar`, `data/<id>.properties`, `ledger.properties` and deletes `plugins/<id>.reload` under `/mnt/app/eso/hmi/lsd/mibsdk/`, so on every normal boot: every plugin is `FAILED cannot load jar: java.io.FileNotFoundException: .../cache/<id>-1.jar`, reload markers are never consumed (`cannot delete hello.reload; not reloading`), and `cannot write boot.state` means **the boot guard's crash-loop / wrap-loop counting does not work at all**. **Ruling (2026-10-19): move runtime-mutable state off `/mnt/app`.** `boot.state`, `ledger.properties` and `data/` now live in `/mnt/persist/mibsdk/` (qnx6, read-write from boot; `data/` capped at 256 KiB per plugin and 1 MiB in total, a `put` past the cap fails); `cache/` lives in RAM under `/ramdisk/mibsdk/`; reload markers stay in `plugins/` and are never deleted (the runtime tracks consumed markers in memory, `mibsdk-dev push` writes a fresh token each time). The roots come from adapter-hqc (`SdkFiles`). An unwritable root is reported as `STATUS mibsdk state persist=… UNWRITABLE … bootGuard=inert`. | **fixed in code, bench verification pending** (see "B1 verification") |
 | F1 | `/tmp/mibsdk.log` was never written: `/tmp` is QNX `/dev/shmem`, where J9's `File.renameTo` always returns false (I checked this from a plugin: `probe /tmp write ok exists=true`, `probe /tmp rename=false target=false`, `direct ok`). | fixed b2f6486 (in-place fallback, host test) |
 | F2 | `mibsdk-dev install` refused with `could not verify the absence of carplay-rgi (find failed)`: the unit's interactive shell has no `find` (`sh: find: cannot execute`). | fixed a870e1b (`ls -R`, host test) |
 | F3 | `mibsdk-dev restart` (`slay -s11 j9`) does not respawn j9 on this bench. j9 stays down for about 2-3 min, then the whole unit resets and comes back without a DHCP lease (`ssh rpi-bench keypanel up` kicks DHCP). Each restart took about 4-5 min in total. This is a bench/HMI behaviour, not an SDK one: it also happened after the uninstall. | recorded |
-| F4 | Uninstall restores the bundles file byte-identical but not its mode: `-rwxrwxrwx` before install, `-rw-r--r--` after uninstall (`push_file` writes a new file). `install` also refreshes the mtime of the existing `dsitracer_activated` marker (`touch`). lsd.sh only tests and reads these files, so this is cosmetic. | minor, open |
-| F5 | The configurator log prints `hookServices=java.util.Collections$UnmodifiableRandomAccessList@76e49317` (the list object, not its contents) on J9. | cosmetic, open |
-| F6 | `boot healthy: plugins enabled for 60000 ms` is logged even when every plugin `FAILED` at load. | cosmetic, open |
+| F4 | Uninstall restores the bundles file byte-identical but not its mode: `-rwxrwxrwx` before install, `-rw-r--r--` after uninstall (`push_file` writes a new file). `install` also refreshes the mtime of the existing `dsitracer_activated` marker (`touch`). lsd.sh only tests and reads these files, so this is cosmetic. | fixed: install records the mode in `stock/bundles.mode`, install and uninstall `chmod` to it; an existing marker is not touched (host test) |
+| F5 | The configurator log prints `hookServices=java.util.Collections$UnmodifiableRandomAccessList@76e49317` (the list object, not its contents) on J9. | fixed: the names are joined explicitly (host test) |
+| F6 | `boot healthy: plugins enabled for 60000 ms` is logged even when every plugin `FAILED` at load. | fixed: `boot healthy: <n> plugin(s) enabled …` only with at least one ENABLED and a writable boot guard; otherwise `no plugin is enabled (FAILED=<n>)` or `boot guard inert` (host tests) |
 | F7 | The bench has no PDC ECU (Parking aid: "The selected system is currently unavailable"), so bike-rack never gets a parking value and the override, ledger and HookObserved paths cannot be exercised here. | bench limitation |
 
 ## Step 1: Baseline
@@ -254,8 +254,25 @@ installer/mibsdk-dev install && installer/mibsdk-dev restart
 ```
 
 The `mibsdk/` directory still holds `plugins/hello.jar` (v2 build), `crashy.jar` and `bike-rack.jar`,
-`grants.properties`, and `data/bike-rack.properties` (`active=false`).
+`grants.properties`, and `data/bike-rack.properties` (`active=false`). The reinstall moves `data/` to
+`/mnt/persist/mibsdk/data/` and drops `cache/` and `boot.state` from `/mnt/app`.
 
-- Remove crashy before relying on the bench: `mount -uw /mnt/app; rm plugins/crashy.jar data/crashy.properties`.
+- Remove crashy before relying on the bench: `mount -uw /mnt/app; rm .../mibsdk/plugins/crashy.jar;
+  mount -ur /mnt/app; rm /mnt/persist/mibsdk/data/crashy.properties`.
 - Re-push hello from `main` (`mibsdk-dev push plugins/hello/build/mibsdk/hello.jar`).
-- Plugins will only load after blocker B1 is resolved.
+
+## B1 verification (pending: bench down)
+
+With the B1 fix installed and `/mnt/app` left read-only as booted (no manual `mount -uw` anywhere):
+
+1. `mibsdk-dev install && mibsdk-dev restart`; confirm `mount | grep /mnt/app` shows it read-only after boot.
+2. `mibsdk-dev status` shows `STATUS mibsdk state persist=/mnt/persist/mibsdk ok ram=/ramdisk/mibsdk ok
+   bootGuard=armed`, and no `cannot write boot.state` ERROR.
+3. About 30 s after start: `STATUS hello ENABLED enabled` (no `FAILED cannot load jar`); `ls /ramdisk/mibsdk/cache`
+   shows `hello-1.jar`.
+4. `cat /mnt/persist/mibsdk/boot.state`: `lastShutdownClean=false` while plugins load, and about 60 s later
+   `unhealthyBoots=0`, with `INFO mibsdk boot healthy: <n> plugin(s) enabled for 60000 ms` in the log.
+5. `mibsdk-dev push plugins/hello/build/mibsdk/hello.jar`: exactly one `dev channel: reload requested for hello`
+   within one poll, `plugins/hello.reload` still present, and no second reload over the next minute. A second
+   push gives exactly one more.
+6. `data/hello.properties` appears under `/mnt/persist/mibsdk/data/` (not under `/mnt/app`).
