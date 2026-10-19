@@ -460,9 +460,9 @@ class SdkRuntimeBootTest {
             Thread.sleep(300);
         }
         assertEquals(PluginState.ENABLED, status("a-first").state(), "backed off: no second victim yet");
-        for (int i = 0; i < 3; i++) {
-            clock.advance(5000);
-            Thread.sleep(100);
+        for (int i = 0; i < 20 && status("a-first").state() == PluginState.ENABLED; i++) {
+            clock.advance(5000); // a tick that arrives while the control thread is busy may be skipped: keep going
+            Thread.sleep(200);
         }
         awaitState("a-first", PluginState.QUARANTINED);
     }
