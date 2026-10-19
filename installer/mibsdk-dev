@@ -16,6 +16,7 @@ BUNDLES="$LSD/bundles_dsitracer_enabled.properties"
 MARKER="$LSD/dsitracer_activated"
 TRACER_JAR="$LSD/DSITracer.jar"
 STOCK="$SDK/stock"
+LEDGER="$SDK/ledger.properties"
 LOG="/tmp/mibsdk.log"
 SDK_JARS="mibsdk-runtime.jar mibsdk-adapter-hqc.jar mibsdk-rt-retrotranslator.jar"
 BOOT_STATE_RESET=$'unhealthyBoots=0\nlastShutdownClean=true'
@@ -34,8 +35,10 @@ usage: mibsdk-dev <command> [args] [host]      (host defaults to $DEFAULT_HOST)
 
   install                    back up the stock files (first install only), push the SDK jars, bundles file and
                              sdk.properties; refuses on an unsupported HMI, carplay-rgi, or missing DSITracer.jar
-  uninstall [--purge]        restore the stock bundles file, remove the SDK jars (and the dsitracer_activated marker
-                             if it was absent before); --purge also removes $SDK
+  uninstall [--purge] [--force]
+                             restore the stock bundles file, remove the SDK jars (and the dsitracer_activated marker
+                             if it was absent before); --purge also removes $SDK. Refuses while
+                             ledger.properties lists overrides still in force; --force uninstalls anyway
   restart                    restart the HMI (slay -s11 j9)
   push <plugin.jar> [host]   install a plugin jar as plugins/<id>.jar and trigger a reload
   grant <id> <perm,...>      rewrite that plugin's line in grants.properties
@@ -190,11 +193,33 @@ cmd_install() {
   echo "installed; restart HMI with: mibsdk-dev restart"
 }
 
+# check_ledger <force>: refuses (dies) while ledger.properties holds overrides of vehicle state, since only the
+# running SDK can put their prior values back; with force=1 it prints a loud warning instead.
+check_ledger() {
+  local force="$1"
+  is_present "$LEDGER" || return 0
+  fetch "$LEDGER" "$TMP/ledger.properties" || die "cannot read $LEDGER; refusing to uninstall"
+  grep -q '[^[:space:]]' "$TMP/ledger.properties" || return 0
+  if [ "$force" = 1 ]; then
+    info "WARNING: --force: uninstalling while these overrides of vehicle state are still in force:"
+    grep '[^[:space:]]' "$TMP/ledger.properties" | sed 's/^/mibsdk-dev:   /' >&2
+    info "WARNING: nothing will restore their prior values; the car keeps the overridden settings until you"
+    info "WARNING: change them back by hand (format: key=plugin|scope|prior|active)."
+    return 0
+  fi
+  info "refusing to uninstall: these overrides of vehicle state are still in force (key=plugin|scope|prior|active):"
+  grep '[^[:space:]]' "$TMP/ledger.properties" | sed 's/^/mibsdk-dev:   /' >&2
+  info "disable the plugin that owns them (or restart the HMI: mibsdk-dev restart) and wait for the SDK to restore"
+  info "the prior values (check: mibsdk-dev log), then run uninstall again."
+  die "to uninstall anyway and leave those settings overridden, add --force"
+}
+
 cmd_uninstall() {
-  local purge=0 arg
+  local purge=0 force=0 arg
   for arg in "$@"; do
     case "$arg" in
       --purge) purge=1 ;;
+      --force) force=1 ;;
       *) die "unexpected argument '$arg'" ;;
     esac
   done
@@ -204,6 +229,7 @@ cmd_uninstall() {
   fetch "$STOCK/bundles_dsitracer_enabled.properties" "$TMP/stock.properties" || die "stock backup is unreadable"
   local tracer; tracer="$(rsh "cat '$STOCK/tracer.was'")" || die "cannot read stock/tracer.was"
   [ "$tracer" = true ] || [ "$tracer" = false ] || die "stock/tracer.was is corrupt ('$tracer'); refusing to uninstall. Restore $BUNDLES by hand"
+  check_ledger "$force"
   rw_begin
 
   push_file "$TMP/stock.properties" "$BUNDLES"        # first: nothing may reference the jars once they are gone
@@ -344,7 +370,7 @@ main() {
   if [ "$cmd" = uninstall ]; then
     local a rest=()
     for a in "${args[@]+"${args[@]}"}"; do
-      case "$a" in --purge) rest+=("$a") ;; *) set_host "$a"; host_given=1 ;; esac
+      case "$a" in --purge|--force) rest+=("$a") ;; *) set_host "$a"; host_given=1 ;; esac
     done
     args=("${rest[@]+"${rest[@]}"}")
   elif [ "$n" -gt "$want" ]; then

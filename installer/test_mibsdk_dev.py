@@ -132,5 +132,55 @@ class InstallTest(FakeUnitTestCase):
         self.assertNotIn(b"chain.configurator", read(os.path.join(u.sdk, "sdk.properties")))
 
 
+class UninstallTest(FakeUnitTestCase):
+    ENTRY = b"parking.sound.rear=bike-rack|PERSISTENT|on|off\n"
+
+    def installed(self, ledger):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        if ledger is not None:
+            write(os.path.join(u.sdk, "ledger.properties"), ledger)
+        return u
+
+    def assert_still_installed(self, u):
+        self.assertIn(b"MibSdk", u.autostart())
+        for j in SDK_JARS:
+            self.assertTrue(os.path.exists(os.path.join(u.lsd, "jars", j)), j)
+        self.assertTrue(os.path.isdir(u.sdk))
+
+    def test_refuses_while_an_override_is_in_force(self):
+        for args in (["uninstall"], ["uninstall", "--purge"]):
+            u = self.installed(self.ENTRY)
+            r = u.run(*args)
+            err = r.stderr.decode("utf-8")
+            self.assertNotEqual(0, r.returncode, args)
+            self.assertIn("parking.sound.rear=bike-rack|PERSISTENT|on|off", err)
+            self.assertIn("disable the plugin", err)
+            self.assertIn("mibsdk-dev log", err)
+            self.assertIn("--force", err)
+            self.assert_still_installed(u)
+            shutil.rmtree(self.tmp)
+            os.makedirs(self.tmp)
+
+    def test_force_uninstalls_with_a_loud_warning(self):
+        u = self.installed(self.ENTRY)
+        r = self.ok(u.run("uninstall", "--force", "--purge"))
+        err = r.stderr.decode("utf-8")
+        self.assertIn("WARNING", err)
+        self.assertIn("parking.sound.rear=bike-rack|PERSISTENT|on|off", err)
+        self.assertNotIn(b"MibSdk", u.autostart())
+        self.assertFalse(os.path.exists(u.sdk))
+
+    def test_empty_or_missing_ledger_uninstalls(self):
+        for ledger in (None, b"", b"\n"):
+            u = self.installed(ledger)
+            r = self.ok(u.run("uninstall"))
+            self.assertNotIn("WARNING", r.stderr.decode("utf-8"))
+            self.assertNotIn(b"MibSdk", u.autostart())
+            self.assertFalse(os.path.exists(u.marker()), "it was absent before the install")
+            shutil.rmtree(self.tmp)
+            os.makedirs(self.tmp)
+
+
 if __name__ == "__main__":
     unittest.main()
