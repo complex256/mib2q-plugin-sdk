@@ -43,6 +43,11 @@ public final class PluginStorage implements Storage {
     private boolean dirty; // guarded by lock
     private long dirtySince; // guarded by lock
     private long estimate = HEADER_BYTES; // guarded by lock
+    /**
+     * Guarded by lock. Length on disk of a file that failed to load: it still takes that space until a write
+     * replaces it, so the quota counts at least this much (0 once replaced, or when the load succeeded).
+     */
+    private long unreadOnDisk;
 
     public PluginStorage(File file, Clock clock) {
         this(file, clock, DEFAULT_DEBOUNCE_MS);
@@ -59,7 +64,9 @@ public final class PluginStorage implements Storage {
         this.quota = quota;
         load();
         if (quota != null) {
-            quota.set(file, estimatedBytes());
+            synchronized (lock) {
+                quota.set(file, share(estimate));
+            }
         }
     }
 
@@ -80,8 +87,8 @@ public final class PluginStorage implements Storage {
         }
         synchronized (lock) {
             long next = estimate - entryBytes(key, props.getProperty(key)) + entryBytes(key, value);
-            if (quota != null && next > estimate) {
-                String refused = quota.resize(file, next);
+            if (quota != null && share(next) > share(estimate)) {
+                String refused = quota.resize(file, share(next));
                 if (refused != null) {
                     throw new IllegalStateException(refused + "; " + key + " not stored");
                 }
@@ -98,10 +105,15 @@ public final class PluginStorage implements Storage {
             estimate -= entryBytes(key, props.getProperty(key));
             props.remove(key);
             if (quota != null) {
-                quota.resize(file, estimate); // shrinking: never refused
+                quota.resize(file, share(estimate)); // shrinking: never refused
             }
         }
         markDirty();
+    }
+
+    /** What the quota counts for an estimate of {@code bytes}: never less than an unreadable file on disk. */
+    private long share(long bytes) {
+        return Math.max(bytes, unreadOnDisk);
     }
 
     /** Upper bound of the file {@code Properties.store} would write now. */
@@ -142,7 +154,16 @@ public final class PluginStorage implements Storage {
                 dirty = false;
                 snapshot = (Properties) props.clone();
             }
-            if (!write(snapshot)) {
+            if (write(snapshot)) {
+                synchronized (lock) {
+                    if (unreadOnDisk > 0) {
+                        unreadOnDisk = 0; // the damaged file is gone: only the store's content counts now
+                        if (quota != null) {
+                            quota.resize(file, estimate); // shrinking: never refused
+                        }
+                    }
+                }
+            } else {
                 synchronized (lock) {
                     if (!dirty) {
                         dirty = true;
@@ -197,7 +218,10 @@ public final class PluginStorage implements Storage {
                 }
             }
         } catch (Throwable corrupt) {
-            // A damaged file reads as empty; the next flush replaces it.
+            // A damaged file reads as empty; the next flush replaces it. Until then it still takes its space.
+            synchronized (lock) {
+                unreadOnDisk = file.length();
+            }
         } finally {
             if (in != null) {
                 try {

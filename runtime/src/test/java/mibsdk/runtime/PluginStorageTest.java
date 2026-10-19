@@ -160,6 +160,27 @@ class PluginStorageTest {
         assertEquals(900, b.get("k", "").length());
     }
 
+    /** Review fix: a file that fails to load still takes its size on disk until a write replaces it. */
+    @Test
+    void corruptFileKeepsItsSizeOnDiskCountedUntilReplaced() throws IOException {
+        File data = new File(dir, "data");
+        data.mkdirs();
+        File corrupt = new File(data, "c.properties");
+        Files.write(corrupt.toPath(), ("bad=\\uZZZZ" + chars(1000, 'x')).getBytes("ISO-8859-1")); // a malformed escape: load throws
+        StorageQuota q = new StorageQuota(data, 100000, 1500);
+        PluginStorage c = new PluginStorage(corrupt, clock, 2000, q);
+        assertEquals(null, c.get("bad", null), "reads as empty");
+        PluginStorage b = new PluginStorage(new File(data, "b.properties"), clock, 2000, q);
+
+        assertThrows(IllegalStateException.class, () -> b.put("k", chars(600, 'b')),
+                "the corrupt file is still on disk: about 1010 bytes counted");
+        c.put("k", "v"); // within the space the file on disk already takes: allowed
+        b.put("k", chars(300, 'b'));
+        c.flushNow(); // the corrupt file is replaced: only the new content counts
+        b.put("k", chars(1000, 'b'));
+        assertEquals(1000, b.get("k", "").length());
+    }
+
     @Test
     void reloadingAStoreReplacesItsShareInsteadOfAddingToIt() {
         File data = new File(dir, "data");
