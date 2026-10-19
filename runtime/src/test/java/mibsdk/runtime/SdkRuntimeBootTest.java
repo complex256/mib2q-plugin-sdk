@@ -423,6 +423,18 @@ class SdkRuntimeBootTest {
         assertFalse(logContains("boot healthy"), rt.log().snapshot().toString());
     }
 
+    /** Review fix: bootGuard= is the boot.state write's result, not the probe file's. */
+    @Test
+    void bootGuardStatusFollowsTheBootStateWriteNotTheProbe() throws Exception {
+        plugin("hello");
+        assertTrue(new File(persist(), ".probe").mkdirs()); // the probe file cannot be created; boot.state can
+        start("plugin.start.delay.ms=0\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
+        assertEquals(1, count("mibsdk", "state persist=" + persist() + " UNWRITABLE ram=" + ram()
+                + " ok bootGuard=armed"), rt.log().snapshot().toString());
+        assertFalse(logContains("boot guard inert"), rt.log().snapshot().toString());
+        assertEquals("false", bootState().getProperty("lastShutdownClean"), "the guard did record this boot");
+    }
+
     @Test
     void unwritableRamRootIsReportedAndAllFailedIsNeverHealthy() throws Exception {
         plugin("hello");

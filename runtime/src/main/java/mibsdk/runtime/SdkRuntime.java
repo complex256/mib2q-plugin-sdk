@@ -305,20 +305,21 @@ public final class SdkRuntime {
 
     /**
      * STATUS {@code state persist=<dir> ok|UNWRITABLE ram=<dir> ok|UNWRITABLE bootGuard=armed|inert}, plus a WARN per
-     * unwritable root saying what that costs. Creates the roots' directories when missing. Never throws.
+     * unwritable root saying what that costs. The roots are probed with a scratch file; {@code bootGuard} is whether
+     * {@link #beginBoot}'s write of boot.state succeeded. Creates the roots' directories when missing. Never throws.
      */
     private void logRoots() {
         try {
             String persist = probeWritable(cfg.roots().persist());
             String ram = probeWritable(cfg.cacheDir());
-            boolean inert = persist != null || bootGuard.inert();
+            boolean inert = bootGuard.inert(); // the boot.state write's own result (beginBoot ran first)
             log.append("STATUS", SOURCE, "state persist=" + cfg.roots().persist() + (persist == null ? " ok" : " UNWRITABLE")
                     + " ram=" + cfg.roots().ram() + (ram == null ? " ok" : " UNWRITABLE") + " bootGuard="
                     + (inert ? "inert" : "armed"));
             if (persist != null) {
                 log.append("WARN", SOURCE, "persistent root " + cfg.roots().persist() + " is not writable (" + persist
-                        + "): the boot guard is inert (crash loops are not counted), plugin data and the override"
-                        + " ledger are not saved");
+                        + "): plugin data and the override ledger may not be saved"
+                        + (inert ? "; the boot guard is inert (crash loops are not counted)" : ""));
             } else if (inert) {
                 log.append("WARN", SOURCE, "boot guard inert: cannot write " + bootGuard.file()
                         + " (crash loops are not counted)");
