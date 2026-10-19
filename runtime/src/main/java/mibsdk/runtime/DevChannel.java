@@ -157,9 +157,9 @@ public final class DevChannel {
                 continue;
             }
             present.add(name);
-            String sig = signature(f);
+            String sig = signature(f, null);
             if (sig == null || sig.equals(consumed.get(name))) {
-                continue; // unreadable (next poll retries) or already consumed
+                continue; // unreadable or changing (next poll retries), or already consumed
             }
             consumed.put(name, sig); // before the reload: a marker rewritten meanwhile triggers another
             if (baselineOnly) {
@@ -183,15 +183,23 @@ public final class DevChannel {
         }
     }
 
-    /** {@code <mtime>:<size>:<leading bytes>}, or null if the marker cannot be read. */
-    private static String signature(File f) {
+    /**
+     * {@code <mtime>:<size>:<leading bytes>}, or null if the marker cannot be read or changed while it was read
+     * (e.g. {@code mibsdk-dev push} renamed a new marker over it): mtime and size are read before and after the
+     * content and must match, and the content must be as long as they say, so a concurrent mv never yields a
+     * mixed signature. Null is retried on the next poll.
+     *
+     * @param afterRead test hook run between the content read and the second stat; null on the unit
+     */
+    static String signature(File f, Runnable afterRead) {
         long mtime = f.lastModified();
         long size = f.length();
-        byte[] head = new byte[(int) Math.min(size, SIGNATURE_BYTES)];
+        int want = (int) Math.min(size, SIGNATURE_BYTES);
+        byte[] head = new byte[want];
         InputStream in = null;
+        int n = 0;
         try {
             in = new FileInputStream(f);
-            int n = 0;
             while (n < head.length) {
                 int r = in.read(head, n, head.length - n);
                 if (r < 0) {
@@ -199,12 +207,6 @@ public final class DevChannel {
                 }
                 n += r;
             }
-            StringBuffer b = new StringBuffer();
-            b.append(mtime).append(':').append(size).append(':');
-            for (int i = 0; i < n; i++) {
-                b.append(Integer.toHexString(head[i] & 0xff)).append(',');
-            }
-            return b.toString();
         } catch (IOException e) {
             return null;
         } finally {
@@ -216,6 +218,18 @@ public final class DevChannel {
                 }
             }
         }
+        if (afterRead != null) {
+            afterRead.run();
+        }
+        if (n != want || f.lastModified() != mtime || f.length() != size) {
+            return null; // changed under us: not stable yet
+        }
+        StringBuffer b = new StringBuffer();
+        b.append(mtime).append(':').append(size).append(':');
+        for (int i = 0; i < n; i++) {
+            b.append(Integer.toHexString(head[i] & 0xff)).append(',');
+        }
+        return b.toString();
     }
 
     private void log(String level, String msg) {

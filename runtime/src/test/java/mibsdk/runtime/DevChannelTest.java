@@ -256,4 +256,25 @@ class DevChannelTest {
         assertTrue(marker.exists());
         assertFalse(logFile.exists());
     }
+
+    /**
+     * Review fix: a marker replaced by a concurrent mv between the stat and the read must not yield a mixed
+     * signature (old mtime/size, new content or the reverse); it is skipped and the next poll records it.
+     */
+    @Test
+    void markerReplacedWhileReadGivesNoSignatureUntilStable() throws Exception {
+        File marker = new File(plugins, "x.reload");
+        write(marker, "old-token");
+        assertTrue(marker.setLastModified(1000000L));
+        File staged = new File(plugins, "x.reload.push.tmp");
+        write(staged, "a-longer-new-token");
+        assertTrue(staged.setLastModified(2000000L));
+
+        String sig = DevChannel.signature(marker, () -> assertTrue(staged.renameTo(marker)));
+        assertEquals(null, sig, "unstable: retried on the next poll");
+
+        String stable = DevChannel.signature(marker, null);
+        assertTrue(stable != null && stable.startsWith("2000000:18:"), stable);
+        assertEquals(stable, DevChannel.signature(marker, null));
+    }
 }
