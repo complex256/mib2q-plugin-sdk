@@ -397,6 +397,42 @@ class ChainingConfiguratorTest {
         assertTrue(SdkGlobals.wrappingEnabled);
     }
 
+    /** Crashes after wrapping but before plugins load are invisible to unhealthyBoots; wrapBoots catches them. */
+    @Test
+    void wrapLoopPassesEverythingThrough() throws IOException {
+        sdkProperties("safe.mode.after.unhealthy.boots=2\n");
+        File state = new File(base, "boot.state");
+        init();
+        assertTrue(SdkGlobals.wrappingEnabled);
+        assertTrue(text(state).contains("wrapBoots=1\n"), text(state));
+        init(); // the HMI died before the runtime could mark anything
+        assertTrue(SdkGlobals.wrappingEnabled);
+        assertTrue(text(state).contains("wrapBoots=2\n"), text(state));
+
+        ChainingConfigurator c = init();
+        assertFalse(SdkGlobals.wrappingEnabled);
+        assertTrue(logContains("wrapping=off reason=wrap-boots"), SdkGlobals.LOG.snapshot().toString());
+        assertTrue(text(state).contains("wrapBoots=2\n"), "a pass-through boot is not counted: " + text(state));
+        assertNull(c.getServiceRegistration(d, new String[] {PARKING}, service, props()));
+        assertTrue(delegator.calls.isEmpty());
+
+        write(state, "unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0\n"); // mibsdk-dev safe-mode off
+        init();
+        assertTrue(SdkGlobals.wrappingEnabled);
+    }
+
+    @Test
+    void passThroughBootsAreNotCounted() throws IOException {
+        write(new File(base, "SAFE_MODE"), "");
+        init();
+        assertFalse(SdkGlobals.wrappingEnabled);
+        assertFalse(new File(base, "boot.state").exists(), "nothing wrapped, nothing counted");
+    }
+
+    private static String text(File f) throws IOException {
+        return new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.ISO_8859_1);
+    }
+
     @Test
     void chainThatThrowsOnInitIsDropped() throws IOException {
         sdkProperties("chain.configurator=" + CHAIN + "\n");

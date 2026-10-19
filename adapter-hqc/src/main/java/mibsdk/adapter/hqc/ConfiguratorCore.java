@@ -19,15 +19,16 @@ import org.osgi.framework.ServiceRegistration;
  * the SDK classes lands in that catch-all).
  *
  * <p>For the allow-listed DSI services ({@code hook.services} in sdk.properties) it registers a
- * {@link DsiServiceProxy} instead of the service, when this firmware is supported and the boot guard is not in
- * safe mode. A configured {@code chain.configurator} (normally DSITracer's TraceConfigurator, which
- * ChainingConfigurator replaces in bundles.properties) sees every registration, with the wrapped object where
- * there is one, so tracing keeps working. Everything else is passed through untouched, and any failure falls back
+ * {@link DsiServiceProxy} instead of the service, when this firmware is supported, the boot guard is not in
+ * safe mode and no wrap loop was detected ({@link BootGuard#wrapLoopDetected}; a wrapping boot is counted with
+ * {@link BootGuard#countWrapBoot} at init). A configured {@code chain.configurator} (normally DSITracer's
+ * TraceConfigurator, which ChainingConfigurator replaces in bundles.properties) sees every registration, with the
+ * wrapped object where there is one, so tracing keeps working. Everything else is passed through untouched, and any failure falls back
  * to what the chain alone (or stock LSD) would do. Never starts, stops or reloads the SDK runtime.
  *
  * <p>The registration path does no I/O and takes no lock except RingLog's append, HookTable's producer lock and
  * {@link RawServices}' put (the raw object of each wrapped service, for the SDK's own bridges).
- * Files are read once, in {@link #init}.
+ * Files are read once, in {@link #init}, which also writes the wrap-boot count to boot.state.
  */
 final class ConfiguratorCore {
 
@@ -65,13 +66,22 @@ final class ConfiguratorCore {
         try {
             String version = AdapterSelector.readHmiVersion(versionInfo);
             RuntimeConfig cfg = RuntimeConfig.load(baseDir);
-            boolean safeMode = BootGuard.wouldEnterSafeMode(cfg.bootStateFile(), cfg.safeModeMarker(),
-                    cfg.safeModeAfterUnhealthyBoots());
-            on = HqcVersion.SUPPORTED.equals(version) && !safeMode;
+            int threshold = cfg.safeModeAfterUnhealthyBoots();
+            boolean safeMode = BootGuard.wouldEnterSafeMode(cfg.bootStateFile(), cfg.safeModeMarker(), threshold);
+            boolean wrapLoop = BootGuard.wrapLoopDetected(cfg.bootStateFile(), threshold);
+            on = HqcVersion.SUPPORTED.equals(version) && !safeMode && !wrapLoop;
+            if (wrapLoop) {
+                warn("configurator: wrapping=off reason=wrap-boots (" + threshold + " boots in a row wrapped the DSI"
+                        + " services and died before the HMI ran healthy; passing everything through until the boot"
+                        + " state is reset: mibsdk-dev safe-mode off)");
+            }
+            if (on) {
+                BootGuard.countWrapBoot(cfg.bootStateFile(), log); // cleared by the runtime once the HMI is healthy
+            }
             List names = cfg.hookServices();
             hookServices = (String[]) names.toArray(new String[names.size()]);
-            info("configurator: hmi=" + version + " safeMode=" + safeMode + " wrappingEnabled=" + on
-                    + " hookServices=" + names);
+            info("configurator: hmi=" + version + " safeMode=" + safeMode + " wrapLoop=" + wrapLoop
+                    + " wrappingEnabled=" + on + " hookServices=" + names);
             // The chain is loaded even when wrapping is off: it is what stock would run in our place.
             loadChain(cfg.chainConfigurator());
         } catch (Throwable t) {

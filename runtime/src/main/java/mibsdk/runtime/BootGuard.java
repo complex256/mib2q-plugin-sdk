@@ -10,13 +10,15 @@ import java.util.Properties;
 /**
  * Persisted crash counter that decides safe mode.
  *
- * <p>File ({@code boot.state}, properties, exactly these two lines, no comment and no wall-clock value):
+ * <p>File ({@code boot.state}, properties, exactly these three lines, no comment and no wall-clock value):
  * <pre>
  * unhealthyBoots=&lt;n&gt;
  * lastShutdownClean=&lt;true|false&gt;
+ * wrapBoots=&lt;n&gt;
  * </pre>
  * This class is the single owner of the format ({@link #reset()} content is
- * {@code unhealthyBoots=0\nlastShutdownClean=true\n}).
+ * {@code unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0\n}). A file without {@code wrapBoots} (written
+ * before the key existed) reads as {@code wrapBoots=0}; unknown keys are ignored.
  *
  * <p>Only a boot that started loading plugins can count (spec: restarts "with plugins enabled"). A boot is
  * unhealthy if, after {@link #markPluginsLoading} (the start of the plugin load), it neither became healthy
@@ -27,6 +29,15 @@ import java.util.Properties;
  * {@code SAFE_MODE} marker exists. A missing, unreadable or malformed file reads as a fresh unit (0, clean).
  * Safe mode loads no plugins, so it never lowers the count: it lasts until {@link #reset()}.
  *
+ * <p>{@code wrapBoots} covers what {@code unhealthyBoots} cannot see: a crash between the configurator wrapping
+ * the DSI services (at LSD start) and the plugin load (pluginStartDelayMs later), e.g. in a proxy, a trace proxy
+ * over it or a bridge. The configurator, at init only, passes everything through if
+ * {@link #wrapLoopDetected} (wrapBoots &gt;= threshold), else counts its boot with {@link #countWrapBoot}. The
+ * runtime clears the count once the HMI ran healthyAfterMs after the runtime started, plugins or not
+ * ({@link #markHmiHealthy}), and on a clean shutdown ({@link #markCleanShutdown}). Once the threshold is reached
+ * it latches like safe mode: a pass-through boot that runs fine proves nothing about wrapping, so only
+ * {@link #reset()} (mibsdk-dev safe-mode off) clears it.
+ *
  * <p>Writes go to a temp file, fsync, rename (as the ledger does); they never throw (logged instead).
  * Called on the runtime control thread and, for {@link #markCleanShutdown}, on the publishing thread.
  */
@@ -34,12 +45,14 @@ public final class BootGuard {
 
     static final String UNHEALTHY_BOOTS = "unhealthyBoots";
     static final String LAST_SHUTDOWN_CLEAN = "lastShutdownClean";
+    static final String WRAP_BOOTS = "wrapBoots";
     private static final String SOURCE = "mibsdk";
 
     /** One reading of boot.state. */
     private static final class State {
         int unhealthyBoots;
         boolean lastShutdownClean = true; // nothing before: a fresh unit
+        int wrapBoots;
     }
 
     private final File bootState;
@@ -48,6 +61,7 @@ public final class BootGuard {
     private final RingLog log;
     private int unhealthyBoots; // guarded by this
     private boolean lastShutdownClean; // guarded by this
+    private int wrapBoots; // guarded by this
     private boolean ignitionOffSeen; // guarded by this; in memory only: this run saw IgnitionChanged(false)
     private boolean loaded; // guarded by this; the mark methods never write state they have not read
 
@@ -75,6 +89,35 @@ public final class BootGuard {
             return counted(st) >= threshold;
         } catch (Throwable t) {
             return true; // as beginBoot's caller: cannot count crashes, do not risk a boot loop
+        }
+    }
+
+    /**
+     * For the configurator, read-only: true if {@code threshold} boots in a row wrapped the DSI services without
+     * the HMI then running healthy or shutting down clean (a crash loop the plugin counter cannot see), or if the
+     * file cannot be judged. Never throws.
+     */
+    public static boolean wrapLoopDetected(File bootState, int threshold) {
+        try {
+            return load(bootState, null).wrapBoots >= threshold;
+        } catch (Throwable t) {
+            return true; // cannot count: do not risk a boot loop
+        }
+    }
+
+    /**
+     * For the configurator, once at init when it wraps this boot: wrapBoots + 1, every other key kept. The only
+     * write outside the runtime; the runtime reads the file only later, in {@link #beginBoot}. Never throws.
+     */
+    public static void countWrapBoot(File bootState, RingLog log) {
+        try {
+            State st = load(bootState, log);
+            if (st.wrapBoots < Integer.MAX_VALUE) {
+                st.wrapBoots++;
+            }
+            write(bootState, st, log);
+        } catch (Throwable t) {
+            append(log, "ERROR", "cannot count the wrap boot: " + SdkRuntime.describe(t));
         }
     }
 
@@ -108,22 +151,64 @@ public final class BootGuard {
         }
     }
 
-    /** The ignition went off: whatever ends this run (usually power-off) is a clean shutdown. */
-    public synchronized void markCleanShutdown() {
+    /**
+     * The HMI ran healthyAfterMs since the runtime started, plugins or not: wrapBoots=0, unless the wrap loop
+     * already latched (see the class comment).
+     */
+    public synchronized void markHmiHealthy() {
         loadOnce();
-        ignitionOffSeen = true;
-        if (!lastShutdownClean) {
-            lastShutdownClean = true;
+        if (clearWrapBoots()) {
             write();
         }
     }
 
-    /** Leaves safe mode on the next boot (unless the marker exists): unhealthyBoots=0, lastShutdownClean=true. */
+    /**
+     * The ignition went off: whatever ends this run (usually power-off) is a clean shutdown. Also clears
+     * wrapBoots (unless latched).
+     */
+    public synchronized void markCleanShutdown() {
+        loadOnce();
+        ignitionOffSeen = true;
+        boolean changed = clearWrapBoots();
+        if (!lastShutdownClean) {
+            lastShutdownClean = true;
+            changed = true;
+        }
+        if (changed) {
+            write();
+        }
+    }
+
+    /**
+     * Leaves safe mode on the next boot (unless the marker exists) and re-enables wrapping: unhealthyBoots=0,
+     * lastShutdownClean=true, wrapBoots=0.
+     */
     public synchronized void reset() {
         loaded = true;
         unhealthyBoots = 0;
         lastShutdownClean = true;
+        wrapBoots = 0;
         write();
+    }
+
+    /** True if the configurator passes everything through until {@link #reset()} (wrapBoots reached threshold). */
+    synchronized boolean wrapLoopLatched() {
+        loadOnce();
+        return wrapBoots >= threshold;
+    }
+
+    synchronized int wrapBoots() {
+        loadOnce();
+        return wrapBoots;
+    }
+
+    /** True if it changed wrapBoots. */
+    private boolean clearWrapBoots() {
+        if (wrapBoots == 0 || wrapBoots >= threshold) {
+            return false;
+        }
+        wrapBoots = 0;
+        return true;
     }
 
     synchronized int unhealthyBoots() {
@@ -145,6 +230,7 @@ public final class BootGuard {
         State st = new State();
         st.unhealthyBoots = unhealthyBoots;
         st.lastShutdownClean = lastShutdownClean;
+        st.wrapBoots = wrapBoots;
         return st;
     }
 
@@ -163,6 +249,7 @@ public final class BootGuard {
         State st = load(bootState, log);
         unhealthyBoots = st.unhealthyBoots;
         lastShutdownClean = st.lastShutdownClean;
+        wrapBoots = st.wrapBoots;
     }
 
     private static State load(File bootState, RingLog log) {
@@ -191,21 +278,32 @@ public final class BootGuard {
                 }
             }
         }
-        String n = p.getProperty(UNHEALTHY_BOOTS);
-        try {
-            int v = n == null ? 0 : Integer.parseInt(n.trim());
-            st.unhealthyBoots = v < 0 ? 0 : v;
-        } catch (NumberFormatException e) {
-            append(log, "WARN", bootState.getName() + ": bad " + UNHEALTHY_BOOTS + ", treated as 0");
-        }
+        st.unhealthyBoots = count(p, UNHEALTHY_BOOTS, bootState, log);
         String clean = p.getProperty(LAST_SHUTDOWN_CLEAN);
         st.lastShutdownClean = clean == null || !"false".equals(clean.trim());
+        st.wrapBoots = count(p, WRAP_BOOTS, bootState, log); // absent in files written before the key existed: 0
         return st;
     }
 
+    /** A non-negative count; missing or malformed is 0. */
+    private static int count(Properties p, String key, File bootState, RingLog log) {
+        String n = p.getProperty(key);
+        try {
+            int v = n == null ? 0 : Integer.parseInt(n.trim());
+            return v < 0 ? 0 : v;
+        } catch (NumberFormatException e) {
+            append(log, "WARN", bootState.getName() + ": bad " + key + ", treated as 0");
+            return 0;
+        }
+    }
+
     private void write() {
-        String text = UNHEALTHY_BOOTS + "=" + unhealthyBoots + "\n" + LAST_SHUTDOWN_CLEAN + "=" + lastShutdownClean
-                + "\n";
+        write(bootState, currentState(), log);
+    }
+
+    private static void write(File bootState, State st, RingLog log) {
+        String text = UNHEALTHY_BOOTS + "=" + st.unhealthyBoots + "\n" + LAST_SHUTDOWN_CLEAN + "="
+                + st.lastShutdownClean + "\n" + WRAP_BOOTS + "=" + st.wrapBoots + "\n";
         File tmp = tmpFile(bootState);
         FileOutputStream out = null;
         try {

@@ -137,7 +137,7 @@ class BootGuardTest {
         }
         assertTrue(boot().beginBoot());
         boot().reset();
-        assertEquals("unhealthyBoots=0\nlastShutdownClean=true\n", text(state));
+        assertEquals("unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0\n", text(state));
         assertFalse(new File(tmp, "boot.state.tmp").exists());
         assertFalse(BootGuard.wouldEnterSafeMode(state, marker, 3));
         assertFalse(boot().beginBoot());
@@ -184,10 +184,105 @@ class BootGuardTest {
         BootGuard g = boot();
         g.beginBoot();
         g.markPluginsLoading();
-        assertEquals("unhealthyBoots=0\nlastShutdownClean=false\n", text(state));
+        assertEquals("unhealthyBoots=0\nlastShutdownClean=false\nwrapBoots=0\n", text(state));
         g.markCleanShutdown();
-        assertEquals("unhealthyBoots=0\nlastShutdownClean=true\n", text(state));
+        assertEquals("unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0\n", text(state));
         assertFalse(new File(tmp, "boot.state.tmp").exists());
+    }
+
+    // ---- wrapBoots: boots the configurator wrapped, counted before the runtime can see anything ----
+
+    /** What the configurator does at init: true means it wraps this boot (and counted it). */
+    private boolean configuratorBoot() {
+        if (BootGuard.wrapLoopDetected(state, 3)) {
+            return false;
+        }
+        BootGuard.countWrapBoot(state, null);
+        return true;
+    }
+
+    @Test
+    void crashesBeforePluginsLoadEndWrappingAfterThreshold() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            assertTrue(configuratorBoot(), "boot " + (i + 1) + " wraps");
+            if (i == 1) {
+                assertFalse(boot().beginBoot(), "a runtime that starts and dies keeps the count"); // no plugins yet
+            }
+            // the HMI dies here: a proxy, trace or bridge crash, before the runtime marks anything
+        }
+        assertEquals("3", props().getProperty("wrapBoots"));
+        assertEquals("0", props().getProperty("unhealthyBoots"), "the plugin counter never saw these boots");
+        assertTrue(BootGuard.wrapLoopDetected(state, 3));
+        assertFalse(configuratorBoot(), "the next boot passes everything through");
+        assertEquals("3", props().getProperty("wrapBoots"), "a pass-through boot is not counted");
+    }
+
+    @Test
+    void healthyRunClearsWrapBoots() throws Exception {
+        configuratorBoot();
+        configuratorBoot();
+        BootGuard g = boot();
+        assertFalse(g.beginBoot());
+        assertEquals("2", props().getProperty("wrapBoots"), "beginBoot keeps the configurator's count");
+        g.markHmiHealthy();
+        assertEquals("0", props().getProperty("wrapBoots"));
+        assertEquals(0, g.wrapBoots());
+    }
+
+    @Test
+    void cleanShutdownClearsWrapBoots() throws Exception {
+        configuratorBoot();
+        configuratorBoot();
+        BootGuard g = boot();
+        assertFalse(g.beginBoot());
+        g.markCleanShutdown();
+        assertEquals("0", props().getProperty("wrapBoots"));
+    }
+
+    @Test
+    void wrapLoopLatchesUntilReset() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            configuratorBoot();
+        }
+        BootGuard g = boot();
+        assertFalse(g.beginBoot(), "the runtime itself is not in safe mode");
+        assertTrue(g.wrapLoopLatched());
+        g.markHmiHealthy(); // a pass-through boot is healthy: that proves nothing about wrapping
+        g.markCleanShutdown();
+        assertEquals("3", props().getProperty("wrapBoots"));
+        assertTrue(BootGuard.wrapLoopDetected(state, 3));
+
+        boot().reset();
+        assertEquals("0", props().getProperty("wrapBoots"));
+        assertFalse(BootGuard.wrapLoopDetected(state, 3));
+        assertTrue(configuratorBoot());
+    }
+
+    @Test
+    void wrapBootsSurvivesTheRuntimeWrites() throws Exception {
+        configuratorBoot();
+        BootGuard g = boot();
+        g.beginBoot();
+        g.markPluginsLoading();
+        g.markHealthy();
+        assertEquals("1", props().getProperty("wrapBoots"), "only markHmiHealthy/markCleanShutdown/reset clear it");
+    }
+
+    @Test
+    void oldTwoLineFileAndBadWrapBootsAreTolerated() throws Exception {
+        FileOutputStream out = new FileOutputStream(state);
+        out.write("unhealthyBoots=1\nlastShutdownClean=true\n".getBytes("ISO-8859-1"));
+        out.close();
+        assertFalse(BootGuard.wrapLoopDetected(state, 3));
+        assertTrue(configuratorBoot());
+        assertEquals("unhealthyBoots=1\nlastShutdownClean=true\nwrapBoots=1\n", text(state));
+
+        out = new FileOutputStream(state);
+        out.write("unhealthyBoots=1\nlastShutdownClean=true\nwrapBoots=x\n".getBytes("ISO-8859-1"));
+        out.close();
+        assertFalse(BootGuard.wrapLoopDetected(state, 3), "a bad value reads as 0");
+        assertFalse(boot().beginBoot());
+        assertEquals("1", props().getProperty("unhealthyBoots"));
     }
 
     private static String text(File f) throws IOException {

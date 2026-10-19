@@ -19,7 +19,7 @@ STOCK="$SDK/stock"
 LEDGER="$SDK/ledger.properties"
 LOG="/tmp/mibsdk.log"
 SDK_JARS="mibsdk-runtime.jar mibsdk-adapter-hqc.jar mibsdk-rt-retrotranslator.jar"
-BOOT_STATE_RESET=$'unhealthyBoots=0\nlastShutdownClean=true'
+BOOT_STATE_RESET=$'unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0'   # BootGuard.reset()'s content
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST="${MIBSDK_DIST:-$HERE/../dist/build/dist}"
@@ -42,7 +42,8 @@ usage: mibsdk-dev <command> [args] [host]      (host defaults to $DEFAULT_HOST)
   restart                    restart the HMI (slay -s11 j9)
   push <plugin.jar> [host]   install a plugin jar as plugins/<id>.jar and trigger a reload
   grant <id> <perm,...>      rewrite that plugin's line in grants.properties
-  safe-mode on|off           create/remove the SAFE_MODE marker (off also resets boot.state)
+  safe-mode on|off           create/remove the SAFE_MODE marker (off also resets boot.state: the unhealthy-boot count
+                             and the wrap-boot count that turns DSI service wrapping off after a crash loop)
   log                        print $LOG
   status                     print the STATUS lines of $LOG
 
@@ -330,7 +331,8 @@ cmd_safe_mode() {
       rsh "rm -f '$SDK/SAFE_MODE'" || die "cannot remove SAFE_MODE"
       push_file "$TMP/boot.state" "$SDK/boot.state"
       rw_end
-      echo "safe mode off: SAFE_MODE removed and boot.state reset (unhealthyBoots=0)."
+      echo "safe mode off: SAFE_MODE removed and boot.state reset (unhealthyBoots=0, wrapBoots=0: plugins load and"
+      echo "DSI services are wrapped again)."
       echo "It takes effect on the next HMI restart; recommended: mibsdk-dev restart."
       echo "Note: if the runtime is currently running in normal mode it may rewrite boot.state from cached state;"
       echo "      restart promptly (or run this with the HMI stopped) so the reset sticks."

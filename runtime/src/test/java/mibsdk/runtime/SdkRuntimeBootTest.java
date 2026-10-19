@@ -350,6 +350,32 @@ class SdkRuntimeBootTest {
     }
 
     @Test
+    void wrapBootsClearedOnceTheHmiRanHealthyEvenWithoutPlugins() throws Exception {
+        write(new File(base, "boot.state"), "unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=2\n");
+        write(new File(base, "SAFE_MODE"), ""); // no plugin ever loads: HMI health alone counts
+        start("plugin.start.delay.ms=30000\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
+        assertTrue(rt.safeMode());
+        assertEquals("2", bootState().getProperty("wrapBoots"));
+        clock.advance(59999);
+        Thread.sleep(300);
+        assertEquals("2", bootState().getProperty("wrapBoots"), "healthyAfterMs after the runtime started");
+        clock.advance(1);
+        awaitBootState("wrapBoots", "0");
+    }
+
+    @Test
+    void wrapLoopIsLoggedAndLatched() throws Exception {
+        write(new File(base, "boot.state"), "unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=3\n");
+        start("plugin.start.delay.ms=0\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
+        assertFalse(rt.safeMode(), "plugins still run, on the unwrapped services");
+        assertTrue(logContains("WARN mibsdk wrapping=off reason=wrap-boots n=3"), rt.log().snapshot().toString());
+        clock.advance(60000);
+        Thread.sleep(300);
+        fake.setIgnition(false);
+        assertEquals("3", bootState().getProperty("wrapBoots"), "only a reset clears a latched wrap loop");
+    }
+
+    @Test
     void notMarkedHealthyIfStoppedFirst() throws Exception {
         plugin("hello");
         write(new File(base, "boot.state"), "unhealthyBoots=1\nlastShutdownClean=false\n");

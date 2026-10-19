@@ -182,5 +182,18 @@ class UninstallTest(FakeUnitTestCase):
             os.makedirs(self.tmp)
 
 
+class SafeModeTest(FakeUnitTestCase):
+    def test_off_writes_boot_guard_reset_content(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        write(os.path.join(u.sdk, "SAFE_MODE"), b"")
+        write(os.path.join(u.sdk, "boot.state"), b"unhealthyBoots=3\nlastShutdownClean=false\nwrapBoots=3\n")
+        self.ok(u.run("safe-mode", "off"))
+        self.assertFalse(os.path.exists(os.path.join(u.sdk, "SAFE_MODE")))
+        # Must equal BootGuard.reset()'s file (BootGuardTest.resetLeavesSafeMode).
+        self.assertEqual(b"unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0\n",
+                         read(os.path.join(u.sdk, "boot.state")))
+
+
 if __name__ == "__main__":
     unittest.main()

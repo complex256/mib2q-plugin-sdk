@@ -78,7 +78,8 @@ import mibsdk.platform.PlatformHost;
  * during {@code start()}); a {@link #reload} before that load is deferred (logged; the load takes the
  * current jar). The boot counts toward safe mode only from the start of the plugin load
  * ({@link BootGuard#markPluginsLoading}), and {@code healthyAfterMs} after loading it is marked healthy. Every
- * {@code IgnitionChanged(false)} marks a clean shutdown. A {@link HeapWatch} samples free heap every
+ * {@code IgnitionChanged(false)} marks a clean shutdown. Independently of plugins, {@code healthyAfterMs} after
+ * {@code start()} the HMI is marked healthy for the configurator ({@link BootGuard#markHmiHealthy}). A {@link HeapWatch} samples free heap every
  * {@code heapCheckMs} once plugins are loaded. With no adapter (null: no adapter supports this HMI version)
  * the runtime logs the STATUS line with {@code adapter=none} and stops at once, leaving the boot guard and
  * the ledger untouched. Once {@link #stop()} is requested no plugin is enabled any more: a delayed or
@@ -260,6 +261,7 @@ public final class SdkRuntime {
             ledger.restorePendingOnBoot(platformApplier); // safe mode: no plugin will re-claim anything
         }
         log.append("STATUS", SOURCE, "runtime started adapter=" + adapterId + " safeMode=" + safeMode);
+        scheduleHmiHealthy(t);
         startDevChannel();
         if (!adapterStarted || safeMode) {
             return;
@@ -284,6 +286,20 @@ public final class SdkRuntime {
             log.append("INFO", SOURCE, "plugins load in " + delay + " ms");
             schedule(t.after(delay, load));
         }
+    }
+
+    /**
+     * healthyAfterMs after this start, plugins or not (safe mode, adapter failure): the HMI survived the wrapped
+     * services, so the configurator's wrap-boot count is cleared ({@link BootGuard#markHmiHealthy}).
+     */
+    private void scheduleHmiHealthy(PluginScheduler t) {
+        schedule(t.after(cfg.healthyAfterMs(), new Runnable() {
+            public void run() {
+                if (!isStopped()) {
+                    bootGuard.markHmiHealthy();
+                }
+            }
+        }));
     }
 
     private SerialExecutor newControlExecutor() {
@@ -311,6 +327,11 @@ public final class SdkRuntime {
             if (safe && n >= cfg.safeModeAfterUnhealthyBoots()) {
                 log.append("WARN", SOURCE, "safeMode=true reason=unhealthy-boots n=" + n + " (threshold "
                         + cfg.safeModeAfterUnhealthyBoots() + "; no plugin loads until the boot state is reset)");
+            }
+            if (bootGuard.wrapLoopLatched()) {
+                log.append("WARN", SOURCE, "wrapping=off reason=wrap-boots n=" + bootGuard.wrapBoots() + " (threshold "
+                        + cfg.safeModeAfterUnhealthyBoots() + " boots died before the HMI ran healthy; no DSI service"
+                        + " is hooked until the boot state is reset: mibsdk-dev safe-mode off)");
             }
             return safe;
         } catch (Throwable e) { // cannot count crashes: do not risk a boot loop
