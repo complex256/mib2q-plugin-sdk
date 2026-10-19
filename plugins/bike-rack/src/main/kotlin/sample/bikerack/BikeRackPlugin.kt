@@ -16,13 +16,17 @@ import mibsdk.api.Subscription
  */
 class BikeRackPlugin : MibPlugin() {
 
-    private var waiting: Subscription? = null
+    @Volatile private var waiting: Subscription? = null
 
     override fun onEnable(ctx: PluginContext) {
         val storage = ctx.storage()
         // Ignition off: the ledger restores the sound; the rack must be re-armed deliberately next time.
         ctx.events().on(IgnitionChanged::class.java) { e ->
-            if (!e.isOn) storage.put(ACTIVE, "false")
+            if (!e.isOn) {
+                storage.put(ACTIVE, "false")
+                waiting?.cancel()
+                waiting = null
+            }
         }
         if (storage.get(ACTIVE, "false") != "true") return
 
@@ -34,7 +38,7 @@ class BikeRackPlugin : MibPlugin() {
             waiting = ctx.events().on(ParkingSoundChanged::class.java) { e ->
                 waiting?.cancel()
                 waiting = null
-                mute(ctx, e.value())
+                if (storage.get(ACTIVE, "false") == "true") mute(ctx, e.value())
             }
         }
     }

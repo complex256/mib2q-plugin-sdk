@@ -121,6 +121,18 @@ class BikeRackPluginTest {
     }
 
     @Test
+    fun ignitionOffWhileWaitingNeverMutes() {
+        ecuKnown = false
+        start(true)
+        fake.setIgnition(false)
+        ecuKnown = true
+        fake.ecuSetSoundDirections(f1r1l1x1)
+        assertNoMoreThan(0)
+        assertTrue(rt!!.activeOverrides().isEmpty())
+        assertEquals("false", storedActive())
+    }
+
+    @Test
     fun ecuFlipsBackGetsReapplied() {
         start(true)
         awaitApplied(1, f1r0l1x1)
