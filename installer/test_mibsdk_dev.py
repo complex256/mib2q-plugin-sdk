@@ -7,6 +7,7 @@ import stat
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOL = os.path.join(HERE, "mibsdk-dev")
@@ -25,6 +26,8 @@ while [ $# -gt 0 ]; do
 done
 cmd="$*"
 cmd="${cmd//\/mnt\/app/$FAKE_UNIT/mnt/app}"
+cmd="${cmd//\/mnt\/persist/$FAKE_UNIT/mnt/persist}"
+cmd="${cmd//\/ramdisk\//$FAKE_UNIT/ramdisk/}"
 cmd="${cmd//\/ifs\//$FAKE_UNIT/ifs/}"
 cmd="${cmd//\/tmp\/mibsdk.log/$FAKE_UNIT/tmp/mibsdk.log}"
 exec sh -c "$cmd"
@@ -58,6 +61,10 @@ class FakeUnit(object):
         self.unit = os.path.join(root, "unit")
         self.lsd = os.path.join(self.unit, "mnt/app/eso/hmi/lsd")
         self.sdk = os.path.join(self.lsd, "mibsdk")
+        # Runtime-mutable state lives off /mnt/app (read-only while the HMI runs).
+        self.persist = os.path.join(self.unit, "mnt/persist/mibsdk")
+        self.ram = os.path.join(self.unit, "ramdisk/mibsdk")
+        os.makedirs(os.path.join(self.unit, "mnt/persist"), exist_ok=True)  # the partition itself always exists
         bindir = os.path.join(root, "bin")
         executable(os.path.join(bindir, "ssh"), FAKE_SSH)
         executable(os.path.join(bindir, "mount"), FAKE_NOOP)
@@ -82,8 +89,11 @@ class FakeUnit(object):
     def marker(self):
         return os.path.join(self.lsd, "dsitracer_activated")
 
+    def bundles_path(self):
+        return os.path.join(self.lsd, "bundles_dsitracer_enabled.properties")
+
     def bundles(self):
-        return read(os.path.join(self.lsd, "bundles_dsitracer_enabled.properties"))
+        return read(self.bundles_path())
 
     def autostart(self):
         lines = [l for l in self.bundles().splitlines() if l.startswith(b"Bundle.Startup.Autostart")]
@@ -136,6 +146,35 @@ class InstallTest(FakeUnitTestCase):
         self.assertNotIn(b"chain.configurator", read(os.path.join(u.sdk, "sdk.properties")))
 
 
+    def test_creates_the_persistent_root_and_no_runtime_state_on_app(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        self.assertTrue(os.path.isdir(u.persist))
+        self.assertTrue(os.path.isdir(os.path.join(u.sdk, "plugins")))
+        for name in ("cache", "data", "boot.state", "ledger.properties"):
+            self.assertFalse(os.path.exists(os.path.join(u.sdk, name)), name)
+
+    def test_reinstall_moves_state_left_on_app_by_an_older_install(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        write(os.path.join(u.sdk, "data/bike-rack.properties"), b"active=false\n")
+        write(os.path.join(u.sdk, "ledger.properties"), b"")
+        write(os.path.join(u.sdk, "boot.state"), b"unhealthyBoots=1\n")
+        write(os.path.join(u.sdk, "cache/hello-1.jar"), b"jar")
+        self.ok(u.run("install"))
+        self.assertEqual(b"active=false\n", read(os.path.join(u.persist, "data/bike-rack.properties")))
+        self.assertTrue(os.path.exists(os.path.join(u.persist, "ledger.properties")))
+        for name in ("cache", "data", "boot.state", "ledger.properties"):
+            self.assertFalse(os.path.exists(os.path.join(u.sdk, name)), name)
+
+    def test_reinstall_never_overwrites_persistent_state(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        write(os.path.join(u.persist, "data/p.properties"), b"new\n")
+        write(os.path.join(u.sdk, "data/p.properties"), b"old\n")
+        self.ok(u.run("install"))
+        self.assertEqual(b"new\n", read(os.path.join(u.persist, "data/p.properties")))
+
     def test_refuses_when_carplay_stock_files_exist_anywhere_under_hmi(self):
         u = self.unit(tracer_marker=False)
         write(os.path.join(u.unit, "mnt/app/eso/hmi/lsd/kzbs/deep/foo.kzb.carplay-stock"), b"x")
@@ -152,7 +191,7 @@ class UninstallTest(FakeUnitTestCase):
         u = self.unit(tracer_marker=False)
         self.ok(u.run("install"))
         if ledger is not None:
-            write(os.path.join(u.sdk, "ledger.properties"), ledger)
+            write(os.path.join(u.persist, "ledger.properties"), ledger)
         return u
 
     def assert_still_installed(self, u):
@@ -183,6 +222,39 @@ class UninstallTest(FakeUnitTestCase):
         self.assertIn("parking.sound.rear=bike-rack|PERSISTENT|on|off", err)
         self.assertNotIn(b"MibSdk", u.autostart())
         self.assertFalse(os.path.exists(u.sdk))
+        self.assertFalse(os.path.exists(u.persist), "--purge removes the plugin data too")
+
+    def test_refuses_on_an_override_left_in_the_old_ledger_location(self):
+        u = self.installed(None)
+        write(os.path.join(u.sdk, "ledger.properties"), self.ENTRY)  # an install from before the move
+        r = u.run("uninstall")
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn("parking.sound.rear=bike-rack|PERSISTENT|on|off", r.stderr.decode("utf-8"))
+
+    def test_default_uninstall_keeps_plugin_data_purge_removes_it(self):
+        u = self.installed(None)
+        write(os.path.join(u.persist, "data/bike-rack.properties"), b"active=false\n")
+        write(os.path.join(u.ram, "cache/hello-1.jar"), b"jar")
+        self.ok(u.run("uninstall"))
+        self.assertEqual(b"active=false\n", read(os.path.join(u.persist, "data/bike-rack.properties")))
+        self.ok(u.run("install"))
+        self.ok(u.run("uninstall", "--purge"))
+        self.assertFalse(os.path.exists(u.persist))
+        self.assertFalse(os.path.exists(u.ram))
+        self.assertFalse(os.path.exists(u.sdk))
+        self.assertTrue(os.path.isdir(os.path.join(u.unit, "mnt/persist")), "only our directory goes")
+
+    def test_uninstall_restores_the_bundles_file_mode_and_leaves_the_marker_alone(self):
+        """F4: the stock bundles file is -rwxrwxrwx; push_file creates a new 0644 file, and touch bumped the marker."""
+        u = self.unit(tracer_marker=True)
+        os.chmod(u.bundles_path(), 0o777)
+        os.utime(u.marker(), (1000000000, 1000000000))
+        self.ok(u.run("install"))
+        self.assertEqual(0o777, stat.S_IMODE(os.stat(u.bundles_path()).st_mode), "install keeps the mode too")
+        self.ok(u.run("uninstall"))
+        self.assertEqual(read(STOCK), u.bundles())
+        self.assertEqual(0o777, stat.S_IMODE(os.stat(u.bundles_path()).st_mode))
+        self.assertEqual(1000000000, int(os.stat(u.marker()).st_mtime), "the marker existed: never touched")
 
     def test_empty_or_missing_ledger_uninstalls(self):
         for ledger in (None, b"", b"\n"):
@@ -200,12 +272,34 @@ class SafeModeTest(FakeUnitTestCase):
         u = self.unit(tracer_marker=False)
         self.ok(u.run("install"))
         write(os.path.join(u.sdk, "SAFE_MODE"), b"")
-        write(os.path.join(u.sdk, "boot.state"), b"unhealthyBoots=3\nlastShutdownClean=false\nwrapBoots=3\n")
+        write(os.path.join(u.persist, "boot.state"), b"unhealthyBoots=3\nlastShutdownClean=false\nwrapBoots=3\n")
         self.ok(u.run("safe-mode", "off"))
         self.assertFalse(os.path.exists(os.path.join(u.sdk, "SAFE_MODE")))
         # Must equal BootGuard.reset()'s file (BootGuardTest.resetLeavesSafeMode).
         self.assertEqual(b"unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0\n",
-                         read(os.path.join(u.sdk, "boot.state")))
+                         read(os.path.join(u.persist, "boot.state")))
+        self.assertFalse(os.path.exists(os.path.join(u.sdk, "boot.state")))
+
+
+class PushTest(FakeUnitTestCase):
+    def plugin_jar(self, plugin_id):
+        path = os.path.join(self.tmp, plugin_id + ".jar")
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("plugin.json", '{"id": "%s"}' % plugin_id)
+        return path
+
+    def test_each_push_writes_a_fresh_reload_marker(self):
+        """The runtime never deletes markers (read-only /mnt/app); it reloads when a marker's content changes."""
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        jar = self.plugin_jar("hello")
+        marker = os.path.join(u.sdk, "plugins/hello.reload")
+        self.ok(u.run("push", jar))
+        self.assertEqual(read(jar), read(os.path.join(u.sdk, "plugins/hello.jar")))
+        first = read(marker)
+        self.ok(u.run("push", jar))
+        self.assertNotEqual(first, read(marker))
+        self.assertTrue(read(marker).strip(), "a non-empty token")
 
 
 if __name__ == "__main__":

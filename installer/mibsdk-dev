@@ -16,7 +16,11 @@ BUNDLES="$LSD/bundles_dsitracer_enabled.properties"
 MARKER="$LSD/dsitracer_activated"
 TRACER_JAR="$LSD/DSITracer.jar"
 STOCK="$SDK/stock"
-LEDGER="$SDK/ledger.properties"
+# /mnt/app is read-only while the HMI runs, so the runtime keeps its mutable state elsewhere (SdkFiles in adapter-hqc):
+PERSIST="/mnt/persist/mibsdk"     # boot.state, ledger.properties, data/ (qnx6, read-write from boot; no remount)
+RAMDIR="/ramdisk/mibsdk"          # cache/ (jar snapshots)
+LEDGER="$PERSIST/ledger.properties"
+OLD_LEDGER="$SDK/ledger.properties"   # where installs before the move kept it
 LOG="/tmp/mibsdk.log"
 SDK_JARS="mibsdk-runtime.jar mibsdk-adapter-hqc.jar mibsdk-rt-retrotranslator.jar"
 BOOT_STATE_RESET=$'unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0'   # BootGuard.reset()'s content
@@ -34,15 +38,18 @@ usage() {
 usage: mibsdk-dev <command> [args] [host]      (host defaults to $DEFAULT_HOST)
 
   install                    back up the stock files (first install only), push the SDK jars, bundles file and
-                             sdk.properties; refuses on an unsupported HMI, carplay-rgi, or missing DSITracer.jar
+                             sdk.properties, create $PERSIST; refuses on an unsupported HMI, carplay-rgi,
+                             or missing DSITracer.jar
   uninstall [--purge] [--force]
-                             restore the stock bundles file, remove the SDK jars (and the dsitracer_activated marker
-                             if it was absent before); --purge also removes $SDK. Refuses while
+                             restore the stock bundles file (and its mode), remove the SDK jars (and the
+                             dsitracer_activated marker if it was absent before); plugin data in $PERSIST
+                             is kept unless --purge, which also removes $SDK and $RAMDIR. Refuses while
                              ledger.properties lists overrides still in force; --force uninstalls anyway
   restart                    restart the HMI (slay -s11 j9)
-  push <plugin.jar> [host]   install a plugin jar as plugins/<id>.jar and trigger a reload
+  push <plugin.jar> [host]   install a plugin jar as plugins/<id>.jar and trigger a reload (writes a fresh token to
+                             plugins/<id>.reload; the runtime reloads once per new token, it never deletes markers)
   grant <id> <perm,...>      rewrite that plugin's line in grants.properties
-  safe-mode on|off           create/remove the SAFE_MODE marker (off also resets boot.state: the unhealthy-boot count
+  safe-mode on|off           create/remove the SAFE_MODE marker (off also resets $PERSIST/boot.state: the unhealthy-boot count
                              and the wrap-boot count that turns DSI service wrapping off after a crash loop)
   log                        print $LOG
   status                     print the STATUS lines of $LOG
@@ -105,13 +112,35 @@ rw_end() {
     || info "warning: could not remount /mnt/app read-only (files open?); leaving it read-write"
 }
 
-# push_file <local> <remote>: write a temp file next to the SDK data, verify it byte for byte, then rename into place.
+# push_file <local> <remote>: write a temp file next to the target (same file system), verify it byte for byte, then
+# rename into place.
 push_file() {
-  local src="$1" dst="$2" tmp="$SDK/.push.tmp"
+  local src="$1" dst="$2" tmp="${2%/*}/.push.tmp"
   rsh "cat > '$tmp'" <"$src" || die "failed to write $dst"
   fetch "$tmp" "$TMP/verify" || die "failed to read back $dst"
   cmp -s "$src" "$TMP/verify" || { rsh "rm -f '$tmp'" || true; die "verification of $dst failed; nothing was installed there"; }
   rsh "mv '$tmp' '$dst'" || die "failed to move $dst into place"
+}
+
+# perm_octal <ls -l mode string, e.g. -rwxr-xr-x>: prints the permission bits in octal (special bits ignored).
+perm_octal() {
+  local m="$1" out="" i d c
+  [[ "$m" =~ ^.[-r][-w][-xsStT][-r][-w][-xsStT][-r][-w][-xsStT] ]] || return 1
+  for i in 1 4 7; do
+    d=0
+    c="${m:$i:1}"; [ "$c" = r ] && d=$((d + 4))
+    c="${m:$((i + 1)):1}"; [ "$c" = w ] && d=$((d + 2))
+    c="${m:$((i + 2)):1}"; case "$c" in x|s|t) d=$((d + 1)) ;; esac
+    out="$out$d"
+  done
+  echo "$out"
+}
+
+# remote_mode <remote path>: its permission bits in octal, from ls -l (the unit has no stat).
+remote_mode() {
+  local line
+  line="$(rsh "ls -ld '$1'")" || return 1
+  perm_octal "${line%% *}"
 }
 
 check_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid plugin id '$1'"; }
@@ -170,6 +199,9 @@ cmd_install() {
       || die "backup copy failed"
     fetch "$STOCK/bundles_dsitracer_enabled.properties" "$TMP/backup.properties" || die "cannot read back the backup"
     cmp -s "$TMP/current.properties" "$TMP/backup.properties" || die "backup does not match the original; aborting"
+    local mode
+    mode="$(remote_mode "$BUNDLES")" || die "cannot read the mode of $BUNDLES"
+    rsh "echo $mode > '$STOCK/bundles.mode'" || die "cannot record the mode of $BUNDLES"
     # Written last: its presence means the backup is complete.
     rsh "echo $tracer > '$STOCK/tracer.was'" || die "cannot record the marker state"
     cp "$TMP/current.properties" "$TMP/stock.properties"
@@ -181,26 +213,54 @@ cmd_install() {
   # end-user unit). The marker is always created: without it lsd.sh ignores the on-disk bundles file.
   python3 "$HERE/gen_bundles.py" generate --stock "$TMP/stock.properties" --tracer-active "$tracer" --out "$TMP/bundles.properties"
   python3 "$HERE/gen_bundles.py" sdkprops --tracer-active "$tracer" --out "$TMP/sdk.properties"
-  rsh "mkdir -p '$SDK/plugins' '$SDK/cache' '$SDK/data' '$STOCK'" || die "cannot create $SDK directories"
+  rsh "mkdir -p '$SDK/plugins' '$STOCK' '$PERSIST'" || die "cannot create the SDK directories"
+  migrate_state
   for j in $SDK_JARS; do
     push_file "$DIST/$j" "$JARS/$j"
     info "pushed $j"
   done
   push_file "$TMP/sdk.properties" "$SDK/sdk.properties"
-  rsh "touch '$MARKER'" || die "cannot create $MARKER"
+  # Only if absent: touching an existing marker would change the stock file's mtime.
+  rsh "[ -e '$MARKER' ] || touch '$MARKER'" || die "cannot create $MARKER"
   push_file "$TMP/bundles.properties" "$BUNDLES"
+  restore_bundles_mode
 
   # 5.
   rw_end
   echo "installed; restart HMI with: mibsdk-dev restart"
 }
 
+# migrate_state: installs before the move kept runtime state under $SDK; move what still matters to $PERSIST (never
+# over anything already there) and drop the rest. Needs /mnt/app read-write.
+migrate_state() {
+  rsh "if [ -d '$SDK/data' ] && [ ! -d '$PERSIST/data' ]; then cp -R '$SDK/data' '$PERSIST/data' || exit 1; fi;
+       if [ -f '$OLD_LEDGER' ] && [ ! -f '$LEDGER' ]; then cp '$OLD_LEDGER' '$LEDGER' || exit 1; fi;
+       rm -rf '$SDK/data' '$SDK/cache' '$OLD_LEDGER' '$SDK/boot.state' '$SDK/boot.state.tmp' '$SDK/.push.tmp'" \
+    || die "cannot move the old runtime state from $SDK to $PERSIST"
+}
+
+# restore_bundles_mode: give the bundles file the stock mode recorded at backup (push_file creates a new 0644 file).
+restore_bundles_mode() {
+  local mode
+  if ! is_present "$STOCK/bundles.mode"; then
+    info "no recorded mode for $BUNDLES (backup from an older install); leaving it as is"
+    return 0
+  fi
+  mode="$(rsh "cat '$STOCK/bundles.mode'")" || die "cannot read stock/bundles.mode"
+  [[ "$mode" =~ ^[0-7]{3}$ ]] || die "stock/bundles.mode is corrupt ('$mode')"
+  rsh "chmod $mode '$BUNDLES'" || die "cannot set the mode of $BUNDLES"
+}
+
 # check_ledger <force>: refuses (dies) while ledger.properties holds overrides of vehicle state, since only the
 # running SDK can put their prior values back; with force=1 it prints a loud warning instead.
 check_ledger() {
-  local force="$1"
-  is_present "$LEDGER" || return 0
-  fetch "$LEDGER" "$TMP/ledger.properties" || die "cannot read $LEDGER; refusing to uninstall"
+  local force="$1" f
+  : >"$TMP/ledger.properties"
+  for f in "$LEDGER" "$OLD_LEDGER"; do
+    is_present "$f" || continue
+    fetch "$f" "$TMP/ledger.part" || die "cannot read $f; refusing to uninstall"
+    cat "$TMP/ledger.part" >>"$TMP/ledger.properties"
+  done
   grep -q '[^[:space:]]' "$TMP/ledger.properties" || return 0
   if [ "$force" = 1 ]; then
     info "WARNING: --force: uninstalling while these overrides of vehicle state are still in force:"
@@ -235,6 +295,7 @@ cmd_uninstall() {
   rw_begin
 
   push_file "$TMP/stock.properties" "$BUNDLES"        # first: nothing may reference the jars once they are gone
+  restore_bundles_mode
   info "restored $BUNDLES"
   if [ "$tracer" = false ]; then
     rsh "rm -f '$MARKER'" || die "cannot remove $MARKER"
@@ -245,8 +306,10 @@ cmd_uninstall() {
     rsh "rm -f '$JARS/$j'" || die "cannot remove $j"
   done
   if [ "$purge" = 1 ]; then
-    rsh "rm -rf '$SDK'" || die "cannot remove $SDK"
-    info "removed $SDK"
+    rsh "rm -rf '$SDK' '$PERSIST' '$RAMDIR'" || die "cannot remove $SDK, $PERSIST and $RAMDIR"
+    info "removed $SDK, $PERSIST (plugin data, boot state, ledger) and $RAMDIR"
+  else
+    info "kept plugin data in $PERSIST (remove it with: mibsdk-dev uninstall --purge)"
   fi
   rw_end
   echo "uninstalled; restart HMI with: mibsdk-dev restart"
@@ -276,9 +339,11 @@ PY
   check_id "$id"
   connect
   need_sdk
+  # A fresh token every push: the runtime reloads once per new marker content and never deletes the marker.
+  printf '%s-%s-%s\n' "$(date +%s)" "$$" "$RANDOM" >"$TMP/reload"
   rw_begin
   push_file "$jar" "$SDK/plugins/$id.jar"
-  rsh "touch '$SDK/plugins/$id.reload'" || die "cannot touch the reload marker"
+  push_file "$TMP/reload" "$SDK/plugins/$id.reload"
   rw_end
   echo "pushed $id; reload requested"
 }
@@ -330,8 +395,9 @@ cmd_safe_mode() {
       printf '%s\n' "$BOOT_STATE_RESET" >"$TMP/boot.state"
       rw_begin
       rsh "rm -f '$SDK/SAFE_MODE'" || die "cannot remove SAFE_MODE"
-      push_file "$TMP/boot.state" "$SDK/boot.state"
       rw_end
+      rsh "mkdir -p '$PERSIST'" || die "cannot create $PERSIST"
+      push_file "$TMP/boot.state" "$PERSIST/boot.state"
       echo "safe mode off: SAFE_MODE removed and boot.state reset (unhealthyBoots=0, wrapBoots=0: plugins load and"
       echo "DSI services are wrapped again)."
       echo "It takes effect on the next HMI restart; recommended: mibsdk-dev restart."
