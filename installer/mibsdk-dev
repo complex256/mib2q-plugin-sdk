@@ -172,8 +172,10 @@ cmd_install() {
   fi
 
   # 4. Generate, then push: jars first, the bundles file (which activates everything) last.
-  python3 "$HERE/gen_bundles.py" generate --stock "$TMP/stock.properties" --tracer-active true --out "$TMP/bundles.properties"
-  python3 "$HERE/gen_bundles.py" sdkprops --tracer-active true --out "$TMP/sdk.properties"
+  # DSITracer is autostarted and chained only if it was active before the install (spec 5.1: never start it on an
+  # end-user unit). The marker is always created: without it lsd.sh ignores the on-disk bundles file.
+  python3 "$HERE/gen_bundles.py" generate --stock "$TMP/stock.properties" --tracer-active "$tracer" --out "$TMP/bundles.properties"
+  python3 "$HERE/gen_bundles.py" sdkprops --tracer-active "$tracer" --out "$TMP/sdk.properties"
   rsh "mkdir -p '$SDK/plugins' '$SDK/cache' '$SDK/data' '$STOCK'" || die "cannot create $SDK directories"
   for j in $SDK_JARS; do
     push_file "$DIST/$j" "$JARS/$j"
