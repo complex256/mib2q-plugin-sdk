@@ -383,6 +383,62 @@ class SdkRuntimeBootTest {
         assertEquals("3", bootState().getProperty("wrapBoots"), "only a reset clears a latched wrap loop");
     }
 
+    // ---- writable roots: degrade loudly (B1: /mnt/app was read-only and nothing said so) ----
+
+    private void awaitLog(String fragment) throws InterruptedException {
+        for (int i = 0; i < 500 && !logContains(fragment); i++) {
+            Thread.sleep(10);
+        }
+        assertTrue(logContains(fragment), "no '" + fragment + "' in " + rt.log().snapshot());
+    }
+
+    private File ram() {
+        return FakePlatform.roots(tmp).ram();
+    }
+
+    @Test
+    void writableRootsAreReportedAndHealthNamesTheEnabledPlugins() throws Exception {
+        plugin("hello");
+        start("plugin.start.delay.ms=0\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
+        assertEquals(1, count("mibsdk", "state persist=" + persist() + " ok ram=" + ram() + " ok bootGuard=armed"),
+                rt.log().snapshot().toString());
+        clock.advance(60000);
+        awaitLog("INFO mibsdk boot healthy: 1 plugin(s) enabled for 60000 ms");
+        assertTrue(persist().isDirectory() && new File(ram(), "cache").isDirectory(), "roots created when missing");
+    }
+
+    @Test
+    void unwritablePersistRootMakesTheBootGuardInertAndSaysSo() throws Exception {
+        plugin("hello");
+        write(persist(), "a file where the directory should be"); // nothing can be created under it
+        start("plugin.start.delay.ms=0\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
+        assertEquals(1, count("mibsdk", "state persist=" + persist() + " UNWRITABLE ram=" + ram()
+                + " ok bootGuard=inert"), rt.log().snapshot().toString());
+        assertTrue(logContains("WARN mibsdk persistent root " + persist() + " is not writable"),
+                rt.log().snapshot().toString());
+        assertEquals(PluginState.ENABLED, status("hello").state(), "plugins still run, without the safety net");
+
+        clock.advance(60000);
+        awaitLog("WARN mibsdk boot guard inert");
+        assertFalse(logContains("boot healthy"), rt.log().snapshot().toString());
+    }
+
+    @Test
+    void unwritableRamRootIsReportedAndAllFailedIsNeverHealthy() throws Exception {
+        plugin("hello");
+        write(ram(), "a file where the directory should be");
+        start("plugin.start.delay.ms=0\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
+        assertEquals(1, count("mibsdk", "state persist=" + persist() + " ok ram=" + ram()
+                + " UNWRITABLE bootGuard=armed"), rt.log().snapshot().toString());
+        assertTrue(logContains("WARN mibsdk RAM root " + ram() + " is not writable"), rt.log().snapshot().toString());
+        assertEquals(PluginState.FAILED, status("hello").state());
+
+        clock.advance(60000);
+        awaitLog("no plugin is enabled (FAILED=1)");
+        assertFalse(logContains("boot healthy"), rt.log().snapshot().toString());
+        assertEquals("0", bootState().getProperty("unhealthyBoots"), "the HMI itself survived: no crash to count");
+    }
+
     @Test
     void notMarkedHealthyIfStoppedFirst() throws Exception {
         plugin("hello");

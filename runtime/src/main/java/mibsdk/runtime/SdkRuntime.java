@@ -2,6 +2,7 @@ package mibsdk.runtime;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
@@ -259,6 +260,7 @@ public final class SdkRuntime {
             return;
         }
         safeMode = beginBoot();
+        logRoots();
         String adapterId = "none";
         ledger.attach(platformApplier); // before the adapter can publish: creates the ledger thread here
         try {
@@ -298,6 +300,61 @@ public final class SdkRuntime {
         } else {
             log.append("INFO", SOURCE, "plugins load in " + delay + " ms");
             schedule(t.after(delay, load));
+        }
+    }
+
+    /**
+     * STATUS {@code state persist=<dir> ok|UNWRITABLE ram=<dir> ok|UNWRITABLE bootGuard=armed|inert}, plus a WARN per
+     * unwritable root saying what that costs. Creates the roots' directories when missing. Never throws.
+     */
+    private void logRoots() {
+        try {
+            String persist = probeWritable(cfg.roots().persist());
+            String ram = probeWritable(cfg.cacheDir());
+            boolean inert = persist != null || bootGuard.inert();
+            log.append("STATUS", SOURCE, "state persist=" + cfg.roots().persist() + (persist == null ? " ok" : " UNWRITABLE")
+                    + " ram=" + cfg.roots().ram() + (ram == null ? " ok" : " UNWRITABLE") + " bootGuard="
+                    + (inert ? "inert" : "armed"));
+            if (persist != null) {
+                log.append("WARN", SOURCE, "persistent root " + cfg.roots().persist() + " is not writable (" + persist
+                        + "): the boot guard is inert (crash loops are not counted), plugin data and the override"
+                        + " ledger are not saved");
+            } else if (inert) {
+                log.append("WARN", SOURCE, "boot guard inert: cannot write " + bootGuard.file()
+                        + " (crash loops are not counted)");
+            }
+            if (ram != null) {
+                log.append("WARN", SOURCE, "RAM root " + cfg.roots().ram() + " is not writable (" + ram
+                        + "): plugin jars cannot be snapshotted, so no plugin loads");
+            }
+        } catch (Throwable t) {
+            log.append("WARN", SOURCE, "cannot check the state roots: " + describe(t));
+        }
+    }
+
+    /** Null if a file can be created in {@code dir} (created first if missing); else why not. */
+    static String probeWritable(File dir) {
+        if (!dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
+            return "cannot create " + dir;
+        }
+        File probe = new File(dir, ".probe");
+        FileOutputStream out = null;
+        try {
+            out = new FileOutputStream(probe);
+            out.write('\n');
+            out.close();
+            out = null;
+            return probe.delete() ? null : "cannot delete " + probe;
+        } catch (Throwable t) {
+            return describe(t);
+        } finally {
+            if (out != null) {
+                try {
+                    out.close();
+                } catch (IOException ignored) {
+                    // the failure is reported
+                }
+            }
         }
     }
 
@@ -529,7 +586,7 @@ public final class SdkRuntime {
             public void run() {
                 if (!isStopped()) {
                     bootGuard.markHealthy();
-                    log.append("INFO", SOURCE, "boot healthy: plugins enabled for " + cfg.healthyAfterMs() + " ms");
+                    logHealth();
                 }
             }
         }));
@@ -543,6 +600,44 @@ public final class SdkRuntime {
                     }
                 }
             }));
+        }
+    }
+
+    /**
+     * After healthyAfterMs with plugins loaded: "boot healthy" only if the boot guard could record it and at least one
+     * plugin is enabled (F6: never claim health when every plugin failed or the state is unwritable).
+     */
+    private void logHealth() {
+        PluginState[] states;
+        synchronized (this) {
+            states = new PluginState[hosts.size()];
+            for (int i = 0; i < states.length; i++) {
+                states[i] = ((PluginHost) hosts.get(i)).state;
+            }
+        }
+        int enabled = 0;
+        StringBuffer others = new StringBuffer();
+        PluginState[] all = PluginState.values();
+        for (int k = 0; k < all.length; k++) {
+            int n = 0;
+            for (int i = 0; i < states.length; i++) {
+                n += states[i] == all[k] ? 1 : 0;
+            }
+            if (all[k] == PluginState.ENABLED) {
+                enabled = n;
+            } else if (n > 0) {
+                others.append(others.length() == 0 ? "" : " ").append(all[k]).append('=').append(n);
+            }
+        }
+        long ms = cfg.healthyAfterMs();
+        if (bootGuard.inert()) {
+            log.append("WARN", SOURCE, "boot guard inert: ran " + ms + " ms with " + enabled
+                    + " plugin(s) enabled, but cannot write " + bootGuard.file() + "; nothing recorded");
+        } else if (enabled == 0) {
+            log.append("INFO", SOURCE, "boot ran " + ms + " ms without a restart, but no plugin is enabled ("
+                    + (others.length() == 0 ? "none installed" : others.toString()) + ")");
+        } else {
+            log.append("INFO", SOURCE, "boot healthy: " + enabled + " plugin(s) enabled for " + ms + " ms");
         }
     }
 

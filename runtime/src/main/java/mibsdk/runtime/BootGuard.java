@@ -38,7 +38,8 @@ import java.util.Properties;
  * it latches like safe mode: a pass-through boot that runs fine proves nothing about wrapping, so only
  * {@link #reset()} (mibsdk-dev safe-mode off) clears it.
  *
- * <p>Writes go to a temp file, fsync, rename (as the ledger does); they never throw (logged instead).
+ * <p>Writes go to a temp file, fsync, rename (as the ledger does); they never throw (logged instead). While the
+ * last write failed the guard is {@link #inert()}: it cannot count crashes, and the runtime says so.
  * Called on the runtime control thread and, for {@link #markCleanShutdown}, on the publishing thread.
  */
 public final class BootGuard {
@@ -64,6 +65,7 @@ public final class BootGuard {
     private int wrapBoots; // guarded by this
     private boolean ignitionOffSeen; // guarded by this; in memory only: this run saw IgnitionChanged(false)
     private boolean loaded; // guarded by this; the mark methods never write state they have not read
+    private boolean writeFailed; // guarded by this; the last write of boot.state failed
 
     public BootGuard(File bootState, File safeModeMarker, int threshold) {
         this(bootState, safeModeMarker, threshold, null);
@@ -216,6 +218,16 @@ public final class BootGuard {
         return unhealthyBoots;
     }
 
+    /** True while the last write of boot.state failed: crash loops are not being counted. */
+    public synchronized boolean inert() {
+        return writeFailed;
+    }
+
+    /** The boot.state file (for messages). */
+    public File file() {
+        return bootState;
+    }
+
     boolean markerPresent() {
         return safeModeMarker != null && safeModeMarker.exists();
     }
@@ -298,10 +310,11 @@ public final class BootGuard {
     }
 
     private void write() {
-        write(bootState, currentState(), log);
+        writeFailed = !write(bootState, currentState(), log);
     }
 
-    private static void write(File bootState, State st, RingLog log) {
+    /** False if it failed (logged). */
+    private static boolean write(File bootState, State st, RingLog log) {
         String text = UNHEALTHY_BOOTS + "=" + st.unhealthyBoots + "\n" + LAST_SHUTDOWN_CLEAN + "="
                 + st.lastShutdownClean + "\n" + WRAP_BOOTS + "=" + st.wrapBoots + "\n";
         File tmp = tmpFile(bootState);
@@ -322,8 +335,10 @@ public final class BootGuard {
                     throw new IOException("cannot rename " + tmp.getName() + " to " + bootState.getName());
                 }
             }
+            return true;
         } catch (Throwable t) {
-            append(log, "ERROR", "cannot write " + bootState.getName() + ": " + SdkRuntime.describe(t));
+            append(log, "ERROR", "cannot write " + bootState + ": " + SdkRuntime.describe(t));
+            return false;
         } finally {
             if (out != null) {
                 try {

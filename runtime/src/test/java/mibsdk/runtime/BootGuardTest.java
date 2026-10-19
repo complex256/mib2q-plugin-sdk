@@ -302,4 +302,22 @@ class BootGuardTest {
             in.close();
         }
     }
+
+    /** B1: boot.state on a read-only file system; the guard must report itself inert, not pretend to count. */
+    @Test
+    void inertWhileTheLastWriteFailed() throws IOException {
+        File dir = new File(tmp, "ro");
+        FileOutputStream f = new FileOutputStream(dir); // a file where the directory should be
+        f.close();
+        state = new File(dir, "boot.state");
+        BootGuard g = boot();
+        assertFalse(g.inert(), "nothing written yet");
+        assertFalse(g.beginBoot());
+        assertTrue(g.inert());
+
+        assertTrue(dir.delete());
+        g.markPluginsLoading();
+        assertFalse(g.inert(), "writable again");
+        assertEquals("false", props().getProperty("lastShutdownClean"));
+    }
 }
