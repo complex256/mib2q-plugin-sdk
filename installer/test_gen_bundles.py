@@ -69,6 +69,16 @@ class GenBundlesTest(unittest.TestCase):
                 self.assertEqual(out.count(b"MibSdk=mibsdk"), 1)
                 self.assertEqual(out.count(b"MibSdk,"), 1)
 
+    def test_multiple_active_configurator_lines_refused(self):
+        dup = read(STOCK) + b"de.audi.tghu.serviceDelegateConfigurator=other.Configurator\r\n"
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "dup")
+            with open(src, "wb") as f:
+                f.write(dup)
+            with self.assertRaises(SystemExit):
+                gen_bundles.main(["generate", "--stock", src, "--tracer-active", "true",
+                                  "--out", os.path.join(d, "o")])
+
     def test_cli_runs(self):
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "o")

@@ -38,6 +38,9 @@ def generate(stock, tracer_active):
     active = [i for i in cfg_idx if not lines[i].startswith(b"#")]
     if not cfg_idx:
         raise SystemExit("gen_bundles: no serviceDelegateConfigurator line in the stock file")
+    if len(active) > 1:
+        raise SystemExit("gen_bundles: %d active serviceDelegateConfigurator lines in the stock file (the last would"
+                         " win); refusing to guess" % len(active))
     target = active[0] if active else cfg_idx[0]
     body, eol = _split_eol(lines[target])
     lines[target] = CONFIGURATOR_KEY + b"=" + CONFIGURATOR_VALUE + eol

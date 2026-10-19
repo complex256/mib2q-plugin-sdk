@@ -50,7 +50,14 @@ USAGE
 die() { echo "mibsdk-dev: $*" >&2; exit 1; }
 info() { echo "mibsdk-dev: $*" >&2; }
 
-cleanup() { [ -n "$TMP" ] && rm -rf "$TMP"; return 0; }
+RW=0
+cleanup() {
+  local rc=$?
+  # Best effort on every exit path (including die): put /mnt/app back to read-only if we made it writable.
+  if [ "$RW" = 1 ]; then rw_end; fi
+  if [ -n "$TMP" ]; then rm -rf "$TMP"; fi
+  return $rc
+}
 trap cleanup EXIT
 
 rsh() { ssh "${SSH_OPTS[@]}" "root@$HOST" "$@"; }
@@ -70,8 +77,29 @@ connect() {
 # remote_cat <remote path> <local file>: fetch; returns 1 if the remote file cannot be read.
 fetch() { rsh "cat '$1'" >"$2" 2>/dev/null; }
 
-# exists <remote path>: prints yes or no
-exists() { rsh "if [ -e '$1' ]; then echo yes; else echo no; fi"; }
+# is_present <remote path>: status 0 present, 1 absent; dies on any transport or other failure (never "absent" by mistake).
+# Call it directly in an if/&& (not in $(...)), so that die exits the script.
+is_present() {
+  local out
+  out="$(rsh "if [ -e '$1' ]; then echo yes; else echo no; fi")" || die "ssh failed while checking $1"
+  case "$out" in
+    yes) return 0 ;;
+    no) return 1 ;;
+    *) die "unexpected answer '$out' while checking $1" ;;
+  esac
+}
+
+# /mnt/app is read-only until remounted (mount -uw); every mutating command group runs between rw_begin and rw_end.
+rw_begin() {
+  rsh "mount -uw /mnt/app" || die "cannot remount /mnt/app read-write"
+  RW=1
+}
+
+rw_end() {
+  RW=0
+  rsh "sync; mount -ur /mnt/app" >/dev/null 2>&1 \
+    || info "warning: could not remount /mnt/app read-only (files open?); leaving it read-write"
+}
 
 # push_file <local> <remote>: write a temp file next to the SDK data, verify it byte for byte, then rename into place.
 push_file() {
@@ -85,7 +113,7 @@ push_file() {
 check_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid plugin id '$1'"; }
 
 need_sdk() {
-  [ "$(exists "$SDK")" = yes ] || die "mibsdk is not installed on $HOST ($SDK missing); run: mibsdk-dev install"
+  is_present "$SDK" || die "mibsdk is not installed on $HOST ($SDK missing); run: mibsdk-dev install"
 }
 
 cmd_install() {
@@ -101,7 +129,8 @@ cmd_install() {
   ver="$(grep -E '^HMI[[:space:]]*=' "$TMP/version_info.txt" | head -n 1 || true)"
   ver="${ver#*=}"; ver="${ver//[[:space:]]/}"
   fetch "$BUNDLES" "$TMP/current.properties" || die "cannot read $BUNDLES"
-  local marker_now; marker_now="$(exists "$MARKER")"
+  local marker_now=no
+  if is_present "$MARKER"; then marker_now=yes; fi
 
   # 2. Refusals.
   [ "$ver" = "$SUPPORTED_HMI" ] || die "unsupported HMI '${ver:-unknown}' (supported: $SUPPORTED_HMI); nothing changed"
@@ -115,20 +144,22 @@ cmd_install() {
   if printf '%s\n' "$cp_stock" | grep -qv '^RC='; then
     die "carplay-rgi is installed (*.carplay-stock files exist); the SDK does not support it; nothing changed"
   fi
-  [ "$(exists "$TRACER_JAR")" = yes ] || die "$TRACER_JAR is missing; the SDK chains DSITracer's configurator and needs it; nothing changed"
+  is_present "$TRACER_JAR" || die "$TRACER_JAR is missing; the SDK chains DSITracer's configurator and needs it; nothing changed"
 
   # 3. Backup (first install only; an existing complete backup is never touched).
   local stock_input tracer
-  if [ "$(exists "$STOCK/tracer.was")" = yes ]; then
+  if is_present "$STOCK/tracer.was"; then
     info "stock backup already present; keeping it"
     fetch "$STOCK/bundles_dsitracer_enabled.properties" "$TMP/stock.properties" || die "stock backup is unreadable"
-    tracer="$(rsh "cat '$STOCK/tracer.was'")"
+    rw_begin
+    tracer="$(rsh "cat '$STOCK/tracer.was'")" || die "cannot read stock/tracer.was"
     [ "$tracer" = true ] || [ "$tracer" = false ] || die "stock/tracer.was is corrupt ('$tracer')"
   else
     if grep -q 'mibsdk' "$TMP/current.properties"; then
       die "$BUNDLES already references mibsdk but no stock backup exists; restore the stock file by hand first"
     fi
     tracer=false; [ "$marker_now" = yes ] && tracer=true
+    rw_begin
     rsh "mkdir -p '$SDK' '$STOCK'" || die "cannot create $STOCK"
     rsh "rm -f '$STOCK/bundles_dsitracer_enabled.properties'; cp '$BUNDLES' '$STOCK/bundles_dsitracer_enabled.properties'" \
       || die "backup copy failed"
@@ -153,6 +184,7 @@ cmd_install() {
   push_file "$TMP/bundles.properties" "$BUNDLES"
 
   # 5.
+  rw_end
   echo "installed; restart HMI with: mibsdk-dev restart"
 }
 
@@ -166,9 +198,11 @@ cmd_uninstall() {
   done
   connect
   need_sdk
-  [ "$(exists "$STOCK/tracer.was")" = yes ] || die "no complete stock backup in $STOCK; refusing to guess. Restore $BUNDLES by hand"
+  is_present "$STOCK/tracer.was" || die "no complete stock backup in $STOCK; refusing to guess. Restore $BUNDLES by hand"
   fetch "$STOCK/bundles_dsitracer_enabled.properties" "$TMP/stock.properties" || die "stock backup is unreadable"
-  local tracer; tracer="$(rsh "cat '$STOCK/tracer.was'")"
+  local tracer; tracer="$(rsh "cat '$STOCK/tracer.was'")" || die "cannot read stock/tracer.was"
+  [ "$tracer" = true ] || [ "$tracer" = false ] || die "stock/tracer.was is corrupt ('$tracer'); refusing to uninstall. Restore $BUNDLES by hand"
+  rw_begin
 
   push_file "$TMP/stock.properties" "$BUNDLES"        # first: nothing may reference the jars once they are gone
   info "restored $BUNDLES"
@@ -184,11 +218,13 @@ cmd_uninstall() {
     rsh "rm -rf '$SDK'" || die "cannot remove $SDK"
     info "removed $SDK"
   fi
+  rw_end
   echo "uninstalled; restart HMI with: mibsdk-dev restart"
 }
 
 cmd_restart() {
   connect
+  rsh "sync" || info "warning: sync failed"
   rsh "slay -s11 j9" || true   # the connection may drop with the HMI; slay's own failures print on stderr
   echo "HMI restart requested (slay -s11 j9)"
 }
@@ -210,8 +246,10 @@ PY
   check_id "$id"
   connect
   need_sdk
+  rw_begin
   push_file "$jar" "$SDK/plugins/$id.jar"
   rsh "touch '$SDK/plugins/$id.reload'" || die "cannot touch the reload marker"
+  rw_end
   echo "pushed $id; reload requested"
 }
 
@@ -223,7 +261,7 @@ cmd_grant() {
   connect
   need_sdk
   : >"$TMP/grants.in"
-  if [ "$(exists "$SDK/grants.properties")" = yes ]; then
+  if is_present "$SDK/grants.properties"; then
     fetch "$SDK/grants.properties" "$TMP/grants.in" || die "cannot read grants.properties"
   fi
   python3 -I - "$TMP/grants.in" "$TMP/grants.out" "$id" "$perms" <<'PY'
@@ -242,7 +280,9 @@ if not done:
     out.append("%s=%s" % (pid, perms))
 open(dst, "wb").write(("\n".join(out) + "\n").encode("utf-8"))
 PY
+  rw_begin
   push_file "$TMP/grants.out" "$SDK/grants.properties"
+  rw_end
   echo "granted $id: ${perms:-<none>} (picked up on the next plugin load/reload)"
 }
 
@@ -250,14 +290,18 @@ cmd_safe_mode() {
   case "${1:-}" in
     on)
       connect; need_sdk
+      rw_begin
       rsh "touch '$SDK/SAFE_MODE'" || die "cannot create SAFE_MODE"
+      rw_end
       echo "safe mode marker set; it takes effect on the next HMI restart (mibsdk-dev restart)"
       ;;
     off)
       connect; need_sdk
-      rsh "rm -f '$SDK/SAFE_MODE'" || die "cannot remove SAFE_MODE"
       printf '%s\n' "$BOOT_STATE_RESET" >"$TMP/boot.state"
+      rw_begin
+      rsh "rm -f '$SDK/SAFE_MODE'" || die "cannot remove SAFE_MODE"
       push_file "$TMP/boot.state" "$SDK/boot.state"
+      rw_end
       echo "safe mode off: SAFE_MODE removed and boot.state reset (unhealthyBoots=0)."
       echo "It takes effect on the next HMI restart; recommended: mibsdk-dev restart."
       echo "Note: if the runtime is currently running in normal mode it may rewrite boot.state from cached state;"
