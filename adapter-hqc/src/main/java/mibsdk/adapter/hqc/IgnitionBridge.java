@@ -7,9 +7,13 @@ import org.dsi.ifc.powermanagement.DSIPowerManagement;
 import org.dsi.ifc.powermanagement.DSIPowerManagementListener;
 
 /**
- * Ignition (terminal 15) from {@code DSIPowerManagement}: the bridge's listener copies
- * {@code updateClampSignal(cs, flag).isClamp15()} on the stock callback thread and queues it on the
- * {@link EventPump}; the pump thread keeps the state and publishes {@link IgnitionChanged} on change only.
+ * Ignition (terminal 15) from {@code DSIPowerManagement}, never lost to a full event queue. On the stock callback
+ * thread the listener reads {@code updateClampSignal(cs, flag).isClamp15()}; it records the first value and then
+ * only counts changes (consecutive distinct values alternate, so first value plus change count is the whole
+ * history), in volatile fields, and {@link EventPump#signal signals} the pump: a coalescing slot that is never
+ * dropped. The pump thread replays the changes it has not seen yet through the state machine below and publishes
+ * {@link IgnitionChanged} on change only. A backlog over {@link #MAX_REPLAY} changes is cut to its last two, which
+ * always include an off. The callback side assumes one DSI delivery thread per listener (stock behaviour); no lock.
  *
  * <p>The first valid observation only establishes the state: it publishes {@code IgnitionChanged(true)} if the
  * ignition is on and nothing if it is off. So {@code IgnitionChanged(false)}, which makes the runtime restore
@@ -23,6 +27,7 @@ final class IgnitionBridge {
     private static final int UNKNOWN = 0;
     private static final int ON = 1;
     private static final int OFF = 2;
+    static final int MAX_REPLAY = 16;
 
     private final EventPump pump;
     private final int validFlag;
@@ -31,6 +36,15 @@ final class IgnitionBridge {
     private boolean closed; // guarded by lock
     private DSIPowerManagement service; // guarded by lock
     private int state = UNKNOWN; // pump thread only
+    private int cbLast = UNKNOWN; // callback thread only
+    private volatile boolean first; // the first valid value; written once, before changes becomes 0
+    private volatile int changes = -1; // callback-written: -1 = nothing yet, else changes after the first value
+    private int replayed = -1; // pump thread only: index of the last value run through the state machine
+    private final Runnable apply = new Runnable() {
+        public void run() {
+            drain();
+        }
+    };
 
     IgnitionBridge(EventPump pump) {
         this.pump = pump;
@@ -38,15 +52,38 @@ final class IgnitionBridge {
         this.listener = new BridgeListener() {
             void onUpdate(String method, Object value, int flag) {
                 if (flag == validFlag && value != null && CLAMP.equals(method)) {
-                    final boolean on = ((ClampSignal) value).isClamp15();
-                    IgnitionBridge.this.pump.post(new Runnable() {
-                        public void run() {
-                            observe(on);
-                        }
-                    });
+                    boolean on = ((ClampSignal) value).isClamp15();
+                    int v = on ? ON : OFF;
+                    if (cbLast == UNKNOWN) {
+                        first = on;
+                        changes = 0;
+                    } else if (v != cbLast) {
+                        changes = changes + 1; // single writer
+                    } else {
+                        return; // a repeat: nothing to do
+                    }
+                    cbLast = v;
+                    IgnitionBridge.this.pump.signal(apply);
                 }
             }
         }.newProxy(DSIPowerManagementListener.class);
+    }
+
+    /** Pump thread: runs value indices replayed+1 .. changes through the state machine. */
+    private void drain() {
+        int last = changes; // volatile read first: first is visible once changes >= 0
+        if (last < 0) {
+            return;
+        }
+        boolean v0 = first;
+        int from = replayed + 1;
+        if (last - from + 1 > MAX_REPLAY) {
+            from = last - 1;
+        }
+        for (int k = from; k <= last; k++) {
+            observe(k % 2 == 0 ? v0 : !v0);
+        }
+        replayed = last;
     }
 
     /** Pump thread: the state machine described above. */
@@ -62,7 +99,7 @@ final class IgnitionBridge {
 
     /** Called once the service is available (on the waiter thread). Ignored after {@link #detach}. */
     void attach(Object found) {
-        DSIPowerManagement s = (DSIPowerManagement) DsiServiceProxy.unwrap(found);
+        DSIPowerManagement s = (DSIPowerManagement) RawServices.resolve(DSIPowerManagement.class.getName(), found);
         synchronized (lock) {
             if (closed || service != null) {
                 return;

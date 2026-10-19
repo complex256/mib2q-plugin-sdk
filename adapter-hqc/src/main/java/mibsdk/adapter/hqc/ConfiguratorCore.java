@@ -25,7 +25,8 @@ import org.osgi.framework.ServiceRegistration;
  * there is one, so tracing keeps working. Everything else is passed through untouched, and any failure falls back
  * to what the chain alone (or stock LSD) would do. Never starts, stops or reloads the SDK runtime.
  *
- * <p>The registration path does no I/O and takes no lock except RingLog's append and HookTable's producer lock.
+ * <p>The registration path does no I/O and takes no lock except RingLog's append, HookTable's producer lock and
+ * {@link RawServices}' put (the raw object of each wrapped service, for the SDK's own bridges).
  * Files are read once, in {@link #init}.
  */
 final class ConfiguratorCore {
@@ -118,6 +119,7 @@ final class ConfiguratorCore {
                 if (w != service) {
                     marked = markedCopy(props);
                     wrapped = w;
+                    RawServices.record(iface, service); // the SDK's bridges bypass every proxy layer
                 } else {
                     warn("not wrapped " + iface + ": no proxy for " + service.getClass().getName());
                 }

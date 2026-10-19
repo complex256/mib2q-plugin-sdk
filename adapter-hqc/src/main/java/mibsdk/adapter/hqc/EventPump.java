@@ -8,7 +8,8 @@ import mibsdk.platform.PlatformHost;
  * thread (NORM-1) runs them in order, and only that thread calls {@link PlatformHost#publish} (which locks,
  * allocates, and downstream may write files). {@link #post} takes only this object's monitor, for a list add, and
  * never blocks or throws. The queue is bounded: when full, the oldest task is dropped and counted; the pump thread
- * logs the count.
+ * logs the count. State that must never be lost (ignition) uses {@link #signal} instead: a coalescing slot that
+ * is never dropped and runs before queued tasks.
  */
 final class EventPump {
 
@@ -18,6 +19,7 @@ final class EventPump {
     private final PlatformHost host;
     private final int capacity;
     private final LinkedList queue = new LinkedList(); // guarded by this
+    private final LinkedList signals = new LinkedList(); // guarded by this; distinct tasks, never dropped
     private boolean stopped; // guarded by this
     private boolean busy; // guarded by this: a task is running
     private long dropped; // guarded by this
@@ -53,6 +55,7 @@ final class EventPump {
     synchronized void stop() {
         stopped = true;
         queue.clear();
+        signals.clear();
         notifyAll();
     }
 
@@ -68,6 +71,28 @@ final class EventPump {
                     dropped++;
                 }
                 queue.addLast(task);
+                notifyAll();
+                return true;
+            }
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Makes the pump run {@code task} (soon, before queued tasks) unless it is already pending: repeated signals
+     * coalesce into one run, and a signal is never dropped. The task reads the latest state itself. Same calling
+     * contract as {@link #post}.
+     */
+    boolean signal(Runnable task) {
+        try {
+            synchronized (this) {
+                if (stopped || task == null) {
+                    return false;
+                }
+                if (!signals.contains(task)) { // identity: tasks do not override equals
+                    signals.addLast(task);
+                }
                 notifyAll();
                 return true;
             }
@@ -97,7 +122,7 @@ final class EventPump {
     /** Test hook: waits until nothing is queued or running. */
     synchronized boolean awaitIdle(long timeoutMs) throws InterruptedException {
         long end = System.currentTimeMillis() + timeoutMs;
-        while (busy || !queue.isEmpty()) {
+        while (busy || !queue.isEmpty() || !signals.isEmpty()) {
             long left = end - System.currentTimeMillis();
             if (left <= 0) {
                 return false;
@@ -114,7 +139,7 @@ final class EventPump {
             synchronized (this) {
                 busy = false;
                 notifyAll(); // awaitIdle
-                while (!stopped && queue.isEmpty()) {
+                while (!stopped && queue.isEmpty() && signals.isEmpty()) {
                     try {
                         wait();
                     } catch (InterruptedException e) {
@@ -124,7 +149,7 @@ final class EventPump {
                 if (stopped) {
                     return;
                 }
-                task = (Runnable) queue.removeFirst();
+                task = (Runnable) (signals.isEmpty() ? queue.removeFirst() : signals.removeFirst());
                 busy = true;
                 d = dropped;
             }

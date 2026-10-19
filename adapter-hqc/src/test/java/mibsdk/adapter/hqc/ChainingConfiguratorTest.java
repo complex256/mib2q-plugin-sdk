@@ -90,6 +90,7 @@ class ChainingConfiguratorTest {
     @BeforeEach
     void setUp() throws IOException {
         RecordingChain.reset();
+        RawServices.clear();
         versionInfo = new File(base, "version_info.txt");
         writeVersion(HqcVersion.SUPPORTED);
         registration = Fakes.fake(ServiceRegistration.class, new Recorder());
@@ -335,6 +336,8 @@ class ChainingConfiguratorTest {
         assertEquals("true", ((Dictionary) delegated.args[2]).get("mibsdk.proxy"));
         // The trace proxy (registered by LSD itself, since the re-entry returned null) wraps our proxy, unwrapped.
         assertSame(ours, ((TraceProxy) TraceShapedChain.traceProxy).yyDestServiceForTest());
+        // The raw service is recorded for the SDK's bridges, which bypass both the trace proxy and ours.
+        assertSame(service, RawServices.get(PARKING));
     }
 
     @Test
@@ -363,6 +366,7 @@ class ChainingConfiguratorTest {
         assertSame(service, RecordingChain.lastService, "the chain still runs, with the original");
         assertSame(props, RecordingChain.lastProps);
         assertTrue(delegator.calls.isEmpty());
+        assertNull(RawServices.get(PARKING), "nothing wrapped, nothing recorded");
 
         versionInfo.delete();
         ChainingConfigurator missing = init();

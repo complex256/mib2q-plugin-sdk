@@ -19,11 +19,14 @@ import org.dsi.ifc.carparkingsystem.PDCSoundReproduction;
  * {@code TrailerHitchedChanged}. Updates whose flag is not {@code ATTRVALIDFLAG_VALID} (read at run time through
  * {@link DsiConstants}) and every other callback are ignored.
  *
- * <p>The service from the OSGi registry may be the SDK's {@link DsiServiceProxy}; the bridge uses the service
- * behind it, so its listener is not wrapped (no duplicate hook observations) and its writes are not hook calls (a
- * plugin's veto cannot block an SDK override). If something else wraps the proxy (DSITracer's trace proxy when a
- * trace chain is active) the bridge cannot see through it: the listener is still never wrapped
- * ({@link DsiServiceProxy.SdkOwnedListener}), but {@link #apply} then goes through the hook point.
+ * <p>The bridge never talks to what the OSGi registry holds when the SDK wrapped the service: that is our
+ * {@link DsiServiceProxy}, and with DSITracer active (as on the bench) a stock trace proxy over ours, which hides
+ * its target and replaces listeners with its own facades. It uses the raw service {@link ConfiguratorCore} recorded
+ * in {@link RawServices} when it wrapped it, so its listener is registered unwrapped and untraced (no duplicate
+ * {@code PARKING_SOUND_UPDATE} observations) and its writes are neither hook observations nor vetoable (a plugin's
+ * veto can never block an SDK override restore). Only if no raw service was recorded does it use the registry
+ * object (minus our proxy, if it is one); then {@link #apply} runs as an SDK call
+ * ({@link DsiServiceProxy#beginSdkCall}), which our proxy neither observes nor vetoes even below another wrapper.
  */
 final class ParkingBridge implements ParkingIo {
 
@@ -63,7 +66,7 @@ final class ParkingBridge implements ParkingIo {
 
     /** Called once the service is available (on the waiter thread). Ignored after {@link #detach}. */
     void attach(Object found) {
-        DSICarParkingSystem s = (DSICarParkingSystem) DsiServiceProxy.unwrap(found);
+        DSICarParkingSystem s = (DSICarParkingSystem) RawServices.resolve(DSICarParkingSystem.class.getName(), found);
         synchronized (lock) {
             if (closed || service != null) {
                 return;
@@ -110,7 +113,13 @@ final class ParkingBridge implements ParkingIo {
             throw new IllegalStateException("DSICarParkingSystem is not available");
         }
         // DSI constructor order: front, rear, right, left.
-        s.setPDCSoundReproduction(new PDCSoundReproduction(value.front(), value.rear(), value.right(), value.left()));
+        PDCSoundReproduction r = new PDCSoundReproduction(value.front(), value.rear(), value.right(), value.left());
+        DsiServiceProxy.beginSdkCall();
+        try {
+            s.setPDCSoundReproduction(r);
+        } finally {
+            DsiServiceProxy.endSdkCall();
+        }
         current = value;
     }
 }

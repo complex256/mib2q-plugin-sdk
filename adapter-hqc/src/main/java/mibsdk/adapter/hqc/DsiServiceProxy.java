@@ -40,6 +40,13 @@ final class DsiServiceProxy implements InvocationHandler {
     interface SdkOwnedListener {
     }
 
+    /**
+     * Threads making an SDK-originated call right now (see {@link #beginSdkCall}). Copy-on-write: stock threads
+     * only read the volatile array (empty almost always), without locking or allocating.
+     */
+    private static volatile Thread[] sdkCallers = new Thread[0];
+    private static final Object SDK_CALLERS_LOCK = new Object();
+
     private static final String SET_NOTIFICATION = "setNotification";
     private static final String CLEAR_NOTIFICATION = "clearNotification";
 
@@ -188,6 +195,53 @@ final class DsiServiceProxy implements InvocationHandler {
         }
     }
 
+    /**
+     * Marks the current thread as making an SDK-originated call until {@link #endSdkCall}: on it, hook points are
+     * neither observed nor vetoable, so a plugin's veto can never swallow an SDK write (an override restore).
+     * Only needed when the SDK has to call a service through a proxy chain ({@link RawServices} has no raw
+     * object); calls on the same thread through any wrapper above ours are covered. Always pair with
+     * {@code endSdkCall} in a finally block.
+     */
+    static void beginSdkCall() {
+        synchronized (SDK_CALLERS_LOCK) {
+            Thread[] old = sdkCallers;
+            Thread[] next = new Thread[old.length + 1];
+            System.arraycopy(old, 0, next, 0, old.length);
+            next[old.length] = Thread.currentThread();
+            sdkCallers = next;
+        }
+    }
+
+    static void endSdkCall() {
+        synchronized (SDK_CALLERS_LOCK) {
+            Thread[] old = sdkCallers;
+            Thread me = Thread.currentThread();
+            for (int i = old.length - 1; i >= 0; i--) {
+                if (old[i] == me) {
+                    Thread[] next = new Thread[old.length - 1];
+                    System.arraycopy(old, 0, next, 0, i);
+                    System.arraycopy(old, i + 1, next, i, old.length - i - 1);
+                    sdkCallers = next;
+                    return;
+                }
+            }
+        }
+    }
+
+    private static boolean inSdkCall() {
+        Thread[] a = sdkCallers;
+        if (a.length == 0) {
+            return false;
+        }
+        Thread me = Thread.currentThread();
+        for (int i = 0; i < a.length; i++) {
+            if (a[i] == me) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean isSdkOwned(Object o) {
         return Proxy.isProxyClass(o.getClass()) && Proxy.getInvocationHandler(o) instanceof SdkOwnedListener;
     }
@@ -233,7 +287,7 @@ final class DsiServiceProxy implements InvocationHandler {
                 forward = listenerArgs(args, SET_NOTIFICATION.equals(name));
             }
             HookPoint p = bindings.pointFor(declaring.getName(), name);
-            if (p != null) {
+            if (p != null && !inSdkCall()) {
                 vetoed = hooks.isVetoed(p);
                 Object value = bindings.toApiValue(p, args);
                 if (value != null) {

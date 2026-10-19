@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import mibsdk.adapter.hqc.Fakes.Recorder;
 import mibsdk.adapter.hqc.Fakes.RecordingHost;
 import mibsdk.api.IgnitionChanged;
@@ -53,7 +54,9 @@ class IgnitionBridgeTest {
         assertTrue(pump.awaitIdle(2000));
         List<Boolean> out = new ArrayList<>();
         for (Object e : host.snapshot()) {
-            out.add(((IgnitionChanged) e).isOn());
+            if (e instanceof IgnitionChanged) {
+                out.add(((IgnitionChanged) e).isOn());
+            }
         }
         return out;
     }
@@ -136,5 +139,70 @@ class IgnitionBridgeTest {
     void detachClearsTheListener() {
         bridge.detach();
         assertSame(bridge.listener(), service.named("clearNotification").get(0).args[0]);
+    }
+
+    @Test
+    void ignitionOffSurvivesASaturatedQueue() throws Exception {
+        clamp15(true, VALID);
+        assertEquals(Arrays.asList(true), published());
+        CountDownLatch gate = new CountDownLatch(1);
+        host.gate = gate;
+        pump.publish("blocker"); // the pump thread is now stuck in publish
+        assertTrue(eventually(2000, () -> host.threads.size() == 2));
+        for (int i = 0; i < 500; i++) {
+            pump.publish("flood-" + i); // far over capacity: the oldest are dropped
+        }
+        clamp15(false, VALID);
+        for (int i = 0; i < 500; i++) {
+            pump.publish("flood-after-" + i);
+        }
+        assertTrue(pump.droppedCount() > 0);
+        gate.countDown();
+        assertEquals(Arrays.asList(true, false), published(), "the off is never dropped");
+    }
+
+    @Test
+    void anOnOffOnBurstTheSdkSeesOnceStillPublishesTheOff() throws Exception {
+        clamp15(true, VALID);
+        assertEquals(Arrays.asList(true), published());
+        CountDownLatch gate = new CountDownLatch(1);
+        host.gate = gate;
+        pump.publish("blocker");
+        assertTrue(eventually(2000, () -> host.threads.size() == 2));
+        clamp15(false, VALID);
+        clamp15(true, VALID);
+        clamp15(true, VALID);
+        gate.countDown();
+        assertEquals(Arrays.asList(true, false, true), published(), "coalesced, but the off is replayed");
+    }
+
+    @Test
+    void attachPrefersTheRecordedRawService() {
+        Recorder raw = new Recorder();
+        Recorder other = new Recorder();
+        IgnitionBridge b = new IgnitionBridge(pump);
+        RawServices.record(DSIPowerManagement.class.getName(), Fakes.fake(DSIPowerManagement.class, raw));
+        try {
+            b.attach(Fakes.fake(DSIPowerManagement.class, other));
+        } finally {
+            RawServices.clear();
+        }
+        assertEquals(1, raw.named("setNotification").size());
+        assertEquals(0, other.named("setNotification").size());
+    }
+
+    @Test
+    void aLongBacklogIsCutToItsLastTwoChangesWhichIncludeTheOff() throws Exception {
+        clamp15(true, VALID);
+        assertEquals(Arrays.asList(true), published());
+        CountDownLatch gate = new CountDownLatch(1);
+        host.gate = gate;
+        pump.publish("blocker");
+        assertTrue(eventually(2000, () -> host.threads.size() == 2));
+        for (int i = 0; i < 2 * IgnitionBridge.MAX_REPLAY + 8; i++) {
+            clamp15(i % 2 != 0, VALID); // off, on, off, on, ... ending on
+        }
+        gate.countDown();
+        assertEquals(Arrays.asList(true, false, true), published());
     }
 }

@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Proxy;
+import java.util.Hashtable;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import mibsdk.adapter.hqc.Fakes.Call;
@@ -18,6 +20,8 @@ import mibsdk.api.HookPoint;
 import mibsdk.api.ParkingSoundChanged;
 import mibsdk.api.SoundDirections;
 import mibsdk.api.TrailerHitchedChanged;
+import de.audi.tghu.dsitrace.DSICarParkingSystemProxy;
+import de.audi.tghu.dsitrace.ITraceRegistry;
 import mibsdk.platform.HookTable;
 import org.dsi.ifc.carparkingsystem.DSICarParkingSystem;
 import org.dsi.ifc.carparkingsystem.DSICarParkingSystemListener;
@@ -39,6 +43,7 @@ class ParkingBridgeTest {
 
     @BeforeEach
     void setUp() {
+        RawServices.clear();
         host = new RecordingHost();
         pump = new EventPump("hqc-events", host, 8);
         pump.start();
@@ -50,6 +55,7 @@ class ParkingBridgeTest {
     @AfterEach
     void tearDown() {
         pump.stop();
+        RawServices.clear();
     }
 
     private DSICarParkingSystemListener listener() {
@@ -214,5 +220,76 @@ class ParkingBridgeTest {
         assertThrows(IllegalStateException.class, () -> bridge.apply(new SoundDirections(true, true, true, true)));
         bridge.attach(fake);
         assertEquals(1, service.named("setNotification").size(), "no attach after detach");
+    }
+
+    // ---- the bench registry: DSITracer's real trace proxy over our proxy over the raw service ----
+
+    private HookTable vetoingHooks() {
+        HookTable hooks = new HookTable(16);
+        Object token = hooks.addVeto(HookPoint.PARKING_SOUND_SET);
+        hooks.setVetoActive(token, true);
+        return hooks;
+    }
+
+    /** de.audi.tghu.dsitrace.DSICarParkingSystemProxy (stock) in full trace mode, over {@code dest}. */
+    private static DSICarParkingSystem traceProxy(Object dest) {
+        ITraceRegistry registry = (ITraceRegistry) Proxy.newProxyInstance(ParkingBridgeTest.class.getClassLoader(),
+                new Class<?>[] {ITraceRegistry.class}, (p, m, a) -> m.getName().equals("hashCode") ? 1
+                        : m.getName().equals("equals") ? Boolean.FALSE : null);
+        DSICarParkingSystemProxy t = new DSICarParkingSystemProxy(registry, 1, dest, new Hashtable<String, Object>());
+        t.yySetTraceMode(2); // YY_TRACE_MODE_FULL (iconst_2 in the stock bytecode)
+        return t;
+    }
+
+    @Test
+    void traceChainControlAVetoBlocksAnHmiWriteThroughTheTraceProxy() {
+        HookTable hooks = vetoingHooks();
+        Object ours = DsiServiceProxy.wrap(fake, new Class<?>[] {DSICarParkingSystem.class}, hooks,
+                HookBindings.defaults());
+        DSICarParkingSystem registry = traceProxy(ours);
+        registry.setPDCSoundReproduction(new PDCSoundReproduction(true, true, true, true));
+        assertEquals(0, service.named("setPDCSoundReproduction").size(), "the HMI's write is vetoed (control)");
+    }
+
+    @Test
+    void traceChainWithRawRecordedBypassesTraceAndHooks() throws Exception {
+        HookTable hooks = vetoingHooks();
+        Object ours = DsiServiceProxy.wrap(fake, new Class<?>[] {DSICarParkingSystem.class}, hooks,
+                HookBindings.defaults());
+        RawServices.record(DSICarParkingSystem.class.getName(), fake); // what ConfiguratorCore does at wrap time
+        DSICarParkingSystem registry = traceProxy(ours);
+        assertSame(registry, DsiServiceProxy.unwrap(registry), "unwrap cannot see through the trace proxy");
+
+        bridge.attach(registry);
+        List<Call> sets = service.named("setNotification");
+        assertEquals(1, sets.size());
+        assertSame(bridge.listener(), sets.get(0).args[0], "registered on the raw service, no facade, no wrapper");
+
+        SoundDirections v = new SoundDirections(true, false, true, false);
+        bridge.apply(v);
+        assertEquals(1, service.named("setPDCSoundReproduction").size(), "a plugin veto cannot block the SDK");
+        assertEquals(v, bridge.current());
+        listener().updatePDCSoundReproduction(new PDCSoundReproduction(true, false, false, true), VALID);
+        assertTrue(eventually(2000, () -> host.snapshot().size() == 1));
+        assertNull(hooks.poll(0), "SDK writes and the SDK's own updates are not hook observations");
+    }
+
+    @Test
+    void traceChainWithoutRawRecordedStillNeverVetoesAnSdkWrite() throws Exception {
+        HookTable hooks = vetoingHooks();
+        Object ours = DsiServiceProxy.wrap(fake, new Class<?>[] {DSICarParkingSystem.class}, hooks,
+                HookBindings.defaults());
+        bridge.attach(traceProxy(ours)); // fallback: the registry object, trace proxy and all
+        bridge.apply(new SoundDirections(false, true, false, true));
+        List<Call> writes = service.named("setPDCSoundReproduction");
+        assertEquals(1, writes.size(), "trace -> ours -> raw, not vetoed");
+        PDCSoundReproduction r = (PDCSoundReproduction) writes.get(0).args[0];
+        assertTrue(r.rear && r.right && !r.front && !r.left);
+        assertNull(hooks.poll(0), "an SDK write is not a hook observation");
+
+        // The bypass is per thread and ends with the call: the HMI's next write is vetoed again.
+        traceProxy(ours).setPDCSoundReproduction(new PDCSoundReproduction(true, true, true, true));
+        assertEquals(1, service.named("setPDCSoundReproduction").size());
+        assertTrue(hooks.poll(0).vetoed());
     }
 }

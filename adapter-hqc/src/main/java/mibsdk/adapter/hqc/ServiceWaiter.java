@@ -8,8 +8,10 @@ import org.osgi.framework.ServiceReference;
  * Waits for an OSGi service on SDK threads, never on the caller's: {@link #await} starts one daemon thread
  * (NORM-1) per service that polls {@code BundleContext.getServiceReferences(iface, null)} every {@code retryMs}
  * for {@link #FAST_ATTEMPTS} attempts, then every {@link #SLOW_MS}, and hands the first non-null
- * {@code getService} result to the callback on that thread. {@link #stop()} ends every wait: no poll and no
- * callback after it (a lookup already in flight is finished but not delivered). The {@link Clock} only times
+ * {@code getService} result to the callback on that thread. {@link #stop()} ends every wait: no lookup starts
+ * after it, and a lookup in flight is not delivered, since {@code stopped} is re-checked under the lock right
+ * before the callback. The one residual is a stop() landing between that check and the callback itself; callers
+ * must tolerate a late delivery (the bridges ignore an attach after their detach). The {@link Clock} only times
  * the wait for the log.
  */
 final class ServiceWaiter {
@@ -101,6 +103,11 @@ final class ServiceWaiter {
                 }
             }
             log("INFO", iface + " available after " + (uptime() - t0) + " ms (" + attempt + " lookups)");
+            synchronized (this) {
+                if (stopped) { // last check, right before the hand-off
+                    return;
+                }
+            }
             try {
                 cb.onAvailable(service);
             } catch (Throwable t) {
