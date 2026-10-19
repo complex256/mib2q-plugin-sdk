@@ -32,6 +32,14 @@ import org.dsi.ifc.base.DSIListener;
  */
 final class DsiServiceProxy implements InvocationHandler {
 
+    /**
+     * Marks the invocation handler of an SDK-owned DSI listener (the platform bridges'). Such a listener is never
+     * wrapped: the bridges publish their observations themselves, and a wrapper would record each car update a
+     * second time as a hook observation.
+     */
+    interface SdkOwnedListener {
+    }
+
     private static final String SET_NOTIFICATION = "setNotification";
     private static final String CLEAR_NOTIFICATION = "clearNotification";
 
@@ -107,7 +115,8 @@ final class DsiServiceProxy implements InvocationHandler {
      */
     static Object wrapListener(Object listener, HookTable hooks, HookBindings bindings) {
         try {
-            if (listener == null || hooks == null || bindings == null || isOurs(listener)) {
+            if (listener == null || hooks == null || bindings == null || isOurs(listener)
+                    || isSdkOwned(listener)) {
                 return listener;
             }
             Object existing = existingWrapper(listener, hooks, bindings);
@@ -164,6 +173,23 @@ final class DsiServiceProxy implements InvocationHandler {
     private static boolean sameTable(Object wrapper, HookTable hooks, HookBindings bindings) {
         DsiServiceProxy h = (DsiServiceProxy) Proxy.getInvocationHandler(wrapper);
         return h.hooks == hooks && h.bindings == bindings;
+    }
+
+    /**
+     * The service behind one of our proxies, else {@code service} itself. The SDK calls the raw service, so its
+     * own writes are neither hook observations nor subject to a plugin's veto.
+     */
+    static Object unwrap(Object service) {
+        try {
+            return service != null && isOurs(service)
+                    ? ((DsiServiceProxy) Proxy.getInvocationHandler(service)).target : service;
+        } catch (Throwable t) {
+            return service;
+        }
+    }
+
+    private static boolean isSdkOwned(Object o) {
+        return Proxy.isProxyClass(o.getClass()) && Proxy.getInvocationHandler(o) instanceof SdkOwnedListener;
     }
 
     private static boolean isOurs(Object o) {

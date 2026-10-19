@@ -1,10 +1,12 @@
 package mibsdk.adapter.hqc;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import de.dreisoft.lsd.IServiceDelegateConfigurator;
 import java.io.File;
@@ -102,6 +104,30 @@ class ConfiguratorIsolationTest {
             Object d = fake(l, "de.dreisoft.lsd.IServiceDelegator", registration);
             Object service = fake(l, PARKING, null);
             assertNull(register(c, d, service), "pure pass-through: LSD registers the original");
+        }
+    }
+
+    @Test
+    void activatorWithSdkClassesMissingNeverThrows() throws Exception {
+        try (URLClassLoader l = isolated()) {
+            assertThrows(ClassNotFoundException.class, () -> l.loadClass(RingLog.class.getName()));
+            Class<?> cls = Class.forName(SdkBundleActivator.class.getName(), true, l);
+            assertDoesNotThrow(() -> cls.getConstructor().newInstance(), "the kernel's no-arg constructor");
+            Constructor<?> ctor = cls.getDeclaredConstructor(File.class, File.class);
+            ctor.setAccessible(true);
+            Object a = ctor.newInstance(base, versionInfo);
+            Class<?> bc = Class.forName("org.osgi.framework.BundleContext", false, l);
+            Object ctx = fake(l, "org.osgi.framework.BundleContext", null);
+            long t0 = System.nanoTime();
+            assertDoesNotThrow(() -> cls.getMethod("start", bc).invoke(a, ctx));
+            long ms = (System.nanoTime() - t0) / 1000000;
+            assertTrue(ms < 50, "start took " + ms + " ms");
+            Method mainThread = cls.getDeclaredMethod("mainThread");
+            mainThread.setAccessible(true);
+            Thread main = (Thread) mainThread.invoke(a);
+            main.join(5000);
+            assertFalse(main.isAlive(), "the boot failed on mibsdk-main, caught there");
+            assertDoesNotThrow(() -> cls.getMethod("stop", bc).invoke(a, ctx));
         }
     }
 

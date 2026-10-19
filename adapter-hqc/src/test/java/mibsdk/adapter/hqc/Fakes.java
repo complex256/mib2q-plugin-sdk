@@ -6,6 +6,11 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
+import mibsdk.platform.HookTable;
+import mibsdk.platform.PlatformHost;
 
 /** java.lang.reflect.Proxy fakes for stock interfaces (only the host-repaired stock jar is on the test classpath). */
 final class Fakes {
@@ -60,6 +65,58 @@ final class Fakes {
             }
             return out;
         }
+    }
+
+    /** A PlatformHost recording each published event and the thread that published it. */
+    static final class RecordingHost implements PlatformHost {
+        final List<Object> events = Collections.synchronizedList(new ArrayList<>());
+        final List<String> threads = Collections.synchronizedList(new ArrayList<>());
+        final List<String> logs = Collections.synchronizedList(new ArrayList<>());
+        final HookTable hooks = new HookTable(16);
+        /** If set, publish blocks until it is opened (simulates a slow subscriber). */
+        volatile CountDownLatch gate;
+
+        @Override
+        public void publish(Object apiEvent) {
+            threads.add(Thread.currentThread().getName());
+            CountDownLatch g = gate;
+            if (g != null) {
+                try {
+                    g.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            events.add(apiEvent);
+        }
+
+        @Override
+        public HookTable hooks() {
+            return hooks;
+        }
+
+        @Override
+        public void log(String msg, Throwable t) {
+            logs.add(t == null ? msg : msg + ": " + t);
+        }
+
+        List<Object> snapshot() {
+            synchronized (events) {
+                return new ArrayList<>(events);
+            }
+        }
+    }
+
+    /** Polls {@code cond} every 5 ms for up to {@code ms}; true once it holds. */
+    static boolean eventually(long ms, BooleanSupplier cond) throws InterruptedException {
+        long end = System.currentTimeMillis() + ms;
+        while (System.currentTimeMillis() < end) {
+            if (cond.getAsBoolean()) {
+                return true;
+            }
+            Thread.sleep(5);
+        }
+        return cond.getAsBoolean();
     }
 
     @SuppressWarnings("unchecked")

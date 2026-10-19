@@ -41,6 +41,7 @@ val hostStockJar = tasks.register<HostStockJarTask>("hostStockJar") {
         "org/dsi/ifc/base/",
         "org/dsi/ifc/carparkingsystem/",
         "org/dsi/ifc/global/",
+        "org/dsi/ifc/powermanagement/",
         "de/audi/tghu/dsitrace/"))
     outputJar.set(layout.buildDirectory.file("host-stock/stock-host.jar"))
 }
