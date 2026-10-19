@@ -81,4 +81,20 @@ class RingLogTest {
         assertEquals("0 INFO s one\n0 ERROR s two\n", new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8));
         assertEquals(1, tmp.toFile().list().length);
     }
+
+    @Test
+    void writeToFallsBackToWritingInPlaceWhereRenameIsUnsupported() throws Exception {
+        // QNX /dev/shmem (the unit's /tmp): J9's File.renameTo always returns false there (bench, 2026-10-19).
+        RingLog log = new RingLog(10);
+        log.append("INFO", "s", "one");
+        File f = tmp.resolve("mibsdk.log").toFile();
+        Files.write(f.toPath(), "stale and longer than the new content".getBytes(StandardCharsets.UTF_8));
+        log.writeTo(f, new RingLog.Renamer() {
+            public boolean rename(File from, File to) {
+                return false;
+            }
+        });
+        assertEquals("0 INFO s one\n", new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8));
+        assertEquals(1, tmp.toFile().list().length, "the temp file is removed");
+    }
 }
