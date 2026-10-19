@@ -539,7 +539,8 @@ class SdkRuntimeLifecycleTest {
 
     @Test
     void crashyModesAreContained() throws Exception {
-        String[] modes = {"throw-on-enable", "throw-on-event", "hang-on-event", "busy-loop"};
+        String[] modes = {"throw-on-enable", "throw-on-event", "hang-on-event", "busy-loop", "throw-on-timer",
+            "hang-on-timer"};
         for (String mode : modes) {
             installSamples(mode);
             start("callback.hung.ms=1000\n");
@@ -566,6 +567,24 @@ class SdkRuntimeLifecycleTest {
                 clock.advance(1001);
                 awaitState("crashy", PluginState.QUARANTINED);
                 assertTrue(status("crashy").reason().contains("hung"), status("crashy").reason());
+            } else if (mode.equals("throw-on-timer")) { // no ignition needed (the bench has none)
+                for (int i = 0; i < 3; i++) {
+                    awaitState("crashy", PluginState.ENABLED);
+                    clock.advance(1000);
+                    awaitCount("crashy", "tick", i + 1);
+                }
+                awaitState("crashy", PluginState.QUARANTINED);
+                assertTrue(status("crashy").reason().contains("throw-on-timer"), status("crashy").reason());
+                fake.setIgnition(true);
+                awaitCount("hello", "ignition=true", 1);
+            } else if (mode.equals("hang-on-timer")) {
+                clock.advance(1000);
+                awaitCount("crashy", "hanging", 1);
+                clock.advance(1001);
+                awaitState("crashy", PluginState.QUARANTINED);
+                assertTrue(status("crashy").reason().contains("hung"), status("crashy").reason());
+                fake.setIgnition(true);
+                awaitCount("hello", "ignition=true", 1);
             } else {
                 awaitCount("crashy", "spinning", 1);
                 clock.advance(1001);
