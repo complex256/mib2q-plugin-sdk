@@ -198,6 +198,7 @@ reports a **feature set** (e.g. `slot.statusbar`, `hook.dsi.carparkingsystem`), 
   - A root the runtime cannot write is reported (`STATUS mibsdk state persist=… UNWRITABLE … bootGuard=inert`);
     an inert boot guard never reports a healthy boot.
   - Uninstall keeps `/mnt/persist/mibsdk/` (plugin data) unless `--purge`.
+    `mibsdk-dev data-clear <id>` removes one plugin's `data/<id>.properties` (ledger and boot state untouched).
 
 ## 6. Containment (G4)
 

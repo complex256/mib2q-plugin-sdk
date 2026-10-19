@@ -49,6 +49,9 @@ usage: mibsdk-dev <command> [args] [host]      (host defaults to $DEFAULT_HOST)
   push <plugin.jar> [host]   install a plugin jar as plugins/<id>.jar and trigger a reload (writes a fresh token to
                              plugins/<id>.reload; the runtime reloads once per new token, it never deletes markers)
   grant <id> <perm,...>      rewrite that plugin's line in grants.properties
+  data-clear <id>            remove that plugin's data ($PERSIST/data/<id>.properties); the ledger, boot state
+                             and other plugins' data are untouched. The storage cap counts files on disk from the
+                             runtime's start, so restart afterwards (mibsdk-dev restart) to free the space
   safe-mode on|off           create/remove the SAFE_MODE marker (off also resets $PERSIST/boot.state: the unhealthy-boot count
                              and the wrap-boot count that turns DSI service wrapping off after a crash loop)
   log                        print $LOG
@@ -512,6 +515,24 @@ cmd_safe_mode() {
   esac
 }
 
+# cmd_data_clear <id>: plugin data that is corrupt or too large (the storage cap counts it even for a plugin that is
+# gone) otherwise stays until uninstall --purge. $PERSIST is writable at runtime: no remount.
+cmd_data_clear() {
+  local id="${1:-}"
+  [ -n "$id" ] || die "usage: mibsdk-dev data-clear <plugin-id> [host]"
+  check_id "$id"
+  connect
+  local f="$PERSIST/data/$id.properties"
+  if ! is_present "$f" && ! is_present "$f.tmp"; then
+    echo "no data for $id in $PERSIST/data; nothing to clear"
+    return 0
+  fi
+  rsh "rm -f '$f' '$f.tmp'" || die "cannot remove $f"
+  echo "cleared the data of $id ($f)"
+  echo "Restart the HMI now (mibsdk-dev restart): a running $id may write its data back, and the storage cap"
+  echo "frees the space only from the next runtime start."
+}
+
 cmd_log() {
   connect
   fetch "$LOG" "$TMP/log" || die "$LOG not found on $HOST (is the SDK running?)"
@@ -535,7 +556,7 @@ main() {
   case "$cmd" in
     install|restart|log|status) want=0 ;;
     uninstall) want=-1 ;;
-    push|safe-mode) want=1 ;;
+    push|safe-mode|data-clear) want=1 ;;
     grant) want=2 ;;
     *) usage >&2; die "unknown command '$cmd'" ;;
   esac
@@ -558,6 +579,7 @@ main() {
     push) cmd_push "${args[@]+"${args[@]}"}" ;;
     grant) cmd_grant "${args[@]+"${args[@]}"}" ;;
     safe-mode) cmd_safe_mode "${args[@]+"${args[@]}"}" ;;
+    data-clear) cmd_data_clear "${args[@]+"${args[@]}"}" ;;
     log) cmd_log ;;
     status) cmd_status ;;
   esac

@@ -276,3 +276,17 @@ With the B1 fix installed and `/mnt/app` left read-only as booted (no manual `mo
    within one poll, `plugins/hello.reload` still present, and no second reload over the next minute. A second
    push gives exactly one more.
 6. `data/hello.properties` appears under `/mnt/persist/mibsdk/data/` (not under `/mnt/app`).
+7. `mibsdk-dev data-clear crashy` removes `/mnt/persist/mibsdk/data/crashy.properties` (and nothing else: the
+   ledger, `boot.state` and other plugins' data stay); after `mibsdk-dev restart` the storage cap no longer counts it.
+
+### `mibsdk-dev` commands (current)
+
+| Command | What it does |
+|---------|--------------|
+| `install` / `uninstall [--purge] [--force]` | install the SDK; uninstall keeps `/mnt/persist/mibsdk` unless `--purge` |
+| `restart` | `slay -s11 j9` |
+| `push <plugin.jar>` | install `plugins/<id>.jar` and write a fresh reload token |
+| `grant <id> <perm,...>` | rewrite that plugin's line in `grants.properties` |
+| `data-clear <id>` | remove one plugin's `data/<id>.properties` from `/mnt/persist/mibsdk/data` (ledger and boot state untouched); restart afterwards, since the storage cap counts files on disk from the runtime's start and a running plugin may write its data back |
+| `safe-mode on\|off` | set/remove `SAFE_MODE`; `off` also resets `boot.state` |
+| `log` / `status` | print `/tmp/mibsdk.log` / its STATUS lines |

@@ -369,6 +369,33 @@ class SafeModeTest(FakeUnitTestCase):
         self.assertFalse(os.path.exists(os.path.join(u.sdk, "boot.state")))
 
 
+class DataClearTest(FakeUnitTestCase):
+    def test_removes_only_that_plugins_data(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        data = os.path.join(u.persist, "data")
+        write(os.path.join(data, "hello.properties"), b"x=1\n")
+        write(os.path.join(data, "hello.properties.tmp"), b"x=")
+        write(os.path.join(data, "hello2.properties"), b"y=1\n")
+        write(os.path.join(u.persist, "ledger.properties"), b"k=hello|PERSISTENT|a|b\n")
+        write(os.path.join(u.persist, "boot.state"), b"unhealthyBoots=1\n")
+        r = self.ok(u.run("data-clear", "hello"))
+        self.assertIn("hello", r.stdout.decode("utf-8"))
+        self.assertEqual(["hello2.properties"], sorted(os.listdir(data)))
+        self.assertEqual(b"k=hello|PERSISTENT|a|b\n", read(os.path.join(u.persist, "ledger.properties")))
+        self.assertEqual(b"unhealthyBoots=1\n", read(os.path.join(u.persist, "boot.state")))
+        self.ok(u.run("data-clear", "hello"))  # nothing left: still fine
+
+    def test_rejects_a_bad_id(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        write(os.path.join(u.persist, "data/x.properties"), b"x=1\n")
+        for bad in ("../x", "*", ""):
+            r = u.run("data-clear", bad)
+            self.assertNotEqual(0, r.returncode, bad)
+        self.assertTrue(os.path.exists(os.path.join(u.persist, "data/x.properties")))
+
+
 class PushTest(FakeUnitTestCase):
     def plugin_jar(self, plugin_id):
         path = os.path.join(self.tmp, plugin_id + ".jar")
