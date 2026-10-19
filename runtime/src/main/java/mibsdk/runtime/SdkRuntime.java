@@ -139,7 +139,8 @@ public final class SdkRuntime {
     private final List hosts = new ArrayList(); // PluginHost in discovery order; guarded by this
     private final List enabledOrder = new ArrayList(); // active PluginHost, oldest enable first; guarded by this
     private volatile Grants grants = Grants.load(null); // re-read by loadAll and reload on the control thread
-    private volatile Set<String> features = Collections.emptySet(); // written once on the control thread before loading
+    /** Read in start() and again before the initial plugin load (a hook service may be wrapped in between). */
+    private volatile Set<String> features = Collections.emptySet();
     private SerialExecutor control; // guarded by this
     private boolean started; // guarded by this
     private boolean stopped; // guarded by this
@@ -534,8 +535,18 @@ public final class SdkRuntime {
         }
     }
 
+    /** Control thread: the adapter's features as of now (it may learn of a wrapped service after start). */
+    private void refreshFeatures() {
+        try {
+            features = Collections.unmodifiableSet(new HashSet<String>(platform.features()));
+        } catch (Throwable t) {
+            log.append("ERROR", SOURCE, "adapter features() failed, keeping " + features + ": " + describe(t));
+        }
+    }
+
     /** False if it bailed because stop() was requested (then the stop step owns the ledger and the plugins). */
     private boolean loadAll() {
+        refreshFeatures();
         grants = Grants.load(cfg.grantsFile());
         purgeSnapshots(); // stale copies from a previous run
         restoreStaleOverrides();

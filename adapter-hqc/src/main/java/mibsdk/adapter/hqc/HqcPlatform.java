@@ -29,6 +29,8 @@ public final class HqcPlatform implements PlatformAdapter {
     private static final int EVENT_QUEUE = 64;
 
     private static final Set<String> FEATURES = Collections.unmodifiableSet(new HashSet<String>(
+            Arrays.asList(new String[] {Features.PARKING, Features.IGNITION})));
+    private static final Set<String> FEATURES_HOOKED = Collections.unmodifiableSet(new HashSet<String>(
             Arrays.asList(new String[] {Features.PARKING, Features.IGNITION, Features.HOOK_PARKING})));
 
     private final BundleContext ctx;
@@ -56,8 +58,14 @@ public final class HqcPlatform implements PlatformAdapter {
         return SUPPORTED.equals(hmiVersion);
     }
 
+    /**
+     * PARKING and IGNITION, plus HOOK_PARKING only if the configurator wrapped the parking service this boot
+     * (wrapping enabled and its raw object recorded): otherwise no parking hook point ever fires, and plugins must
+     * see {@code has(HOOK_PARKING) == false}. The runtime reads this again right before it loads plugins.
+     */
     public Set<String> features() {
-        return FEATURES;
+        return SdkGlobals.wrappingEnabled && RawServices.get(DSICarParkingSystem.class.getName()) != null
+                ? FEATURES_HOOKED : FEATURES;
     }
 
     /** Starts the event pump and the service waits; does not block. A second start is ignored. */

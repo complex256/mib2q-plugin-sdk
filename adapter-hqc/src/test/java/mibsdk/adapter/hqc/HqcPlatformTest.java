@@ -128,11 +128,30 @@ class HqcPlatformTest {
 
     @Test
     void idAndFeatures() {
-        HqcPlatform p = new HqcPlatform(new Ctx().context());
-        assertEquals("hqc-nar-g22-c10", p.id());
-        assertEquals(new HashSet<>(Arrays.asList(Features.PARKING, Features.IGNITION, Features.HOOK_PARKING)),
-                p.features());
-        assertThrows(UnsupportedOperationException.class, () -> p.features().add("x"));
+        boolean wrapping = SdkGlobals.wrappingEnabled;
+        try {
+            HqcPlatform p = new HqcPlatform(new Ctx().context());
+            assertEquals("hqc-nar-g22-c10", p.id());
+            HashSet<String> base = new HashSet<>(Arrays.asList(Features.PARKING, Features.IGNITION));
+            HashSet<String> hooked = new HashSet<>(base);
+            hooked.add(Features.HOOK_PARKING);
+
+            RawServices.clear();
+            SdkGlobals.wrappingEnabled = false;
+            assertEquals(base, p.features(), "configurator off (safe mode, wrap loop, other HMI): no hook points");
+            RawServices.record(PARKING, new Object());
+            assertEquals(base, p.features(), "wrapping disabled");
+
+            RawServices.clear();
+            SdkGlobals.wrappingEnabled = true;
+            assertEquals(base, p.features(), "wrapping on, but the parking service was never wrapped");
+            RawServices.record(PARKING, new Object());
+            assertEquals(hooked, p.features());
+            assertThrows(UnsupportedOperationException.class, () -> p.features().add("x"));
+        } finally {
+            SdkGlobals.wrappingEnabled = wrapping;
+            RawServices.clear();
+        }
     }
 
     @Test

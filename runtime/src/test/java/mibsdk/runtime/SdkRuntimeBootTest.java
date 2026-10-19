@@ -388,6 +388,50 @@ class SdkRuntimeBootTest {
         assertEquals("2", bootState().getProperty("unhealthyBoots"));
     }
 
+    /** The adapter may learn of a wrapped hook service only after start(): plugins see the features at load. */
+    @Test
+    void featuresAreReadAgainBeforePluginsLoad() throws Exception {
+        jars.write(plugins, "probe", "1", null, null,
+                "ctx.log().info(\"hook=\" + ctx.has(Features.HOOK_PARKING));", null);
+        final java.util.concurrent.atomic.AtomicBoolean hooked = new java.util.concurrent.atomic.AtomicBoolean();
+        final FakePlatform inner = new FakePlatform("HMI_TEST",
+                new HashSet<String>(Arrays.asList(Features.IGNITION, Features.PARKING)));
+        PlatformAdapter late = new PlatformAdapter() {
+            public String id() {
+                return inner.id();
+            }
+
+            public boolean supports(String v) {
+                return inner.supports(v);
+            }
+
+            public java.util.Set<String> features() {
+                java.util.Set<String> f = new HashSet<String>(inner.features());
+                if (hooked.get()) {
+                    f.add(Features.HOOK_PARKING);
+                }
+                return f;
+            }
+
+            public void start(mibsdk.platform.PlatformHost host) {
+                inner.start(host);
+            }
+
+            public void stop() {
+                inner.stop();
+            }
+
+            public mibsdk.platform.ParkingIo parking() {
+                return inner.parking();
+            }
+        };
+        runtime("plugin.start.delay.ms=30000\nheap.low.bytes=0\n", late).start();
+        hooked.set(true); // e.g. the parking service registers (and is wrapped) during the start delay
+        clock.advance(30000);
+        awaitState("probe", PluginState.ENABLED);
+        assertEquals(1, count("probe", "hook=true"), rt.log().snapshot().toString());
+    }
+
     // ---- heap watch wiring ----
 
     @Test
