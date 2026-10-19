@@ -141,6 +141,23 @@ class DevChannelTest {
     }
 
     @Test
+    void logFileRewrittenOnlyWhenTheLogChanged() throws Exception {
+        dev.poll();
+        assertTrue(logText().contains(" STATUS mibsdk runtime started"), logText());
+        write(logFile, "sentinel\n"); // stands in for "the file was not rewritten"
+        dev.poll();
+        assertEquals("sentinel\n", logText(), "nothing new in the RingLog: no rewrite");
+
+        rt.log().append("INFO", "test", "new-line");
+        dev.poll();
+        assertTrue(logText().contains(" INFO test new-line"), logText());
+
+        assertTrue(logFile.delete());
+        dev.poll();
+        assertTrue(logText().contains(" INFO test new-line"), "a deleted file is written again: " + logText());
+    }
+
+    @Test
     void badMarkersNeverStopThePolling() throws Exception {
         File invalid = new File(plugins, "Not_An_Id.reload");
         assertTrue(invalid.createNewFile());

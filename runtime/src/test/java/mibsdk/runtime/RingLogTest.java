@@ -50,6 +50,18 @@ class RingLogTest {
     }
 
     @Test
+    void sequenceCountsEveryAppendEvenPastCapacity() {
+        RingLog log = new RingLog(2);
+        assertEquals(0, log.sequence());
+        for (int i = 0; i < 5; i++) {
+            log.append("INFO", "s", "x");
+        }
+        assertEquals(5, log.sequence(), "monotonic, not the retained size");
+        log.snapshot();
+        assertEquals(5, log.sequence(), "reading does not change it");
+    }
+
+    @Test
     void snapshotIsACopy() {
         RingLog log = new RingLog(2);
         log.append("INFO", "s", "x");

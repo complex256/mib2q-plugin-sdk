@@ -9,7 +9,8 @@ import mibsdk.api.Subscription;
  * File-based developer channel. Every {@code pollMs} on the {@link Clock}: each {@code plugins/<id>.reload}
  * marker is deleted and {@code rt.reload(id)} called (deleted first, so a marker touched during the reload
  * triggers another; a marker that cannot be deleted is skipped, never reloaded on every poll), then the
- * log file is rewritten from the runtime's {@link RingLog}.
+ * log file is rewritten from the runtime's {@link RingLog}, but only if the log changed since the last successful
+ * write ({@link RingLog#sequence()}) or the file is gone: an idle unit does not rewrite it every poll.
  *
  * <p>Threads: its own daemon worker {@code mibsdk-dev} (priority NORM-1), driven by the shared timer. A
  * reload blocks that worker, never the runtime control thread's callers. Nothing escapes a poll.
@@ -29,6 +30,7 @@ public final class DevChannel {
     private boolean stopped; // guarded by this
     private String lastWriteError; // worker thread only: log each distinct failure once
     private File lastStuck; // worker thread only
+    private long writtenSequence = -1; // worker thread only: RingLog.sequence() of the last successful write
 
     public DevChannel(SdkRuntime rt, File pluginsDir, File logFile, long pollMs, Clock clock) {
         this.rt = rt;
@@ -92,7 +94,13 @@ public final class DevChannel {
             log("ERROR", "dev channel: reload markers failed: " + SdkRuntime.describe(t));
         }
         try {
-            rt.log().writeTo(logFile);
+            RingLog log = rt.log();
+            long seq = log.sequence(); // read before the snapshot: a line appended meanwhile triggers the next write
+            if (seq == writtenSequence && logFile.exists()) {
+                return;
+            }
+            log.writeTo(logFile);
+            writtenSequence = seq;
             lastWriteError = null;
         } catch (Throwable t) {
             String what = SdkRuntime.describe(t);

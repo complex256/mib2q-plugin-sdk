@@ -19,6 +19,7 @@ public final class RingLog {
     private final String[] lines;
     private int head;
     private int size;
+    private long sequence; // guarded by this; appends ever made
     private volatile Clock clock;
 
     public RingLog(int capacity) {
@@ -37,6 +38,7 @@ public final class RingLog {
         long up = c == null ? 0 : c.uptimeMs();
         String line = up + " " + level + " " + source + " " + oneLine(msg);
         synchronized (this) {
+            sequence++;
             lines[(head + size) % lines.length] = line;
             if (size < lines.length) {
                 size++;
@@ -44,6 +46,11 @@ public final class RingLog {
                 head = (head + 1) % lines.length;
             }
         }
+    }
+
+    /** Number of lines ever appended (monotonic; unchanged means the snapshot is unchanged). */
+    public synchronized long sequence() {
+        return sequence;
     }
 
     /** Oldest-first copy of the retained lines. */
