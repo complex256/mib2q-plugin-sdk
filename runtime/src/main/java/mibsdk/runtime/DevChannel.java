@@ -18,7 +18,7 @@ import mibsdk.api.Subscription;
  * {@code plugins/<id>.reload} marker calls {@code rt.reload(id)} once, then the log file is rewritten from the runtime's {@link RingLog}, but only if the log changed since the last successful
  * write ({@link RingLog#sequence()}) or the file is gone: an idle unit does not rewrite it every poll.
  *
- * <p>Markers are never deleted: the plugins dir is on {@code /mnt/app}, read-only while the HMI runs. Instead the
+ * <p>Markers are never deleted: the plugins dir is in the install root, read-only while the HMI runs. Instead the
  * channel remembers, in memory, the signature (mtime, size and leading bytes) of each marker it consumed; a marker
  * reloads again only once it changes ({@code mibsdk-dev push} writes a fresh token) or disappears and comes back.
  * The signature is recorded before the reload, so a marker rewritten during the reload triggers another. Markers
