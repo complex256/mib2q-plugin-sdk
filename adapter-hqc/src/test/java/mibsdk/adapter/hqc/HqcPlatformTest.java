@@ -154,6 +154,27 @@ class HqcPlatformTest {
         }
     }
 
+    /** The class-loader seam: a split loader would give the activator its own, never-set SdkGlobals. */
+    @Test
+    void seamLineReportsWhatTheConfiguratorLeft() {
+        boolean wrapping = SdkGlobals.wrappingEnabled;
+        boolean seen = SdkGlobals.configuratorSeen;
+        try {
+            RawServices.clear();
+            SdkGlobals.configuratorSeen = false;
+            SdkGlobals.wrappingEnabled = false;
+            assertEquals("seam configurator=absent wrapping=false raw.parking=false", SdkBoot.seamLine());
+            SdkGlobals.configuratorSeen = true;
+            SdkGlobals.wrappingEnabled = true;
+            RawServices.record(PARKING, new Object());
+            assertEquals("seam configurator=seen wrapping=true raw.parking=true", SdkBoot.seamLine());
+        } finally {
+            SdkGlobals.wrappingEnabled = wrapping;
+            SdkGlobals.configuratorSeen = seen;
+            RawServices.clear();
+        }
+    }
+
     @Test
     void startNeverBlocksTheCaller() {
         Ctx c = new Ctx();
@@ -178,8 +199,11 @@ class HqcPlatformTest {
         assertThrows(IllegalStateException.class, () -> p.parking().apply(new SoundDirections(true, true, true, true)),
                 "parking service not there yet");
         Thread.sleep(250);
+        String m = marker();
         c.services.put(PARKING, Fakes.fake(DSICarParkingSystem.class, parking));
         assertTrue(eventually(3000, () -> parking.named("setNotification").size() == 1));
+        assertTrue(eventually(3000, () -> countSince(m, " STATUS mibsdk seam configurator=") == 1),
+                "the seam is logged again once the parking service is there: " + SdkGlobals.LOG.snapshot());
         assertTrue(eventually(3000, () -> power.named("setNotification").size() == 1));
         for (String t : c.lookupThreads) {
             assertTrue(t.startsWith("mibsdk-wait"), t);
@@ -286,6 +310,7 @@ class HqcPlatformTest {
         SdkBundleActivator a = new SdkBundleActivator(baseDir(), versionFile("HMI = " + HqcVersion.SUPPORTED));
         a.start(c.context());
         assertTrue(eventually(5000, () -> countSince(m, "runtime started") == 1));
+        assertEquals(1, countSince(m, " STATUS mibsdk seam configurator="), SdkGlobals.LOG.snapshot().toString());
         Thread main = a.mainThread();
         assertNotNull(main);
         assertEquals("mibsdk-main", main.getName());

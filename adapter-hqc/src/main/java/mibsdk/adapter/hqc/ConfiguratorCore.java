@@ -62,6 +62,7 @@ final class ConfiguratorCore {
     }
 
     private void configure(File baseDir, File versionInfo) {
+        SdkGlobals.configuratorSeen = true;
         boolean on = false;
         try {
             String version = AdapterSelector.readHmiVersion(versionInfo);

@@ -6,6 +6,7 @@ import mibsdk.runtime.AdapterSelector;
 import mibsdk.runtime.MonotonicClock;
 import mibsdk.runtime.RuntimeConfig;
 import mibsdk.runtime.SdkRuntime;
+import org.dsi.ifc.carparkingsystem.DSICarParkingSystem;
 import org.osgi.framework.BundleContext;
 
 /**
@@ -35,7 +36,20 @@ final class SdkBoot {
         PlatformAdapter adapter = AdapterSelector.select(hmi, new PlatformAdapter[] {new HqcPlatform(ctx, clock)});
         SdkGlobals.LOG.append("INFO", "mibsdk.hqc", "activator: hmi=" + hmi + " adapter="
                 + (adapter == null ? "none" : adapter.id()));
+        SdkGlobals.LOG.append("STATUS", "mibsdk", seamLine());
         return new SdkBoot(clock, new SdkRuntime(cfg, adapter, clock, SdkGlobals.HOOKS, SdkGlobals.LOG));
+    }
+
+    /**
+     * What this class loader sees of the configurator's work: {@code seam configurator=<seen|absent>
+     * wrapping=<bool> raw.parking=<bool>}. {@code absent} with a ChainingConfigurator line in bundles.properties
+     * means the activator and the configurator got different SdkGlobals (a split class loader). raw.parking may
+     * still be false this early if the parking service has not registered yet.
+     */
+    static String seamLine() {
+        return "seam configurator=" + (SdkGlobals.configuratorSeen ? "seen" : "absent") + " wrapping="
+                + SdkGlobals.wrappingEnabled + " raw.parking="
+                + (RawServices.get(DSICarParkingSystem.class.getName()) != null);
     }
 
     /** {@link SdkRuntime#start()}: may block up to about 2 x hungMs. */

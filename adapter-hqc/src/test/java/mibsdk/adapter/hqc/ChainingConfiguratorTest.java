@@ -422,6 +422,14 @@ class ChainingConfiguratorTest {
     }
 
     @Test
+    void initMarksTheConfiguratorSeen() throws IOException {
+        SdkGlobals.configuratorSeen = false;
+        writeVersion("HMI_OTHER"); // seen even when it then passes everything through
+        init();
+        assertTrue(SdkGlobals.configuratorSeen);
+    }
+
+    @Test
     void passThroughBootsAreNotCounted() throws IOException {
         write(new File(base, "SAFE_MODE"), "");
         init();

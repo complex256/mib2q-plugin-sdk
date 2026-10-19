@@ -85,6 +85,7 @@ public final class HqcPlatform implements PlatformAdapter {
         w.await(DSICarParkingSystem.class.getName(), RETRY_MS, new ServiceWaiter.Callback() {
             public void onAvailable(Object service) {
                 pb.attach(service);
+                SdkGlobals.LOG.append("STATUS", "mibsdk", SdkBoot.seamLine()); // raw.parking is final from here
             }
         });
         w.await(DSIPowerManagement.class.getName(), RETRY_MS, new ServiceWaiter.Callback() {
