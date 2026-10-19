@@ -84,7 +84,7 @@ final class ConfiguratorCore {
             List names = cfg.hookServices();
             hookServices = (String[]) names.toArray(new String[names.size()]);
             info("configurator: hmi=" + version + " safeMode=" + safeMode + " wrapLoop=" + wrapLoop
-                    + " wrappingEnabled=" + on + " hookServices=" + names);
+                    + " wrappingEnabled=" + on + " hookServices=" + join(hookServices));
             // The chain is loaded even when wrapping is off: it is what stock would run in our place.
             loadChain(cfg.chainConfigurator());
         } catch (Throwable t) {
@@ -245,6 +245,18 @@ final class ConfiguratorCore {
         }
         copy.put(PROXY_PROPERTY, "true");
         return copy;
+    }
+
+    /** {@code [a, b]}: J9's unmodifiable list has no useful toString (it prints the class and hash). */
+    static String join(String[] items) {
+        StringBuffer b = new StringBuffer("[");
+        for (int i = 0; i < items.length; i++) {
+            if (i > 0) {
+                b.append(", ");
+            }
+            b.append(items[i]);
+        }
+        return b.append(']').toString();
     }
 
     private void info(String msg) {

@@ -455,6 +455,15 @@ class ChainingConfiguratorTest {
         assertFalse(new File(base, "boot.state").exists());
     }
 
+    /** F5: J9's unmodifiable list prints as Collections$UnmodifiableRandomAccessList@hash; log the names. */
+    @Test
+    void initLogsTheHookServiceNames() throws IOException {
+        sdkProperties("hook.services=a.B, c.D\n");
+        init();
+        assertTrue(logContains("hookServices=[a.B, c.D]"), SdkGlobals.LOG.snapshot().toString());
+        assertEquals("[]", ConfiguratorCore.join(new String[0]));
+    }
+
     private static String text(File f) throws IOException {
         return new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.ISO_8859_1);
     }
