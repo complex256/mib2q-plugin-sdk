@@ -101,6 +101,9 @@ public final class SdkRuntime {
 
     static volatile EnableHook testEnableHook;
 
+    /** Test hook: simulates an SDK-side failure at the start of the initial plugin load. */
+    static volatile Runnable testBeforeLoadAll;
+
     private static Method onEnableMethod;
     private static Method onDisableMethod;
 
@@ -505,8 +508,14 @@ public final class SdkRuntime {
             return;
         }
         bootGuard.markPluginsLoading(); // from here a restart counts as unhealthy (unless the ignition went off)
-        boolean done = loadAll();
-        pluginsLoaded = true; // reload() is serviced from now on (same control thread, so never mid-load)
+        boolean done;
+        try {
+            done = loadAll();
+        } finally {
+            // reload() is serviced from now on (same control thread, so never mid-load), even after an SDK-side
+            // failure in the load: otherwise every later reload would be deferred for the rest of the run
+            pluginsLoaded = true;
+        }
         if (!done) {
             return;
         }
@@ -546,6 +555,10 @@ public final class SdkRuntime {
 
     /** False if it bailed because stop() was requested (then the stop step owns the ledger and the plugins). */
     private boolean loadAll() {
+        Runnable hook = testBeforeLoadAll;
+        if (hook != null) {
+            hook.run();
+        }
         refreshFeatures();
         grants = Grants.load(cfg.grantsFile());
         purgeSnapshots(); // stale copies from a previous run

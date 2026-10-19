@@ -54,6 +54,7 @@ class SdkRuntimeBootTest {
     @AfterEach
     void tearDown() throws InterruptedException {
         SdkRuntime.testEnableHook = null;
+        SdkRuntime.testBeforeLoadAll = null;
         if (rt != null) {
             final SdkRuntime r = rt;
             Thread t = new Thread() {
@@ -478,6 +479,27 @@ class SdkRuntimeBootTest {
     }
 
     // ---- fix round 1 ----
+
+    @Test
+    void sdkFailureDuringTheInitialLoadDoesNotDeferReloadsForever() throws Exception {
+        plugin("hello");
+        SdkRuntime.testBeforeLoadAll = new Runnable() {
+            public void run() {
+                throw new IllegalStateException("simulated SDK-side failure in loadAll");
+            }
+        };
+        start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
+        for (int i = 0; i < 500 && !logContains("simulated SDK-side failure in loadAll"); i++) {
+            Thread.sleep(10); // logged by the control executor just after the step completes
+        }
+        assertTrue(logContains("simulated SDK-side failure in loadAll"), rt.log().snapshot().toString());
+        SdkRuntime.testBeforeLoadAll = null;
+
+        rt.reload("hello");
+        assertFalse(logContains("reload deferred"), rt.log().snapshot().toString());
+        assertEquals(PluginState.ENABLED, status("hello").state());
+        assertEquals(1, count("hello", "hi"));
+    }
 
     @Test
     void reloadDuringStartDelayIsDeferredAndHarmless() throws Exception {
