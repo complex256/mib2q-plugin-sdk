@@ -173,6 +173,8 @@ class SdkRuntimeBootTest {
         start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
         assertEquals(1, count("mibsdk", "runtime started adapter=fake safeMode=false"), rt.log().snapshot().toString());
         assertFalse(rt.safeMode());
+        assertTrue(rt.log().snapshot().toString().matches("(?s).* STATUS mibsdk heap free=\\d+ total=\\d+.*"),
+                "the free-heap baseline is logged once at start: " + rt.log().snapshot());
     }
 
     @Test
@@ -406,6 +408,29 @@ class SdkRuntimeBootTest {
         awaitState("b-second", PluginState.QUARANTINED);
         assertTrue(status("b-second").reason().contains("heap low"), status("b-second").reason());
         assertEquals(PluginState.ENABLED, status("a-first").state(), "only the most recently enabled one");
+
+        // The GC did not help: the interval doubled, so three more ticks hold at most two readings.
+        for (int i = 0; i < 3; i++) {
+            clock.advance(5000);
+            Thread.sleep(300);
+        }
+        assertEquals(PluginState.ENABLED, status("a-first").state(), "backed off: no second victim yet");
+        for (int i = 0; i < 3; i++) {
+            clock.advance(5000);
+            Thread.sleep(100);
+        }
+        awaitState("a-first", PluginState.QUARANTINED);
+    }
+
+    @Test
+    void heapWatchLeavesTheHmiAloneWithoutPlugins() throws Exception {
+        // No plugin: low readings trigger neither a GC nor a quarantine (nothing to log).
+        start("plugin.start.delay.ms=0\nheap.low.bytes=2147483647\nheap.low.checks=1\nheap.check.ms=5000\n");
+        for (int i = 0; i < 3; i++) {
+            clock.advance(5000);
+            Thread.sleep(100);
+        }
+        assertFalse(logContains("free heap below"), rt.log().snapshot().toString());
     }
 
     // ---- fix round 1 ----

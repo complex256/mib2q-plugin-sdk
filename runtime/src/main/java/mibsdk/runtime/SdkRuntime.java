@@ -155,6 +155,12 @@ public final class SdkRuntime {
 
     /** Quarantines the most recently enabled plugin; HeapWatch calls it on the control thread. */
     private final HeapWatch.Victim heapVictim = new HeapWatch.Victim() {
+        public boolean anyEnabled() {
+            synchronized (SdkRuntime.this) {
+                return !enabledOrder.isEmpty();
+            }
+        }
+
         public void quarantineMostRecentlyEnabled(String reason) {
             PluginHost h;
             synchronized (SdkRuntime.this) {
@@ -261,6 +267,7 @@ public final class SdkRuntime {
             ledger.restorePendingOnBoot(platformApplier); // safe mode: no plugin will re-claim anything
         }
         log.append("STATUS", SOURCE, "runtime started adapter=" + adapterId + " safeMode=" + safeMode);
+        logHeap();
         scheduleHmiHealthy(t);
         startDevChannel();
         if (!adapterStarted || safeMode) {
@@ -285,6 +292,15 @@ public final class SdkRuntime {
         } else {
             log.append("INFO", SOURCE, "plugins load in " + delay + " ms");
             schedule(t.after(delay, load));
+        }
+    }
+
+    /** The free-heap baseline, once per start (the bench measures it). Never throws. */
+    private void logHeap() {
+        try {
+            log.append("STATUS", SOURCE, HeapWatch.statusLine());
+        } catch (Throwable t) {
+            log.append("WARN", SOURCE, "cannot read the heap: " + describe(t));
         }
     }
 

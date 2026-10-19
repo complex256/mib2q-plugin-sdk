@@ -11,7 +11,7 @@ class HeapWatchTest {
 
     private static final long MB = 1024 * 1024;
 
-    /** Replays the given readings (MB), one per check. */
+    /** Replays the given readings (MB), one per check; the last one repeats. */
     private static final class Readings implements HeapWatch.MemorySource {
         private final long[] mb;
         private int i;
@@ -21,12 +21,17 @@ class HeapWatchTest {
         }
 
         public long freeBytes() {
-            return mb[i++] * MB;
+            return mb[Math.min(i++, mb.length - 1)] * MB;
         }
     }
 
     private static final class Victims implements HeapWatch.Victim {
         final List<String> reasons = new ArrayList<String>();
+        boolean enabled = true;
+
+        public boolean anyEnabled() {
+            return enabled;
+        }
 
         public void quarantineMostRecentlyEnabled(String reason) {
             reasons.add(reason);
@@ -76,7 +81,9 @@ class HeapWatchTest {
     @Test
     void resetsAfterVictimSoTheNextNeedsAnotherFullStreak() {
         assertEquals(1, run(5, new Gcs(), 7, 7, 7, 7, 7, 7).reasons.size());
-        assertEquals(2, run(6, new Gcs(), 7, 7, 7, 7, 7, 7, 7, 7).reasons.size());
+        // The GC did not help, so the interval doubled: the next full streak is due on checks 5, 7 and 9.
+        assertEquals(1, run(8, new Gcs(), 7).reasons.size());
+        assertEquals(2, run(9, new Gcs(), 7).reasons.size());
     }
 
     @Test
@@ -94,12 +101,89 @@ class HeapWatchTest {
         w.check(); // must not throw
 
         HeapWatch w2 = new HeapWatch(new Readings(1, 1, 1, 1), 8 * MB, 1, new HeapWatch.Victim() {
+            public boolean anyEnabled() {
+                return true;
+            }
+
             public void quarantineMostRecentlyEnabled(String reason) {
                 throw new IllegalStateException("bug");
             }
         }, new Gcs());
         w2.check();
         w2.check();
+    }
+
+    @Test
+    void noEnabledPluginMeansNoGcAndNoVictim() {
+        Gcs gcs = new Gcs();
+        Victims v = new Victims();
+        v.enabled = false;
+        Readings r = new Readings(1);
+        HeapWatch w = new HeapWatch(r, 8 * MB, 3, v, gcs);
+        for (int i = 0; i < 10; i++) {
+            w.check();
+        }
+        assertEquals(0, gcs.n, "a GC cannot help a plugin that does not exist; it only stalls the HMI");
+        assertEquals(0, v.reasons.size());
+
+        v.enabled = true; // a plugin got enabled: a fresh full streak is needed
+        w.check();
+        w.check();
+        assertEquals(0, gcs.n);
+        w.check();
+        assertEquals(1, gcs.n);
+        assertEquals(1, v.reasons.size());
+    }
+
+    @Test
+    void backsOffAfterAGcThatDidNotHelpAndResetsOnRecovery() {
+        Gcs gcs = new Gcs();
+        Victims v = new Victims();
+        Readings r = new Readings(1); // always low
+        HeapWatch w = new HeapWatch(r, 8 * MB, 1, v, gcs);
+        w.check(); // reading, GC, reading: still low, so the victim goes and the interval doubles
+        assertEquals(1, gcs.n);
+        assertEquals(2, r.i);
+        assertEquals(2, w.intervalMultiplier());
+        w.check(); // skipped
+        assertEquals(2, r.i);
+        assertEquals(1, gcs.n);
+        w.check(); // the next due check
+        assertEquals(2, gcs.n);
+        assertEquals(4, w.intervalMultiplier());
+        for (int i = 0; i < 3; i++) {
+            w.check();
+        }
+        assertEquals(2, gcs.n, "three skipped");
+        for (int i = 0; i < 200; i++) {
+            w.check();
+        }
+        assertEquals(HeapWatch.MAX_BACKOFF, w.intervalMultiplier(), "capped");
+        int before = gcs.n;
+        for (int i = 0; i < HeapWatch.MAX_BACKOFF; i++) {
+            w.check();
+        }
+        assertEquals(before + 1, gcs.n, "one check per capped interval");
+
+        HeapWatch rec = new HeapWatch(new Readings(1, 1, 20), 8 * MB, 1, new Victims(), new Gcs());
+        rec.check(); // low, GC, low: backs off
+        assertEquals(2, rec.intervalMultiplier());
+        rec.check(); // skipped
+        rec.check(); // 20 MB: recovered
+        assertEquals(1, rec.intervalMultiplier());
+    }
+
+    @Test
+    void gcThatHelpsDoesNotBackOff() {
+        HeapWatch w = new HeapWatch(new Readings(1, 20), 8 * MB, 1, new Victims(), new Gcs());
+        w.check();
+        assertEquals(1, w.intervalMultiplier());
+    }
+
+    @Test
+    void statusLineReportsFreeAndTotal() {
+        String line = HeapWatch.statusLine();
+        assertTrue(line.matches("heap free=\\d+ total=\\d+"), line);
     }
 
     @Test
