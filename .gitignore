@@ -12,3 +12,4 @@ spikes/modern-java/compat/out/
 spikes/modern-java/car/payload/
 spikes/modern-java/car/build/
 spikes/modern-java/car/results-*.log
+__pycache__/

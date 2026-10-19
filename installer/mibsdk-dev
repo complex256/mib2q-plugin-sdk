@@ -1,0 +1,321 @@
+#!/usr/bin/env bash
+# mibsdk-dev: install and drive the mibsdk plugin SDK on an Audi MHI2Q head unit over SSH (runs on the Mac).
+#
+# The unit is a QNX box with ksh and basic tools only (no date, tr, md5sum, cksum; do not rely on sed/awk), so
+# every file is generated here and pushed with `ssh ... "cat > path" < file`. There is no scp.
+# This tool never reads or prints the j9 command line (lsd.sh embeds the VIN and IMSI).
+set -euo pipefail
+
+SUPPORTED_HMI="HMI_AU_MIB2_HQC_NAR_G22_C10_180803"
+DEFAULT_HOST="10.20.0.23"
+HMI_ROOT="/mnt/app/eso/hmi"
+LSD="$HMI_ROOT/lsd"
+SDK="$LSD/mibsdk"
+JARS="$LSD/jars"
+BUNDLES="$LSD/bundles_dsitracer_enabled.properties"
+MARKER="$LSD/dsitracer_activated"
+TRACER_JAR="$LSD/DSITracer.jar"
+STOCK="$SDK/stock"
+LOG="/tmp/mibsdk.log"
+SDK_JARS="mibsdk-runtime.jar mibsdk-adapter-hqc.jar mibsdk-rt-retrotranslator.jar"
+BOOT_STATE_RESET=$'unhealthyBoots=0\nlastShutdownClean=true'
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIST="${MIBSDK_DIST:-$HERE/../dist/build/dist}"
+SSH_OPTS=(-o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedKeyTypes=ssh-rsa -o BatchMode=yes
+          -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=3)
+
+HOST="$DEFAULT_HOST"
+TMP=""
+
+usage() {
+  cat <<USAGE
+usage: mibsdk-dev <command> [args] [host]      (host defaults to $DEFAULT_HOST)
+
+  install                    back up the stock files (first install only), push the SDK jars, bundles file and
+                             sdk.properties; refuses on an unsupported HMI, carplay-rgi, or missing DSITracer.jar
+  uninstall [--purge]        restore the stock bundles file, remove the SDK jars (and the dsitracer_activated marker
+                             if it was absent before); --purge also removes $SDK
+  restart                    restart the HMI (slay -s11 j9)
+  push <plugin.jar> [host]   install a plugin jar as plugins/<id>.jar and trigger a reload
+  grant <id> <perm,...>      rewrite that plugin's line in grants.properties
+  safe-mode on|off           create/remove the SAFE_MODE marker (off also resets boot.state)
+  log                        print $LOG
+  status                     print the STATUS lines of $LOG
+
+Environment: MIBSDK_DIST overrides the jar directory (default dist/build/dist).
+USAGE
+}
+
+die() { echo "mibsdk-dev: $*" >&2; exit 1; }
+info() { echo "mibsdk-dev: $*" >&2; }
+
+cleanup() { [ -n "$TMP" ] && rm -rf "$TMP"; return 0; }
+trap cleanup EXIT
+
+rsh() { ssh "${SSH_OPTS[@]}" "root@$HOST" "$@"; }
+
+set_host() {
+  HOST="$1"
+  case "$HOST" in
+    ""|-*|*[!A-Za-z0-9._:-]*) die "invalid host '$HOST'" ;;
+  esac
+}
+
+connect() {
+  rsh "echo ok" >/dev/null 2>&1 || die "cannot reach root@$HOST over ssh (is the unit on and is the host right?)"
+  TMP="$(mktemp -d "${TMPDIR:-/tmp}/mibsdk-dev.XXXXXX")"
+}
+
+# remote_cat <remote path> <local file>: fetch; returns 1 if the remote file cannot be read.
+fetch() { rsh "cat '$1'" >"$2" 2>/dev/null; }
+
+# exists <remote path>: prints yes or no
+exists() { rsh "if [ -e '$1' ]; then echo yes; else echo no; fi"; }
+
+# push_file <local> <remote>: write a temp file next to the SDK data, verify it byte for byte, then rename into place.
+push_file() {
+  local src="$1" dst="$2" tmp="$SDK/.push.tmp"
+  rsh "cat > '$tmp'" <"$src" || die "failed to write $dst"
+  fetch "$tmp" "$TMP/verify" || die "failed to read back $dst"
+  cmp -s "$src" "$TMP/verify" || { rsh "rm -f '$tmp'" || true; die "verification of $dst failed; nothing was installed there"; }
+  rsh "mv '$tmp' '$dst'" || die "failed to move $dst into place"
+}
+
+check_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid plugin id '$1'"; }
+
+need_sdk() {
+  [ "$(exists "$SDK")" = yes ] || die "mibsdk is not installed on $HOST ($SDK missing); run: mibsdk-dev install"
+}
+
+cmd_install() {
+  for j in $SDK_JARS; do
+    [ -f "$DIST/$j" ] || die "$DIST/$j missing; build it with: ./gradlew :dist:assembleUnit"
+  done
+  command -v python3 >/dev/null || die "python3 is required on this machine"
+  connect
+
+  # 1. Facts from the unit.
+  local ver
+  fetch /ifs/version_info.txt "$TMP/version_info.txt" || die "cannot read /ifs/version_info.txt"
+  ver="$(grep -E '^HMI[[:space:]]*=' "$TMP/version_info.txt" | head -n 1 || true)"
+  ver="${ver#*=}"; ver="${ver//[[:space:]]/}"
+  fetch "$BUNDLES" "$TMP/current.properties" || die "cannot read $BUNDLES"
+  local marker_now; marker_now="$(exists "$MARKER")"
+
+  # 2. Refusals.
+  [ "$ver" = "$SUPPORTED_HMI" ] || die "unsupported HMI '${ver:-unknown}' (supported: $SUPPORTED_HMI); nothing changed"
+  local jarlist cp_stock
+  jarlist="$(rsh "ls '$JARS'" 2>/dev/null)" || die "cannot list $JARS"
+  if printf '%s\n' "$jarlist" | grep -qi carplay; then
+    die "carplay-rgi is installed (a *carplay* jar is in $JARS); the SDK does not support it; nothing changed"
+  fi
+  cp_stock="$(rsh "find '$HMI_ROOT' -name '*.carplay-stock'; echo RC=\$?" 2>/dev/null)" || die "cannot search $HMI_ROOT"
+  printf '%s\n' "$cp_stock" | grep -qx 'RC=0' || die "could not verify the absence of carplay-rgi (find failed); nothing changed"
+  if printf '%s\n' "$cp_stock" | grep -qv '^RC='; then
+    die "carplay-rgi is installed (*.carplay-stock files exist); the SDK does not support it; nothing changed"
+  fi
+  [ "$(exists "$TRACER_JAR")" = yes ] || die "$TRACER_JAR is missing; the SDK chains DSITracer's configurator and needs it; nothing changed"
+
+  # 3. Backup (first install only; an existing complete backup is never touched).
+  local stock_input tracer
+  if [ "$(exists "$STOCK/tracer.was")" = yes ]; then
+    info "stock backup already present; keeping it"
+    fetch "$STOCK/bundles_dsitracer_enabled.properties" "$TMP/stock.properties" || die "stock backup is unreadable"
+    tracer="$(rsh "cat '$STOCK/tracer.was'")"
+    [ "$tracer" = true ] || [ "$tracer" = false ] || die "stock/tracer.was is corrupt ('$tracer')"
+  else
+    if grep -q 'mibsdk' "$TMP/current.properties"; then
+      die "$BUNDLES already references mibsdk but no stock backup exists; restore the stock file by hand first"
+    fi
+    tracer=false; [ "$marker_now" = yes ] && tracer=true
+    rsh "mkdir -p '$SDK' '$STOCK'" || die "cannot create $STOCK"
+    rsh "rm -f '$STOCK/bundles_dsitracer_enabled.properties'; cp '$BUNDLES' '$STOCK/bundles_dsitracer_enabled.properties'" \
+      || die "backup copy failed"
+    fetch "$STOCK/bundles_dsitracer_enabled.properties" "$TMP/backup.properties" || die "cannot read back the backup"
+    cmp -s "$TMP/current.properties" "$TMP/backup.properties" || die "backup does not match the original; aborting"
+    # Written last: its presence means the backup is complete.
+    rsh "echo $tracer > '$STOCK/tracer.was'" || die "cannot record the marker state"
+    cp "$TMP/current.properties" "$TMP/stock.properties"
+    info "stock files backed up to $STOCK (dsitracer_activated existed: $tracer)"
+  fi
+
+  # 4. Generate, then push: jars first, the bundles file (which activates everything) last.
+  python3 "$HERE/gen_bundles.py" generate --stock "$TMP/stock.properties" --tracer-active true --out "$TMP/bundles.properties"
+  python3 "$HERE/gen_bundles.py" sdkprops --tracer-active true --out "$TMP/sdk.properties"
+  rsh "mkdir -p '$SDK/plugins' '$SDK/cache' '$SDK/data' '$STOCK'" || die "cannot create $SDK directories"
+  for j in $SDK_JARS; do
+    push_file "$DIST/$j" "$JARS/$j"
+    info "pushed $j"
+  done
+  push_file "$TMP/sdk.properties" "$SDK/sdk.properties"
+  rsh "touch '$MARKER'" || die "cannot create $MARKER"
+  push_file "$TMP/bundles.properties" "$BUNDLES"
+
+  # 5.
+  echo "installed; restart HMI with: mibsdk-dev restart"
+}
+
+cmd_uninstall() {
+  local purge=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --purge) purge=1 ;;
+      *) die "unexpected argument '$arg'" ;;
+    esac
+  done
+  connect
+  need_sdk
+  [ "$(exists "$STOCK/tracer.was")" = yes ] || die "no complete stock backup in $STOCK; refusing to guess. Restore $BUNDLES by hand"
+  fetch "$STOCK/bundles_dsitracer_enabled.properties" "$TMP/stock.properties" || die "stock backup is unreadable"
+  local tracer; tracer="$(rsh "cat '$STOCK/tracer.was'")"
+
+  push_file "$TMP/stock.properties" "$BUNDLES"        # first: nothing may reference the jars once they are gone
+  info "restored $BUNDLES"
+  if [ "$tracer" = false ]; then
+    rsh "rm -f '$MARKER'" || die "cannot remove $MARKER"
+    info "removed dsitracer_activated (it was absent before the install)"
+  fi
+  local j
+  for j in $SDK_JARS; do
+    rsh "rm -f '$JARS/$j'" || die "cannot remove $j"
+  done
+  if [ "$purge" = 1 ]; then
+    rsh "rm -rf '$SDK'" || die "cannot remove $SDK"
+    info "removed $SDK"
+  fi
+  echo "uninstalled; restart HMI with: mibsdk-dev restart"
+}
+
+cmd_restart() {
+  connect
+  rsh "slay -s11 j9" || true   # the connection may drop with the HMI; slay's own failures print on stderr
+  echo "HMI restart requested (slay -s11 j9)"
+}
+
+cmd_push() {
+  local jar="${1:-}"
+  [ -n "$jar" ] && [ -f "$jar" ] || die "usage: mibsdk-dev push <plugin.jar> [host]"
+  command -v python3 >/dev/null || die "python3 is required on this machine"
+  local id
+  id="$(python3 -I - "$jar" <<'PY'
+import json, sys, zipfile
+try:
+    with zipfile.ZipFile(sys.argv[1]) as z:
+        print(json.loads(z.read("plugin.json").decode("utf-8"))["id"])
+except Exception as e:
+    sys.exit("cannot read the plugin id from plugin.json: %s" % e)
+PY
+)" || exit 1
+  check_id "$id"
+  connect
+  need_sdk
+  push_file "$jar" "$SDK/plugins/$id.jar"
+  rsh "touch '$SDK/plugins/$id.reload'" || die "cannot touch the reload marker"
+  echo "pushed $id; reload requested"
+}
+
+cmd_grant() {
+  [ $# -ge 2 ] || die "usage: mibsdk-dev grant <id> <perm,...> [host]"
+  local id="$1" perms="$2"
+  check_id "$id"
+  [[ "$perms" =~ ^[A-Za-z0-9._,-]*$ ]] || die "invalid permission list '$perms'"
+  connect
+  need_sdk
+  : >"$TMP/grants.in"
+  if [ "$(exists "$SDK/grants.properties")" = yes ]; then
+    fetch "$SDK/grants.properties" "$TMP/grants.in" || die "cannot read grants.properties"
+  fi
+  python3 -I - "$TMP/grants.in" "$TMP/grants.out" "$id" "$perms" <<'PY'
+import sys
+src, dst, pid, perms = sys.argv[1:5]
+out, done = [], False
+for line in open(src, "rb").read().decode("utf-8").splitlines():
+    key = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else None
+    if key == pid:
+        if not done:
+            out.append("%s=%s" % (pid, perms))
+            done = True
+        continue
+    out.append(line)
+if not done:
+    out.append("%s=%s" % (pid, perms))
+open(dst, "wb").write(("\n".join(out) + "\n").encode("utf-8"))
+PY
+  push_file "$TMP/grants.out" "$SDK/grants.properties"
+  echo "granted $id: ${perms:-<none>} (picked up on the next plugin load/reload)"
+}
+
+cmd_safe_mode() {
+  case "${1:-}" in
+    on)
+      connect; need_sdk
+      rsh "touch '$SDK/SAFE_MODE'" || die "cannot create SAFE_MODE"
+      echo "safe mode marker set; it takes effect on the next HMI restart (mibsdk-dev restart)"
+      ;;
+    off)
+      connect; need_sdk
+      rsh "rm -f '$SDK/SAFE_MODE'" || die "cannot remove SAFE_MODE"
+      printf '%s\n' "$BOOT_STATE_RESET" >"$TMP/boot.state"
+      push_file "$TMP/boot.state" "$SDK/boot.state"
+      echo "safe mode off: SAFE_MODE removed and boot.state reset (unhealthyBoots=0)."
+      echo "It takes effect on the next HMI restart; recommended: mibsdk-dev restart."
+      echo "Note: if the runtime is currently running in normal mode it may rewrite boot.state from cached state;"
+      echo "      restart promptly (or run this with the HMI stopped) so the reset sticks."
+      ;;
+    *) die "usage: mibsdk-dev safe-mode on|off [host]" ;;
+  esac
+}
+
+cmd_log() {
+  connect
+  fetch "$LOG" "$TMP/log" || die "$LOG not found on $HOST (is the SDK running?)"
+  cat "$TMP/log"
+}
+
+cmd_status() {
+  connect
+  fetch "$LOG" "$TMP/log" || die "$LOG not found on $HOST (is the SDK running?)"
+  grep ' STATUS ' "$TMP/log" || { echo "no STATUS lines in $LOG yet" >&2; return 0; }
+}
+
+main() {
+  local cmd="${1:-}"
+  case "$cmd" in
+    ""|-h|--help|help) usage; [ -n "$cmd" ] && exit 0; exit 2 ;;
+  esac
+  shift
+  # Positional host is the last argument and is recognised by the per-command arity.
+  local want
+  case "$cmd" in
+    install|restart|log|status) want=0 ;;
+    uninstall) want=-1 ;;
+    push|safe-mode) want=1 ;;
+    grant) want=2 ;;
+    *) usage >&2; die "unknown command '$cmd'" ;;
+  esac
+  local args=("$@") n=${#args[@]} host_given=0
+  if [ "$cmd" = uninstall ]; then
+    local a rest=()
+    for a in "${args[@]+"${args[@]}"}"; do
+      case "$a" in --purge) rest+=("$a") ;; *) set_host "$a"; host_given=1 ;; esac
+    done
+    args=("${rest[@]+"${rest[@]}"}")
+  elif [ "$n" -gt "$want" ]; then
+    [ "$n" -eq $((want + 1)) ] || die "too many arguments for '$cmd'"
+    set_host "${args[$want]}"
+    unset 'args[$want]'
+  fi
+  case "$cmd" in
+    install) cmd_install ;;
+    uninstall) cmd_uninstall "${args[@]+"${args[@]}"}" ;;
+    restart) cmd_restart ;;
+    push) cmd_push "${args[@]+"${args[@]}"}" ;;
+    grant) cmd_grant "${args[@]+"${args[@]}"}" ;;
+    safe-mode) cmd_safe_mode "${args[@]+"${args[@]}"}" ;;
+    log) cmd_log ;;
+    status) cmd_status ;;
+  esac
+}
+
+main "$@"
