@@ -87,13 +87,6 @@ class DevChannelTest {
         assertEquals(n, count(source, msg), rt.log().snapshot().toString());
     }
 
-    private static void awaitGone(File f) throws InterruptedException {
-        for (int i = 0; i < 500 && f.exists(); i++) {
-            Thread.sleep(10);
-        }
-        assertFalse(f.exists(), f + " still exists");
-    }
-
     private String logText() throws IOException {
         return logFile.isFile() ? new String(Files.readAllBytes(logFile.toPath()), StandardCharsets.UTF_8) : "";
     }
@@ -108,25 +101,91 @@ class DevChannelTest {
         fail("log file lacks '" + fragment + "':\n" + logText());
     }
 
+    /**
+     * /mnt/app (the plugins dir) is read-only while the HMI runs: a marker is never deleted, and each one triggers
+     * exactly one reload (its consumption is tracked in memory).
+     */
     @Test
-    void reloadMarkerTriggersReloadAndIsDeleted() throws Exception {
+    void reloadMarkerTriggersExactlyOneReloadAndIsLeftInPlace() throws Exception {
         File marker = new File(plugins, "hello.reload");
-        assertTrue(marker.createNewFile());
+        write(marker, "1\n");
 
         clock.advance(1999);
         Thread.sleep(300);
-        assertTrue(marker.exists(), "no poll before pollMs on the Clock");
-        assertEquals(1, count("hello", "hi"));
+        assertEquals(1, count("hello", "hi"), "no poll before pollMs on the Clock");
 
         clock.advance(1);
-        awaitGone(marker);
         awaitCount("hello", "hi", 2); // enabled again from a fresh snapshot
         assertEquals(1, count("hello", "DISABLED reloading"));
         assertEquals(PluginState.ENABLED, rt.statuses().get(0).state());
+        assertTrue(marker.exists(), "the runtime never deletes a marker");
 
-        clock.advance(2000); // the marker is gone: no second reload
-        Thread.sleep(300);
+        for (int i = 0; i < 3; i++) { // the same marker is consumed: no second reload
+            dev.poll();
+        }
         assertEquals(2, count("hello", "hi"));
+    }
+
+    @Test
+    void rewrittenMarkerTriggersAnotherReload() throws Exception {
+        File marker = new File(plugins, "hello.reload");
+        write(marker, "push-1\n");
+        dev.poll();
+        assertEquals(2, count("hello", "hi"));
+
+        write(marker, "push-2\n"); // mibsdk-dev push writes a fresh token each time
+        dev.poll();
+        assertEquals(3, count("hello", "hi"));
+        dev.poll();
+        assertEquals(3, count("hello", "hi"));
+    }
+
+    @Test
+    void markerRemovedThenDroppedAgainTriggersAnotherReload() throws Exception {
+        File marker = new File(plugins, "hello.reload");
+        write(marker, "x\n");
+        long mtime = marker.lastModified();
+        dev.poll();
+        assertEquals(2, count("hello", "hi"));
+
+        assertTrue(marker.delete()); // mibsdk-dev cleans up while it has the file system read-write
+        dev.poll();
+        write(marker, "x\n");
+        assertTrue(marker.setLastModified(mtime), "identical to the consumed one");
+        dev.poll();
+        assertEquals(3, count("hello", "hi"), "a marker that went away is forgotten");
+    }
+
+    /** A new run loads every plugin from its current jar: markers left from before it are already satisfied. */
+    @Test
+    void markersPresentAtStartAreTakenAsConsumed() throws Exception {
+        write(new File(plugins, "hello.reload"), "old\n");
+        DevChannel fresh = new DevChannel(rt, plugins, new File(tmp, "fresh.log"), 2000, clock);
+        fresh.start();
+        try {
+            fresh.poll();
+            fresh.poll();
+            assertEquals(1, count("hello", "hi"));
+        } finally {
+            fresh.stop();
+        }
+    }
+
+    @Test
+    void reloadsWithAReadOnlyPluginsDir() throws Exception {
+        File marker = new File(plugins, "hello.reload");
+        write(marker, "1\n");
+        assertTrue(plugins.setWritable(false));
+        try {
+            dev.poll();
+            assertEquals(2, count("hello", "hi"));
+            assertEquals(PluginState.ENABLED, rt.statuses().get(0).state());
+            for (String line : rt.log().snapshot()) {
+                assertFalse(line.contains("cannot delete"), line);
+            }
+        } finally {
+            plugins.setWritable(true);
+        }
     }
 
     @Test
@@ -159,28 +218,32 @@ class DevChannelTest {
 
     @Test
     void badMarkersNeverStopThePolling() throws Exception {
-        File invalid = new File(plugins, "Not_An_Id.reload");
-        assertTrue(invalid.createNewFile());
-        File unknown = new File(plugins, "nobody.reload");
-        assertTrue(unknown.createNewFile());
-        File stuck = new File(plugins, "hello.reload");
-        File inner = new File(stuck, "inner");
-        assertTrue(inner.mkdirs()); // a non-empty directory: the marker cannot be deleted
+        write(new File(plugins, "Not_An_Id.reload"), "");
+        write(new File(plugins, "nobody.reload"), "");
+        File dir = new File(plugins, "dir.reload");
+        assertTrue(new File(dir, "inner").mkdirs()); // not a file: never a marker
 
-        clock.advance(2000);
-        awaitGone(invalid);
-        awaitGone(unknown);
-        clock.advance(2000);
-        Thread.sleep(300);
-        assertTrue(stuck.exists());
-        assertEquals(1, count("hello", "hi"), "an undeletable marker never reloads (no reload every poll)");
+        dev.poll();
+        dev.poll();
+        assertEquals(1, countContaining("ignored a reload marker whose name is not a plugin id"),
+                "each marker is looked at once, not every poll");
+        assertEquals(1, countContaining("reload requested for nobody"));
+        assertEquals(0, countContaining("reload requested for dir"));
 
-        assertTrue(inner.delete() && stuck.delete());
-        assertTrue(stuck.createNewFile());
-        clock.advance(2000);
-        awaitGone(stuck);
-        awaitCount("hello", "hi", 2); // still polling
+        write(new File(plugins, "hello.reload"), "");
+        dev.poll();
+        assertEquals(2, count("hello", "hi")); // still polling
         assertEquals(PluginState.ENABLED, rt.statuses().get(0).state());
+    }
+
+    private int countContaining(String fragment) {
+        int n = 0;
+        for (String line : rt.log().snapshot()) {
+            if (line.contains(fragment)) {
+                n++;
+            }
+        }
+        return n;
     }
 
     @Test

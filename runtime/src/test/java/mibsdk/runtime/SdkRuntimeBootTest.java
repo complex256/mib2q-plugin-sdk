@@ -511,16 +511,16 @@ class SdkRuntimeBootTest {
         plugin("hello");
         plugin("keeper");
         write(new File(persist(), "ledger.properties"), "parking.soundDirections=keeper|PERSISTENT|F1R1L0X0|F1R0L0X0\n");
-        File marker = new File(plugins, "hello.reload");
-        assertTrue(marker.createNewFile());
         start("plugin.start.delay.ms=30000\nheap.low.bytes=0\ndev.poll.ms=2000\n");
+        File marker = new File(plugins, "hello.reload"); // dropped after start: markers from before are consumed
+        assertTrue(marker.createNewFile());
 
         clock.advance(2000); // the runtime's dev channel polls during the start delay
         for (int i = 0; i < 500 && !logContains("reload deferred: plugins not loaded yet"); i++) {
             Thread.sleep(10);
         }
         assertTrue(logContains("reload deferred: plugins not loaded yet"), rt.log().snapshot().toString());
-        assertFalse(marker.exists());
+        assertTrue(marker.exists(), "never deleted: /mnt/app is read-only at runtime");
         assertTrue(rt.statuses().isEmpty(), "nothing loaded by the deferred reload");
 
         clock.advance(30000);
