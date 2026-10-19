@@ -225,6 +225,7 @@ class InstallTest(FakeUnitTestCase):
         self.assertNotEqual(0, r.returncode)
         self.assertEqual(self.ENTRY, read(self.old_ledger(u)))
         self.assertFalse(os.path.exists(self.new_ledger(u)))
+        self.assertFalse(os.path.exists(os.path.join(u.persist, ".push.tmp")), "no temp file left behind")
         self.ok(u.run("install"))
         self.assertEqual(self.ENTRY, read(self.new_ledger(u)))
         self.assertFalse(os.path.exists(self.old_ledger(u)))
@@ -244,6 +245,15 @@ class InstallTest(FakeUnitTestCase):
         self.assertEqual(b"b=2\n", read(os.path.join(u.persist, "data/b.properties")))
         self.assertEqual([], sorted(n for n in os.listdir(os.path.join(u.persist, "data")) if n.endswith(".tmp")))
         self.assertFalse(os.path.exists(os.path.join(u.sdk, "data")))
+
+    def test_install_sweeps_stale_push_temp_files(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        for d in (u.lsd, os.path.join(u.lsd, "jars"), u.sdk, os.path.join(u.sdk, "plugins"), u.persist):
+            write(os.path.join(d, ".push.tmp"), b"partial")
+        self.ok(u.run("install"))
+        for d in (u.lsd, os.path.join(u.lsd, "jars"), u.sdk, os.path.join(u.sdk, "plugins"), u.persist):
+            self.assertFalse(os.path.exists(os.path.join(d, ".push.tmp")), d)
 
     def test_refuses_when_carplay_stock_files_exist_anywhere_under_hmi(self):
         u = self.unit(tracer_marker=False)
@@ -326,6 +336,14 @@ class UninstallTest(FakeUnitTestCase):
         self.assertEqual(0o777, stat.S_IMODE(os.stat(u.bundles_path()).st_mode))
         self.assertEqual(1000000000, int(os.stat(u.marker()).st_mtime), "the marker existed: never touched")
 
+    def test_backup_without_a_recorded_mode_restores_the_stock_mode_0777(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        os.remove(os.path.join(u.sdk, "stock/bundles.mode"))  # a backup from an install before the mode was kept
+        os.chmod(u.bundles_path(), 0o644)
+        self.ok(u.run("uninstall"))
+        self.assertEqual(0o777, stat.S_IMODE(os.stat(u.bundles_path()).st_mode))
+
     def test_empty_or_missing_ledger_uninstalls(self):
         for ledger in (None, b"", b"\n"):
             u = self.installed(ledger)
@@ -370,6 +388,15 @@ class PushTest(FakeUnitTestCase):
         self.ok(u.run("push", jar))
         self.assertNotEqual(first, read(marker))
         self.assertTrue(read(marker).strip(), "a non-empty token")
+
+    def test_a_failed_push_leaves_no_temp_file(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        jar = self.plugin_jar("hello")
+        r = u.run("push", jar, fail_mv="plugins/hello.jar")
+        self.assertNotEqual(0, r.returncode)
+        self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins/.push.tmp")))
+        self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins/hello.jar")))
 
 
 if __name__ == "__main__":

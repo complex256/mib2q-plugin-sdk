@@ -113,13 +113,25 @@ rw_end() {
 }
 
 # push_file <local> <remote>: write a temp file next to the target (same file system), verify it byte for byte, then
-# rename into place.
+# rename into place. On any failure the temp file is removed (best effort; sweep_push_tmp catches what is left).
 push_file() {
   local src="$1" dst="$2" tmp="${2%/*}/.push.tmp"
-  rsh "cat > '$tmp'" <"$src" || die "failed to write $dst"
-  fetch "$tmp" "$TMP/verify" || die "failed to read back $dst"
-  cmp -s "$src" "$TMP/verify" || { rsh "rm -f '$tmp'" || true; die "verification of $dst failed; nothing was installed there"; }
-  rsh "mv '$tmp' '$dst'" || die "failed to move $dst into place"
+  rsh "cat > '$tmp'" <"$src" || push_failed "$tmp" "failed to write $dst"
+  fetch "$tmp" "$TMP/verify" || push_failed "$tmp" "failed to read back $dst"
+  cmp -s "$src" "$TMP/verify" || push_failed "$tmp" "verification of $dst failed; nothing was installed there"
+  rsh "mv '$tmp' '$dst'" || push_failed "$tmp" "failed to move $dst into place"
+}
+
+push_failed() {
+  rsh "rm -f '$1'" >/dev/null 2>&1 || true
+  die "$2"
+}
+
+# sweep_push_tmp: remove push_file temp files an interrupted run left in every directory it writes to. Needs /mnt/app
+# read-write.
+sweep_push_tmp() {
+  rsh "rm -f '$LSD/.push.tmp' '$JARS/.push.tmp' '$SDK/.push.tmp' '$SDK/plugins/.push.tmp' '$STOCK/.push.tmp' \
+       '$PERSIST/.push.tmp'" || die "cannot remove stale .push.tmp files"
 }
 
 # perm_octal <ls -l mode string, e.g. -rwxr-xr-x>: prints the permission bits in octal (special bits ignored).
@@ -214,6 +226,7 @@ cmd_install() {
   python3 "$HERE/gen_bundles.py" generate --stock "$TMP/stock.properties" --tracer-active "$tracer" --out "$TMP/bundles.properties"
   python3 "$HERE/gen_bundles.py" sdkprops --tracer-active "$tracer" --out "$TMP/sdk.properties"
   rsh "mkdir -p '$SDK/plugins' '$STOCK' '$PERSIST'" || die "cannot create the SDK directories"
+  sweep_push_tmp
   migrate_state
   for j in $SDK_JARS; do
     push_file "$DIST/$j" "$JARS/$j"
@@ -252,7 +265,7 @@ migrate_state() {
        rm -f '$PERSIST/data'/*.migrate.tmp" \
     || die "cannot move the old plugin data from $SDK/data to $PERSIST/data (nothing was lost; run install again)"
   migrate_ledger
-  rsh "rm -rf '$SDK/cache' '$SDK/boot.state' '$SDK/boot.state.tmp' '$SDK/.push.tmp'" \
+  rsh "rm -rf '$SDK/cache' '$SDK/boot.state' '$SDK/boot.state.tmp'" \
     || die "cannot remove the old runtime state from $SDK"
 }
 
@@ -325,10 +338,13 @@ sys.exit(2)
 '
 
 # restore_bundles_mode: give the bundles file the stock mode recorded at backup (push_file creates a new 0644 file).
+# A backup from an older install has no recorded mode: the stock file is -rwxrwxrwx on every unit seen, so 777.
+STOCK_BUNDLES_MODE=777
 restore_bundles_mode() {
   local mode
   if ! is_present "$STOCK/bundles.mode"; then
-    info "no recorded mode for $BUNDLES (backup from an older install); leaving it as is"
+    info "no recorded mode for $BUNDLES (backup from an older install); using the stock mode $STOCK_BUNDLES_MODE"
+    rsh "chmod $STOCK_BUNDLES_MODE '$BUNDLES'" || die "cannot set the mode of $BUNDLES"
     return 0
   fi
   mode="$(rsh "cat '$STOCK/bundles.mode'")" || die "cannot read stock/bundles.mode"
@@ -378,6 +394,7 @@ cmd_uninstall() {
   [ "$tracer" = true ] || [ "$tracer" = false ] || die "stock/tracer.was is corrupt ('$tracer'); refusing to uninstall. Restore $BUNDLES by hand"
   check_ledger "$force"
   rw_begin
+  sweep_push_tmp
 
   push_file "$TMP/stock.properties" "$BUNDLES"        # first: nothing may reference the jars once they are gone
   restore_bundles_mode
@@ -427,6 +444,7 @@ PY
   # A fresh token every push: the runtime reloads once per new marker content and never deletes the marker.
   printf '%s-%s-%s\n' "$(date +%s)" "$$" "$RANDOM" >"$TMP/reload"
   rw_begin
+  sweep_push_tmp
   push_file "$jar" "$SDK/plugins/$id.jar"
   push_file "$TMP/reload" "$SDK/plugins/$id.reload"
   rw_end
@@ -461,6 +479,7 @@ if not done:
 open(dst, "wb").write(("\n".join(out) + "\n").encode("utf-8"))
 PY
   rw_begin
+  sweep_push_tmp
   push_file "$TMP/grants.out" "$SDK/grants.properties"
   rw_end
   echo "granted $id: ${perms:-<none>} (picked up on the next plugin load/reload)"
