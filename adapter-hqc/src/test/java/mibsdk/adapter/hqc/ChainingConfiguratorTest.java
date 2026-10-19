@@ -125,6 +125,11 @@ class ChainingConfiguratorTest {
         return p;
     }
 
+    private static String lastLog() {
+        List<String> lines = SdkGlobals.LOG.snapshot();
+        return lines.get(lines.size() - 1);
+    }
+
     private static boolean logContains(String s) {
         List<String> lines = SdkGlobals.LOG.snapshot();
         for (String line : lines) {
@@ -241,6 +246,112 @@ class ChainingConfiguratorTest {
         assertTrue(logContains("not wrapped " + PARKING));
     }
 
+    /** Package-private: Method.invoke through it from this adapter would fail on every call. */
+    interface Hidden {
+        void ping();
+    }
+
+    /** A stock DSITracer trace proxy (the real abstract base from the host stock jar). */
+    static final class TraceProxy extends de.audi.tghu.dsitrace.AbstractTraceProxy implements Runnable {
+        TraceProxy(Object dest) {
+            super(null, 1, dest, 0);
+        }
+
+        @Override
+        public void run() {
+        }
+
+        Object yyDestServiceForTest() {
+            return yyDestService;
+        }
+    }
+
+    /** Shaped like stock TraceConfigurator.getServiceRegistration (see the bytecode notes in the task report). */
+    public static final class TraceShapedChain implements IServiceDelegateConfigurator {
+        static volatile ChainingConfigurator reenter;
+        static volatile Object traceProxy;
+
+        public TraceShapedChain() {
+        }
+
+        @Override
+        public void initConfigurator() {
+        }
+
+        @Override
+        public ServiceRegistration getServiceRegistration(IServiceDelegator d, String[] names, Object service,
+                Dictionary props) {
+            if (props != null && props.get("service.delegate") != null) {
+                return null;
+            }
+            if (service instanceof de.audi.tghu.dsitrace.AbstractTraceProxy) {
+                return null;
+            }
+            if (names.length != 1 || !names[0].startsWith("org.dsi.ifc.")) {
+                return null;
+            }
+            ServiceRegistration r = d.createServiceRegistration("delegated." + names[0], service, props);
+            // DSITracer then registers its trace proxy (over delegated.X) under the real name; LSD routes that
+            // registration through the configurator again.
+            Hashtable<String, Object> traced = new Hashtable<>();
+            for (java.util.Enumeration<?> e = props.keys(); e.hasMoreElements();) {
+                Object k = e.nextElement();
+                traced.put((String) k, props.get(k));
+            }
+            traced.put("service.delegate", "delegated." + names[0]);
+            Object proxy = new TraceProxy(service);
+            traceProxy = proxy;
+            ServiceRegistration again = reenter.getServiceRegistration(d, names, proxy, traced);
+            return again != null ? again : r;
+        }
+    }
+
+    @Test
+    void traceProxyServicesAreNotWrapped() {
+        ChainingConfigurator c = init();
+        TraceProxy traceProxy = new TraceProxy(service);
+        // Wrappable (it has a public interface), but a trace proxy: passed through, even without service.delegate.
+        assertTrue(DsiServiceProxy.wrap(traceProxy, new Class<?>[] {Runnable.class}, SdkGlobals.HOOKS,
+                HookBindings.defaults()) != traceProxy);
+        assertNull(c.getServiceRegistration(d, new String[] {PARKING}, traceProxy, props()));
+        assertTrue(delegator.calls.isEmpty());
+    }
+
+    @Test
+    void traceShapedChainReentryIsNotWrappedTwice() throws IOException {
+        sdkProperties("chain.configurator=" + TraceShapedChain.class.getName() + "\n");
+        ChainingConfigurator c = init();
+        TraceShapedChain.reenter = c;
+        Hashtable<String, Object> props = props();
+        assertSame(registration, c.getServiceRegistration(d, new String[] {PARKING}, service, props));
+
+        // Exactly one registration with the delegator: delegated.X with our proxy over the original service.
+        assertEquals(1, delegator.calls.size());
+        Call delegated = delegator.calls.get(0);
+        assertEquals("delegated." + PARKING, delegated.args[0]);
+        Object ours = delegated.args[1];
+        assertTrue(Proxy.isProxyClass(ours.getClass()));
+        assertTrue(ours instanceof DSICarParkingSystem);
+        assertEquals("true", ((Dictionary) delegated.args[2]).get("mibsdk.proxy"));
+        // The trace proxy (registered by LSD itself, since the re-entry returned null) wraps our proxy, unwrapped.
+        assertSame(ours, ((TraceProxy) TraceShapedChain.traceProxy).yyDestServiceForTest());
+    }
+
+    @Test
+    void serviceWithNonPublicInterfaceIsNotWrapped() throws IOException {
+        sdkProperties("chain.configurator=" + CHAIN + "\n");
+        ChainingConfigurator c = init();
+        Object hidden = Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {DSICarParkingSystem.class, Hidden.class}, new Recorder());
+        Hashtable<String, Object> props = props();
+        assertNull(c.getServiceRegistration(d, new String[] {PARKING}, hidden, props));
+        assertSame(hidden, RecordingChain.lastService);
+        assertSame(props, RecordingChain.lastProps);
+        assertTrue(delegator.calls.isEmpty());
+        assertTrue(logContains("non-public interface " + Hidden.class.getName()));
+        assertTrue(logContains("not wrapped " + PARKING));
+    }
+
     @Test
     void passthroughWhenVersionMismatch() throws IOException {
         sdkProperties("chain.configurator=" + CHAIN + "\n");
@@ -322,21 +433,45 @@ class ChainingConfiguratorTest {
         assertDoesNotThrow(() -> c.getServiceRegistration(null, new String[] {PARKING}, service, props()));
         assertDoesNotThrow(() -> c.getServiceRegistration(d, new String[] {null}, service, props()));
 
-        // Chain throws: we retry it with the original object, then give up with null (stock registration).
+        // Chain throws on the wrapped object: never asked again (it may have registered delegated.X already);
+        // the original is registered directly, and no "wrapped" line is logged.
         RecordingChain.throwOnRegister = true;
-        assertNull(c.getServiceRegistration(d, new String[] {PARKING}, service, props()));
-        assertSame(service, RecordingChain.lastService);
+        RecordingChain.registrations = 0;
+        delegator.calls.clear();
+        String[] names = {PARKING};
+        Hashtable<String, Object> props = props();
+        assertSame(registration, c.getServiceRegistration(d, names, service, props));
+        assertEquals(1, RecordingChain.registrations, "chain not retried");
+        assertTrue(Proxy.isProxyClass(RecordingChain.lastService.getClass()));
+        Call original = delegator.calls.get(0);
+        assertSame(names, original.args[0]);
+        assertSame(service, original.args[1]);
+        assertSame(props, original.args[2]);
+        assertTrue(lastLog().indexOf("wrap of " + PARKING + " abandoned, chain failed") >= 0, lastLog());
 
-        // Delegator throws after a wrap: falls back to the chain with the original.
-        RecordingChain.throwOnRegister = false;
+        // ...and if that direct registration throws too: null, LSD registers the original.
         delegator.toThrow = new RuntimeException("LSD bug");
-        assertNull(c.getServiceRegistration(d, new String[] {PARKING}, service, props()));
-        assertSame(service, RecordingChain.lastService);
+        assertNull(c.getServiceRegistration(d, names, service, props()));
+
+        // Chain declines, our registration of the wrapped object throws: null, chain not asked again.
+        RecordingChain.throwOnRegister = false;
+        RecordingChain.registrations = 0;
+        assertNull(c.getServiceRegistration(d, names, service, props()));
+        assertEquals(1, RecordingChain.registrations);
+        assertTrue(lastLog().indexOf("wrap of " + PARKING + " abandoned, registration failed") >= 0, lastLog());
+
+        // Pass-through registration whose chain throws: null.
+        RecordingChain.throwOnRegister = true;
+        assertNull(c.getServiceRegistration(d, new String[] {"x.Other"}, new Object(), props()));
+        RecordingChain.throwOnRegister = false;
+        delegator.toThrow = null;
 
         ChainingConfigurator noChain = new ChainingConfigurator(base, versionInfo);
         sdkProperties("");
         noChain.initConfigurator();
-        assertNull(noChain.getServiceRegistration(d, new String[] {PARKING}, service, props()));
+        assertSame(registration, noChain.getServiceRegistration(d, new String[] {PARKING}, service, props()));
+        delegator.toThrow = new RuntimeException("LSD bug");
+        assertNull(noChain.getServiceRegistration(d, new String[] {PARKING}, service, props()), "no chain, d throws");
         assertDoesNotThrow(() -> new ChainingConfigurator(null, null).initConfigurator());
         assertDoesNotThrow(() -> new ChainingConfigurator(null, null)
                 .getServiceRegistration(d, new String[] {PARKING}, service, props()));

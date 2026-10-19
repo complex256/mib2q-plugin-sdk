@@ -5,6 +5,7 @@ import java.lang.ref.WeakReference;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -76,13 +77,22 @@ final class DsiServiceProxy implements InvocationHandler {
 
     /**
      * A proxy implementing {@code interfaces} that forwards to {@code service}, or {@code service} itself on any
-     * failure (no interfaces, a non-interface, interfaces not visible from the service's loader, ...).
+     * failure (no interfaces, a non-interface, interfaces not visible from the service's loader, ...). A
+     * non-public interface also means no proxy (logged): {@code Method.invoke} through it would throw
+     * IllegalAccessException on every call.
      */
     static Object wrap(Object service, Class[] interfaces, HookTable hooks, HookBindings bindings) {
         try {
             if (service == null || interfaces == null || interfaces.length == 0 || hooks == null
                     || bindings == null) {
                 return service;
+            }
+            for (int i = 0; i < interfaces.length; i++) {
+                if (!Modifier.isPublic(interfaces[i].getModifiers())) {
+                    SdkGlobals.LOG.append("WARN", "mibsdk.hqc", "no proxy for " + service.getClass().getName()
+                            + ": non-public interface " + interfaces[i].getName());
+                    return service;
+                }
             }
             return Proxy.newProxyInstance(service.getClass().getClassLoader(), interfaces,
                     new DsiServiceProxy(service, hooks, bindings));
@@ -104,7 +114,9 @@ final class DsiServiceProxy implements InvocationHandler {
             if (existing != null) {
                 return existing;
             }
-            Class[] interfaces = interfacesOf(listener.getClass());
+            // Only the DSI provider sees the wrapper, and it calls only (public) DSI listener interfaces: an
+            // app-internal non-public interface is left off rather than costing the hook.
+            Class[] interfaces = publicOnly(interfacesOf(listener.getClass()));
             if (!bindings.bindsAny(interfaces)) {
                 return listener;
             }
@@ -167,6 +179,16 @@ final class DsiServiceProxy implements InvocationHandler {
                 if (!out.contains(direct[i])) {
                     out.add(direct[i]);
                 }
+            }
+        }
+        return (Class[]) out.toArray(new Class[out.size()]);
+    }
+
+    private static Class[] publicOnly(Class[] interfaces) {
+        List out = new ArrayList(interfaces.length);
+        for (int i = 0; i < interfaces.length; i++) {
+            if (Modifier.isPublic(interfaces[i].getModifiers())) {
+                out.add(interfaces[i]);
             }
         }
         return (Class[]) out.toArray(new Class[out.size()]);

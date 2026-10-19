@@ -235,6 +235,35 @@ class DsiServiceProxyTest {
         assertNull(DsiServiceProxy.wrapListener(null, hooks, HookBindings.defaults()));
     }
 
+    /** Package-private, like an HMI-internal interface. */
+    interface Hidden {
+        void ping();
+    }
+
+    @Test
+    void nonPublicInterfaceMeansNoServiceProxy() {
+        Object both = java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {DSICarParkingSystem.class, Hidden.class}, new Recorder());
+        Class<?>[] ifaces = DsiServiceProxy.interfacesOf(both.getClass());
+        assertSame(both, DsiServiceProxy.wrap(both, ifaces, hooks, HookBindings.defaults()));
+        assertTrue(SdkGlobals.LOG.snapshot().toString().indexOf("non-public interface " + Hidden.class.getName()) >= 0);
+    }
+
+    @Test
+    void listenerWithNonPublicInterfaceIsWrappedOverItsPublicOnes() throws Exception {
+        Recorder app = new Recorder();
+        Object listener = java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {DSICarParkingSystemListener.class, Hidden.class}, app);
+        wrapped.setNotification((DSIListener) listener);
+        DSICarParkingSystemListener fromService = registeredWrapper();
+        assertNotSame(listener, fromService);
+        assertFalse(fromService instanceof Hidden);
+        PDCSoundReproduction v = new PDCSoundReproduction(false, true, false, false);
+        fromService.updatePDCSoundReproduction(v, 1);
+        assertSame(v, app.named("updatePDCSoundReproduction").get(0).args[0]);
+        assertEquals(new SoundDirections(false, true, false, false), next(hooks).value());
+    }
+
     @Test
     void nullSoundArgumentIsForwardedAndNotObserved() throws Exception {
         wrapped.setPDCSoundReproduction(null);
