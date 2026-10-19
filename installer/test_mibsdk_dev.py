@@ -35,6 +35,16 @@ exec sh -c "$cmd"
 
 FAKE_NOOP = "#!/bin/sh\nexit 0\n"
 
+# mv that fails when an argument contains $FAKE_FAIL_MV: a write cut short (full or unmounted partition, lost link).
+FAKE_MV = r"""#!/bin/sh
+if [ -n "$FAKE_FAIL_MV" ]; then
+  for a in "$@"; do
+    case "$a" in *"$FAKE_FAIL_MV"*) echo "mv: injected failure" >&2; exit 1 ;; esac
+  done
+fi
+exec /bin/mv "$@"
+"""
+
 # The MHI2Q has no find(1) (found on the bench: "sh: find: cannot execute"); shadow the host's so the tool cannot use it.
 FAKE_NO_FIND = "#!/bin/sh\necho 'sh: find: cannot execute - No such file or directory' >&2\nexit 126\n"
 
@@ -70,6 +80,7 @@ class FakeUnit(object):
         executable(os.path.join(bindir, "mount"), FAKE_NOOP)
         executable(os.path.join(bindir, "slay"), FAKE_NOOP)
         executable(os.path.join(bindir, "find"), FAKE_NO_FIND)
+        executable(os.path.join(bindir, "mv"), FAKE_MV)
         self.dist = os.path.join(root, "dist")
         for j in SDK_JARS:
             write(os.path.join(self.dist, j), ("jar " + j).encode("ascii"))
@@ -100,8 +111,10 @@ class FakeUnit(object):
         assert len(lines) == 1, lines
         return lines[0]
 
-    def run(self, *args):
-        return subprocess.run([TOOL] + list(args), env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    def run(self, *args, **kw):
+        env = dict(self.env)
+        env["FAKE_FAIL_MV"] = kw.get("fail_mv", "")
+        return subprocess.run([TOOL] + list(args), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               timeout=60)
 
 
@@ -174,6 +187,63 @@ class InstallTest(FakeUnitTestCase):
         write(os.path.join(u.sdk, "data/p.properties"), b"old\n")
         self.ok(u.run("install"))
         self.assertEqual(b"new\n", read(os.path.join(u.persist, "data/p.properties")))
+
+    ENTRY = b"parking.sound.rear=bike-rack|PERSISTENT|on|off\n"
+    OTHER = b"parking.sound.front=bike-rack|PERSISTENT|on|off\n"
+
+    def old_ledger(self, u):
+        return os.path.join(u.sdk, "ledger.properties")
+
+    def new_ledger(self, u):
+        return os.path.join(u.persist, "ledger.properties")
+
+    def test_old_ledger_entries_are_merged_into_an_existing_ledger(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        write(self.new_ledger(u), self.OTHER)
+        write(self.old_ledger(u), self.ENTRY)
+        self.ok(u.run("install"))
+        self.assertEqual(self.OTHER + self.ENTRY, read(self.new_ledger(u)))
+        self.assertFalse(os.path.exists(self.old_ledger(u)), "merged and verified: the old ledger goes")
+
+    def test_old_ledger_entry_that_conflicts_is_kept_where_it_is(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        newer = b"parking.sound.rear=bike-rack|PERSISTENT|off|on\n"
+        write(self.new_ledger(u), newer)
+        write(self.old_ledger(u), self.ENTRY)
+        r = self.ok(u.run("install"))
+        self.assertIn("parking.sound.rear", r.stderr.decode("utf-8"))
+        self.assertEqual(newer, read(self.new_ledger(u)))
+        self.assertEqual(self.ENTRY, read(self.old_ledger(u)), "not merged: never deleted")
+
+    def test_failed_ledger_copy_loses_nothing_and_a_rerun_migrates_it(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        write(self.old_ledger(u), self.ENTRY)
+        r = u.run("install", fail_mv="persist/mibsdk/.push.tmp")
+        self.assertNotEqual(0, r.returncode)
+        self.assertEqual(self.ENTRY, read(self.old_ledger(u)))
+        self.assertFalse(os.path.exists(self.new_ledger(u)))
+        self.ok(u.run("install"))
+        self.assertEqual(self.ENTRY, read(self.new_ledger(u)))
+        self.assertFalse(os.path.exists(self.old_ledger(u)))
+
+    def test_failed_data_copy_loses_nothing_and_a_rerun_migrates_it(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        write(os.path.join(u.sdk, "data/a.properties"), b"a=1\n")
+        write(os.path.join(u.sdk, "data/b.properties"), b"b=2\n")
+        r = u.run("install", fail_mv="b.properties.migrate.tmp")
+        self.assertNotEqual(0, r.returncode)
+        self.assertEqual(b"a=1\n", read(os.path.join(u.sdk, "data/a.properties")))
+        self.assertEqual(b"b=2\n", read(os.path.join(u.sdk, "data/b.properties")))
+        self.assertFalse(os.path.exists(os.path.join(u.persist, "data/b.properties")), "never a partial file")
+        self.ok(u.run("install"))
+        self.assertEqual(b"a=1\n", read(os.path.join(u.persist, "data/a.properties")))
+        self.assertEqual(b"b=2\n", read(os.path.join(u.persist, "data/b.properties")))
+        self.assertEqual([], sorted(n for n in os.listdir(os.path.join(u.persist, "data")) if n.endswith(".tmp")))
+        self.assertFalse(os.path.exists(os.path.join(u.sdk, "data")))
 
     def test_refuses_when_carplay_stock_files_exist_anywhere_under_hmi(self):
         u = self.unit(tracer_marker=False)

@@ -231,13 +231,98 @@ cmd_install() {
 }
 
 # migrate_state: installs before the move kept runtime state under $SDK; move what still matters to $PERSIST (never
-# over anything already there) and drop the rest. Needs /mnt/app read-write.
+# over anything already there) and drop the rest. Needs /mnt/app read-write. Every copy lands under a temp name and is
+# renamed into place, and an old file goes only once its content is safe in $PERSIST, so a failed or interrupted run
+# loses nothing and the next install picks up where it stopped.
 migrate_state() {
-  rsh "if [ -d '$SDK/data' ] && [ ! -d '$PERSIST/data' ]; then cp -R '$SDK/data' '$PERSIST/data' || exit 1; fi;
-       if [ -f '$OLD_LEDGER' ] && [ ! -f '$LEDGER' ]; then cp '$OLD_LEDGER' '$LEDGER' || exit 1; fi;
-       rm -rf '$SDK/data' '$SDK/cache' '$OLD_LEDGER' '$SDK/boot.state' '$SDK/boot.state.tmp' '$SDK/.push.tmp'" \
-    || die "cannot move the old runtime state from $SDK to $PERSIST"
+  # data/: file by file; an old file whose plugin already has data in $PERSIST is the older copy and is dropped.
+  rsh "if [ -d '$SDK/data' ]; then
+         mkdir -p '$PERSIST/data' || exit 1;
+         for f in '$SDK/data'/*; do
+           [ -f \"\$f\" ] || continue;
+           b=\"\${f##*/}\";
+           case \"\$b\" in *.tmp) continue ;; esac;
+           [ -e '$PERSIST/data'/\"\$b\" ] && continue;
+           rm -f '$PERSIST/data'/\"\$b.migrate.tmp\";
+           cp \"\$f\" '$PERSIST/data'/\"\$b.migrate.tmp\" || exit 1;
+           mv '$PERSIST/data'/\"\$b.migrate.tmp\" '$PERSIST/data'/\"\$b\" || exit 1;
+         done;
+         rm -rf '$SDK/data' || exit 1;
+       fi;
+       rm -f '$PERSIST/data'/*.migrate.tmp" \
+    || die "cannot move the old plugin data from $SDK/data to $PERSIST/data (nothing was lost; run install again)"
+  migrate_ledger
+  rsh "rm -rf '$SDK/cache' '$SDK/boot.state' '$SDK/boot.state.tmp' '$SDK/.push.tmp'" \
+    || die "cannot remove the old runtime state from $SDK"
 }
+
+# migrate_ledger: merge the old ledger's entries into $LEDGER (pushed with push_file: verified, then renamed into
+# place) and delete the old one only once every entry is verified in $LEDGER, the same rule uninstall applies. An
+# entry whose key $LEDGER holds with another value is not merged: the old ledger then stays where it is, and
+# uninstall keeps refusing on it.
+migrate_ledger() {
+  local old
+  if is_present "$OLD_LEDGER"; then
+    old="$OLD_LEDGER"
+  elif is_present "$OLD_LEDGER.tmp"; then
+    old="$OLD_LEDGER.tmp"   # the old runtime died between delete and rename: the temp file is the ledger
+  else
+    return 0
+  fi
+  fetch "$old" "$TMP/ledger.old" || die "cannot read $old; nothing migrated"
+  : >"$TMP/ledger.cur"
+  if is_present "$LEDGER"; then
+    fetch "$LEDGER" "$TMP/ledger.cur" || die "cannot read $LEDGER; nothing migrated"
+  fi
+  local rc=0
+  python3 -I - merge "$TMP/ledger.old" "$TMP/ledger.cur" "$TMP/ledger.new" <<<"$LEDGER_PY" || rc=$?
+  [ "$rc" = 0 ] || [ "$rc" = 3 ] || die "cannot merge the old ledger"
+  if ! is_present "$LEDGER" || ! cmp -s "$TMP/ledger.cur" "$TMP/ledger.new"; then
+    push_file "$TMP/ledger.new" "$LEDGER"
+  fi
+  if [ "$rc" = 3 ]; then
+    info "WARNING: kept $old: these overrides conflict with $LEDGER and were not merged:"
+    python3 -I - conflicts "$TMP/ledger.old" "$TMP/ledger.new" <<<"$LEDGER_PY" | sed 's/^/mibsdk-dev:   /' >&2
+    return 0
+  fi
+  fetch "$LEDGER" "$TMP/ledger.check" || die "cannot read back $LEDGER; kept $old"
+  python3 -I - verify "$TMP/ledger.old" "$TMP/ledger.check" <<<"$LEDGER_PY" \
+    || die "$LEDGER lacks entries of $old after the merge; kept $old"
+  rsh "rm -f '$OLD_LEDGER' '$OLD_LEDGER.tmp'" || die "cannot remove $OLD_LEDGER"
+}
+
+# The ledger is OverrideLedger's file: one key=plugin|scope|prior|active line per override, no comments.
+# merge <old> <cur> <out>: out = cur + the old entries whose key cur lacks; exit 3 if an old key is in cur with
+# another value. conflicts <old> <cur>: prints those old entries. verify <old> <cur>: exit 1 unless every old
+# entry is in cur, unchanged.
+LEDGER_PY='
+import sys
+def entries(path):
+    out = []
+    for line in open(path, "rb").read().decode("latin-1").splitlines():
+        if line.strip():
+            out.append((line.split("=", 1)[0].strip(), line))
+    return out
+mode, old = sys.argv[1], entries(sys.argv[2])
+cur_lines = open(sys.argv[3], "rb").read().decode("latin-1")
+cur = dict(entries(sys.argv[3]))
+conflicts = [l for k, l in old if k in cur and cur[k].strip() != l.strip()]
+if mode == "merge":
+    text = cur_lines if cur_lines.endswith("\n") or not cur_lines else cur_lines + "\n"
+    for k, l in old:
+        if k not in cur:
+            text += l.strip() + "\n"
+            cur[k] = l
+    open(sys.argv[4], "wb").write(text.encode("latin-1"))
+    sys.exit(3 if conflicts else 0)
+if mode == "conflicts":
+    for l in conflicts:
+        print(l.strip())
+    sys.exit(0)
+if mode == "verify":
+    sys.exit(0 if all(k in cur and cur[k].strip() == l.strip() for k, l in old) else 1)
+sys.exit(2)
+'
 
 # restore_bundles_mode: give the bundles file the stock mode recorded at backup (push_file creates a new 0644 file).
 restore_bundles_mode() {
