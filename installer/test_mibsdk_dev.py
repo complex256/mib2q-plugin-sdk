@@ -32,6 +32,9 @@ exec sh -c "$cmd"
 
 FAKE_NOOP = "#!/bin/sh\nexit 0\n"
 
+# The MHI2Q has no find(1) (found on the bench: "sh: find: cannot execute"); shadow the host's so the tool cannot use it.
+FAKE_NO_FIND = "#!/bin/sh\necho 'sh: find: cannot execute - No such file or directory' >&2\nexit 126\n"
+
 
 def read(path):
     with open(path, "rb") as f:
@@ -59,6 +62,7 @@ class FakeUnit(object):
         executable(os.path.join(bindir, "ssh"), FAKE_SSH)
         executable(os.path.join(bindir, "mount"), FAKE_NOOP)
         executable(os.path.join(bindir, "slay"), FAKE_NOOP)
+        executable(os.path.join(bindir, "find"), FAKE_NO_FIND)
         self.dist = os.path.join(root, "dist")
         for j in SDK_JARS:
             write(os.path.join(self.dist, j), ("jar " + j).encode("ascii"))
@@ -130,6 +134,15 @@ class InstallTest(FakeUnitTestCase):
         self.ok(u.run("install"))  # the marker exists now, but tracer.was says it did not before the first install
         self.assertNotIn(b"DSITracer", u.autostart())
         self.assertNotIn(b"chain.configurator", read(os.path.join(u.sdk, "sdk.properties")))
+
+
+    def test_refuses_when_carplay_stock_files_exist_anywhere_under_hmi(self):
+        u = self.unit(tracer_marker=False)
+        write(os.path.join(u.unit, "mnt/app/eso/hmi/lsd/kzbs/deep/foo.kzb.carplay-stock"), b"x")
+        r = u.run("install")
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn(b"carplay-rgi is installed", r.stderr)
+        self.assertFalse(os.path.exists(u.sdk), "nothing may change on a refused install")
 
 
 class UninstallTest(FakeUnitTestCase):

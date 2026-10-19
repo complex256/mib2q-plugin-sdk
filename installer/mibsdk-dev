@@ -143,9 +143,10 @@ cmd_install() {
   if printf '%s\n' "$jarlist" | grep -qi carplay; then
     die "carplay-rgi is installed (a *carplay* jar is in $JARS); the SDK does not support it; nothing changed"
   fi
-  cp_stock="$(rsh "find '$HMI_ROOT' -name '*.carplay-stock'; echo RC=\$?" 2>/dev/null)" || die "cannot search $HMI_ROOT"
-  printf '%s\n' "$cp_stock" | grep -qx 'RC=0' || die "could not verify the absence of carplay-rgi (find failed); nothing changed"
-  if printf '%s\n' "$cp_stock" | grep -qv '^RC='; then
+  # The unit has no find(1); list the tree recursively and match the names here.
+  cp_stock="$(rsh "ls -R '$HMI_ROOT'; echo RC=\$?" 2>/dev/null)" || die "cannot search $HMI_ROOT"
+  printf '%s\n' "$cp_stock" | grep -qx 'RC=0' || die "could not verify the absence of carplay-rgi (ls -R failed); nothing changed"
+  if printf '%s\n' "$cp_stock" | grep -q '\.carplay-stock$'; then
     die "carplay-rgi is installed (*.carplay-stock files exist); the SDK does not support it; nothing changed"
   fi
   is_present "$TRACER_JAR" || die "$TRACER_JAR is missing; the SDK chains DSITracer's configurator and needs it; nothing changed"
