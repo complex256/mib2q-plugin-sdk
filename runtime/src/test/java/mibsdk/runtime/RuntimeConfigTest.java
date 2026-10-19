@@ -8,21 +8,31 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
+import mibsdk.adapter.fake.FakePlatform;
+import mibsdk.platform.SdkRoots;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class RuntimeConfigTest {
 
     @TempDir
-    File base;
+    File tmp;
+
+    private File base;
+
+    @BeforeEach
+    void setUp() {
+        base = new File(tmp, "mibsdk");
+        base.mkdirs();
+    }
 
     @Test
     void defaultsWhenFileMissing() {
-        RuntimeConfig c = RuntimeConfig.load(base);
-        assertEquals(base, c.baseDir());
-        assertEquals(new File(base, "plugins"), c.pluginsDir());
-        assertEquals(new File(base, "data"), c.dataDir());
-        assertEquals(new File(base, "cache"), c.cacheDir());
+        RuntimeConfig c = RuntimeConfig.load(FakePlatform.roots(tmp));
+        assertEquals(base, c.roots().install());
+        assertEquals(262144, c.storagePluginMaxBytes());
+        assertEquals(1048576, c.storageTotalMaxBytes());
         assertEquals(new File("/tmp/mibsdk.log"), c.logFile());
         assertEquals(30000, c.pluginStartDelayMs());
         assertEquals(1000, c.tickMs());
@@ -41,6 +51,23 @@ class RuntimeConfigTest {
     }
 
     @Test
+    void filesLiveInTheRootMatchingWhoWritesThem() {
+        File persist = new File(tmp, "persist");
+        File ram = new File(tmp, "ram");
+        RuntimeConfig c = RuntimeConfig.load(new SdkRoots(base, persist, ram));
+        // read-only at runtime: written by the installer only
+        assertEquals(new File(base, "plugins"), c.pluginsDir());
+        assertEquals(new File(base, "grants.properties"), c.grantsFile());
+        assertEquals(new File(base, "SAFE_MODE"), c.safeModeMarker());
+        // persistent and writable
+        assertEquals(new File(persist, "boot.state"), c.bootStateFile());
+        assertEquals(new File(persist, "ledger.properties"), c.ledgerFile());
+        assertEquals(new File(persist, "data"), c.dataDir());
+        // RAM
+        assertEquals(new File(ram, "cache"), c.cacheDir());
+    }
+
+    @Test
     void readsOverridesAndHookServicesList() throws Exception {
         Files.write(new File(base, "sdk.properties").toPath(), (""
                 + "plugin.start.delay.ms=0\n"
@@ -50,8 +77,12 @@ class RuntimeConfigTest {
                 + "hook.services=a, b,\n"
                 + "heap.low.bytes=not-a-number\n"
                 + "tick.ms=-5\n"
-                + "log.file=/tmp/other.log\n").getBytes(StandardCharsets.ISO_8859_1));
-        RuntimeConfig c = RuntimeConfig.load(base);
+                + "log.file=/tmp/other.log\n"
+                + "storage.plugin.max.bytes=1000\n"
+                + "storage.total.max.bytes=0\n").getBytes(StandardCharsets.ISO_8859_1));
+        RuntimeConfig c = RuntimeConfig.load(FakePlatform.roots(tmp));
+        assertEquals(1000, c.storagePluginMaxBytes());
+        assertEquals(1048576, c.storageTotalMaxBytes(), "0 is out of range");
         assertEquals(0, c.pluginStartDelayMs());
         assertEquals(1234, c.hungMs());
         assertEquals(5, c.quarantineFailures());

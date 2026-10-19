@@ -121,7 +121,7 @@ class OverrideLedgerTest {
     private void togglePlugin(String id, String scope) throws IOException {
         plugin(id, READ_WRITE, READ_WRITE, TOGGLE_BODY, TOGGLE_MEMBERS);
         if (scope != null) {
-            write(new File(base, "data/" + id + ".properties"), "scope=" + scope + "\n");
+            write(new File(FakePlatform.roots(tmp).persist(), "data/" + id + ".properties"), "scope=" + scope + "\n");
         }
     }
 
@@ -133,7 +133,7 @@ class OverrideLedgerTest {
         write(new File(base, "sdk.properties"), "plugin.start.delay.ms=0\nheap.low.bytes=0\nlog.file=" + new File(tmp, "mibsdk.log").getPath() + "\n"
                 + (sdkProperties == null ? "" : sdkProperties));
         write(new File(base, "grants.properties"), grants.toString());
-        rt = new SdkRuntime(RuntimeConfig.load(base), platform, clock, new HookTable(64), new RingLog(500));
+        rt = new SdkRuntime(RuntimeConfig.load(FakePlatform.roots(tmp)), platform, clock, new HookTable(64), new RingLog(500));
         rt.start();
     }
 
@@ -148,7 +148,7 @@ class OverrideLedgerTest {
     }
 
     private File ledgerFile() {
-        return new File(base, "ledger.properties");
+        return new File(FakePlatform.roots(tmp).persist(), "ledger.properties");
     }
 
     private static Properties readProps(File f) throws IOException {
@@ -567,7 +567,7 @@ class OverrideLedgerTest {
         plugin("flaky", READ_WRITE, READ_WRITE, TOGGLE_BODY
                 + "\nctx.events().on(IgnitionChanged.class, e -> { if (!e.isOn()) throw new RuntimeException(\"x\"); });",
                 TOGGLE_MEMBERS);
-        write(new File(base, "data/flaky.properties"), "scope=PERSISTENT\n");
+        write(new File(FakePlatform.roots(tmp).persist(), "data/flaky.properties"), "scope=PERSISTENT\n");
         start("quarantine.failures=1\n");
         fake.ecuSetSoundDirections(F1R1L0X0);
         fake.setIgnition(true);

@@ -22,19 +22,24 @@ import org.osgi.framework.ServiceRegistration;
  */
 public final class ChainingConfigurator implements IServiceDelegateConfigurator {
 
-    private final File baseDir;
+    private final File installDir;
+    private final File persistDir;
+    private final File ramDir;
     private final File versionInfo;
     /** The {@link ConfiguratorCore}, typed Object so that nothing about this class needs SDK classes. */
     private volatile Object core;
 
     /** Used by LSD ({@code Class.forName(name).newInstance()}): the unit's paths (inlined constants). */
     public ChainingConfigurator() {
-        this(new File(SdkFiles.BASE), new File(SdkFiles.VERSION_INFO));
+        this(new File(SdkFiles.BASE), new File(SdkFiles.PERSIST), new File(SdkFiles.RAM),
+                new File(SdkFiles.VERSION_INFO));
     }
 
-    /** Tests. Stores the paths only. */
-    ChainingConfigurator(File baseDir, File versionInfo) {
-        this.baseDir = baseDir;
+    /** Tests. Stores the paths only (plain Files: the SDK's roots type is first touched inside the catch-all). */
+    ChainingConfigurator(File installDir, File persistDir, File ramDir, File versionInfo) {
+        this.installDir = installDir;
+        this.persistDir = persistDir;
+        this.ramDir = ramDir;
         this.versionInfo = versionInfo;
     }
 
@@ -42,7 +47,7 @@ public final class ChainingConfigurator implements IServiceDelegateConfigurator 
     public void initConfigurator() {
         core = null;
         try {
-            core = ConfiguratorCore.init(baseDir, versionInfo);
+            core = ConfiguratorCore.init(installDir, persistDir, ramDir, versionInfo);
         } catch (Throwable t) {
             try {
                 // The SDK log may be the thing that failed to load; stderr is the only channel left (init only).

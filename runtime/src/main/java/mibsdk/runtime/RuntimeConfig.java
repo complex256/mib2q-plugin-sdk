@@ -8,9 +8,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
+import mibsdk.platform.SdkRoots;
 
 /**
- * Runtime settings from {@code <baseDir>/sdk.properties}. A missing file, a missing key, or a value that
+ * Runtime settings from {@code <install>/sdk.properties}, plus where every SDK file lives (from the
+ * {@link SdkRoots} the platform side supplies; the runtime names no on-unit path itself). A missing file, a missing key, or a value that
  * does not parse or is out of range falls back to the default. Keys:
  * <pre>
  * plugin.start.delay.ms             30000   delay (on the Clock) before plugins load; 0 loads during start()
@@ -28,7 +30,12 @@ import java.util.Properties;
  * heap.low.checks                       3
  * heap.check.ms                      5000
  * log.file                /tmp/mibsdk.log
+ * storage.plugin.max.bytes         262144   one plugin's data file (estimated size); a put beyond fails
+ * storage.total.max.bytes         1048576   every plugin's data file together (the persist partition is shared)
  * </pre>
+ * Files: read-only at runtime, under {@link SdkRoots#install()}: sdk.properties, grants.properties, SAFE_MODE,
+ * plugins/; writable and persistent, under {@link SdkRoots#persist()}: boot.state, ledger.properties, data/;
+ * in RAM, under {@link SdkRoots#ram()}: cache/.
  * Never put these in {@code bundles.properties}: every unknown key there is a bundle definition.
  */
 public final class RuntimeConfig {
@@ -37,7 +44,7 @@ public final class RuntimeConfig {
     private static final String DEFAULT_HOOK_SERVICE = "org.dsi.ifc.carparkingsystem.DSICarParkingSystem";
     private static final String DEFAULT_LOG_FILE = "/tmp/mibsdk.log";
 
-    private final File baseDir;
+    private final SdkRoots roots;
     private final File logFile;
     private final long pluginStartDelayMs;
     private final long tickMs;
@@ -53,9 +60,11 @@ public final class RuntimeConfig {
     private final long heapLowBytes;
     private final int heapLowChecks;
     private final long heapCheckMs;
+    private final long storagePluginMaxBytes;
+    private final long storageTotalMaxBytes;
 
-    private RuntimeConfig(File baseDir, Properties p) {
-        this.baseDir = baseDir;
+    private RuntimeConfig(SdkRoots roots, Properties p) {
+        this.roots = roots;
         String log = trimmed(p, "log.file");
         this.logFile = new File(log == null || log.length() == 0 ? DEFAULT_LOG_FILE : log);
         this.pluginStartDelayMs = longValue(p, "plugin.start.delay.ms", 30000, 0);
@@ -74,12 +83,14 @@ public final class RuntimeConfig {
         this.heapLowBytes = longValue(p, "heap.low.bytes", 8388608, 0);
         this.heapLowChecks = (int) longValue(p, "heap.low.checks", 3, 1);
         this.heapCheckMs = longValue(p, "heap.check.ms", 5000, 1);
+        this.storagePluginMaxBytes = longValue(p, "storage.plugin.max.bytes", 262144, 1);
+        this.storageTotalMaxBytes = longValue(p, "storage.total.max.bytes", 1048576, 1);
     }
 
-    /** Reads {@code baseDir/sdk.properties}; never throws for a missing or unreadable file. */
-    public static RuntimeConfig load(File baseDir) {
+    /** Reads {@code <install>/sdk.properties}; never throws for a missing or unreadable file. */
+    public static RuntimeConfig load(SdkRoots roots) {
         Properties p = new Properties();
-        File f = new File(baseDir, FILE_NAME);
+        File f = new File(roots.install(), FILE_NAME);
         if (f.isFile()) {
             InputStream in = null;
             try {
@@ -99,37 +110,46 @@ public final class RuntimeConfig {
                 }
             }
         }
-        return new RuntimeConfig(baseDir, p);
+        return new RuntimeConfig(roots, p);
     }
 
-    public File baseDir() {
-        return baseDir;
+    public SdkRoots roots() {
+        return roots;
     }
 
+    /** Read-only: plugin jars and the reload markers the installer drops next to them. */
     public File pluginsDir() {
-        return new File(baseDir, "plugins");
+        return new File(roots.install(), "plugins");
     }
 
+    /** Read-only. */
     public File grantsFile() {
-        return new File(baseDir, "grants.properties");
+        return new File(roots.install(), "grants.properties");
     }
 
+    /** Persistent: {@code <id>.properties} per plugin. */
     public File dataDir() {
-        return new File(baseDir, "data");
+        return new File(roots.persist(), "data");
     }
 
+    /** RAM: per-boot jar snapshots. */
     public File cacheDir() {
-        return new File(baseDir, "cache");
+        return new File(roots.ram(), "cache");
     }
 
-    /** The boot guard's crash counter ({@link BootGuard}). */
+    /** Persistent: the boot guard's crash counter ({@link BootGuard}). */
     public File bootStateFile() {
-        return new File(baseDir, "boot.state");
+        return new File(roots.persist(), "boot.state");
     }
 
-    /** Marker file that forces safe mode while it exists. */
+    /** Persistent: the override ledger ({@link OverrideLedger}). */
+    public File ledgerFile() {
+        return new File(roots.persist(), "ledger.properties");
+    }
+
+    /** Read-only: marker file that forces safe mode while it exists. */
     public File safeModeMarker() {
-        return new File(baseDir, "SAFE_MODE");
+        return new File(roots.install(), "SAFE_MODE");
     }
 
     public File logFile() {
@@ -192,6 +212,14 @@ public final class RuntimeConfig {
 
     public long heapCheckMs() {
         return heapCheckMs;
+    }
+
+    public long storagePluginMaxBytes() {
+        return storagePluginMaxBytes;
+    }
+
+    public long storageTotalMaxBytes() {
+        return storageTotalMaxBytes;
     }
 
     private static String trimmed(Properties p, String key) {

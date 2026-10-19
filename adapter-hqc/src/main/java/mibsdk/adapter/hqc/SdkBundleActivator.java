@@ -24,7 +24,9 @@ public final class SdkBundleActivator implements BundleActivator {
     /** How long {@link #stop} holds LSD's thread. */
     static final long STOP_WAIT_MS = 2000;
 
-    private final File baseDir;
+    private final File installDir;
+    private final File persistDir;
+    private final File ramDir;
     private final File versionInfo;
     private final Object lock = new Object();
     private Thread main; // guarded by lock
@@ -33,12 +35,15 @@ public final class SdkBundleActivator implements BundleActivator {
 
     /** Used by the OSGi kernel: the unit's paths (inlined constants). */
     public SdkBundleActivator() {
-        this(new File(SdkFiles.BASE), new File(SdkFiles.VERSION_INFO));
+        this(new File(SdkFiles.BASE), new File(SdkFiles.PERSIST), new File(SdkFiles.RAM),
+                new File(SdkFiles.VERSION_INFO));
     }
 
-    /** Tests. Stores the paths only. */
-    SdkBundleActivator(File baseDir, File versionInfo) {
-        this.baseDir = baseDir;
+    /** Tests. Stores the paths only (the install, persistent and RAM roots, see {@link SdkFiles}). */
+    SdkBundleActivator(File installDir, File persistDir, File ramDir, File versionInfo) {
+        this.installDir = installDir;
+        this.persistDir = persistDir;
+        this.ramDir = ramDir;
         this.versionInfo = versionInfo;
     }
 
@@ -139,7 +144,8 @@ public final class SdkBundleActivator implements BundleActivator {
 
         public void run() {
             try {
-                SdkBoot b = SdkBoot.create(ctx, owner.baseDir, owner.versionInfo);
+                SdkBoot b = SdkBoot.create(ctx, owner.installDir, owner.persistDir, owner.ramDir,
+                        owner.versionInfo);
                 if (!owner.keep(b)) {
                     b.discard();
                     return;

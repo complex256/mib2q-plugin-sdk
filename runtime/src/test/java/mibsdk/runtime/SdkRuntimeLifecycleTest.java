@@ -23,6 +23,7 @@ import mibsdk.platform.HookTable;
 import mibsdk.platform.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
+import mibsdk.platform.SdkRoots;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,7 @@ class SdkRuntimeLifecycleTest {
     File tmp;
 
     private File base;
+    private SdkRoots roots;
     private File plugins;
     private PluginJars jars;
     private final FakeClock clock = new FakeClock();
@@ -49,7 +51,8 @@ class SdkRuntimeLifecycleTest {
 
     @BeforeEach
     void setUp() {
-        base = new File(tmp, "mibsdk");
+        roots = FakePlatform.roots(tmp);
+        base = roots.install();
         plugins = new File(base, "plugins");
         plugins.mkdirs();
         jars = new PluginJars(new File(tmp, "fixtures"));
@@ -108,7 +111,7 @@ class SdkRuntimeLifecycleTest {
             g.append('\n');
         }
         writeFile(new File(base, "grants.properties"), g.toString());
-        rt = new SdkRuntime(RuntimeConfig.load(base), platform, clock, new HookTable(64), new RingLog(500));
+        rt = new SdkRuntime(RuntimeConfig.load(roots), platform, clock, new HookTable(64), new RingLog(500));
         rt.start();
         return rt;
     }
@@ -329,7 +332,7 @@ class SdkRuntimeLifecycleTest {
         assertEquals(1, count("swap", "v2"), "handled once");
         assertEquals(0, count("swap", "v1"), "old subscription cancelled");
         assertEquals(0, count("swap", "v1 tick"), "old timer cancelled");
-        assertEquals(1, new File(base, "cache").listFiles().length, "old snapshot purged");
+        assertEquals(1, new File(roots.ram(), "cache").listFiles().length, "old snapshot purged");
     }
 
     @Test
@@ -345,7 +348,7 @@ class SdkRuntimeLifecycleTest {
         assertEquals(PluginState.DISABLED, status("first").state());
         assertEquals("test", status("first").reason());
         assertEquals(1, count("first", "disabled"));
-        assertTrue(new File(base, "data/first.properties").isFile(), "storage flushed on disable");
+        assertTrue(new File(roots.persist(), "data/first.properties").isFile(), "storage flushed on disable");
 
         fake.setIgnition(true);
         clock.advance(1000);
@@ -443,7 +446,7 @@ class SdkRuntimeLifecycleTest {
         assertTrue(status("boom").reason().contains("OutOfMemoryError"), status("boom").reason());
         assertEquals(PluginState.FAILED, status("no-main").state());
         assertEquals(PluginState.ENABLED, status("good").state());
-        assertEquals(1, new File(base, "cache").listFiles().length, "failed plugins' snapshots cleaned up");
+        assertEquals(1, new File(roots.ram(), "cache").listFiles().length, "failed plugins' snapshots cleaned up");
         assertEquals(1, rt.eventSubscriberCount());
         fake.setIgnition(true);
         awaitCount("good", "ignition=true", 1);
@@ -510,12 +513,13 @@ class SdkRuntimeLifecycleTest {
     /** Fresh base dir with the real hello and crashy jars; crashy's storage key {@code mode} preset. */
     private void installSamples(String crashyMode) throws IOException {
         base = new File(tmp, "mibsdk-" + crashyMode);
+        roots = new SdkRoots(base, new File(tmp, "persist-" + crashyMode), new File(tmp, "ram-" + crashyMode));
         plugins = new File(base, "plugins");
         plugins.mkdirs();
         for (String id : new String[] {"hello", "crashy"}) {
             Files.copy(samplePluginJar(id).toPath(), new File(plugins, id + ".jar").toPath());
         }
-        writeFile(new File(base, "data/crashy.properties"), "mode=" + crashyMode + "\n");
+        writeFile(new File(roots.persist(), "data/crashy.properties"), "mode=" + crashyMode + "\n");
         grants.clear();
         grants.put("hello", new String[] {"vehicle.read"});
     }
@@ -532,7 +536,7 @@ class SdkRuntimeLifecycleTest {
         rt.reload("hello");
         assertEquals(2, count("hello", "hello enabled"));
         assertTrue(stopWithin(5000), "stop() returned");
-        String data = new String(Files.readAllBytes(new File(base, "data/hello.properties").toPath()),
+        String data = new String(Files.readAllBytes(new File(roots.persist(), "data/hello.properties").toPath()),
                 StandardCharsets.ISO_8859_1);
         assertTrue(data.contains("enables=2"), data);
     }

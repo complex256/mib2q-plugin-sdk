@@ -285,7 +285,7 @@ class HqcPlatformTest {
         String m = marker();
         Ctx c = new Ctx();
         c.blockMs = 5000;
-        SdkBundleActivator a = new SdkBundleActivator(baseDir(),
+        SdkBundleActivator a = new SdkBundleActivator(baseDir(), new File(dir, "persist"), new File(dir, "ram"),
                 versionFile("HMI = " + HqcVersion.SUPPORTED));
         long t0 = System.nanoTime();
         a.start(c.context());
@@ -307,7 +307,7 @@ class HqcPlatformTest {
     void activatorStartIsBootedOnMibsdkMain() throws Exception {
         String m = marker();
         Ctx c = new Ctx();
-        SdkBundleActivator a = new SdkBundleActivator(baseDir(), versionFile("HMI = " + HqcVersion.SUPPORTED));
+        SdkBundleActivator a = new SdkBundleActivator(baseDir(), new File(dir, "persist"), new File(dir, "ram"), versionFile("HMI = " + HqcVersion.SUPPORTED));
         a.start(c.context());
         assertTrue(eventually(5000, () -> countSince(m, "runtime started") == 1));
         assertEquals(1, countSince(m, " STATUS mibsdk seam configurator="), SdkGlobals.LOG.snapshot().toString());
@@ -323,7 +323,7 @@ class HqcPlatformTest {
     void unsupportedFirmwareStartsNoAdapter() throws Exception {
         String m = marker();
         Ctx c = new Ctx();
-        SdkBundleActivator a = new SdkBundleActivator(baseDir(), versionFile("HMI = HMI_SOMETHING_ELSE"));
+        SdkBundleActivator a = new SdkBundleActivator(baseDir(), new File(dir, "persist"), new File(dir, "ram"), versionFile("HMI = HMI_SOMETHING_ELSE"));
         a.start(c.context());
         assertTrue(eventually(5000, () -> countSince(m, "runtime started adapter=none") == 1));
         Thread.sleep(300);
@@ -335,7 +335,7 @@ class HqcPlatformTest {
     void stopRightAfterStartLeavesNothingRunning() throws Exception {
         String m = marker();
         Ctx c = new Ctx();
-        SdkBundleActivator a = new SdkBundleActivator(baseDir(), versionFile("HMI = " + HqcVersion.SUPPORTED));
+        SdkBundleActivator a = new SdkBundleActivator(baseDir(), new File(dir, "persist"), new File(dir, "ram"), versionFile("HMI = " + HqcVersion.SUPPORTED));
         a.start(c.context());
         a.stop(c.context());
         Thread main = a.mainThread();
@@ -354,7 +354,7 @@ class HqcPlatformTest {
     @Test
     void activatorNeverThrows() throws Exception {
         // A null context with the supported firmware: the platform's lookups fail (and are retried) on its threads.
-        SdkBundleActivator a = new SdkBundleActivator(baseDir(), versionFile("HMI = " + HqcVersion.SUPPORTED));
+        SdkBundleActivator a = new SdkBundleActivator(baseDir(), new File(dir, "persist"), new File(dir, "ram"), versionFile("HMI = " + HqcVersion.SUPPORTED));
         assertDoesNotThrow(() -> a.stop(null), "stop before start");
         assertDoesNotThrow(() -> a.start(null));
         assertDoesNotThrow(() -> a.start(null), "second start is ignored");

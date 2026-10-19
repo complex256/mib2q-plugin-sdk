@@ -58,10 +58,10 @@ class BikeRackPluginTest {
             "plugin.start.delay.ms=0\nheap.low.bytes=0\nlog.file=${File(tmp, "mibsdk.log").path}\n")
         File(base, "grants.properties").writeText("bike-rack=vehicle.read,vehicle.parking.write\n")
         if (active != null) {
-            File(base, "data").mkdirs()
-            File(base, "data/bike-rack.properties").writeText("active=$active\n")
+            File(FakePlatform.roots(tmp).persist(), "data").mkdirs()
+            File(FakePlatform.roots(tmp).persist(), "data/bike-rack.properties").writeText("active=$active\n")
         }
-        rt = SdkRuntime(RuntimeConfig.load(base), platform, now, HookTable(64), RingLog(500)).also {
+        rt = SdkRuntime(RuntimeConfig.load(FakePlatform.roots(tmp)), platform, now, HookTable(64), RingLog(500)).also {
             it.start()
             assertEquals(PluginState.ENABLED, it.statuses().single().state(), it.log().snapshot().toString())
         }
@@ -84,7 +84,7 @@ class BikeRackPluginTest {
     private fun storedActive(): String? {
         rt!!.stop() // flushes storage
         val p = Properties()
-        File(base, "data/bike-rack.properties").inputStream().use { p.load(it) }
+        File(FakePlatform.roots(tmp).persist(), "data/bike-rack.properties").inputStream().use { p.load(it) }
         return p.getProperty("active")
     }
 

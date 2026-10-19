@@ -79,7 +79,11 @@ class ChainingConfiguratorTest {
     }
 
     @TempDir
-    File base;
+    File tmp;
+
+    /** The install root (read-only on the unit); boot.state lives in {@link #persist}. */
+    private File base;
+    private File persist;
 
     private File versionInfo;
     private Recorder delegator;
@@ -91,7 +95,10 @@ class ChainingConfiguratorTest {
     void setUp() throws IOException {
         RecordingChain.reset();
         RawServices.clear();
-        versionInfo = new File(base, "version_info.txt");
+        base = new File(tmp, "mibsdk");
+        base.mkdirs();
+        persist = new File(tmp, "persist"); // not created: the configurator creates it when it counts
+        versionInfo = new File(tmp, "version_info.txt");
         writeVersion(HqcVersion.SUPPORTED);
         registration = Fakes.fake(ServiceRegistration.class, new Recorder());
         delegator = new Recorder();
@@ -105,6 +112,7 @@ class ChainingConfiguratorTest {
     }
 
     private static void write(File f, String s) throws IOException {
+        f.getParentFile().mkdirs();
         try (FileOutputStream out = new FileOutputStream(f)) {
             out.write(s.getBytes(StandardCharsets.ISO_8859_1));
         }
@@ -115,7 +123,7 @@ class ChainingConfiguratorTest {
     }
 
     private ChainingConfigurator init() {
-        ChainingConfigurator c = new ChainingConfigurator(base, versionInfo);
+        ChainingConfigurator c = new ChainingConfigurator(base, persist, new File(tmp, "ram"), versionInfo);
         c.initConfigurator();
         return c;
     }
@@ -207,7 +215,7 @@ class ChainingConfiguratorTest {
         assertTrue(delegator.calls.isEmpty());
 
         RecordingChain.reset();
-        ChainingConfigurator noChain = new ChainingConfigurator(base, versionInfo);
+        ChainingConfigurator noChain = new ChainingConfigurator(base, persist, new File(tmp, "ram"), versionInfo);
         sdkProperties("");
         noChain.initConfigurator();
         assertNull(noChain.getServiceRegistration(d, names, other, props));
@@ -388,11 +396,11 @@ class ChainingConfiguratorTest {
     void passthroughWhenBootGuardThresholdReached() throws IOException {
         // BootGuard's predicate with the configured threshold, not a hard-coded 3.
         sdkProperties("safe.mode.after.unhealthy.boots=2\n");
-        write(new File(base, "boot.state"), "unhealthyBoots=2\nlastShutdownClean=true\n");
+        write(new File(persist, "boot.state"), "unhealthyBoots=2\nlastShutdownClean=true\n");
         init();
         assertFalse(SdkGlobals.wrappingEnabled);
 
-        write(new File(base, "boot.state"), "unhealthyBoots=1\nlastShutdownClean=true\n");
+        write(new File(persist, "boot.state"), "unhealthyBoots=1\nlastShutdownClean=true\n");
         init();
         assertTrue(SdkGlobals.wrappingEnabled);
     }
@@ -401,7 +409,7 @@ class ChainingConfiguratorTest {
     @Test
     void wrapLoopPassesEverythingThrough() throws IOException {
         sdkProperties("safe.mode.after.unhealthy.boots=2\n");
-        File state = new File(base, "boot.state");
+        File state = new File(persist, "boot.state");
         init();
         assertTrue(SdkGlobals.wrappingEnabled);
         assertTrue(text(state).contains("wrapBoots=1\n"), text(state));
@@ -434,7 +442,17 @@ class ChainingConfiguratorTest {
         write(new File(base, "SAFE_MODE"), "");
         init();
         assertFalse(SdkGlobals.wrappingEnabled);
-        assertFalse(new File(base, "boot.state").exists(), "nothing wrapped, nothing counted");
+        assertFalse(new File(persist, "boot.state").exists(), "nothing wrapped, nothing counted");
+    }
+
+    /** /mnt/app is read-only while the HMI runs: the wrap-boot count goes to the persistent root, created here. */
+    @Test
+    void wrapBootIsCountedInThePersistentRootNeverInTheInstallRoot() throws IOException {
+        assertFalse(persist.exists());
+        init();
+        assertTrue(SdkGlobals.wrappingEnabled);
+        assertEquals("unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=1\n", text(new File(persist, "boot.state")));
+        assertFalse(new File(base, "boot.state").exists());
     }
 
     private static String text(File f) throws IOException {
@@ -514,14 +532,14 @@ class ChainingConfiguratorTest {
         RecordingChain.throwOnRegister = false;
         delegator.toThrow = null;
 
-        ChainingConfigurator noChain = new ChainingConfigurator(base, versionInfo);
+        ChainingConfigurator noChain = new ChainingConfigurator(base, persist, new File(tmp, "ram"), versionInfo);
         sdkProperties("");
         noChain.initConfigurator();
         assertSame(registration, noChain.getServiceRegistration(d, new String[] {PARKING}, service, props()));
         delegator.toThrow = new RuntimeException("LSD bug");
         assertNull(noChain.getServiceRegistration(d, new String[] {PARKING}, service, props()), "no chain, d throws");
-        assertDoesNotThrow(() -> new ChainingConfigurator(null, null).initConfigurator());
-        assertDoesNotThrow(() -> new ChainingConfigurator(null, null)
+        assertDoesNotThrow(() -> new ChainingConfigurator(null, null, null, null).initConfigurator());
+        assertDoesNotThrow(() -> new ChainingConfigurator(null, null, null, null)
                 .getServiceRegistration(d, new String[] {PARKING}, service, props()));
     }
 

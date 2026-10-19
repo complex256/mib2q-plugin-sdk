@@ -2,6 +2,7 @@ package mibsdk.adapter.hqc;
 
 import java.io.File;
 import mibsdk.platform.PlatformAdapter;
+import mibsdk.platform.SdkRoots;
 import mibsdk.runtime.AdapterSelector;
 import mibsdk.runtime.MonotonicClock;
 import mibsdk.runtime.RuntimeConfig;
@@ -24,8 +25,8 @@ final class SdkBoot {
     }
 
     /** Builds everything; starts nothing except the clock's ticker. */
-    static SdkBoot create(BundleContext ctx, File baseDir, File versionInfo) {
-        RuntimeConfig cfg = RuntimeConfig.load(baseDir);
+    static SdkBoot create(BundleContext ctx, File installDir, File persistDir, File ramDir, File versionInfo) {
+        RuntimeConfig cfg = RuntimeConfig.load(new SdkRoots(installDir, persistDir, ramDir));
         String hmi = AdapterSelector.readHmiVersion(versionInfo);
         MonotonicClock clock = new MonotonicClock(new MonotonicClock.WallSource() {
             public long nowMs() {

@@ -55,7 +55,7 @@ import mibsdk.platform.PlatformHost;
  * permissions are those its manifest declares that are also granted; a granted but undeclared one is unusable.
  *
  * <p>Overrides: writes to persistent vehicle state go through the {@link OverrideLedger}
- * ({@code <baseDir>/ledger.properties}), which applies and restores on its own {@code mibsdk-ledger}
+ * ({@code <persist>/ledger.properties}), which applies and restores on its own {@code mibsdk-ledger}
  * thread. The runtime restores a plugin's overrides when it is disabled, quarantined, revoked (reload with
  * fewer grants) or uninstalled; {@code IgnitionChanged(false)} restores every UNTIL_IGNITION_OFF override
  * before plugins see the event, and {@code ParkingSoundChanged} feeds the ledger's sticky re-apply. A
@@ -220,7 +220,7 @@ public final class SdkRuntime {
         this.pluginParent = new FilteringParentLoader(SdkRuntime.class.getClassLoader(),
                 RuntimeConstants.PLUGIN_PARENT_PREFIXES);
         log.setClock(clock);
-        this.ledger = new OverrideLedger(new File(cfg.baseDir(), "ledger.properties"), clock, log);
+        this.ledger = new OverrideLedger(cfg.ledgerFile(), clock, log);
         this.bootGuard = new BootGuard(cfg.bootStateFile(), cfg.safeModeMarker(), cfg.safeModeAfterUnhealthyBoots(),
                 log);
     }

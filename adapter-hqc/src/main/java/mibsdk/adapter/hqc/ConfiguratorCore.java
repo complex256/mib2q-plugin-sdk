@@ -8,6 +8,7 @@ import java.util.Enumeration;
 import java.util.Hashtable;
 import java.util.List;
 import mibsdk.platform.HookTable;
+import mibsdk.platform.SdkRoots;
 import mibsdk.runtime.AdapterSelector;
 import mibsdk.runtime.BootGuard;
 import mibsdk.runtime.RingLog;
@@ -28,7 +29,8 @@ import org.osgi.framework.ServiceRegistration;
  *
  * <p>The registration path does no I/O and takes no lock except RingLog's append, HookTable's producer lock and
  * {@link RawServices}' put (the raw object of each wrapped service, for the SDK's own bridges).
- * Files are read once, in {@link #init}, which also writes the wrap-boot count to boot.state.
+ * Files are read once, in {@link #init}, which also writes the wrap-boot count to boot.state (in the persistent
+ * root, which is writable from boot: no remount, no exec on this stock thread).
  */
 final class ConfiguratorCore {
 
@@ -55,18 +57,18 @@ final class ConfiguratorCore {
      * Decides whether to wrap this boot and loads the chain. Throws only if the SDK classes themselves cannot be
      * loaded (the caller catches that); everything after is caught here.
      */
-    static ConfiguratorCore init(File baseDir, File versionInfo) {
+    static ConfiguratorCore init(File installDir, File persistDir, File ramDir, File versionInfo) {
         ConfiguratorCore c = new ConfiguratorCore();
-        c.configure(baseDir, versionInfo);
+        c.configure(new SdkRoots(installDir, persistDir, ramDir), versionInfo);
         return c;
     }
 
-    private void configure(File baseDir, File versionInfo) {
+    private void configure(SdkRoots roots, File versionInfo) {
         SdkGlobals.configuratorSeen = true;
         boolean on = false;
         try {
             String version = AdapterSelector.readHmiVersion(versionInfo);
-            RuntimeConfig cfg = RuntimeConfig.load(baseDir);
+            RuntimeConfig cfg = RuntimeConfig.load(roots);
             int threshold = cfg.safeModeAfterUnhealthyBoots();
             boolean safeMode = BootGuard.wouldEnterSafeMode(cfg.bootStateFile(), cfg.safeModeMarker(), threshold);
             boolean wrapLoop = BootGuard.wrapLoopDetected(cfg.bootStateFile(), threshold);

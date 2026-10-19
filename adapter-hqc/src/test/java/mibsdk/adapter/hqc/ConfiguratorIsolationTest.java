@@ -68,9 +68,9 @@ class ConfiguratorIsolationTest {
     private Object construct(ClassLoader l) throws Exception {
         Class<?> cls = Class.forName(ChainingConfigurator.class.getName(), true, l);
         assertDoesNotThrow(() -> cls.getConstructor().newInstance(), "LSD's no-arg constructor");
-        Constructor<?> ctor = cls.getDeclaredConstructor(File.class, File.class);
+        Constructor<?> ctor = cls.getDeclaredConstructor(File.class, File.class, File.class, File.class);
         ctor.setAccessible(true);
-        return ctor.newInstance(base, versionInfo);
+        return ctor.newInstance(base, new File(base, "persist"), new File(base, "ram"), versionInfo);
     }
 
     private static Object register(Object configurator, Object delegator, Object service) throws Exception {
@@ -113,9 +113,9 @@ class ConfiguratorIsolationTest {
             assertThrows(ClassNotFoundException.class, () -> l.loadClass(RingLog.class.getName()));
             Class<?> cls = Class.forName(SdkBundleActivator.class.getName(), true, l);
             assertDoesNotThrow(() -> cls.getConstructor().newInstance(), "the kernel's no-arg constructor");
-            Constructor<?> ctor = cls.getDeclaredConstructor(File.class, File.class);
+            Constructor<?> ctor = cls.getDeclaredConstructor(File.class, File.class, File.class, File.class);
             ctor.setAccessible(true);
-            Object a = ctor.newInstance(base, versionInfo);
+            Object a = ctor.newInstance(base, new File(base, "persist"), new File(base, "ram"), versionInfo);
             Class<?> bc = Class.forName("org.osgi.framework.BundleContext", false, l);
             Object ctx = fake(l, "org.osgi.framework.BundleContext", null);
             long t0 = System.nanoTime();

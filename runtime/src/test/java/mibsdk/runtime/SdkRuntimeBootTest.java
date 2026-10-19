@@ -77,13 +77,18 @@ class SdkRuntimeBootTest {
 
     private SdkRuntime runtime(String sdkProperties, PlatformAdapter platform) throws IOException {
         write(new File(base, "sdk.properties"), "log.file=" + logFile().getPath() + "\n" + sdkProperties);
-        rt = new SdkRuntime(RuntimeConfig.load(base), platform, clock, new HookTable(64), new RingLog(500));
+        rt = new SdkRuntime(RuntimeConfig.load(FakePlatform.roots(tmp)), platform, clock, new HookTable(64), new RingLog(500));
         return rt;
     }
 
     private SdkRuntime start(String sdkProperties) throws IOException {
         runtime(sdkProperties, fake).start();
         return rt;
+    }
+
+    /** The writable persistent root (boot.state, ledger.properties, data/); base is the read-only install root. */
+    private File persist() {
+        return FakePlatform.roots(tmp).persist();
     }
 
     private File logFile() {
@@ -102,7 +107,7 @@ class SdkRuntimeBootTest {
 
     private Properties bootState() throws IOException {
         Properties p = new Properties();
-        FileInputStream in = new FileInputStream(new File(base, "boot.state"));
+        FileInputStream in = new FileInputStream(new File(persist(), "boot.state"));
         try {
             p.load(in);
         } finally {
@@ -188,7 +193,7 @@ class SdkRuntimeBootTest {
         assertTrue(rt.statuses().isEmpty());
         rt.reload("hello");
         assertTrue(rt.statuses().isEmpty(), "a stopped runtime loads nothing");
-        assertFalse(new File(base, "boot.state").exists(), "the SDK is off: the boot guard is not touched");
+        assertFalse(new File(persist(), "boot.state").exists(), "the SDK is off: the boot guard is not touched");
         String file = new String(Files.readAllBytes(logFile().toPath()), StandardCharsets.UTF_8);
         assertTrue(file.contains(" STATUS mibsdk runtime started adapter=none safeMode=false"), file);
         rt.stop(); // harmless
@@ -272,7 +277,7 @@ class SdkRuntimeBootTest {
     @Test
     void safeModeMarkerRestoresLedgerAndLoadsNoPlugins() throws Exception {
         plugin("muter");
-        write(new File(base, "ledger.properties"), "parking.soundDirections=muter|PERSISTENT|F1R1L0X0|F1R0L0X0\n");
+        write(new File(persist(), "ledger.properties"), "parking.soundDirections=muter|PERSISTENT|F1R1L0X0|F1R0L0X0\n");
         write(new File(base, "SAFE_MODE"), "");
         start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
 
@@ -287,7 +292,7 @@ class SdkRuntimeBootTest {
             Thread.sleep(10);
         }
         assertTrue(rt.activeOverrides().isEmpty());
-        File ledger = new File(base, "ledger.properties");
+        File ledger = new File(persist(), "ledger.properties");
         for (int i = 0; i < 500 && ledger.length() != 0; i++) {
             Thread.sleep(10); // the file is rewritten just after the entry leaves memory
         }
@@ -307,7 +312,7 @@ class SdkRuntimeBootTest {
     @Test
     void unhealthyBootsEnterSafeModeAndStayUnhealthy() throws Exception {
         plugin("hello");
-        write(new File(base, "boot.state"), "unhealthyBoots=2\nlastShutdownClean=false\n");
+        write(new File(persist(), "boot.state"), "unhealthyBoots=2\nlastShutdownClean=false\n");
         start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
 
         assertTrue(rt.safeMode());
@@ -337,7 +342,7 @@ class SdkRuntimeBootTest {
     @Test
     void healthyAfterUptimeWithPluginsEnabled() throws Exception {
         plugin("hello");
-        write(new File(base, "boot.state"), "unhealthyBoots=1\nlastShutdownClean=false\n");
+        write(new File(persist(), "boot.state"), "unhealthyBoots=1\nlastShutdownClean=false\n");
         start("plugin.start.delay.ms=30000\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
         assertEquals("2", bootState().getProperty("unhealthyBoots"));
 
@@ -354,7 +359,7 @@ class SdkRuntimeBootTest {
 
     @Test
     void wrapBootsClearedOnceTheHmiRanHealthyEvenWithoutPlugins() throws Exception {
-        write(new File(base, "boot.state"), "unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=2\n");
+        write(new File(persist(), "boot.state"), "unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=2\n");
         write(new File(base, "SAFE_MODE"), ""); // no plugin ever loads: HMI health alone counts
         start("plugin.start.delay.ms=30000\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
         assertTrue(rt.safeMode());
@@ -368,7 +373,7 @@ class SdkRuntimeBootTest {
 
     @Test
     void wrapLoopIsLoggedAndLatched() throws Exception {
-        write(new File(base, "boot.state"), "unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=3\n");
+        write(new File(persist(), "boot.state"), "unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=3\n");
         start("plugin.start.delay.ms=0\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
         assertFalse(rt.safeMode(), "plugins still run, on the unwrapped services");
         assertTrue(logContains("WARN mibsdk wrapping=off reason=wrap-boots n=3"), rt.log().snapshot().toString());
@@ -381,7 +386,7 @@ class SdkRuntimeBootTest {
     @Test
     void notMarkedHealthyIfStoppedFirst() throws Exception {
         plugin("hello");
-        write(new File(base, "boot.state"), "unhealthyBoots=1\nlastShutdownClean=false\n");
+        write(new File(persist(), "boot.state"), "unhealthyBoots=1\nlastShutdownClean=false\n");
         start("plugin.start.delay.ms=0\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
         rt.stop();
         clock.advance(60000);
@@ -505,7 +510,7 @@ class SdkRuntimeBootTest {
     void reloadDuringStartDelayIsDeferredAndHarmless() throws Exception {
         plugin("hello");
         plugin("keeper");
-        write(new File(base, "ledger.properties"), "parking.soundDirections=keeper|PERSISTENT|F1R1L0X0|F1R0L0X0\n");
+        write(new File(persist(), "ledger.properties"), "parking.soundDirections=keeper|PERSISTENT|F1R1L0X0|F1R0L0X0\n");
         File marker = new File(plugins, "hello.reload");
         assertTrue(marker.createNewFile());
         start("plugin.start.delay.ms=30000\nheap.low.bytes=0\ndev.poll.ms=2000\n");
@@ -536,7 +541,7 @@ class SdkRuntimeBootTest {
     @Test
     void staleUntilIgnitionOffOverrideRestoredAtStartNotAfterTheDelay() throws Exception {
         plugin("muter");
-        write(new File(base, "ledger.properties"),
+        write(new File(persist(), "ledger.properties"),
                 "parking.soundDirections=muter|UNTIL_IGNITION_OFF|F1R1L0X0|F1R0L0X0\n");
         start("plugin.start.delay.ms=30000\nheap.low.bytes=0\n");
         for (int i = 0; i < 500 && fake.appliedLog().isEmpty(); i++) {

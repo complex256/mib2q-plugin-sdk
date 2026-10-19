@@ -19,7 +19,7 @@ import mibsdk.api.VehicleOverride;
  * Runtime-owned record of every override of persistent vehicle/ECU state, so the runtime (not the plugin)
  * can put the prior value back.
  *
- * <p>File: {@code <baseDir>/ledger.properties}, one line per key, {@code <key>=<pluginId>|<scope>|<prior>|<active>},
+ * <p>File: {@code <persist>/ledger.properties}, one line per key, {@code <key>=<pluginId>|<scope>|<prior>|<active>},
  * sorted by key, no comments and no wall-clock values (an empty ledger is an empty file). Written with
  * temp file + fsync + rename on every change. The prior is on disk before {@link #acquire} returns and
  * before anything is applied; an entry leaves the file only once its prior is back (applied, or reported

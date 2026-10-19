@@ -1,5 +1,6 @@
 package mibsdk.adapter.fake;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -12,6 +13,7 @@ import mibsdk.api.SoundDirections;
 import mibsdk.platform.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
+import mibsdk.platform.SdkRoots;
 
 /** Host-only in-memory {@link PlatformAdapter} for tests and the dev harness. */
 public final class FakePlatform implements PlatformAdapter {
@@ -34,6 +36,15 @@ public final class FakePlatform implements PlatformAdapter {
             applied.add(value);
         }
     };
+
+    /**
+     * The SDK roots for a test: {@code <tmp>/mibsdk} (install, as on the unit), {@code <tmp>/persist} and
+     * {@code <tmp>/ram}, three separate directories so a test sees which root each file lands in. Nothing is
+     * created.
+     */
+    public static SdkRoots roots(File tmp) {
+        return new SdkRoots(new File(tmp, "mibsdk"), new File(tmp, "persist"), new File(tmp, "ram"));
+    }
 
     public FakePlatform(String supportedVersion, Set<String> features) {
         this.supportedVersion = supportedVersion;

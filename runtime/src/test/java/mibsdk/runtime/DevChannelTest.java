@@ -44,7 +44,7 @@ class DevChannelTest {
         // The runtime's own dev channel polls a different log file, and effectively never (we drive ours).
         write(new File(base, "sdk.properties"), "plugin.start.delay.ms=0\nheap.low.bytes=0\n"
                 + "dev.poll.ms=2147483647\nlog.file=" + new File(tmp, "runtime.log").getPath() + "\n");
-        rt = new SdkRuntime(RuntimeConfig.load(base),
+        rt = new SdkRuntime(RuntimeConfig.load(FakePlatform.roots(tmp)),
                 new FakePlatform("HMI_TEST", new HashSet<String>(Arrays.asList(Features.IGNITION))), clock,
                 new HookTable(16), new RingLog(500));
         rt.start();

@@ -90,7 +90,7 @@ class GrantsTest {
         PluginJars jars = new PluginJars(new File(tmp, "fixtures"));
         jars.write(plugins, pluginId, "1", deps, perms, "ctx.log().info(\"up\");", null);
         FakePlatform fake = new FakePlatform("HMI_TEST", set(Features.PARKING, Features.HOOK_PARKING));
-        rt = new SdkRuntime(RuntimeConfig.load(base), fake, new FakeClock(), new HookTable(16), new RingLog(100));
+        rt = new SdkRuntime(RuntimeConfig.load(FakePlatform.roots(tmp)), fake, new FakeClock(), new HookTable(16), new RingLog(100));
         rt.start();
     }
 
