@@ -2,7 +2,6 @@ package mibsdk.runtime;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -805,7 +804,7 @@ public final class OverrideLedger {
     // ---- file ----
 
     private File tmpFile() {
-        return new File(file.getPath() + ".tmp");
+        return DurableFiles.tmpFile(file);
     }
 
     private boolean write() {
@@ -825,37 +824,12 @@ public final class OverrideLedger {
                         .append(e.prior).append('|').append(e.active).append('\n');
             }
         }
-        File dir = file.getAbsoluteFile().getParentFile();
-        File tmp = tmpFile();
-        FileOutputStream out = null;
         try {
-            if (dir != null && !dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
-                throw new IOException("cannot create " + dir);
-            }
-            out = new FileOutputStream(tmp);
-            out.write(b.toString().getBytes("ISO-8859-1"));
-            out.getFD().sync();
-            out.close();
-            out = null;
-            if (!tmp.renameTo(file)) {
-                // Non-POSIX rename cannot replace: drop the old file; load() recovers from .tmp if we die here.
-                file.delete();
-                if (!tmp.renameTo(file)) {
-                    throw new IOException("cannot rename " + tmp.getName() + " to " + file.getName());
-                }
-            }
+            DurableFiles.replace(file, b.toString().getBytes("ISO-8859-1"));
             return true;
         } catch (Throwable t) {
             error("cannot write " + file.getName() + ": " + SdkRuntime.describe(t));
             return false;
-        } finally {
-            if (out != null) {
-                try {
-                    out.close();
-                } catch (IOException ignored) {
-                    // nothing to do
-                }
-            }
         }
     }
 

@@ -304,7 +304,8 @@ public final class SdkRuntime {
     }
 
     /**
-     * STATUS {@code state persist=<dir> ok|UNWRITABLE ram=<dir> ok|UNWRITABLE bootGuard=armed|inert}, plus a WARN per
+     * STATUS {@code state persist=<dir> ok|UNWRITABLE ram=<dir> ok|UNWRITABLE bootGuard=armed|inert}; when the
+     * persist root is writable, STATUS {@code durability persist=<dir> <DurableFiles.probe>}; plus a WARN per
      * unwritable root saying what that costs. The roots are probed with a scratch file; {@code bootGuard} is whether
      * {@link #beginBoot}'s write of boot.state succeeded. Creates the roots' directories when missing. Never throws.
      */
@@ -316,6 +317,10 @@ public final class SdkRuntime {
             log.append("STATUS", SOURCE, "state persist=" + cfg.roots().persist() + (persist == null ? " ok" : " UNWRITABLE")
                     + " ram=" + cfg.roots().ram() + (ram == null ? " ok" : " UNWRITABLE") + " bootGuard="
                     + (inert ? "inert" : "armed"));
+            if (persist == null) {
+                log.append("STATUS", SOURCE, "durability persist=" + cfg.roots().persist() + " "
+                        + DurableFiles.probe(cfg.roots().persist(), clock));
+            }
             if (persist != null) {
                 log.append("WARN", SOURCE, "persistent root " + cfg.roots().persist() + " is not writable (" + persist
                         + "): plugin data and the override ledger may not be saved"

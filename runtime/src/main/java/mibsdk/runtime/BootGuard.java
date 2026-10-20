@@ -2,7 +2,6 @@ package mibsdk.runtime;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
@@ -251,7 +250,7 @@ public final class BootGuard {
     }
 
     private static File tmpFile(File bootState) {
-        return new File(bootState.getPath() + ".tmp");
+        return DurableFiles.tmpFile(bootState);
     }
 
     private void loadOnce() {
@@ -321,36 +320,12 @@ public final class BootGuard {
     private static boolean write(File bootState, State st, RingLog log) {
         String text = UNHEALTHY_BOOTS + "=" + st.unhealthyBoots + "\n" + LAST_SHUTDOWN_CLEAN + "="
                 + st.lastShutdownClean + "\n" + WRAP_BOOTS + "=" + st.wrapBoots + "\n";
-        File tmp = tmpFile(bootState);
-        FileOutputStream out = null;
         try {
-            File dir = bootState.getAbsoluteFile().getParentFile();
-            if (dir != null && !dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
-                throw new IOException("cannot create " + dir);
-            }
-            out = new FileOutputStream(tmp);
-            out.write(text.getBytes("ISO-8859-1"));
-            out.getFD().sync();
-            out.close();
-            out = null;
-            if (!tmp.renameTo(bootState)) {
-                bootState.delete(); // non-POSIX rename cannot replace; read() recovers from .tmp
-                if (!tmp.renameTo(bootState)) {
-                    throw new IOException("cannot rename " + tmp.getName() + " to " + bootState.getName());
-                }
-            }
+            DurableFiles.replace(bootState, text.getBytes("ISO-8859-1"));
             return true;
         } catch (Throwable t) {
             append(log, "ERROR", "cannot write " + bootState + ": " + SdkRuntime.describe(t));
             return false;
-        } finally {
-            if (out != null) {
-                try {
-                    out.close();
-                } catch (IOException ignored) {
-                    // the original failure is logged
-                }
-            }
         }
     }
 

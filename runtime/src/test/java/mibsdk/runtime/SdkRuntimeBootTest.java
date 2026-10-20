@@ -423,6 +423,25 @@ class SdkRuntimeBootTest {
         assertFalse(logContains("boot healthy"), rt.log().snapshot().toString());
     }
 
+    @Test
+    void durabilityIsReportedAsAStatusLine() throws Exception {
+        start("plugin.start.delay.ms=0\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
+        int n = 0;
+        for (String line : rt.log().snapshot()) {
+            if (line.contains(" STATUS mibsdk durability persist=" + persist() + " fileSync=ok")) {
+                n++;
+            }
+        }
+        assertEquals(1, n, rt.log().snapshot().toString());
+    }
+
+    @Test
+    void durabilityIsNotProbedOnAnUnwritablePersistRoot() throws Exception {
+        write(persist(), "a file where the directory should be");
+        start("plugin.start.delay.ms=0\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
+        assertFalse(logContains("STATUS mibsdk durability"), rt.log().snapshot().toString());
+    }
+
     /** Review fix: bootGuard= is the boot.state write's result, not the probe file's. */
     @Test
     void bootGuardStatusFollowsTheBootStateWriteNotTheProbe() throws Exception {

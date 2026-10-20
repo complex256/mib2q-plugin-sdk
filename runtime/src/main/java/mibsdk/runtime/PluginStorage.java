@@ -1,8 +1,8 @@
 package mibsdk.runtime;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -234,35 +234,13 @@ public final class PluginStorage implements Storage {
     }
 
     private boolean write(Properties snapshot) {
-        File dir = file.getAbsoluteFile().getParentFile();
-        if (dir != null && !dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
-            return false;
-        }
-        File tmp = new File(file.getPath() + ".tmp");
-        FileOutputStream out = null;
         try {
-            out = new FileOutputStream(tmp);
-            snapshot.store(out, null);
-            out.getFD().sync();
-            out.close();
-            out = null;
-            if (!tmp.renameTo(file)) {
-                file.delete();
-                if (!tmp.renameTo(file)) {
-                    return false;
-                }
-            }
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            snapshot.store(bytes, null);
+            DurableFiles.replace(file, bytes.toByteArray());
             return true;
         } catch (Throwable t) {
             return false;
-        } finally {
-            if (out != null) {
-                try {
-                    out.close();
-                } catch (IOException ignored) {
-                    // nothing to do
-                }
-            }
         }
     }
 
