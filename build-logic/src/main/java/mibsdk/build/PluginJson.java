@@ -11,11 +11,17 @@ import org.gradle.api.GradleException;
 /** The build's view of a plugin's {@code plugin.json}: what packaging and the scans need. */
 final class PluginJson {
     final String id;
+    final String name;
+    final String version;
+    final int api;
     final String main;
     final List<String> permissions;
 
-    private PluginJson(String id, String main, List<String> permissions) {
+    private PluginJson(String id, String name, String version, int api, String main, List<String> permissions) {
         this.id = id;
+        this.name = name;
+        this.version = version;
+        this.api = api;
         this.main = main;
         this.permissions = Collections.unmodifiableList(permissions);
     }
@@ -26,10 +32,10 @@ final class PluginJson {
 
     // Mirrors mibsdk.api.SdkInfo.MIN_API_VERSION / API_VERSION (build-logic cannot depend on :api); the runtime's
     // ManifestParser enforces the same range and wording.
-    private static final int MIN_API = 1;
-    private static final int MAX_API = 2;
+    static final int MIN_API = 1;
+    static final int MAX_API = 2;
 
-    private static void checkApi(File file, Object api) {
+    private static int checkApi(File file, Object api) {
         if (!(api instanceof Number) || ((Number) api).doubleValue() != ((Number) api).longValue()) {
             throw new GradleException("mibsdk.plugin: " + file + ": api must be an integer");
         }
@@ -38,6 +44,7 @@ final class PluginJson {
             throw new GradleException("mibsdk.plugin: " + file + ": unsupported api " + v
                     + ", this SDK implements api " + MIN_API + ".." + MAX_API);
         }
+        return (int) v;
     }
 
     /** Parses and validates the fields the build relies on; fails the build naming the file otherwise. */
@@ -58,10 +65,21 @@ final class PluginJson {
         Map<?, ?> m = (Map<?, ?>) parsed;
         String id = string(file, m, "id");
         String main = string(file, m, "main");
-        checkApi(file, m.get("api"));
-        if (!id.matches("[a-z0-9][a-z0-9-]{1,40}")) { // same rule as the runtime's ManifestParser
+        String name = string(file, m, "name");
+        String version = string(file, m, "version");
+        int api = checkApi(file, m.get("api"));
+        // Stricter than the runtime's ManifestParser ({1,40}): mibpkg package names are at most 40 characters.
+        if (!id.matches("[a-z0-9][a-z0-9-]{1,39}")) {
             throw new GradleException("mibsdk.plugin: " + file + ": invalid id '" + id
-                    + "': must match [a-z0-9][a-z0-9-]{1,40} (it names plugins/<id>.jar)");
+                    + "': must match [a-z0-9][a-z0-9-]{1,39} (it names plugins/<id>.jar;"
+                    + " mibpkg package names are at most 40 characters)");
+        }
+        if (id.equals("mibsdk")) {
+            throw new GradleException("mibsdk.plugin: " + file + ": id 'mibsdk' is reserved for the SDK package");
+        }
+        if (!version.matches("\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?")) {
+            throw new GradleException("mibsdk.plugin: " + file
+                    + ": \"version\" must be semver like 1.0.0 (mibpkg compares versions)");
         }
         List<String> permissions = new ArrayList<String>();
         Object perms = m.get("permissions");
@@ -73,7 +91,7 @@ final class PluginJson {
                 permissions.add(String.valueOf(p));
             }
         }
-        return new PluginJson(id, main, permissions);
+        return new PluginJson(id, name, version, api, main, permissions);
     }
 
     private static String string(File file, Map<?, ?> m, String key) {

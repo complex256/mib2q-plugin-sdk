@@ -100,7 +100,7 @@ class MibPluginPluginFunctionalTest {
     }
 
     private static String manifest(String id, String main, String permissions) {
-        return "{\"id\":\"" + id + "\",\"name\":\"" + id + "\",\"version\":\"1.0\",\"author\":\"complex256\","
+        return "{\"id\":\"" + id + "\",\"name\":\"" + id + "\",\"version\":\"1.0.0\",\"author\":\"complex256\","
                 + "\"api\":1,\"main\":\"" + main + "\",\"permissions\":" + permissions + ",\"dependencies\":[]}\n";
     }
 
