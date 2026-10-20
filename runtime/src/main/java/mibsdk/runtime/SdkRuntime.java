@@ -59,7 +59,8 @@ import mibsdk.platform.PlatformHost;
  * ({@code <persist>/ledger.properties}), which applies and restores on its own {@code mibsdk-ledger}
  * thread. The runtime restores a plugin's overrides when it is disabled, quarantined, revoked (reload with
  * fewer grants) or uninstalled; {@code IgnitionChanged(false)} restores every UNTIL_IGNITION_OFF override
- * before plugins see the event, and {@code ParkingSoundChanged} feeds the ledger's sticky re-apply. A
+ * before plugins see the event ({@code IgnitionChanged(true)} likewise ends one acquired while the ignition
+ * was off), and {@code ParkingSoundChanged} feeds the ledger's sticky re-apply. A
  * failed restore is retried with backoff for as long as the runtime runs, and at once on
  * {@code IgnitionChanged(true)} or any parking observation; until it succeeds the entry stays in
  * {@link #activeOverrides()} with {@code restorePending()}. At
@@ -504,6 +505,37 @@ public final class SdkRuntime {
         ledger.shutdown();
         log.append("STATUS", SOURCE, "runtime stopped");
         writeLogFile();
+    }
+
+    /**
+     * Test hook, simulated power loss: marks the runtime stopped, halts the ledger (no final write) and shuts
+     * down the control thread, the dev channel and the hook dispatcher. No plugin is disabled, nothing is
+     * drained, the adapter is not stopped and no file is written.
+     */
+    void haltForTest() {
+        SerialExecutor c;
+        Subscription[] subs;
+        DevChannel d;
+        synchronized (this) {
+            if (!started || stopped) {
+                return;
+            }
+            stopped = true;
+            c = control;
+            subs = (Subscription[]) timers.toArray(new Subscription[timers.size()]);
+            timers.clear();
+            d = dev;
+            dev = null;
+        }
+        ledger.halt();
+        for (int i = 0; i < subs.length; i++) {
+            subs[i].cancel();
+        }
+        if (d != null) {
+            d.stop();
+        }
+        dispatcher.stop();
+        c.shutdown();
     }
 
     /** Best effort: the log file holds the last lines even after the dev channel stopped. */
@@ -1061,11 +1093,7 @@ public final class SdkRuntime {
     private void feedLedger(Object event) {
         try {
             if (event instanceof IgnitionChanged) {
-                if (((IgnitionChanged) event).isOn()) {
-                    ledger.retryPendingRestores(); // the ECUs are awake: a failed restore should go through now
-                } else {
-                    ledger.releaseScope(OverrideScope.UNTIL_IGNITION_OFF);
-                }
+                ledger.ignitionChanged(((IgnitionChanged) event).isOn()); // off restores; on retries pending restores
             } else if (event instanceof ParkingSoundChanged && ((ParkingSoundChanged) event).value() != null) {
                 ledger.onObserved(ParkingImpl.KEY, ParkingImpl.encode(((ParkingSoundChanged) event).value()));
             }
