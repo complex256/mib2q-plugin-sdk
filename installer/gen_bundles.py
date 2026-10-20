@@ -6,7 +6,7 @@
 
 Every key in bundles.properties other than the two special ones is a bundle definition to LSD, so
 `generate` touches exactly: the serviceDelegateConfigurator line, the Bundle.Startup.Autostart value, and
-one appended `MibSdk=` line. Everything else is copied byte for byte. Its output is a fixed point.
+the HMICar= value, and one appended `MibSdk=` line. Everything else is copied byte for byte. Its output is a fixed point.
 """
 import argparse
 import re
@@ -18,9 +18,13 @@ AUTOSTART_KEY = b"Bundle.Startup.Autostart"
 BUNDLE_NAME = b"MibSdk"
 BUNDLE_LINE = b"MibSdk=mibsdk.adapter.hqc.SdkBundleActivator"
 TRACER = b"DSITracer"
+HMICAR_KEY = b"HMICar"
+HMICAR_STOCK = b"de.audi.tghu.car.hmi.Activator"
+HMICAR_VALUE = b"mibsdk.adapter.hqc.ui.SdkCarActivator"
 
 _CFG_RE = re.compile(rb"^(#+[ \t]*)?" + re.escape(CONFIGURATOR_KEY) + rb"[ \t]*=")
 _AUTO_RE = re.compile(rb"^(" + re.escape(AUTOSTART_KEY) + rb"[ \t]*=[ \t]*)(.*?)$")
+_HMICAR_RE = re.compile(rb"^" + re.escape(HMICAR_KEY) + rb"[ \t]*=[ \t]*(.*?)[ \t]*$")
 _BUNDLE_RE = re.compile(rb"^" + re.escape(BUNDLE_NAME) + rb"[ \t]*=")
 
 
@@ -54,6 +58,15 @@ def generate(stock, tracer_active):
     head = [TRACER] if tracer_active else []
     lines[auto[0]] = m.group(1) + b",".join(head + [BUNDLE_NAME] + rest) + eol
 
+    hmi = [(i, _HMICAR_RE.match(_split_eol(l)[0])) for i, l in enumerate(lines)]
+    hmi = [(i, m) for i, m in hmi if m]
+    if len(hmi) != 1:
+        raise SystemExit("gen_bundles: expected exactly one HMICar= line, found %d" % len(hmi))
+    i, m = hmi[0]
+    if m.group(1) not in (HMICAR_STOCK, HMICAR_VALUE):  # the SDK's own value: generate() is a fixed point
+        raise SystemExit("gen_bundles: HMICar is not stock (%s); refusing" % m.group(1).decode("latin-1"))
+    lines[i] = HMICAR_KEY + b"=" + HMICAR_VALUE + _split_eol(lines[i])[1]
+
     if not any(_BUNDLE_RE.match(l) for l in lines):
         eol = b"\r\n" if lines and lines[-1].endswith(b"\r\n") else b"\n"
         if lines and not lines[-1].endswith(b"\n"):
@@ -66,7 +79,7 @@ def sdkprops(tracer_active):
     out = b""
     if tracer_active:
         out += b"chain.configurator=de.audi.tghu.dsitrace.TraceConfigurator\n"
-    return out + b"hook.services=org.dsi.ifc.carparkingsystem.DSICarParkingSystem\n"
+    return out + b"hook.services=org.dsi.ifc.carparkingsystem.DSICarParkingSystem\nui.enabled=true\n"
 
 
 def _bool(v):

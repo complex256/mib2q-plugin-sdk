@@ -24,6 +24,9 @@ OLD_LEDGER="$SDK/ledger.properties"   # where installs before the move kept it
 LOG="/tmp/mibsdk.log"
 SDK_JARS="mibsdk-runtime.jar mibsdk-adapter-hqc.jar mibsdk-rt-retrotranslator.jar"
 BOOT_STATE_RESET=$'unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0'   # BootGuard.reset()'s content
+# The SDK's car-HMI activator subclasses these stock classes and inherits whatever copy the JVM finds first, so no other
+# jar may define one (the sole-owner rule; spec 13). Entries are path prefixes inside a jar.
+OWNED_PREFIXES=(de/audi/tghu/car/hmi/ de/audi/atip/model/CarModelBank)
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST="${MIBSDK_DIST:-$HERE/../dist/build/dist}"
@@ -39,8 +42,11 @@ usage: mibsdk-dev <command> [args] [host]      (host defaults to $DEFAULT_HOST)
 
   install                    back up the stock files (first install only), push the SDK jars, bundles file and
                              sdk.properties, create $PERSIST; refuses on an unsupported HMI, carplay-rgi,
-                             missing DSITracer.jar, or a dist without a matching check stamp (build it with
-                             ./gradlew :dist:assembleUnit)
+                             missing DSITracer.jar, a dist without a matching check stamp (build it with
+                             ./gradlew :dist:assembleUnit), a spike jar (lsd/jars/mibsdk-spike-*.jar), or a
+                             non-SDK jar in lsd/jars that defines a class the SDK owns (de/audi/tghu/car/hmi/*,
+                             de/audi/atip/model/CarModelBank*). It also points the bundles file's HMICar= line
+                             at the SDK's activator (only if the stock line is the stock value)
   uninstall [--purge] [--force]
                              restore the stock bundles file (and its mode), remove the SDK jars (and the
                              dsitracer_activated marker if it was absent before); plugin data in $PERSIST
@@ -54,13 +60,15 @@ usage: mibsdk-dev <command> [args] [host]      (host defaults to $DEFAULT_HOST)
   data-clear <id>            remove that plugin's data ($PERSIST/data/<id>.properties); the ledger, boot state
                              and other plugins' data are untouched. The storage cap counts files on disk from the
                              runtime's start, so restart afterwards (mibsdk-dev restart) to free the space
-  remove <id> [--purge-data] remove plugins/<id>.jar and its grants line, request a reload, then wait up to
+  remove <id> [--purge-data] remove plugins/<id>.jar, its grants line and its <id>.off switch in
+                             $PERSIST/plugins.properties, request a reload, then wait up to
                              $MIBSDK_REMOVE_WAIT_S s (default 30) for the ledger to drop its overrides; keeps the
                              plugin's data unless --purge-data
   safe-mode on|off           create/remove the SAFE_MODE marker (off also resets $PERSIST/boot.state: the unhealthy-boot count
                              and the wrap-boot count that turns DSI service wrapping off after a crash loop)
+  boot-state set-wrap <n>    rewrite $PERSIST/boot.state with wrapBoots=<n>, every other key kept
   log                        print $LOG
-  status                     print the STATUS lines of $LOG
+  status                     print the installed HMICar= line, then the STATUS lines of $LOG
 
 Environment: MIBSDK_DIST overrides the jar directory (default dist/build/dist).
 USAGE
@@ -227,6 +235,8 @@ cmd_install() {
   if printf '%s\n' "$cp_stock" | grep -q '\.carplay-stock$'; then
     die "carplay-rgi is installed (*.carplay-stock files exist); the SDK does not support it; nothing changed"
   fi
+  check_no_spike_jar "$jarlist"
+  check_owned_classes
   is_present "$TRACER_JAR" || die "$TRACER_JAR is missing; the SDK chains DSITracer's configurator and needs it; nothing changed"
 
   # 3. Backup (first install only; an existing complete backup is never touched).
@@ -278,6 +288,40 @@ cmd_install() {
   # 5.
   rw_end
   echo "installed; restart HMI with: mibsdk-dev restart"
+}
+
+# check_no_spike_jar <ls of $JARS>: the UI spike also claims the HMICar= entry (spikes/hmi-ui/run.sh).
+check_no_spike_jar() {
+  local jar
+  jar="$(printf '%s\n' "$1" | grep -E '^mibsdk-spike-.*\.jar$' | head -n 1 || true)"
+  [ -z "$jar" ] || die "spike jar $jar is installed; run spikes/hmi-ui/run.sh uninstall first"
+}
+
+# check_owned_classes: refuses (dies) if a jar in $JARS that is not an SDK jar (mibsdk-*) defines a class under an
+# OWNED_PREFIXES entry. Each jar is fetched into $TMP once per run, keyed by name and size (ls -l; the unit has no
+# stat or md5sum) and listed here with `python3 -m zipfile -l`: the unit has no unzip either.
+check_owned_classes() {
+  local listing mode f name size p entry cache="$TMP/jarcache" local_jar hit
+  listing="$(rsh "ls -l '$JARS'")" || die "cannot list $JARS"
+  mkdir -p "$cache"
+  while read -r -a f; do
+    [ "${#f[@]}" -ge 9 ] || continue
+    mode="${f[0]}"
+    [ "${mode:0:1}" = "-" ] || continue
+    name="${f[$((${#f[@]} - 1))]}"
+    size="${f[4]}"
+    case "$name" in mibsdk-*|*.push.tmp) continue ;; esac
+    local_jar="$cache/$name.$size"
+    if [ ! -f "$local_jar" ]; then
+      fetch "$JARS/$name" "$local_jar" || { rm -f "$local_jar"; die "cannot read $JARS/$name; nothing changed"; }
+    fi
+    hit="$(python3 -I -m zipfile -l "$local_jar" 2>/dev/null)" || die "cannot list $JARS/$name (not a zip?); nothing changed"
+    for p in "${OWNED_PREFIXES[@]}"; do
+      entry="$(printf '%s\n' "$hit" | grep -E "^$p.*\.class( |$)" | head -n 1 || true)"
+      entry="${entry%% *}"
+      [ -z "$entry" ] || die "$name defines $entry, which the SDK owns; nothing changed"
+    done
+  done <<<"$listing"
 }
 
 # migrate_state: installs before the move kept runtime state under $SDK; move what still matters to $PERSIST (never
@@ -603,12 +647,18 @@ cmd_remove() {
   command -v python3 >/dev/null || die "python3 is required on this machine"
   connect
   need_sdk
-  local jar="$SDK/plugins/$id.jar" data="$PERSIST/data/$id.properties" has_jar=0 has_data=0 has_marker=0 has_overrides=0 dropped
+  local jar="$SDK/plugins/$id.jar" data="$PERSIST/data/$id.properties" has_jar=0 has_data=0 has_marker=0 has_overrides=0 dropped off_dropped
   : >"$TMP/grants.in"
   if is_present "$SDK/grants.properties"; then
     fetch "$SDK/grants.properties" "$TMP/grants.in" || die "cannot read grants.properties"
   fi
   dropped="$(python3 -I - "$TMP/grants.in" "$TMP/grants.out" "$id" drop <<<"$GRANTS_PY")" || die "cannot rewrite grants"
+  : >"$TMP/plugins.in"
+  if is_present "$PERSIST/plugins.properties"; then
+    fetch "$PERSIST/plugins.properties" "$TMP/plugins.in" || die "cannot read plugins.properties"
+  fi
+  off_dropped="$(python3 -I - "$TMP/plugins.in" "$TMP/plugins.out" "$id.off" drop <<<"$GRANTS_PY")" \
+    || die "cannot rewrite plugins.properties"
   if is_present "$jar"; then has_jar=1; fi
   if is_present "$data"; then has_data=1; fi
   # A reload marker or ledger lines also count: a run that failed after removing the jar and the grants line (say,
@@ -617,7 +667,7 @@ cmd_remove() {
   : >"$TMP/ledger"
   if is_present "$LEDGER"; then fetch "$LEDGER" "$TMP/ledger" || die "cannot read $LEDGER"; fi
   if grep -qF -- "=$id|" "$TMP/ledger"; then has_overrides=1; fi
-  [ "$has_jar" = 1 ] || [ "$has_data" = 1 ] || [ -n "$dropped" ] || [ "$has_marker" = 1 ] || [ "$has_overrides" = 1 ] \
+  [ "$has_jar" = 1 ] || [ "$has_data" = 1 ] || [ -n "$dropped" ] || [ -n "$off_dropped" ] || [ "$has_marker" = 1 ] || [ "$has_overrides" = 1 ] \
     || die "$id is not installed on $HOST"
   printf '%s-%s-%s\n' "$(date +%s)" "$$" "$RANDOM" >"$TMP/reload"
   rw_begin
@@ -626,8 +676,9 @@ cmd_remove() {
   if is_present "$jar"; then die "$jar is still there after removal"; fi
   push_file "$TMP/grants.out" "$SDK/grants.properties"
   push_file "$TMP/reload" "$SDK/plugins/$id.reload"
+  if [ -n "$off_dropped" ]; then push_file "$TMP/plugins.out" "$PERSIST/plugins.properties"; fi
   rw_end
-  echo "removed $id: plugins/$id.jar and its grants line; reload requested"
+  echo "removed $id: plugins/$id.jar and its grants line$([ -n "$off_dropped" ] && echo " and its $id.off switch"); reload requested"
 
   local wait="${MIBSDK_REMOVE_WAIT_S:-30}" left first=1
   case "$wait" in ''|*[!0-9]*) wait=30 ;; esac
@@ -685,6 +736,31 @@ cmd_safe_mode() {
   esac
 }
 
+# cmd_boot_state set-wrap <n>: rewrite boot.state with wrapBoots=<n> and every other key kept (BOOT_STATE_RESET's
+# keys when the file is missing); for walking BootGuard's wrap-loop latch on the bench.
+cmd_boot_state() {
+  [ "${1:-}" = set-wrap ] && [[ "${2:-}" =~ ^[0-9]{1,6}$ ]] || die "usage: mibsdk-dev boot-state set-wrap <n> [host]"
+  local n="$2" line found=0
+  connect; need_sdk
+  if is_present "$PERSIST/boot.state"; then
+    fetch "$PERSIST/boot.state" "$TMP/boot.in" || die "cannot read boot.state"
+  else
+    printf '%s\n' "$BOOT_STATE_RESET" >"$TMP/boot.in"
+  fi
+  : >"$TMP/boot.state"
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      wrapBoots=*) printf 'wrapBoots=%s\n' "$n" >>"$TMP/boot.state"; found=1 ;;
+      *) printf '%s\n' "$line" >>"$TMP/boot.state" ;;
+    esac
+  done <"$TMP/boot.in"
+  if [ "$found" = 0 ]; then printf 'wrapBoots=%s\n' "$n" >>"$TMP/boot.state"; fi
+  rsh "mkdir -p '$PERSIST'" || die "cannot create $PERSIST"
+  push_file "$TMP/boot.state" "$PERSIST/boot.state"
+  echo "boot.state: wrapBoots=$n (other keys kept); it is read on the next HMI start"
+}
+
 # cmd_data_clear <id>: plugin data that is corrupt or too large (the storage cap counts it even for a plugin that is
 # gone) otherwise stays until uninstall --purge. $PERSIST is writable at runtime: no remount.
 cmd_data_clear() {
@@ -711,6 +787,10 @@ cmd_log() {
 
 cmd_status() {
   connect
+  fetch "$BUNDLES" "$TMP/bundles.now" || die "cannot read $BUNDLES"
+  local hmicar
+  hmicar="$(grep '^HMICar=' "$TMP/bundles.now" | head -n 1 || true)"
+  echo "${hmicar%$'\r'}"
   fetch "$LOG" "$TMP/log" || die "$LOG not found on $HOST (is the SDK running?)"
   grep ' STATUS ' "$TMP/log" || { echo "no STATUS lines in $LOG yet" >&2; return 0; }
 }
@@ -727,6 +807,7 @@ main() {
     install|restart|log|status) want=0 ;;
     uninstall) want=-1 ;;
     push|safe-mode|data-clear) want=1 ;;
+    boot-state) want=2 ;;
     remove) want=1 ;;
     grant) want=2 ;;
     *) usage >&2; die "unknown command '$cmd'" ;;
@@ -758,6 +839,7 @@ main() {
     restart) cmd_restart ;;
     push) cmd_push "${args[@]+"${args[@]}"}" ;;
     grant) cmd_grant "${args[@]+"${args[@]}"}" ;;
+    boot-state) cmd_boot_state "${args[@]+"${args[@]}"}" ;;
     safe-mode) cmd_safe_mode "${args[@]+"${args[@]}"}" ;;
     data-clear) cmd_data_clear "${args[@]+"${args[@]}"}" ;;
     log) cmd_log ;;

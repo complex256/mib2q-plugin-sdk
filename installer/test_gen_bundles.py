@@ -39,9 +39,10 @@ class GenBundlesTest(unittest.TestCase):
         stock = read(STOCK).split(b"\n")
         out = self.gen(STOCK, "true").split(b"\n")
         changed = [i for i, l in enumerate(stock[:-1]) if out[i] != l]
-        self.assertEqual(len(changed), 2)
+        self.assertEqual(len(changed), 3)
         self.assertTrue(out[changed[0]].startswith(b"de.audi.tghu.serviceDelegateConfigurator="))
         self.assertTrue(out[changed[1]].startswith(b"Bundle.Startup.Autostart"))
+        self.assertTrue(out[changed[2]].startswith(b"HMICar="))
         extra = out[len(stock) - 1:]
         self.assertEqual(len([l for l in out if l.startswith(b"MibSdk=")]), 1)
         self.assertIn(b"MibSdk=mibsdk.adapter.hqc.SdkBundleActivator", b"\n".join(extra))
@@ -52,10 +53,39 @@ class GenBundlesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "sdk.properties")
             gen_bundles.main(["sdkprops", "--tracer-active", "false", "--out", out])
-            self.assertEqual(read(out), b"hook.services=org.dsi.ifc.carparkingsystem.DSICarParkingSystem\n")
+            self.assertEqual(read(out), b"hook.services=org.dsi.ifc.carparkingsystem.DSICarParkingSystem\nui.enabled=true\n")
             gen_bundles.main(["sdkprops", "--tracer-active", "true", "--out", out])
             self.assertEqual(read(out), (b"chain.configurator=de.audi.tghu.dsitrace.TraceConfigurator\n"
-                                         b"hook.services=org.dsi.ifc.carparkingsystem.DSICarParkingSystem\n"))
+                                         b"hook.services=org.dsi.ifc.carparkingsystem.DSICarParkingSystem\nui.enabled=true\n"))
+
+    def test_hmicar_substituted_once_keeping_crlf(self):
+        stock = read(STOCK)
+        self.assertEqual(1, stock.count(b"HMICar=de.audi.tghu.car.hmi.Activator\r\n"))
+        out = self.gen(STOCK, "true")
+        self.assertEqual(1, out.count(b"HMICar="))
+        self.assertIn(b"HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\r\n", out)
+        self.assertNotIn(b"de.audi.tghu.car.hmi.Activator", out)
+
+    def test_nonstock_hmicar_refused(self):
+        bad = read(STOCK).replace(b"HMICar=de.audi.tghu.car.hmi.Activator", b"HMICar=other.Activator")
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "bad")
+            with open(src, "wb") as f:
+                f.write(bad)
+            with self.assertRaises(SystemExit) as cm:
+                gen_bundles.main(["generate", "--stock", src, "--tracer-active", "true", "--out", os.path.join(d, "o")])
+            self.assertEqual("gen_bundles: HMICar is not stock (other.Activator); refusing", str(cm.exception))
+            self.assertFalse(os.path.exists(os.path.join(d, "o")))
+
+    def test_generate_is_fixed_point(self):
+        for tracer in (True, False):
+            once = gen_bundles.generate(read(STOCK), tracer)
+            self.assertEqual(once, gen_bundles.generate(once, tracer))
+            self.assertIn(b"HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\r\n", once)
+
+    def test_sdkprops_enables_ui(self):
+        for tracer in (True, False):
+            self.assertIn(b"ui.enabled=true\n", gen_bundles.sdkprops(tracer))
 
     def test_idempotent_on_already_generated(self):
         for tracer in ("true", "false"):

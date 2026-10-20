@@ -101,6 +101,13 @@ def stamp(path, kind, jars, attrs=None):
     write(path, ("\n".join(lines) + "\n").encode("latin-1"))
 
 
+def write_jar(path, names):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with zipfile.ZipFile(path, "w") as z:
+        for n in names:
+            z.writestr(n, b"x")
+
+
 def executable(path, text):
     write(path, text.encode("utf-8"))
     os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -129,7 +136,7 @@ class FakeUnit(object):
         write(os.path.join(self.unit, "ifs/version_info.txt"), ("HMI = %s\n" % HMI).encode("ascii"))
         write(os.path.join(self.lsd, "bundles_dsitracer_enabled.properties"), read(STOCK))
         write(os.path.join(self.lsd, "DSITracer.jar"), b"tracer")
-        write(os.path.join(self.lsd, "jars/stock.jar"), b"stock")
+        write_jar(os.path.join(self.lsd, "jars/stock.jar"), ["de/audi/other/Thing.class"])
         os.makedirs(os.path.join(self.unit, "tmp"), exist_ok=True)
         if tracer_marker:
             write(self.marker(), b"")
@@ -349,6 +356,49 @@ class InstallTest(FakeUnitTestCase):
         self.assertIn(b"carplay-rgi is installed", r.stderr)
         self.assertFalse(os.path.exists(u.sdk), "nothing may change on a refused install")
 
+    def test_refuses_jar_defining_owned_class(self):
+        for cls in ("de/audi/tghu/car/hmi/Activator.class", "de/audi/atip/model/CarModelBank.class",
+                    "de/audi/atip/model/CarModelBank$1.class"):
+            u = self.unit(tracer_marker=False)
+            write_jar(os.path.join(u.lsd, "jars/other-mod.jar"), ["a/B.class", cls])
+            before = u.bundles()
+            r = u.run("install")
+            self.assertNotEqual(0, r.returncode)
+            self.assertIn("mibsdk-dev: other-mod.jar defines %s, which the SDK owns; nothing changed" % cls,
+                          r.stderr.decode("utf-8"))
+            self.assertEqual(before, u.bundles())
+            self.assertFalse(os.path.exists(u.sdk), "nothing changed on the unit")
+            shutil.rmtree(self.tmp)
+            os.makedirs(self.tmp)
+
+    def test_ignores_sdk_jars_in_ownership_guard(self):
+        u = self.unit(tracer_marker=False)
+        write_jar(os.path.join(u.lsd, "jars/mibsdk-adapter-hqc.jar"), ["de/audi/tghu/car/hmi/Activator.class"])
+        write_jar(os.path.join(u.lsd, "jars/other-mod.jar"), ["de/audi/tghu/car/hmiextra/X.class", "a/B.txt"])
+        self.ok(u.run("install"))
+
+    def test_refuses_while_spike_jar_present(self):
+        u = self.unit(tracer_marker=False)
+        write_jar(os.path.join(u.lsd, "jars/mibsdk-spike-ui.jar"), ["mibsdk/spike/ui/SpikeCarActivator.class"])
+        r = u.run("install")
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn("mibsdk-dev: spike jar mibsdk-spike-ui.jar is installed; run spikes/hmi-ui/run.sh uninstall first",
+                      r.stderr.decode("utf-8"))
+        self.assertFalse(os.path.exists(u.sdk), "nothing changed on the unit")
+
+    def test_install_points_hmicar_at_the_sdk_keeping_crlf(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        self.assertIn(b"HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\r\n", u.bundles())
+        self.assertIn(b"ui.enabled=true\n", read(os.path.join(u.sdk, "sdk.properties")))
+
+    def test_refuses_a_nonstock_hmicar_line(self):
+        u = self.unit(tracer_marker=False)
+        write(u.bundles_path(), u.bundles().replace(b"HMICar=de.audi.tghu.car.hmi.Activator", b"HMICar=x.Y"))
+        r = u.run("install")
+        self.assertNotEqual(0, r.returncode)
+        self.assertNotIn(b"mibsdk.adapter.hqc.ui", u.bundles())
+
 
 class UninstallTest(FakeUnitTestCase):
     ENTRY = b"parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A\n"
@@ -431,6 +481,14 @@ class UninstallTest(FakeUnitTestCase):
         self.assertEqual(0o777, stat.S_IMODE(os.stat(u.bundles_path()).st_mode))
         self.assertEqual(1000000000, int(os.stat(u.marker()).st_mtime), "the marker existed: never touched")
 
+    def test_uninstall_restores_hmicar_byte_identical(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        self.assertNotEqual(read(STOCK), u.bundles())
+        self.ok(u.run("uninstall"))
+        self.assertEqual(read(STOCK), u.bundles())
+        self.assertIn(b"HMICar=de.audi.tghu.car.hmi.Activator\r\n", u.bundles())
+
     def test_backup_without_a_recorded_mode_restores_the_stock_mode_0777(self):
         u = self.unit(tracer_marker=False)
         self.ok(u.run("install"))
@@ -462,6 +520,39 @@ class SafeModeTest(FakeUnitTestCase):
         self.assertEqual(b"unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0\n",
                          read(os.path.join(u.persist, "boot.state")))
         self.assertFalse(os.path.exists(os.path.join(u.sdk, "boot.state")))
+
+
+class BootStateTest(FakeUnitTestCase):
+    def test_set_wrap_keeps_other_keys(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        write(os.path.join(u.persist, "boot.state"), b"unhealthyBoots=2\nlastShutdownClean=false\nwrapBoots=0\nextra=1\n")
+        self.ok(u.run("boot-state", "set-wrap", "3"))
+        self.assertEqual(b"unhealthyBoots=2\nlastShutdownClean=false\nwrapBoots=3\nextra=1\n",
+                         read(os.path.join(u.persist, "boot.state")))
+
+    def test_set_wrap_without_a_file_uses_the_reset_keys(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        self.ok(u.run("boot-state", "set-wrap", "2"))
+        self.assertEqual(b"unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=2\n",
+                         read(os.path.join(u.persist, "boot.state")))
+
+    def test_set_wrap_rejects_a_bad_count(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        self.assertNotEqual(0, u.run("boot-state", "set-wrap", "x").returncode)
+        self.assertNotEqual(0, u.run("boot-state", "set-wrap").returncode)
+
+
+class StatusTest(FakeUnitTestCase):
+    def test_prints_the_installed_hmicar_line(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        write(os.path.join(u.unit, "tmp/mibsdk.log"), b"x STATUS ui=on\n")
+        r = self.ok(u.run("status"))
+        out = r.stdout.decode("utf-8")
+        self.assertEqual("HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\nx STATUS ui=on\n", out)
 
 
 class DataClearTest(FakeUnitTestCase):
@@ -639,6 +730,13 @@ class RemoveTest(FakeUnitTestCase):
         self.assertTrue(os.path.exists(os.path.join(self.u.unit, "app.ro")))
         self.assertIn("removed hello", r.stdout.decode("utf-8"))
         self.assertIn("hello has no overrides in the ledger", r.stdout.decode("utf-8"))
+
+    def test_drops_the_plugins_off_switch(self):
+        self.installed("hello")
+        plugins = os.path.join(self.u.persist, "plugins.properties")
+        write(plugins, b"hello.off=true\nhello-2.off=true\nother.off=true\n")
+        self.ok(self.u.run("remove", "hello"))
+        self.assertEqual(b"hello-2.off=true\nother.off=true\n", read(plugins))
 
     def test_leaves_a_plugin_with_a_longer_id_alone(self):
         self.installed("bike")
