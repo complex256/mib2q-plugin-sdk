@@ -42,8 +42,9 @@ final class PluginJson {
         Map<?, ?> m = (Map<?, ?>) parsed;
         String id = string(file, m, "id");
         String main = string(file, m, "main");
-        if (!(m.get("api") instanceof Number) || ((Number) m.get("api")).intValue() != 1) {
-            throw new GradleException("mibsdk.plugin: " + file + ": \"api\" must be 1");
+        if (!(m.get("api") instanceof Number) || ((Number) m.get("api")).intValue() < 1
+                || ((Number) m.get("api")).intValue() > 2) {
+            throw new GradleException("mibsdk.plugin: " + file + ": \"api\" must be 1 or 2");
         }
         if (!id.matches("[a-z0-9][a-z0-9-]{1,40}")) { // same rule as the runtime's ManifestParser
             throw new GradleException("mibsdk.plugin: " + file + ": invalid id '" + id
