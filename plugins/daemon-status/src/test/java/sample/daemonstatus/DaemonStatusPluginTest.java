@@ -22,7 +22,6 @@ import mibsdk.adapter.fake.FakeUi;
 import mibsdk.api.Features;
 import mibsdk.platform.HookTable;
 import mibsdk.platform.SdkRoots;
-import mibsdk.platform.UiInput;
 import mibsdk.platform.UiTable;
 import mibsdk.runtime.Clock;
 import mibsdk.runtime.PluginState;
@@ -160,6 +159,7 @@ class DaemonStatusPluginTest {
         String mqErr = "v=1\ndaemon=carmqtt\nmqtt=0\nlast_publish_age_s=-1\nexlap=0\nexlap_err=connect refused\n";
         try (FakeDaemon ts = new FakeDaemon(down); FakeDaemon mq = new FakeDaemon(mqErr)) {
             start(ts.port(), mq.port(), Features.SLOT_STATUS_BAR, Features.UI_PAGES);
+            await(() -> ui.render(PAGE).contains("Error: connect refused"), "page filled");
             await(() -> "TS dn MQ dn".equals(ui.statusLine()), "TS dn MQ dn");
             List<String> lines = ui.render(PAGE);
             assertTrue(lines.contains("Tailscale: down"), lines.toString());
@@ -181,8 +181,7 @@ class DaemonStatusPluginTest {
             start(ts.port(), mq.port(), Features.SLOT_STATUS_BAR, Features.UI_PAGES);
             await(() -> "TS up MQ up".equals(ui.statusLine()), "first poll");
             mq.reply = MQ.replace("mqtt=1", "mqtt=0");
-            // FakeUi.select(...) NPEs on pages with INFO entries (null key), so send the input directly.
-            table.input(new UiInput(UiInput.ENTRY_SELECTED, PAGE, "refresh", false));
+            ui.select(PAGE, "refresh");
             await(() -> "TS up MQ dn".equals(ui.statusLine()), "TS up MQ dn after refresh");
         }
     }
@@ -193,6 +192,29 @@ class DaemonStatusPluginTest {
             start(ts.port(), mq.port(), Features.UI_PAGES);
             await(() -> ui.render(PAGE).contains("Peers: 2/3"), "page filled");
             assertEquals("", ui.statusLine());
+        }
+    }
+
+    @Test
+    void staleLastPublishIsFlaggedButItemUnchanged() throws Exception {
+        String old = MQ.replace("last_publish_age_s=5", "last_publish_age_s=4000");
+        try (FakeDaemon ts = new FakeDaemon(TS); FakeDaemon mq = new FakeDaemon(old)) {
+            start(ts.port(), mq.port(), Features.SLOT_STATUS_BAR, Features.UI_PAGES);
+            await(() -> "TS up MQ up".equals(ui.statusLine()), "TS up MQ up");
+            assertTrue(ui.render(PAGE).contains("Last publish: 4000 s ago (stale)"), ui.render(PAGE).toString());
+        }
+    }
+
+    @Test
+    void garbledRepliesAreToleratedAndWrongDaemonIsUnknown() throws Exception {
+        String junk = "v=1\ndaemon=tailscale\nstate=Running\nip=\ntailnet=\npeers=lots\npeers_online=-3\n\u0000\u0001=\n===\n";
+        String wrong = MQ; // carmqtt answering on the tailscale port
+        try (FakeDaemon ts = new FakeDaemon(junk); FakeDaemon mq = new FakeDaemon(wrong.replace("daemon=carmqtt", "daemon=other"))) {
+            start(ts.port(), mq.port(), Features.SLOT_STATUS_BAR, Features.UI_PAGES);
+            await(() -> "TS up MQ ?".equals(ui.statusLine()), "TS up MQ ?");
+            List<String> lines = ui.render(PAGE);
+            assertTrue(lines.contains("Peers: ?/?"), lines.toString());
+            assertTrue(lines.contains("carmqtt: ?"), lines.toString());
         }
     }
 }
