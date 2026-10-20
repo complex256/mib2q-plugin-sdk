@@ -116,8 +116,22 @@ class FakeUiTest {
         pages.put("mibsdk/plugins", new UiPage("mibsdk/plugins", "Plugins", Arrays.asList(
                 new UiEntry(UiEntry.LINK, "gone", "Gone", null, false, "x/missing"))));
         table.publish(new UiSnapshot(2, null, "", pages, 1, "mibsdk/plugins"));
+        assertEquals("mibsdk/plugins", ui.openPageKey());
+        drain();
         ui.select("mibsdk/plugins", "gone");
         assertEquals("mibsdk/stopped", ui.openPageKey());
+        assertEquals(Arrays.asList("-:mibsdk/plugins", "+:mibsdk/stopped"), drain());
+    }
+
+    @Test
+    void selectOnPageWithInfoEntriesDoesNotThrow() throws Exception {
+        Map<String, UiPage> pages = new HashMap<String, UiPage>();
+        pages.put("sdk/main", new UiPage("sdk/main", "Main", Arrays.asList(
+                new UiEntry(UiEntry.INFO, null, "note", null, false, null),
+                new UiEntry(UiEntry.ITEM, "go", "Go", null, false, null))));
+        table.publish(new UiSnapshot(1, null, "", pages, 0, null));
+        ui.select("sdk/main", "go");
+        assertEquals("go", table.poll(0).entryKey());
     }
 
     @Test

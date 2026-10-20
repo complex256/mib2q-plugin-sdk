@@ -71,8 +71,7 @@ public final class FakeUi {
         }
         if (e.kind() == UiEntry.LINK) {
             sync();
-            stack.push(e.targetPageKey(), null);
-            stack.reconcile(table.snapshot());
+            stack.push(e.targetPageKey(), null, table.snapshot());
         } else if (e.kind() == UiEntry.ITEM) {
             table.input(new UiInput(UiInput.ENTRY_SELECTED, pageKey, entryKey, false));
         }
@@ -112,7 +111,7 @@ public final class FakeUi {
         UiPage p = table.snapshot().pages().get(pageKey);
         if (p != null) {
             for (UiEntry e : p.entries()) {
-                if (e.key().equals(entryKey)) {
+                if (entryKey.equals(e.key())) {
                     return e;
                 }
             }
