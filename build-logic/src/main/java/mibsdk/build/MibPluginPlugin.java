@@ -155,6 +155,7 @@ public class MibPluginPlugin implements Plugin<Project> {
             t.dependsOn(pluginJar, stage);
             t.getStage().set(stageDir);
             t.getMibpkg().set(Toolchain.mibpkg(project));
+            t.getBinary().set(Toolchain.mibpkgBinary(project));
             t.getMpk().set(mibsdkDir.zip(manifest, (d, m) -> d.file(m.id + "-" + m.version + ".mpk")));
         });
 

@@ -214,6 +214,28 @@ class MibPluginPluginFunctionalTest {
     }
 
     @Test
+    void mibPackageRerunsWhenTheBinaryChangesAndFailsWhenItIsGone() throws Exception {
+        Path fake = root.resolve("fake-mibpkg.sh");
+        String script = "#!/bin/sh\n: > \"$3/hello-1.0.0.mpk\"\n";
+        Files.write(fake, script.getBytes(StandardCharsets.UTF_8));
+        assertTrue(fake.toFile().setExecutable(true));
+        String prop = "-Pmibsdk.mibpkg=" + fake;
+
+        assertEquals(TaskOutcome.SUCCESS, runner(":plugins:hello:mibPackage", prop).build()
+                .task(":plugins:hello:mibPackage").getOutcome());
+        assertEquals(TaskOutcome.UP_TO_DATE, runner(":plugins:hello:mibPackage", prop).build()
+                .task(":plugins:hello:mibPackage").getOutcome());
+
+        Files.write(fake, (script + "# stricter\n").getBytes(StandardCharsets.UTF_8));
+        assertEquals(TaskOutcome.SUCCESS, runner(":plugins:hello:mibPackage", prop).build()
+                .task(":plugins:hello:mibPackage").getOutcome(), "a changed binary at the same path must rerun");
+
+        Files.delete(fake);
+        BuildResult gone = runner(":plugins:hello:mibPackage", prop).buildAndFail();
+        assertTrue(gone.getOutput().contains("host mibpkg not found"), gone.getOutput());
+    }
+
+    @Test
     void apiTwoManifestBuilds() throws Exception {
         assertSucceeded(runner(":plugins:api2:mibPluginJar").build(), ":plugins:api2:mibPluginJar");
     }

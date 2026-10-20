@@ -100,6 +100,11 @@ public final class Toolchain {
         return configured == null || configured.toString().isEmpty() ? "mibpkg" : configured.toString();
     }
 
+    /** The host mibpkg as a provider: absent when it cannot be found (the task then fails every run). */
+    public static org.gradle.api.provider.Provider<org.gradle.api.file.RegularFile> mibpkgBinary(Project project) {
+        return project.getLayout().file(project.provider(() -> resolveExecutable(mibpkg(project))));
+    }
+
     /** An executable file for a path, or a bare command name found on {@code PATH}; null when there is none. */
     public static File resolveExecutable(String command) {
         if (command.indexOf(File.separatorChar) >= 0) {

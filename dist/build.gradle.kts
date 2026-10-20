@@ -128,13 +128,11 @@ val mibpkgStage = tasks.register<Sync>("mibpkgStage") {
 
 tasks.register<MibpkgBuildTask>("mibpkgPackage") {
     group = "build"
-    description = "build/dist/mibsdk-<version>.mpk with the host mibpkg (-Pmibsdk.mibpkg=<path>); older mibsdk-*.mpk are deleted."
+    description = "build/dist/mibsdk-<version>.mpk with the host mibpkg (-Pmibsdk.mibpkg=<path>); older mibsdk-*.mpk are deleted once the binary is found."
     dependsOn(mibpkgStage, unitStamp)
     stage.set(sdkStageDir)
     mibpkg.set(Toolchain.mibpkg(project))
+    binary.set(Toolchain.mibpkgBinary(project))
+    stalePrefix.set("mibsdk-")
     mpk.set(distDir.map { it.file("mibsdk-$sdkVersion.mpk") })
-    doFirst {
-        distDir.get().asFile.listFiles { f -> f.name.startsWith("mibsdk-") && f.name.endsWith(".mpk") }
-            ?.forEach { it.delete() }
-    }
 }

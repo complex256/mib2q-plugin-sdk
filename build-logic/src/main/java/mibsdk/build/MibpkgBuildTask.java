@@ -10,6 +10,9 @@ import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.InputFile;
+import org.gradle.api.tasks.Internal;
+import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.InputDirectory;
 import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.PathSensitive;
@@ -24,17 +27,31 @@ public abstract class MibpkgBuildTask extends DefaultTask {
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract DirectoryProperty getStage();
 
-    /** The binary: a path, or a bare name looked up on {@code PATH}. Its path (not its content) is the input. */
-    @Input
+    /** The command as configured (a path, or a bare name looked up on {@code PATH}); only for messages. */
+    @Internal
     public abstract Property<String> getMibpkg();
+
+    /**
+     * The resolved binary, hashed by content: a rebuilt (stricter) mibpkg reruns the task, and a missing one
+     * (absent here) always reruns it, so the missing-binary failure cannot be hidden by an up-to-date check.
+     */
+    @Optional
+    @InputFile
+    @PathSensitive(PathSensitivity.NONE)
+    public abstract RegularFileProperty getBinary();
+
+    /** When set, other {@code <prefix>*.mpk} files beside the output are deleted once the binary is found. */
+    @Optional
+    @Input
+    public abstract Property<String> getStalePrefix();
 
     @OutputFile
     public abstract RegularFileProperty getMpk();
 
     @TaskAction
     public void build() throws IOException, InterruptedException {
-        File binary = Toolchain.resolveExecutable(getMibpkg().get());
-        if (binary == null) {
+        File binary = getBinary().isPresent() ? getBinary().get().getAsFile() : null;
+        if (binary == null || !binary.canExecute()) {
             throw new GradleException("host mibpkg not found: build it (cargo build --release in the mibpkg repo)"
                     + " and pass -Pmibsdk.mibpkg=<path> (looked for '" + getMibpkg().get() + "')");
         }
@@ -42,6 +59,13 @@ public abstract class MibpkgBuildTask extends DefaultTask {
         File outDir = mpk.getParentFile();
         if (!outDir.isDirectory() && !outDir.mkdirs()) {
             throw new GradleException("cannot create " + outDir);
+        }
+        File[] stale = outDir.listFiles((d, n) -> getStalePrefix().isPresent()
+                && n.startsWith(getStalePrefix().get()) && n.endsWith(".mpk"));
+        for (File f : stale == null ? new File[0] : stale) {
+            if (!f.delete()) {
+                throw new GradleException("cannot delete the old " + f);
+            }
         }
         if (mpk.exists() && !mpk.delete()) {
             throw new GradleException("cannot delete the old " + mpk);
