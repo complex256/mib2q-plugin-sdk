@@ -35,14 +35,43 @@ exec sh -c "$cmd"
 
 FAKE_NOOP = "#!/bin/sh\nexit 0\n"
 
-# mv that fails when an argument contains $FAKE_FAIL_MV: a write cut short (full or unmounted partition, lost link).
+# mv that fails when an argument contains $FAKE_FAIL_MV: a write cut short (full or unmounted partition, lost link);
+# $FAKE_FAIL_MV_SILENT fails the same way but exits 0.
+# Like QNX's mv (seen on the bench), it exits 0 when it cannot replace a target on a read-only /mnt/app. With
+# $FAKE_RO_AFTER_MV, another process (mibpkg's supervisor on the bench) puts /mnt/app back to read-only right after a
+# move whose arguments contain it.
 FAKE_MV = r"""#!/bin/sh
 if [ -n "$FAKE_FAIL_MV" ]; then
   for a in "$@"; do
     case "$a" in *"$FAKE_FAIL_MV"*) echo "mv: injected failure" >&2; exit 1 ;; esac
   done
 fi
-exec /bin/mv "$@"
+if [ -n "$FAKE_FAIL_MV_SILENT" ]; then
+  for a in "$@"; do
+    case "$a" in *"$FAKE_FAIL_MV_SILENT"*) echo "mv: injected failure (status 0, like QNX)" >&2; exit 0 ;; esac
+  done
+fi
+for a in "$@"; do last="$a"; done
+case "$last" in
+  "$FAKE_UNIT"/mnt/app/*)
+    if [ -e "$FAKE_UNIT/app.ro" ]; then echo "mv: Can't unlink file $last : Read-only file system" >&2; exit 0; fi ;;
+esac
+/bin/mv "$@" || exit $?
+if [ -n "$FAKE_RO_AFTER_MV" ]; then
+  for a in "$@"; do
+    case "$a" in *"$FAKE_RO_AFTER_MV"*) touch "$FAKE_UNIT/app.ro" ;; esac
+  done
+fi
+exit 0
+"""
+
+# mount: only tracks whether /mnt/app is read-only (the fake mv honours it).
+FAKE_MOUNT = r"""#!/bin/sh
+case "$1" in
+  -uw) rm -f "$FAKE_UNIT/app.ro" ;;
+  -ur) touch "$FAKE_UNIT/app.ro" ;;
+esac
+exit 0
 """
 
 # The MHI2Q has no find(1) (found on the bench: "sh: find: cannot execute"); shadow the host's so the tool cannot use it.
@@ -77,7 +106,7 @@ class FakeUnit(object):
         os.makedirs(os.path.join(self.unit, "mnt/persist"), exist_ok=True)  # the partition itself always exists
         bindir = os.path.join(root, "bin")
         executable(os.path.join(bindir, "ssh"), FAKE_SSH)
-        executable(os.path.join(bindir, "mount"), FAKE_NOOP)
+        executable(os.path.join(bindir, "mount"), FAKE_MOUNT)
         executable(os.path.join(bindir, "slay"), FAKE_NOOP)
         executable(os.path.join(bindir, "find"), FAKE_NO_FIND)
         executable(os.path.join(bindir, "mv"), FAKE_MV)
@@ -114,6 +143,8 @@ class FakeUnit(object):
     def run(self, *args, **kw):
         env = dict(self.env)
         env["FAKE_FAIL_MV"] = kw.get("fail_mv", "")
+        env["FAKE_RO_AFTER_MV"] = kw.get("ro_after_mv", "")
+        env["FAKE_FAIL_MV_SILENT"] = kw.get("fail_mv_silent", "")
         return subprocess.run([TOOL] + list(args), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               timeout=60)
 
@@ -244,6 +275,18 @@ class InstallTest(FakeUnitTestCase):
         self.assertEqual(b"a=1\n", read(os.path.join(u.persist, "data/a.properties")))
         self.assertEqual(b"b=2\n", read(os.path.join(u.persist, "data/b.properties")))
         self.assertEqual([], sorted(n for n in os.listdir(os.path.join(u.persist, "data")) if n.endswith(".tmp")))
+        self.assertFalse(os.path.exists(os.path.join(u.sdk, "data")))
+
+    def test_data_move_that_fails_with_status_0_keeps_the_old_data(self):
+        """QNX mv exits 0 when it fails: the old data/ goes only once each file is really in place."""
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        write(os.path.join(u.sdk, "data/b.properties"), b"b=2\n")
+        r = u.run("install", fail_mv_silent="b.properties.migrate.tmp")
+        self.assertNotEqual(0, r.returncode)
+        self.assertEqual(b"b=2\n", read(os.path.join(u.sdk, "data/b.properties")))
+        self.ok(u.run("install"))
+        self.assertEqual(b"b=2\n", read(os.path.join(u.persist, "data/b.properties")))
         self.assertFalse(os.path.exists(os.path.join(u.sdk, "data")))
 
     def test_install_sweeps_stale_push_temp_files(self):
@@ -423,6 +466,28 @@ class PushTest(FakeUnitTestCase):
         r = u.run("push", jar, fail_mv="plugins/hello.jar")
         self.assertNotEqual(0, r.returncode)
         self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins/.push.tmp")))
+        self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins/hello.jar")))
+
+    def test_push_survives_another_process_remounting_app_read_only(self):
+        """Bench: mibpkg's supervisor put /mnt/app back to read-only between the jar and the marker of one push."""
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        jar = self.plugin_jar("hello")
+        self.ok(u.run("push", jar, ro_after_mv="plugins/hello.jar"))
+        self.assertEqual(read(jar), read(os.path.join(u.sdk, "plugins/hello.jar")))
+        self.assertTrue(read(os.path.join(u.sdk, "plugins/hello.reload")).strip())
+        self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins/.push.tmp")))
+
+    def test_a_move_that_fails_with_status_0_fails_the_push(self):
+        """QNX mv exits 0 when it cannot replace the target; push must judge the result, not the status."""
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        jar = self.plugin_jar("hello")
+        write(os.path.join(u.unit, "app.ro"), b"")
+        executable(os.path.join(u.root, "bin", "mount"), FAKE_NOOP)  # /mnt/app stays read-only whatever we do
+        r = u.run("push", jar)
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn(b"failed to move", r.stderr)
         self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins/hello.jar")))
 
 

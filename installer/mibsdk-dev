@@ -74,7 +74,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
-rsh() { ssh "${SSH_OPTS[@]}" "root@$HOST" "$@"; }
+# Inside a write section (RW=1) every remote command first re-asserts /mnt/app read-write: another process (mibpkg's
+# supervisor, on the bench) remounts it read-only after its own writes, at any time. mount -uw is a no-op when it
+# already is read-write.
+rsh() {
+  if [ "$RW" = 1 ]; then
+    ssh "${SSH_OPTS[@]}" "root@$HOST" "mount -uw /mnt/app; $*"
+  else
+    ssh "${SSH_OPTS[@]}" "root@$HOST" "$@"
+  fi
+}
 
 set_host() {
   HOST="$1"
@@ -116,13 +125,21 @@ rw_end() {
 }
 
 # push_file <local> <remote>: write a temp file next to the target (same file system), verify it byte for byte, then
-# rename into place. On any failure the temp file is removed (best effort; sweep_push_tmp catches what is left).
+# rename into place and read the target back. QNX mv exits 0 even when it cannot replace the target (read-only
+# /mnt/app), so the move is judged by its result; one retry covers a read-only remount by another process landing
+# between our remount and the mv. On any failure the temp file is removed (best effort; sweep_push_tmp catches
+# what is left).
 push_file() {
-  local src="$1" dst="$2" tmp="${2%/*}/.push.tmp"
+  local src="$1" dst="$2" tmp="${2%/*}/.push.tmp" try
   rsh "cat > '$tmp'" <"$src" || push_failed "$tmp" "failed to write $dst"
   fetch "$tmp" "$TMP/verify" || push_failed "$tmp" "failed to read back $dst"
   cmp -s "$src" "$TMP/verify" || push_failed "$tmp" "verification of $dst failed; nothing was installed there"
-  rsh "mv '$tmp' '$dst'" || push_failed "$tmp" "failed to move $dst into place"
+  for try in 1 2; do
+    if rsh "mv '$tmp' '$dst'; [ ! -e '$tmp' ]" && fetch "$dst" "$TMP/verify" && cmp -s "$src" "$TMP/verify"; then
+      return 0
+    fi
+  done
+  push_failed "$tmp" "failed to move $dst into place"
 }
 
 push_failed() {
@@ -262,6 +279,7 @@ migrate_state() {
            rm -f '$PERSIST/data'/\"\$b.migrate.tmp\";
            cp \"\$f\" '$PERSIST/data'/\"\$b.migrate.tmp\" || exit 1;
            mv '$PERSIST/data'/\"\$b.migrate.tmp\" '$PERSIST/data'/\"\$b\" || exit 1;
+           [ -f '$PERSIST/data'/\"\$b\" ] && [ ! -e '$PERSIST/data'/\"\$b.migrate.tmp\" ] || exit 1;
          done;
          rm -rf '$SDK/data' || exit 1;
        fi;
