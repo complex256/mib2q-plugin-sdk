@@ -33,7 +33,14 @@ import mibsdk.api.VehicleOverride
  *
  * UI: page `rack` (Plugins menu, plus a Car row) with the toggle, and a `RACK` status item while the mute is held.
  * Toggle presses are debounced [TOGGLE_DEBOUNCE_MS]; the last requested state wins. On takes the re-arm path, off the
- * ignition-off disarm path but opens no re-arm window. A pending press is dropped at ignition off.
+ * ignition-off disarm path but opens no re-arm window. At ignition off a pending off press is applied at once (no
+ * re-arm window, so a KL15 blip cannot override the user's off); a pending on press is dropped.
+ * An on press while already armed changes nothing: if the mute was lost to an [OverrideConflictException] (another
+ * plugin holds the parking override), toggle off and on again to retry it.
+ *
+ * Permissions: the manifest is api 2 and declares `ui.slot.carmenu` and `ui.slot.statusbar`. An install that was
+ * granted only `vehicle.read,vehicle.parking.write` must be re-granted, or the runtime blocks the plugin:
+ * `mibsdk-dev grant bike-rack vehicle.read,vehicle.parking.write,ui.slot.carmenu,ui.slot.statusbar`.
  */
 class BikeRackPlugin : MibPlugin() {
 
@@ -63,6 +70,8 @@ class BikeRackPlugin : MibPlugin() {
             if (!e.isOn) ignitionOff(ctx, storage) else ignitionOn(ctx, storage)
             refresh()
         }
+        // the ledger can end or reapply the mute on its own; keep the page and status item in step
+        ctx.events().on(ParkingSoundChanged::class.java) { refresh() }
         if (armed) muteWhenKnown(ctx)
         refresh()
     }
@@ -116,9 +125,17 @@ class BikeRackPlugin : MibPlugin() {
     }
 
     private fun ignitionOff(ctx: PluginContext, storage: Storage) {
-        // a press still in its debounce was made before the drive ended: drop it
-        pendingToggle?.cancel()
-        pendingToggle = null
+        // a press still in its debounce: an off is the user's explicit choice, so apply it now with no re-arm
+        // window; an on was made for the drive that just ended, so drop it
+        val pending = pendingToggle
+        if (pending != null) {
+            pending.cancel()
+            pendingToggle = null
+            if (!requestedOn) {
+                disarm(ctx, storage)
+                return
+            }
+        }
         if (!armed) return
         armed = false
         waiting?.cancel()

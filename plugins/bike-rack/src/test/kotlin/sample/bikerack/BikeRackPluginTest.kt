@@ -383,4 +383,19 @@ class BikeRackPluginTest {
         await("RACK hidden") { !status().contains("RACK") }
         assertTrue(ui.render(page).contains("Rear tones: normal"), ui.render(page).toString())
     }
+
+    @Test
+    fun pendingOffAtIgnitionOffDisarmsWithoutReArmWindow() {
+        start(true)
+        awaitApplied(1, f1r0l1x1)
+        press(false) // still inside its debounce at ignition off
+        fake.setIgnition(false)
+        awaitApplied(2, f1r1l1x1)
+        now.ms += 1000
+        fake.setIgnition(true)
+        now.ms += 500
+        assertNoMoreThan(2)
+        assertEquals(f1r1l1x1, fake.ecuSoundDirections())
+        assertEquals(null, storedActive())
+    }
 }
