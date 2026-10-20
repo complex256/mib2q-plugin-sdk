@@ -48,6 +48,10 @@ class HelloMenuPluginTest {
     }
 
     private FakePlatform start(String... features) throws IOException {
+        return startGranting("ui.slot.carmenu", features);
+    }
+
+    private FakePlatform startGranting(String grants, String... features) throws IOException {
         Set<String> f = new HashSet<String>(Arrays.asList(features));
         FakePlatform fake = new FakePlatform("HMI_TEST", f);
         SdkRoots roots = FakePlatform.roots(tmp);
@@ -57,7 +61,7 @@ class HelloMenuPluginTest {
                 new File(base, "plugins/hello-menu.jar").toPath(), StandardCopyOption.REPLACE_EXISTING);
         write(new File(base, "sdk.properties"), "plugin.start.delay.ms=0\nheap.low.bytes=0\nui.publish.min.ms=0\n"
                 + "log.file=" + new File(tmp, "mibsdk.log").getPath() + "\n");
-        write(new File(base, "grants.properties"), "hello-menu=ui.slot.carmenu\n");
+        write(new File(base, "grants.properties"), "hello-menu=" + grants + "\n");
         Clock clock = new Clock() {
             public long uptimeMs() {
                 return System.nanoTime() / 1000000L;
@@ -65,7 +69,8 @@ class HelloMenuPluginTest {
         };
         rt = new SdkRuntime(RuntimeConfig.load(roots), fake, clock, new HookTable(64), table, new RingLog(500));
         rt.start();
-        await(() -> rt.statuses().size() == 1 && rt.statuses().get(0).state() == PluginState.ENABLED, "ENABLED");
+        PluginState want = grants.isEmpty() ? PluginState.BLOCKED_PERMISSIONS : PluginState.ENABLED;
+        await(() -> rt.statuses().size() == 1 && rt.statuses().get(0).state() == want, want.name());
         return fake;
     }
 
@@ -140,5 +145,30 @@ class HelloMenuPluginTest {
             }
         }
         assertTrue(linked, menu.toString());
+    }
+
+    /** The runtime blocks a plugin whose declared permission is not granted: it never runs, so it adds no Car row. */
+    @Test
+    void ungrantedCarMenuPermissionBlocksPluginWithoutCarRow() throws Exception {
+        startGranting("", Features.SLOT_CAR_MENU, Features.UI_PAGES);
+        assertFalse(ui.carRows().contains("Hello"), ui.carRows().toString());
+        assertTrue(ui.render(PAGE).isEmpty());
+    }
+
+    @Test
+    void lastSelectionIsRestoredFromStorage() throws Exception {
+        write(new File(FakePlatform.roots(tmp).persist(), "data/hello-menu.properties"), "last=plum\n");
+        start(Features.SLOT_CAR_MENU, Features.UI_PAGES);
+        await(() -> !ui.render(PAGE).isEmpty(), "page registered");
+        assertTrue(ui.render(PAGE).get(3).contains("Selected: Plum"), ui.render(PAGE).toString());
+    }
+
+    private boolean linked() {
+        for (mibsdk.platform.UiEntry e : table.snapshot().pages().get("mibsdk/plugin.hello-menu").entries()) {
+            if (e.kind() == mibsdk.platform.UiEntry.LINK && PAGE.equals(e.targetPageKey())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

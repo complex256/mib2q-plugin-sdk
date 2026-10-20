@@ -46,7 +46,7 @@ class MibPluginPluginFunctionalTest {
         repo = new File(System.getProperty("mibsdk.repoRoot")).getCanonicalFile();
         String r = repo.getPath().replace('\\', '/');
         write("settings.gradle.kts", "rootProject.name = \"tk\"\n"
-                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:kt\")\n"
+                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api3\", \"plugins:apifrac\")\n"
                 + "project(\":compat\").projectDir = file(\"" + r + "/compat\")\n"
                 + "project(\":api\").projectDir = file(\"" + r + "/api\")\n"
                 + "project(\":plugins:hello\").projectDir = file(\"" + r + "/plugins/hello\")\n"
@@ -64,6 +64,16 @@ class MibPluginPluginFunctionalTest {
                 + "}\n";
         javaPlugin("refl", "sample.refl.ReflPlugin", reflBody, "[]");
         javaPlugin("unrestricted", "sample.refl.ReflPlugin", reflBody, "[\"platform.unrestricted\"]");
+
+        for (String[] a : new String[][] {{"api2", "2"}, {"api0", "0"}, {"api3", "3"}, {"apifrac", "1.5"}}) {
+            javaPlugin(a[0], "sample.refl.ReflPlugin", "package sample.refl;\n"
+                    + "import mibsdk.api.*;\n"
+                    + "public class ReflPlugin extends MibPlugin {\n"
+                    + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
+                    + "}\n", "[]");
+            write("plugins/" + a[0] + "/src/main/resources/plugin.json",
+                    manifest(a[0], "sample.refl.ReflPlugin", "[]").replace("\"api\":1", "\"api\":" + a[1]));
+        }
 
         write("plugins/kt/build.gradle.kts", "plugins {\n"
                 + "    id(\"org.jetbrains.kotlin.jvm\") version \"2.0.21\"\n"
@@ -176,6 +186,20 @@ class MibPluginPluginFunctionalTest {
         assertTrue(result.getOutput().contains("sample/refl/ReflPlugin.load -> java/lang/Class.forName"),
                 result.getOutput());
         assertEquals(TaskOutcome.FAILED, result.task(":plugins:refl:permissionScan").getOutcome());
+    }
+
+    @Test
+    void apiTwoManifestBuilds() throws Exception {
+        assertSucceeded(runner(":plugins:api2:mibPluginJar").build(), ":plugins:api2:mibPluginJar");
+    }
+
+    @Test
+    void apiOutOfRangeOrNonIntegerFailsBuild() {
+        for (String id : new String[] {"api0", "api3", "apifrac"}) {
+            String out = runner(":plugins:" + id + ":mibPluginJar").buildAndFail().getOutput();
+            String want = id.equals("apifrac") ? "api must be an integer" : "unsupported api";
+            assertTrue(out.contains(want), id + ": " + out);
+        }
     }
 
     @Test
