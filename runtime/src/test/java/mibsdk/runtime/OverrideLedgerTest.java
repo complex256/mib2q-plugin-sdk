@@ -306,7 +306,7 @@ class OverrideLedgerTest {
         fake.setIgnition(true);
         awaitCount("muter", "override active=true", 1);
         awaitApplied(1, F1R0L0X0);
-        assertEquals("parking.soundDirections=muter|UNTIL_IGNITION_OFF|F1R1L0X0|F1R0L0X0\n", text(ledgerFile()));
+        assertEquals("parking.soundDirections=muter|UNTIL_IGNITION_OFF|F1R1L0X0|F1R0L0X0|A\n", text(ledgerFile()));
         List<ActiveOverride> active = rt.activeOverrides();
         assertEquals(1, active.size());
         assertEquals(KEY, active.get(0).key());
@@ -512,7 +512,7 @@ class OverrideLedgerTest {
         fake.setIgnition(true); // re-acquire: current() is the overridden value, must not become the prior
         awaitCount("keeper", "override active=true", 1);
         awaitApplied(1, F1R0L0X0);
-        assertEquals("parking.soundDirections=keeper|PERSISTENT|F1R1L0X0|F1R0L0X0\n", text(ledgerFile()));
+        assertEquals("parking.soundDirections=keeper|PERSISTENT|F1R1L0X0|F1R0L0X0|A\n", text(ledgerFile()));
 
         fake.setIgnition(true); // release
         awaitApplied(2, F1R1L0X0);
@@ -909,7 +909,7 @@ class OverrideLedgerTest {
             Thread.sleep(10);
         }
         assertEquals("Y", calls.get(calls.size() - 1), calls.toString());
-        assertEquals("k=q|PERSISTENT|ORIG|Y\n", text(ledgerFile()));
+        assertEquals("k=q|PERSISTENT|ORIG|Y|A\n", text(ledgerFile()));
         second.release();
         for (int i = 0; i < 500 && !"ORIG".equals(calls.get(calls.size() - 1)); i++) {
             Thread.sleep(10);
@@ -938,7 +938,7 @@ class OverrideLedgerTest {
         OverrideLedger l = ledger(new RingLog(10));
         RecordingApplier a = new RecordingApplier();
         l.acquire(KEY, "muter", OverrideScope.PERSISTENT, "F1R1L0X0", "F1R0L0X0", a);
-        assertEquals("parking.soundDirections=muter|PERSISTENT|F1R1L0X0|F1R0L0X0\n", text(ledgerFile()),
+        assertEquals("parking.soundDirections=muter|PERSISTENT|F1R1L0X0|F1R0L0X0|A\n", text(ledgerFile()),
                 "the prior is on disk before acquire returns, and nothing else is");
         assertFalse(new File(ledgerFile().getPath() + ".tmp").exists());
 
@@ -981,7 +981,7 @@ class OverrideLedgerTest {
         assertTrue(l.awaitIdle(5000));
         assertEquals(3, a.calls.size(), a.calls.toString());
         assertEquals("k2=B0", a.calls.get(2));
-        assertEquals("k1=p|PERSISTENT|A0|A1\n", text(ledgerFile()));
+        assertEquals("k1=p|PERSISTENT|A0|A1|A\n", text(ledgerFile()));
     }
 
     @Test
@@ -1033,6 +1033,99 @@ class OverrideLedgerTest {
         assertThrows(IllegalArgumentException.class, () -> l.acquire("k", "p", OverrideScope.PERSISTENT, "0", "1", null));
         assertTrue(l.active().isEmpty());
         assertFalse(ledgerFile().exists());
+    }
+
+    // ---- restore state on disk (T11) ----
+
+    private void awaitLedgerText(String expected) throws Exception {
+        for (int i = 0; i < 500; i++) {
+            if (ledgerFile().isFile() && expected.equals(text(ledgerFile()))) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        assertEquals(expected, ledgerFile().isFile() ? text(ledgerFile()) : "(missing)");
+    }
+
+    @Test
+    void fileLinesCarryTheRestoreState() throws Exception {
+        OverrideLedger l = ledger(new RingLog(50));
+        RecordingApplier a = new RecordingApplier();
+        a.failures = Integer.MAX_VALUE; // the ECU never accepts a write
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        assertEquals("k=p|PERSISTENT|OLD|NEW|A\n", text(ledgerFile()));
+
+        ov.release();
+        awaitLedgerText("k=p|PERSISTENT|OLD|NEW|R\n"); // no Clock advance: written before the first restore
+    }
+
+    @Test
+    void fourFieldLinesFromOlderRunsLoadAsHeld() throws Exception {
+        write(ledgerFile(), "k=p|PERSISTENT|OLD|NEW\n");
+        OverrideLedger l = ledger(new RingLog(50));
+        assertEquals(1, l.active().size());
+        assertFalse(l.active().get(0).restorePending());
+
+        final List<String> fileAtApply = Collections.synchronizedList(new ArrayList<String>());
+        final List<String> calls = Collections.synchronizedList(new ArrayList<String>());
+        l.attach(new OverrideLedger.Applier() {
+            public void apply(String key, String value) throws Exception {
+                fileAtApply.add(text(ledgerFile()));
+                calls.add(key + "=" + value);
+            }
+        });
+        assertTrue(l.awaitIdle(5000));
+        assertTrue(calls.isEmpty(), "a held entry is not applied by attach: " + calls);
+
+        l.releaseAllFor("p");
+        awaitFirst(calls, "k=OLD");
+        assertEquals("k=p|PERSISTENT|OLD|NEW|R\n", fileAtApply.get(0), "the R state is on disk before the restore");
+        awaitLedgerEmpty();
+    }
+
+    @Test
+    void restorePendingAtShutdownIsFinishedByTheNextLedger() throws Exception {
+        OverrideLedger l = ledger(new RingLog(50));
+        RecordingApplier failing = new RecordingApplier();
+        failing.failures = Integer.MAX_VALUE;
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", failing);
+        ov.release();
+        awaitAttempts(failing, 2);
+        assertTrue(l.awaitIdle(5000));
+        l.shutdown();
+        assertTrue(text(ledgerFile()).endsWith("|R\n"), text(ledgerFile()));
+
+        OverrideLedger next = ledger(new RingLog(50));
+        assertEquals(1, next.active().size());
+        assertTrue(next.active().get(0).restorePending());
+        RecordingApplier ok = new RecordingApplier();
+        next.attach(ok);
+        ok.await(1);
+        assertEquals("k=OLD", ok.calls.get(0));
+        awaitActiveSize(next, 0);
+        awaitLedgerEmpty();
+    }
+
+    @Test
+    void pendingRestoreOfAnEnabledPluginIsFinishedAtTheNextStart() throws Exception {
+        togglePlugin("keeper", "PERSISTENT");
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+
+        fake.ecuFailWrites(Integer.MAX_VALUE);
+        rt.disable("keeper", "test");
+        awaitApplied(2, F1R1L0X0); // the restore was attempted and rejected
+        rt.stop();
+        assertTrue(text(ledgerFile()).endsWith("|R\n"), text(ledgerFile()));
+
+        fake.ecuFailWrites(0);
+        start(null); // same roots; keeper is still installed and enabled, and does not re-acquire
+        assertEquals(PluginState.ENABLED, status("keeper").state());
+        awaitNoOverrides();
+        assertEquals(F1R1L0X0, fake.ecuSoundDirections());
+        awaitLedgerEmpty();
     }
 
     // ---- fixtures ----

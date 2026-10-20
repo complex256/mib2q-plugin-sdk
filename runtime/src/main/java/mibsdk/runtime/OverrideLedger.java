@@ -18,18 +18,24 @@ import mibsdk.api.VehicleOverride;
  * Runtime-owned record of every override of persistent vehicle/ECU state, so the runtime (not the plugin)
  * can put the prior value back.
  *
- * <p>File: {@code <persist>/ledger.properties}, one line per key, {@code <key>=<pluginId>|<scope>|<prior>|<active>},
- * sorted by key, no comments and no wall-clock values (an empty ledger is an empty file). Written with
- * temp file + fsync + rename on every change. The prior is on disk before {@link #acquire} returns and
- * before anything is applied; an entry leaves the file only once its prior is back (applied, or reported
- * by the car).
+ * <p>File: {@code <persist>/ledger.properties}, one line per key,
+ * {@code <key>=<pluginId>|<scope>|<prior>|<active>|<state>}, sorted by key, no comments and no wall-clock
+ * values (an empty ledger is an empty file). {@code <state>} is {@code A} (held: the override is in force)
+ * or {@code R} (restoring: the prior must go back, whoever owns the plugin id). A line of four fields,
+ * written before the state existed, loads as {@code A}; writing always produces five. Written with
+ * {@link DurableFiles#replace} on every change. The prior is on disk before {@link #acquire} returns and
+ * before anything is applied; a release has its {@code R} queued to the file before the first restore
+ * attempt, and {@link #shutdown()} writes the final state, so a restore still pending at stop is finished
+ * by the next boot (a loaded {@code R} entry is restored as soon as {@link #attach} gives it an applier).
+ * An entry leaves the file only once its prior is back (applied, or reported by the car).
  * An unreadable file is treated as empty (logged, and kept aside as {@code ledger.properties.corrupt});
  * a malformed line is skipped (logged).
  *
  * <p>Threads: every {@link Applier#apply} (initial apply, restore, sticky re-apply, retry) runs on the
  * ledger's own daemon thread {@code mibsdk-ledger} (a {@link SerialExecutor}, priority NORM-1), never on a
  * stock thread or a plugin's executor. The public methods only change memory under a private lock and
- * queue work; {@link #acquire} additionally writes the file on the caller's thread. No monitor reachable by
+ * queue work; {@link #acquire} additionally writes the file on the caller's thread, and {@link #shutdown()}
+ * once more on its caller's thread. No monitor reachable by
  * plugin code is ever taken: handles ({@link VehicleOverride}) lock the ledger's private lock only. Delays
  * (debounce, retry) are measured on the injected {@link Clock} via a {@link PluginScheduler}.
  *
@@ -63,6 +69,10 @@ public final class OverrideLedger {
     static final long MAX_RETRY_MS = 60000;
     /** Attempts for applying an override; a restore is never given up while the runtime runs. */
     static final int MAX_ATTEMPTS = 5;
+    /** File state of an entry whose override is in force. */
+    static final String STATE_HELD = "A";
+    /** File state of an entry whose prior must be restored. */
+    static final String STATE_RESTORING = "R";
     private static final String SOURCE = "ledger";
     private static final int MAX_TOKEN = 128;
     private static final long WAIT_SLICE_MS = 50;
@@ -261,7 +271,7 @@ public final class OverrideLedger {
                 }
             }
         }
-        enqueueSyncs(keys, "released for " + pluginId);
+        enqueueRestores(keys, "released for " + pluginId);
     }
 
     /** Restores every entry of {@code scope} (ignition off: UNTIL_IGNITION_OFF). Never blocks. */
@@ -276,12 +286,13 @@ public final class OverrideLedger {
                 }
             }
         }
-        enqueueSyncs(keys, "scope " + scope + " ended");
+        enqueueRestores(keys, "scope " + scope + " ended");
     }
 
     /** Safe mode / startup: restores every entry left in the file, using {@code applier} (also kept as fallback). */
     public void restorePendingOnBoot(Applier applier) {
         List keys = new ArrayList();
+        boolean marked = false;
         synchronized (lock) {
             if (applier != null) {
                 fallback = applier;
@@ -290,11 +301,15 @@ public final class OverrideLedger {
                 Entry e = (Entry) entries.get(i);
                 if (!e.restoring) {
                     markRestoring(e);
+                    marked = true;
                 }
                 keys.add(e.key);
             }
         }
         timer(); // create the ledger thread now, not later on a publishing thread
+        if (marked) {
+            enqueuePersist();
+        }
         enqueueSyncs(keys, "pending restore on boot");
     }
 
@@ -450,10 +465,17 @@ public final class OverrideLedger {
         }
     }
 
-    /** Stops the ledger thread. Entries not yet restored stay in the file for the next boot. */
+    /**
+     * Stops the ledger thread, then writes the file once on the caller's thread (queued writes are dropped
+     * with the thread). Entries not yet restored stay in the file, with their state, for the next boot. A
+     * second call does nothing.
+     */
     void shutdown() {
         SerialExecutor w;
         synchronized (lock) {
+            if (shutdown) {
+                return;
+            }
             shutdown = true;
             w = worker;
             worker = null;
@@ -462,6 +484,7 @@ public final class OverrideLedger {
         if (w != null) {
             w.shutdown();
         }
+        write();
     }
 
     // ---- releasing ----
@@ -477,7 +500,7 @@ public final class OverrideLedger {
         }
         List keys = new ArrayList();
         keys.add(key);
-        enqueueSyncs(keys, byPlugin ? "released by the plugin" : "the plugin stopped");
+        enqueueRestores(keys, byPlugin ? "released by the plugin" : "the plugin stopped");
     }
 
     /** Called when the plugin's registrations are cancelled (disable, quarantine, stop). */
@@ -510,6 +533,27 @@ public final class OverrideLedger {
     }
 
     // ---- ledger thread ----
+
+    /** Entries just marked restoring: their R goes to the file first, then each restore is queued. */
+    private void enqueueRestores(List keys, String why) {
+        if (keys.isEmpty()) {
+            return;
+        }
+        enqueuePersist();
+        enqueueSyncs(keys, why);
+    }
+
+    /** Queues one write of the file on the ledger thread (never on the caller's: it may be publishing). */
+    private void enqueuePersist() {
+        SerialExecutor w = worker();
+        if (w != null) {
+            w.submit("ledger:persist", new Runnable() {
+                public void run() {
+                    write();
+                }
+            });
+        }
+    }
 
     private void enqueueSyncs(List keys, String why) {
         for (int i = 0; i < keys.size(); i++) {
@@ -821,7 +865,8 @@ public final class OverrideLedger {
             for (int i = 0; i < sorted.size(); i++) {
                 Entry e = (Entry) sorted.get(i);
                 b.append(e.key).append('=').append(e.pluginId).append('|').append(e.scope.name()).append('|')
-                        .append(e.prior).append('|').append(e.active).append('\n');
+                        .append(e.prior).append('|').append(e.active).append('|')
+                        .append(e.restoring ? STATE_RESTORING : STATE_HELD).append('\n');
             }
         }
         try {
@@ -877,20 +922,35 @@ public final class OverrideLedger {
         }
     }
 
-    /** {@code <pluginId>|<scope>|<prior>|<active>}, or null if malformed. */
+    /**
+     * {@code <pluginId>|<scope>|<prior>|<active>|<state>}, or the four fields without a state (an older
+     * file: held); null if malformed. A restoring entry is loaded unowned and restoring.
+     */
     private static Entry parse(String key, String value) {
         if (!isToken(key) || value == null) {
             return null;
         }
-        String[] f = new String[4];
+        String[] f = new String[5];
+        int n = 0;
         int start = 0;
-        for (int i = 0; i < 4; i++) {
-            int bar = value.indexOf('|', start);
-            if (i < 3 && bar < 0 || i == 3 && bar >= 0) {
+        while (true) {
+            if (n == f.length) {
                 return null;
             }
-            f[i] = i < 3 ? value.substring(start, bar) : value.substring(start);
+            int bar = value.indexOf('|', start);
+            f[n++] = bar < 0 ? value.substring(start) : value.substring(start, bar);
+            if (bar < 0) {
+                break;
+            }
             start = bar + 1;
+        }
+        boolean restoring;
+        if (n == 4 || n == 5 && STATE_HELD.equals(f[4])) {
+            restoring = false;
+        } else if (n == 5 && STATE_RESTORING.equals(f[4])) {
+            restoring = true;
+        } else {
+            return null;
         }
         OverrideScope scope = null;
         OverrideScope[] all = OverrideScope.values();
@@ -906,6 +966,7 @@ public final class OverrideLedger {
         e.pluginId = f[0];
         e.scope = scope;
         e.active = f[3];
+        e.restoring = restoring; // holder stays null: a loaded entry is never held by a handle
         return e;
     }
 
