@@ -31,9 +31,19 @@ import mibsdk.platform.ParkingIo;
  * {@code events().on(HookObserved.class)} and {@code parking().overrideSoundDirections} use the plugin's
  * effective permissions, fixed when it was enabled: the permissions its manifest declares that the owner
  * also granted (a granted but undeclared permission is not usable). {@code vehicle().parking()} throws
- * {@link UnsupportedOperationException} when the adapter has no {@link Features#PARKING}.
+ * {@link UnsupportedOperationException} while the adapter has no {@link Features#PARKING}.
+ *
+ * <p>Features are {@link LiveFeatures}, read at call time: {@link #has}, hook registration and
+ * {@code vehicle().parking()} see a feature the adapter learns after this plugin was enabled. The first
+ * {@code vehicle().parking()} that finds {@link Features#PARKING} and the adapter's parking I/O builds the
+ * plugin's {@link Parking}, which is then kept.
  */
 final class PluginContextImpl implements PluginContext {
+
+    /** The adapter's parking I/O as of now, or null (no {@link Features#PARKING}, or the adapter failed). */
+    interface ParkingSource {
+        ParkingIo parkingIo();
+    }
 
     /**
      * Wraps a subscription so cancelling it also forgets it in the plugin's {@link Registrations}. The
@@ -82,9 +92,13 @@ final class PluginContextImpl implements PluginContext {
     private final SerialExecutor exec;
     private final PluginScheduler pluginScheduler;
     private final Registrations registrations;
-    private final Set<String> features;
+    private final LiveFeatures features;
     private final Set<String> granted;
     private final Hooks hooks;
+    private final ParkingSource parkingSource;
+    private final OverrideLedger ledger;
+    private final Object parkingLock = new Object();
+    private Parking parking; // guarded by parkingLock; built once, then kept
 
     private final Log log = new Log() {
         @Override
@@ -157,11 +171,11 @@ final class PluginContextImpl implements PluginContext {
 
     /**
      * @param granted the effective permissions (manifest permissions that are also granted)
-     * @param parkingIo the adapter's parking I/O, or null when it has none
+     * @param parking asked for the adapter's parking I/O on each {@code vehicle().parking()} until it has one
      */
     PluginContextImpl(String id, RingLog ringLog, PluginStorage storage, EventBus bus, SerialExecutor exec,
-            PluginScheduler pluginScheduler, Registrations registrations, Set<String> features,
-            Set<String> granted, HookTable hookTable, ParkingIo parkingIo, OverrideLedger ledger) {
+            PluginScheduler pluginScheduler, Registrations registrations, LiveFeatures features,
+            Set<String> granted, HookTable hookTable, ParkingSource parking, OverrideLedger ledger) {
         this.id = id;
         this.ringLog = ringLog;
         this.storage = storage;
@@ -172,17 +186,29 @@ final class PluginContextImpl implements PluginContext {
         this.features = features;
         this.granted = granted;
         this.hooks = new HooksImpl(hookTable, bus, id, exec, registrations, features, granted);
-        final Parking parking = parkingIo == null || !features.contains(Features.PARKING) ? null
-                : new ParkingImpl(id, parkingIo, ledger, registrations, granted);
+        this.parkingSource = parking;
+        this.ledger = ledger;
         this.vehicle = new Vehicle() {
             @Override
             public Parking parking() {
-                if (parking == null) {
-                    throw new UnsupportedOperationException("parking is not available on this platform");
-                }
-                return parking;
+                return parkingNow();
             }
         };
+    }
+
+    private Parking parkingNow() {
+        synchronized (parkingLock) {
+            if (parking == null && features.has(Features.PARKING)) {
+                ParkingIo io = parkingSource.parkingIo();
+                if (io != null) {
+                    parking = new ParkingImpl(id, io, ledger, registrations, granted);
+                }
+            }
+            if (parking == null) {
+                throw new UnsupportedOperationException("parking is not available on this platform");
+            }
+            return parking;
+        }
     }
 
     @Override
@@ -223,7 +249,7 @@ final class PluginContextImpl implements PluginContext {
 
     @Override
     public boolean has(String feature) {
-        return features.contains(feature);
+        return features.has(feature);
     }
 
     @Override

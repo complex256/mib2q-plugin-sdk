@@ -19,7 +19,7 @@ import mibsdk.platform.SdkRoots;
 public final class FakePlatform implements PlatformAdapter {
 
     private final String supportedVersion;
-    private final Set<String> features;
+    private volatile Set<String> features;
     private final List<SoundDirections> applied = Collections.synchronizedList(new ArrayList<SoundDirections>());
     private volatile PlatformHost host;
     private volatile SoundDirections ecu = new SoundDirections(true, true, true, true);
@@ -106,6 +106,18 @@ public final class FakePlatform implements PlatformAdapter {
     @Override
     public ParkingIo parking() {
         return parking;
+    }
+
+    /**
+     * Simulates the adapter learning (or losing) features after start, e.g. a DSI service that arrived late:
+     * replaces {@link #features()} and, if started, calls {@link PlatformHost#featuresChanged()}.
+     */
+    public void setFeatures(Set<String> features) {
+        this.features = Collections.unmodifiableSet(new HashSet<String>(features));
+        PlatformHost h = host;
+        if (h != null) {
+            h.featuresChanged();
+        }
     }
 
     /** Simulates the ignition changing; publishes {@link IgnitionChanged}. */

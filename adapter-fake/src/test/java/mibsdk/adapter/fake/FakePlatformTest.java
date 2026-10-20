@@ -25,10 +25,16 @@ class FakePlatformTest {
     private static final class RecordingHost implements PlatformHost {
         final List<Object> events = Collections.synchronizedList(new ArrayList<Object>());
         final HookTable table = new HookTable(16);
+        int featuresChanged;
 
         @Override
         public void publish(Object apiEvent) {
             events.add(apiEvent);
+        }
+
+        @Override
+        public void featuresChanged() {
+            featuresChanged++;
         }
 
         @Override
@@ -197,5 +203,26 @@ class FakePlatformTest {
 
         assertEquals(1, host.events.size());
         assertEquals(OLD, ((ParkingSoundChanged) host.events.get(0)).value());
+    }
+
+    @Test
+    void setFeaturesNotifiesTheHost() throws Exception {
+        Set<String> more = new HashSet<String>();
+        more.add(Features.PARKING);
+        more.add(Features.IGNITION);
+        more.add(Features.HOOK_PARKING);
+        FakePlatform unstarted = new FakePlatform("FAKE_HMI", new HashSet<String>());
+        unstarted.setFeatures(more); // not started: nobody to tell
+        assertEquals(more, unstarted.features());
+
+        RecordingHost host = new RecordingHost();
+        FakePlatform p = started(host);
+        assertFalse(p.features().contains(Features.HOOK_PARKING));
+        p.setFeatures(more);
+        assertEquals(more, p.features());
+        assertEquals(1, host.featuresChanged);
+        more.clear();
+        assertTrue(p.features().contains(Features.HOOK_PARKING), "a copy is kept");
+        assertTrue(host.events.isEmpty(), "no API event");
     }
 }

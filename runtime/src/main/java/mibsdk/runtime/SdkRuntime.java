@@ -80,7 +80,9 @@ import mibsdk.platform.PlatformHost;
  * during {@code start()}); a {@link #reload} before that load is deferred (logged; the load takes the
  * current jar). The boot counts toward safe mode only from the start of the plugin load
  * ({@link BootGuard#markPluginsLoading}), and {@code healthyAfterMs} after loading it is marked healthy. Every
- * {@code IgnitionChanged(false)} marks a clean shutdown. Independently of plugins, {@code healthyAfterMs} after
+ * {@code IgnitionChanged(false)} that follows an {@code IgnitionChanged(true)} of this run marks a clean shutdown
+ * (an adapter's first observation may be "off": that is KL15 off at boot, not a shutdown; the ledger still learns
+ * it). Independently of plugins, {@code healthyAfterMs} after
  * {@code start()} the HMI is marked healthy for the configurator ({@link BootGuard#markHmiHealthy}), unless
  * {@code pluginStartDelayMs >= healthyAfterMs}: then the wrap count is cleared in the same write that starts the
  * plugin count, so it is kept until the load and no crash counts nowhere. A boot where every plugin FAILED is not
@@ -89,6 +91,12 @@ import mibsdk.platform.PlatformHost;
  * the runtime logs the STATUS line with {@code adapter=none} and stops at once, leaving the boot guard and
  * the ledger untouched. Once {@link #stop()} is requested no plugin is enabled any more: a delayed or
  * in-flight load bails, and a plugin whose {@code onEnable} was running is disabled again.
+ *
+ * <p>Features: read in {@code start()}, again before the plugin load, and whenever the adapter calls
+ * {@link PlatformHost#featuresChanged()} (a service that arrived late); then on the control thread, logging
+ * {@code STATUS mibsdk features=[...]} if the set changed. Plugin contexts share one {@link LiveFeatures}, so
+ * running plugins see the change at their next {@code has()}, hook registration or {@code vehicle().parking()}.
+ * No API event announces it.
  */
 public final class SdkRuntime {
 
@@ -151,8 +159,11 @@ public final class SdkRuntime {
     private final List hosts = new ArrayList(); // PluginHost in discovery order; guarded by this
     private final List enabledOrder = new ArrayList(); // active PluginHost, oldest enable first; guarded by this
     private volatile Grants grants = Grants.load(null); // re-read by loadAll and reload on the control thread
-    /** Read in start() and again before the initial plugin load (a hook service may be wrapped in between). */
-    private volatile Set<String> features = Collections.emptySet();
+    /** Read in start(), before the initial plugin load and on featuresChanged() (a service may arrive late). */
+    private final LiveFeatures features = new LiveFeatures(Collections.<String>emptySet());
+    private final Object featuresLock = new Object(); // serializes read-and-set, so the last read wins
+    /** Publishing thread: this run saw IgnitionChanged(true); only an off after that is a clean shutdown. */
+    private volatile boolean ignitionOnSeen;
     private SerialExecutor control; // guarded by this
     private boolean started; // guarded by this
     private boolean stopped; // guarded by this
@@ -203,8 +214,30 @@ public final class SdkRuntime {
         }
 
         @Override
+        public void featuresChanged() {
+            SerialExecutor c = control();
+            if (c == null) {
+                return;
+            }
+            c.submit("features", new Runnable() {
+                public void run() {
+                    if (!isStopped()) {
+                        refreshFeatures();
+                    }
+                }
+            });
+        }
+
+        @Override
         public void log(String msg, Throwable t) {
             log.append(t == null ? "INFO" : "ERROR", "platform", t == null ? msg : msg + ": " + describe(t));
+        }
+    };
+
+    /** What plugin contexts ask for the adapter's parking I/O, on their first {@code vehicle().parking()}. */
+    private final PluginContextImpl.ParkingSource parkingSource = new PluginContextImpl.ParkingSource() {
+        public ParkingIo parkingIo() {
+            return SdkRuntime.this.parkingIo();
         }
     };
 
@@ -273,7 +306,7 @@ public final class SdkRuntime {
         ledger.attach(platformApplier); // before the adapter can publish: creates the ledger thread here
         try {
             platform.start(platformHost);
-            features = Collections.unmodifiableSet(new HashSet<String>(platform.features()));
+            readFeatures();
             adapterId = platform.id();
             adapterStarted = true;
         } catch (Throwable e) {
@@ -687,13 +720,29 @@ public final class SdkRuntime {
         }
     }
 
-    /** Control thread: the adapter's features as of now (it may learn of a wrapped service after start). */
+    /** Control thread: the adapter's features as of now (it may learn of a service after start); logs a change. */
     private void refreshFeatures() {
         try {
-            features = Collections.unmodifiableSet(new HashSet<String>(platform.features()));
+            if (readFeatures()) {
+                log.append("STATUS", SOURCE, "features=" + sorted(features.snapshot()));
+            }
         } catch (Throwable t) {
-            log.append("ERROR", SOURCE, "adapter features() failed, keeping " + features + ": " + describe(t));
+            log.append("ERROR", SOURCE, "adapter features() failed, keeping " + sorted(features.snapshot()) + ": "
+                    + describe(t));
         }
+    }
+
+    /** Reads the adapter's features into {@link #features}; true if they changed. Throws what features() throws. */
+    private boolean readFeatures() {
+        synchronized (featuresLock) {
+            return features.set(platform.features());
+        }
+    }
+
+    private static List sorted(Set<String> s) {
+        List out = new ArrayList(s);
+        Collections.sort(out);
+        return out;
     }
 
     /** False if it bailed because stop() was requested (then the stop step owns the ledger and the plugins). */
@@ -874,7 +923,7 @@ public final class SdkRuntime {
         h.exec = new SerialExecutor("plugin-" + h.id, clock, cfg.slowMs(), cfg.hungMs(), executorListener(h));
         h.scheduler = new PluginScheduler(h.exec, clock);
         h.ctx = new PluginContextImpl(h.id, log, h.storage, bus, h.exec, h.scheduler, h.registrations, features,
-                effectivePermissions(m), hooks, parkingIo(), ledger);
+                effectivePermissions(m), hooks, parkingSource, ledger);
         EnableHook hook = testEnableHook;
         if (hook != null) {
             hook.afterResources(h.id);
@@ -1064,7 +1113,7 @@ public final class SdkRuntime {
     /** The adapter's parking I/O, or null (no Features.PARKING, or the adapter failed). */
     private ParkingIo parkingIo() {
         try {
-            return features.contains(Features.PARKING) ? platform.parking() : null;
+            return features.has(Features.PARKING) ? platform.parking() : null;
         } catch (Throwable t) {
             log.append("ERROR", SOURCE, "adapter parking() failed: " + describe(t));
             return null;
@@ -1072,14 +1121,20 @@ public final class SdkRuntime {
     }
 
     /**
-     * IgnitionChanged(false) marks a clean shutdown in boot.state, before publish returns: the unit may lose
-     * power any time after the ignition goes off. The one write per ignition-off is the only I/O on the
-     * publishing thread (adapters publish from their own threads, never from stock ones). Never throws.
+     * IgnitionChanged(false) after an IgnitionChanged(true) of this run marks a clean shutdown in boot.state,
+     * before publish returns: the unit may lose power any time after the ignition goes off. The one write per
+     * ignition-off is the only I/O on the publishing thread (adapters publish from their own threads, never from
+     * stock ones). An off before any on is the adapter's first observation (KL15 off at boot), not a shutdown:
+     * marking it would keep a crash loop with the ignition off from ever counting. Never throws.
      */
     private void noteIgnition(Object event) {
         try {
-            if (event instanceof IgnitionChanged && !((IgnitionChanged) event).isOn()) {
-                bootGuard.markCleanShutdown();
+            if (event instanceof IgnitionChanged) {
+                if (((IgnitionChanged) event).isOn()) {
+                    ignitionOnSeen = true;
+                } else if (ignitionOnSeen) {
+                    bootGuard.markCleanShutdown();
+                }
             }
         } catch (Throwable t) {
             log.append("ERROR", SOURCE, "cannot record the clean shutdown: " + describe(t));

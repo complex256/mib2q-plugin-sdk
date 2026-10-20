@@ -641,6 +641,24 @@ class OverrideLedgerTest {
     }
 
     @Test
+    void parkingLearnedAfterTheLoadBecomesAvailable() throws Exception {
+        fake = platform(Features.IGNITION);
+        plugin("latepark", READ_WRITE, READ_WRITE,
+                "ctx.events().on(IgnitionChanged.class, e -> {\n"
+                + "  try { ctx.vehicle().parking(); ctx.log().info(\"parking ok\"); }\n"
+                + "  catch (UnsupportedOperationException x) { ctx.log().info(\"parking unsupported\"); }\n"
+                + "});", null);
+        start(null);
+        fake.setIgnition(true);
+        awaitCount("latepark", "parking unsupported", 1);
+
+        fake.setFeatures(new HashSet<String>(Arrays.asList(Features.IGNITION, Features.PARKING)));
+        awaitLog(rt.log(), "STATUS mibsdk features=[vehicle.ignition, vehicle.parking]");
+        fake.setIgnition(false);
+        awaitCount("latepark", "parking ok", 1);
+    }
+
+    @Test
     void applyRunsOnLedgerThreadAndFailureIsContained() throws Exception {
         final List<String> threads = Collections.synchronizedList(new ArrayList<String>());
         final int[] failNext = {1};
@@ -1546,6 +1564,34 @@ class OverrideLedgerTest {
         awaitActiveSize(l, 0); // the restore finished in memory and tried to rewrite the file
         Thread.sleep(100);
         assertEquals("k=p|PERSISTENT|OLD|NEW|R\n", text(ledgerFile()), "no write after the halt");
+    }
+
+    /**
+     * T5 review: the adapter's first observation is "off" (KL15 already off at boot) and arrives before the plugin
+     * load. An UNTIL_IGNITION_OFF override a plugin takes after that (here in onEnable) belongs to no drive: the next
+     * ignition on ends it.
+     */
+    @Test
+    void overrideAcquiredAfterAnInitialIgnitionOffEndsAtTheNextIgnitionOn() throws Exception {
+        plugin("early", READ_WRITE, READ_WRITE,
+                "ov = ctx.vehicle().parking().overrideSoundDirections(new SoundDirections(true, false, true, true),\n"
+                + "    OverrideScope.UNTIL_IGNITION_OFF);\n"
+                + "ctx.log().info(\"acquired active=\" + ov.isActive());",
+                "VehicleOverride ov;");
+        start("plugin.start.delay.ms=30000\n");
+        fake.ecuSetSoundDirections(F1R1L1X1);
+        fake.setIgnition(false); // the adapter's first observation, before the load
+        clock.advance(30000);
+        awaitCount("early", "acquired active=true", 1);
+        awaitApplied(1, F1R0L1X1);
+        assertEquals(1, rt.activeOverrides().size());
+
+        fake.setIgnition(true);
+        awaitNoOverrides();
+        assertEquals(F1R1L1X1, fake.ecuSoundDirections());
+        assertTrue(logContains(rt.log(), "restoring " + KEY + ": acquired while the ignition was off; ignition on"),
+                rt.log().snapshot().toString());
+        awaitLedgerEmpty();
     }
 
     /** Fix round 1: a plugin that re-acquires on IgnitionChanged(true) keeps its new override in force. */

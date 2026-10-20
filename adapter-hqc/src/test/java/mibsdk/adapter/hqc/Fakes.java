@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import mibsdk.platform.HookTable;
 import mibsdk.platform.PlatformHost;
@@ -75,6 +76,7 @@ final class Fakes {
         final HookTable hooks = new HookTable(16);
         /** If set, publish blocks until it is opened (simulates a slow subscriber). */
         volatile CountDownLatch gate;
+        final AtomicInteger featuresChanged = new AtomicInteger();
 
         @Override
         public void publish(Object apiEvent) {
@@ -88,6 +90,11 @@ final class Fakes {
                 }
             }
             events.add(apiEvent);
+        }
+
+        @Override
+        public void featuresChanged() {
+            featuresChanged.incrementAndGet();
         }
 
         @Override

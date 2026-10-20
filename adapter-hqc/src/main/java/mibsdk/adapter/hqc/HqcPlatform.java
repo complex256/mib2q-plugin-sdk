@@ -18,7 +18,8 @@ import org.osgi.framework.BundleContext;
  * ({@link IgnitionBridge}), and the parking hook points (recorded by {@link DsiServiceProxy}, which
  * {@link ChainingConfigurator} installs). {@link #start} returns at once: a {@link ServiceWaiter} finds the DSI
  * services on its own threads and attaches the bridges when they appear; their events reach the runtime through
- * one {@link EventPump} thread, never from a stock thread.
+ * one {@link EventPump} thread, never from a stock thread. Once the parking bridge is attached the waiter thread
+ * calls {@link PlatformHost#featuresChanged()}: the service may have arrived after the plugin load.
  */
 public final class HqcPlatform implements PlatformAdapter {
 
@@ -61,7 +62,8 @@ public final class HqcPlatform implements PlatformAdapter {
     /**
      * PARKING and IGNITION, plus HOOK_PARKING only if the configurator wrapped the parking service this boot
      * (wrapping enabled and its raw object recorded): otherwise no parking hook point ever fires, and plugins must
-     * see {@code has(HOOK_PARKING) == false}. The runtime reads this again right before it loads plugins.
+     * see {@code has(HOOK_PARKING) == false}. The runtime reads this again before it loads plugins and on every
+     * {@link PlatformHost#featuresChanged()}.
      */
     public Set<String> features() {
         return SdkGlobals.wrappingEnabled && RawServices.get(DSICarParkingSystem.class.getName()) != null
@@ -69,7 +71,7 @@ public final class HqcPlatform implements PlatformAdapter {
     }
 
     /** Starts the event pump and the service waits; does not block. A second start is ignored. */
-    public synchronized void start(PlatformHost host) {
+    public synchronized void start(final PlatformHost host) {
         if (pump != null) {
             return;
         }
@@ -86,6 +88,7 @@ public final class HqcPlatform implements PlatformAdapter {
             public void onAvailable(Object service) {
                 pb.attach(service);
                 SdkGlobals.LOG.append("STATUS", "mibsdk", SdkBoot.seamLine()); // raw.parking is final from here
+                host.featuresChanged(); // features() may now include HOOK_PARKING; plugins may already run
             }
         });
         w.await(DSIPowerManagement.class.getName(), RETRY_MS, new ServiceWaiter.Callback() {

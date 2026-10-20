@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Properties;
 import mibsdk.adapter.fake.FakePlatform;
 import mibsdk.api.Features;
+import mibsdk.api.IgnitionChanged;
 import mibsdk.api.SoundDirections;
 import mibsdk.platform.HookTable;
 import mibsdk.platform.PlatformAdapter;
@@ -325,6 +326,7 @@ class SdkRuntimeBootTest {
         Thread.sleep(300);
         assertEquals("3", bootState().getProperty("unhealthyBoots"));
 
+        fake.setIgnition(true);
         fake.setIgnition(false); // a clean shutdown is still recorded
         awaitBootState("lastShutdownClean", "true");
     }
@@ -335,8 +337,22 @@ class SdkRuntimeBootTest {
     void ignitionOffMarksCleanShutdown() throws Exception {
         start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
         assertEquals("false", bootState().getProperty("lastShutdownClean"));
+        fake.setIgnition(true);
         fake.setIgnition(false);
         assertEquals("true", bootState().getProperty("lastShutdownClean"), "written before publish returns");
+    }
+
+    /** An adapter's first observation may be "off" (KL15 off at boot): that is no on-to-off transition. */
+    @Test
+    void anInitialIgnitionOffIsNotACleanShutdown() throws Exception {
+        plugin("hello");
+        start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
+        assertEquals("false", bootState().getProperty("lastShutdownClean"));
+        fake.setIgnition(false);
+        assertEquals("false", bootState().getProperty("lastShutdownClean"), "a crash after this still counts");
+        fake.setIgnition(true);
+        fake.setIgnition(false);
+        assertEquals("true", bootState().getProperty("lastShutdownClean"));
     }
 
     @Test
@@ -392,6 +408,7 @@ class SdkRuntimeBootTest {
         assertTrue(logContains("WARN mibsdk wrapping=off reason=wrap-boots n=3"), rt.log().snapshot().toString());
         clock.advance(60000);
         Thread.sleep(300);
+        fake.setIgnition(true);
         fake.setIgnition(false);
         assertEquals("3", bootState().getProperty("wrapBoots"), "only a reset clears a latched wrap loop");
     }
@@ -537,6 +554,26 @@ class SdkRuntimeBootTest {
         clock.advance(30000);
         awaitState("probe", PluginState.ENABLED);
         assertEquals(1, count("probe", "hook=true"), rt.log().snapshot().toString());
+    }
+
+    @Test
+    void featuresLearnedAfterTheLoadReachEnabledPlugins() throws Exception {
+        jars.write(plugins, "probe", "1", null, null,
+                "ctx.events().on(IgnitionChanged.class, e -> ctx.log().info(\"hook=\" + ctx.has(Features.HOOK_PARKING)));",
+                null);
+        FakePlatform late = new FakePlatform("HMI_TEST",
+                new HashSet<String>(Arrays.asList(Features.IGNITION, Features.PARKING)));
+        runtime("plugin.start.delay.ms=0\nheap.low.bytes=0\n", late).start();
+        awaitState("probe", PluginState.ENABLED);
+        late.setIgnition(true);
+        awaitLog("INFO probe hook=false");
+
+        late.setFeatures(new HashSet<String>(Arrays.asList(Features.IGNITION, Features.PARKING, Features.HOOK_PARKING)));
+        awaitLog("STATUS mibsdk features=[hook.parking, vehicle.ignition, vehicle.parking]");
+        late.setIgnition(true);
+        awaitLog("INFO probe hook=true");
+        assertEquals(1, count("probe", "hook=false"));
+        assertEquals(1, count("mibsdk", "features=[hook.parking, vehicle.ignition, vehicle.parking]"));
     }
 
     // ---- heap watch wiring ----
@@ -699,6 +736,7 @@ class SdkRuntimeBootTest {
         for (int i = 0; i < 3; i++) {
             start("plugin.start.delay.ms=30000\nheap.low.bytes=0\n");
             assertFalse(rt.safeMode(), "boot " + (i + 1));
+            fake.setIgnition(true);
             fake.setIgnition(false);
             clock.advance(30000);
             awaitState("hello", PluginState.ENABLED); // the delay ends before power-off
