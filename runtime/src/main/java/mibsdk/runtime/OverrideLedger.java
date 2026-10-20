@@ -216,6 +216,7 @@ public final class OverrideLedger {
     private boolean shutdown; // guarded by lock
     private boolean halted; // guarded by lock; simulated power loss: no file write any more
     private boolean ignitionOff; // guarded by lock; unknown (false) until the first ignition event
+    private int restoresFinished; // guarded by lock; entries removed after their restore
     private SerialExecutor worker; // guarded by lock; created on first use
     private PluginScheduler timer; // guarded by lock
 
@@ -239,6 +240,24 @@ public final class OverrideLedger {
      */
     public VehicleOverride acquire(String key, String pluginId, OverrideScope scope, String priorEncoded,
             String activeEncoded, Applier applier) throws OverrideConflictException {
+        return acquire(key, pluginId, scope, priorEncoded, activeEncoded, applier, -1);
+    }
+
+    /** How many restores have finished; a caller reads it before it reads the prior it passes to acquire. */
+    int restoresFinished() {
+        synchronized (lock) {
+            return restoresFinished;
+        }
+    }
+
+    /**
+     * As {@link #acquire(String, String, OverrideScope, String, String, Applier)}, but {@code priorEncoded} was read
+     * when {@link #restoresFinished()} was {@code restoresSeen}. If a restore has finished since and nothing holds
+     * {@code key}, that prior may be the value just restored away from: nothing is recorded and null is returned,
+     * so the caller reads the prior again. A negative {@code restoresSeen} skips the check.
+     */
+    VehicleOverride acquire(String key, String pluginId, OverrideScope scope, String priorEncoded,
+            String activeEncoded, Applier applier, int restoresSeen) throws OverrideConflictException {
         requireToken("key", key);
         requireToken("pluginId", pluginId);
         requireToken("prior", priorEncoded);
@@ -258,6 +277,9 @@ public final class OverrideLedger {
                 e = find(key);
                 if (e != null && !e.restoring && !e.pluginId.equals(pluginId)) {
                     throw new OverrideConflictException(key, e.pluginId);
+                }
+                if (e == null && restoresSeen >= 0 && restoresSeen != restoresFinished) {
+                    return null; // the prior may predate a restore that just finished
                 }
                 before = e == null ? null : e.copy();
                 if (e == null) {
@@ -845,6 +867,7 @@ public final class OverrideLedger {
                 return;
             }
             entries.remove(e);
+            restoresFinished++;
             e.stopConfirming();
             owner = e.pluginId;
         }

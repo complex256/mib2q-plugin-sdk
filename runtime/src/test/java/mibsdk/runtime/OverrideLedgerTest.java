@@ -1752,6 +1752,47 @@ class OverrideLedgerTest {
         awaitLedgerEmpty();
     }
 
+    /**
+     * Final review M3 follow-up: a plugin re-acquires at the moment the ledger finishes restoring its previous
+     * override. The value it read as the prior is still the override value; the ledger has since restored and
+     * dropped the entry. Recording that stale prior would end the new override back on the muted value. The
+     * prior is read again instead.
+     */
+    @Test
+    void priorReadBeforeARestoreFinishedIsReadAgain() throws Exception {
+        final OverrideLedger l = ledger(new RingLog(100));
+        final RecordingApplier a = reporting(l);
+        final VehicleOverride first = l.acquire(KEY, "p", OverrideScope.UNTIL_IGNITION_OFF, "F1R1L1X1", "F1R0L1X1", a);
+        a.await(1);
+        final List<String> reads = Collections.synchronizedList(new ArrayList<String>());
+        ParkingIo io = new ParkingIo() {
+            public SoundDirections current() {
+                if (reads.isEmpty()) {
+                    reads.add("stale");
+                    first.release(); // the restore finishes right after this read
+                    try {
+                        awaitActiveSize(l, 0);
+                    } catch (InterruptedException x) {
+                        throw new AssertionError(x);
+                    }
+                    return F1R0L1X1;
+                }
+                reads.add("fresh");
+                return F1R1L1X1;
+            }
+
+            public void apply(SoundDirections value) throws Exception {
+                a.apply(KEY, ParkingImpl.encode(value));
+            }
+        };
+        Set<String> granted = new HashSet<String>(Arrays.asList(READ_WRITE));
+        ParkingImpl parking = new ParkingImpl("p", io, l, new Registrations(), granted);
+
+        parking.overrideSoundDirections(F1R0L1X1, OverrideScope.UNTIL_IGNITION_OFF);
+        assertEquals(Arrays.asList("stale", "fresh"), reads);
+        awaitLedgerText(KEY + "=p|UNTIL_IGNITION_OFF|F1R1L1X1|F1R0L1X1|A\n");
+    }
+
     // ---- fixtures ----
 
     /** Delegates to a {@link FakePlatform}, with a hook before every ParkingIo.apply. */
