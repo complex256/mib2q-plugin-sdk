@@ -32,10 +32,12 @@ import mibsdk.platform.SdkRoots;
  * log.file                /tmp/mibsdk.log
  * storage.plugin.max.bytes         262144   one plugin's data file (estimated size); a put beyond fails
  * storage.total.max.bytes         1048576   every plugin's data file together (the persist partition is shared)
+ * ui.publish.min.ms                   100   minimum interval between two published UI snapshots
+ * ui.status.max.chars                  24   status-line length (indicators, then plugin items)
  * </pre>
  * Files: read-only at runtime, under {@link SdkRoots#install()}: sdk.properties, grants.properties, SAFE_MODE,
- * plugins/; writable and persistent, under {@link SdkRoots#persist()}: boot.state, ledger.properties, data/;
- * in RAM, under {@link SdkRoots#ram()}: cache/.
+ * plugins/; writable and persistent, under {@link SdkRoots#persist()}: boot.state, ledger.properties, data/,
+ * plugins.properties (the user's on/off choices); in RAM, under {@link SdkRoots#ram()}: cache/.
  * Never put these in {@code bundles.properties}: every unknown key there is a bundle definition.
  */
 public final class RuntimeConfig {
@@ -63,6 +65,7 @@ public final class RuntimeConfig {
     private final long storagePluginMaxBytes;
     private final long storageTotalMaxBytes;
     private final long uiPublishMinMs;
+    private final int uiStatusMaxChars;
 
     private RuntimeConfig(SdkRoots roots, Properties p) {
         this.roots = roots;
@@ -87,6 +90,7 @@ public final class RuntimeConfig {
         this.storagePluginMaxBytes = longValue(p, "storage.plugin.max.bytes", 262144, 1);
         this.storageTotalMaxBytes = longValue(p, "storage.total.max.bytes", 1048576, 1);
         this.uiPublishMinMs = longValue(p, "ui.publish.min.ms", 100, 0);
+        this.uiStatusMaxChars = (int) longValue(p, "ui.status.max.chars", 24, 4);
     }
 
     /** Reads {@code <install>/sdk.properties}; never throws for a missing or unreadable file. */
@@ -147,6 +151,11 @@ public final class RuntimeConfig {
     /** Persistent: the override ledger ({@link OverrideLedger}). */
     public File ledgerFile() {
         return new File(roots.persist(), "ledger.properties");
+    }
+
+    /** Persistent: the user's on/off choices from the Plugins menu ({@link UserToggles}). */
+    public File userTogglesFile() {
+        return new File(roots.persist(), "plugins.properties");
     }
 
     /** Read-only: marker file that forces safe mode while it exists. */
@@ -223,6 +232,11 @@ public final class RuntimeConfig {
     /** Minimum interval between two published UI snapshots ({@code ui.publish.min.ms}); 0 publishes every change. */
     public long uiPublishMinMs() {
         return uiPublishMinMs;
+    }
+
+    /** Status-line length in characters ({@code ui.status.max.chars}, at least 4). */
+    public int uiStatusMaxChars() {
+        return uiStatusMaxChars;
     }
 
     public long storageTotalMaxBytes() {

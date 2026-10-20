@@ -3,6 +3,7 @@ package mibsdk.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -303,7 +304,8 @@ class UiImplTest {
         a.statusItem("on");
         assertEquals(2, published().carRows().size());
 
-        regs.cancelAll();
+        regs.cancelAll(); // closes the UiImpl first: from here its handles leave the hub alone
+        hub.removeOwner("a", null); // as the runtime does right after cancelAll
         UiSnapshot s = published();
         assertEquals(1, s.carRows().size());
         assertTrue(s.pages().isEmpty());
@@ -313,5 +315,49 @@ class UiImplTest {
         assertTrue(published().pages().isEmpty());
         a.page(PageSpec.of("late", "L"), null); // registered after close: cancelled at once
         assertTrue(published().pages().isEmpty());
+    }
+
+    /**
+     * Controller requirement 3 (stopgap for the id-keyed reload race): once the old run's registrations are cancelled
+     * its UiImpl is closed, so a callback of the old run still hung after a reload cannot add to, change or cancel the
+     * new run's UI under the same plugin id.
+     */
+    @Test
+    void closedOldRunCannotTouchTheNewRunsUi() {
+        Registrations oldRegs = new Registrations();
+        UiImpl old = ui("a", UiTestRuntime.UI_FEATURES, ALL_PERMS, oldRegs);
+        Page oldPage = old.page(PageSpec.of("main", "Old"), null);
+        StatusItem oldStatus = old.statusItem("old");
+
+        // the runtime disables the old run (cancelAll, then removeOwner) and enables the new one
+        oldRegs.cancelAll();
+        hub.removeOwner("a", null);
+        hub.registerOwner("a");
+        UiImpl fresh = ui("a", UiTestRuntime.UI_FEATURES, ALL_PERMS, new Registrations());
+        Page newPage = fresh.page(PageSpec.of("main", "New"), null);
+        fresh.carMenuRow("New", newPage);
+        fresh.statusItem("new");
+
+        // the old run's hung callback wakes up
+        Page stray = old.page(PageSpec.of("main", "Stray"), null); // same id: would remove the new page on cancel
+        assertNotNull(stray);
+        stray.cancel();
+        Page other = old.page(PageSpec.of("other", "Stray"), null);
+        other.open();
+        old.carMenuRow("Stray", other).cancel();
+        old.statusItem("stray").set("stray");
+        oldPage.update(PageSpec.of("main", "Stray"));
+        oldPage.open();
+        oldPage.cancel();
+        oldStatus.set("stray");
+        oldStatus.cancel();
+
+        UiSnapshot s = published();
+        assertEquals(1, s.pages().size(), s.pages().keySet().toString());
+        assertEquals("New", s.pages().get("a/main").title());
+        assertEquals(2, s.carRows().size());
+        assertEquals("New", s.carRows().get(1).label());
+        assertEquals("new", s.statusLine());
+        assertNull(s.openPageKey(), "a stray open() requests nothing");
     }
 }

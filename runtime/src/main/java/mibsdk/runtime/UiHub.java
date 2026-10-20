@@ -613,10 +613,7 @@ final class UiHub {
             UiPage p = (UiPage) sdkPages.get(i);
             pages.put(p.key(), p);
         }
-        StringBuffer status = new StringBuffer();
-        for (int i = 0; i < indicators.size(); i++) {
-            append(status, (String) indicators.get(i));
-        }
+        List<String> items = new ArrayList<String>();
         for (Iterator it = owners.values().iterator(); it.hasNext();) {
             Owner o = (Owner) it.next();
             for (Iterator p = o.pages.values().iterator(); p.hasNext();) {
@@ -629,19 +626,12 @@ final class UiHub {
                     rows.add(row);
                 }
             }
-            append(status, o.status);
+            if (o.status != null) {
+                items.add(o.status);
+            }
         }
-        return new UiSnapshot(v, rows, UiText.clean(status.toString(), statusMaxChars), pages, openSeq, openPageKey);
-    }
-
-    private static void append(StringBuffer b, String item) {
-        if (item == null || item.length() == 0) {
-            return;
-        }
-        if (b.length() > 0) {
-            b.append(' ');
-        }
-        b.append(item);
+        return new UiSnapshot(v, rows, StatusLine.compose(indicators, items, statusMaxChars), pages, openSeq,
+                openPageKey);
     }
 
     /** Asks for one publish, at the earliest publishMinMs after the last one; a pending one absorbs this change. */

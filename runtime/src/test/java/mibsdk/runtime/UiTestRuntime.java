@@ -78,6 +78,16 @@ final class UiTestRuntime {
         write(new File(base, "SAFE_MODE"), "");
     }
 
+    /** The writable persistent root (boot.state, plugins.properties). */
+    File persist() {
+        return roots.persist();
+    }
+
+    /** Writes {@code <persist>/boot.state} before the next start. */
+    void bootState(String text) throws IOException {
+        write(new File(roots.persist(), "boot.state"), text);
+    }
+
     SdkRuntime start() throws IOException {
         SerialExecutor.watchdogPeriodMs = 10;
         write(new File(base, "sdk.properties"), "plugin.start.delay.ms=0\nheap.low.bytes=0\nui.publish.min.ms=0\n"
