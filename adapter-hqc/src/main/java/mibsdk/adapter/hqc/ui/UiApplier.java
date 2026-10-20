@@ -39,7 +39,7 @@ import mibsdk.runtime.RingLog;
  * thread, which applies the same teardown on its way out: every row hidden (the Plugins row too, and
  * {@code SdkGlobals.uiDown} so a drawer built later starts without it), a status line the SDK showed hidden, and an open
  * SDK page closed back to the stock screen it came from. A later snapshot from a running runtime resumes. Only the
- * newest applier (by construction) may render pages: a late job of a replaced one does nothing.
+ * applier started last owns the HMI: a replaced one posts and renders nothing, and its exit teardown touches nothing.
  */
 public final class UiApplier {
 
@@ -52,11 +52,15 @@ public final class UiApplier {
     private static final int MAX_LOGGED_FAILURES = 32;
     private static final String[] PHASES = {"slots", "rows", "status", "pages"};
 
-    /** The newest applier's generation; older appliers' page jobs do nothing. */
+    /**
+     * The generation of the applier that owns the HMI (the last one started); others post and render nothing, and
+     * their exit teardown touches nothing. Changed and checked-then-acted-on only under GENERATION_LOCK.
+     */
     private static volatile int liveGeneration;
+    private static int lastGeneration; // guarded by GENERATION_LOCK
     private static final Object GENERATION_LOCK = new Object();
 
-    private final int generation;
+    private volatile int generation; // 0 until claimLive()
     private final UiTable table;
     private final RowModels rows;
     private final StatusLineSink status;
@@ -91,7 +95,6 @@ public final class UiApplier {
     private volatile boolean stopping;
     private Thread thread; // guarded by this
 
-    /** The newest applier constructed is the live one: only its page jobs render. */
     UiApplier(UiTable t, RowModels rows, StatusLineSink s, PageRenderer pages, HmiPoster p, Clock clock,
               RingLog log) {
         this.table = t;
@@ -103,9 +106,6 @@ public final class UiApplier {
         this.log = log;
         for (int i = 0; i < rowState.length; i++) {
             rowState[i] = UNKNOWN;
-        }
-        synchronized (GENERATION_LOCK) {
-            generation = ++liveGeneration;
         }
     }
 
@@ -137,11 +137,30 @@ public final class UiApplier {
         return self[0];
     }
 
-    /** Starts the daemon thread {@code mibsdk-ui} (NORM-1). A second start, or a start after stop, is ignored. */
+    /**
+     * Makes this applier the one that owns the HMI (start() does it; tests that drive {@link #step} by hand call it).
+     * Waits for a replaced applier's exit teardown, which runs under the same lock.
+     */
+    void claimLive() {
+        synchronized (GENERATION_LOCK) {
+            generation = ++lastGeneration;
+            liveGeneration = generation;
+        }
+    }
+
+    private boolean isLive() {
+        return generation != 0 && generation == liveGeneration;
+    }
+
+    /**
+     * Claims the HMI ({@link #claimLive}) and starts the daemon thread {@code mibsdk-ui} (NORM-1). A second start, or a
+     * start after stop, is ignored.
+     */
     public synchronized void start() {
         if (thread != null || stopping) {
             return;
         }
+        claimLive();
         Thread t = new Thread("mibsdk-ui") {
             public void run() {
                 loop();
@@ -181,6 +200,9 @@ public final class UiApplier {
      * while the last job was pending. Reads volatile state only; never throws.
      */
     void wake() {
+        if (!isLive()) {
+            return; // replaced: never post again (a stale job would otherwise re-post itself forever)
+        }
         try {
             postPagesIfNeeded();
         } catch (Throwable t) {
@@ -196,9 +218,11 @@ public final class UiApplier {
                 failed("wait", t);
             }
         }
-        if (generation == liveGeneration) { // a newer applier owns the HMI now: leave it alone
-            enterDown();
-            runPhases();
+        synchronized (GENERATION_LOCK) { // held through the teardown: no newer applier can claim the HMI meanwhile
+            if (isLive()) { // else a newer applier owns the HMI: leave it alone
+                enterDown();
+                runPhases();
+            }
         }
     }
 
@@ -317,6 +341,9 @@ public final class UiApplier {
     }
 
     private void postPagesIfNeeded() {
+        if (!isLive() || (stopping && !down)) {
+            return; // replaced, or stopping before the teardown took the UI down
+        }
         if (SdkGlobals.uiRowModels == null) {
             return; // no drawer yet, so no first screen yet: the StartupFilter would discard the job
         }
@@ -341,7 +368,7 @@ public final class UiApplier {
      * closes SDK pages back to the stock screen. A replaced applier's job does nothing.
      */
     private void renderPages() {
-        if (generation != liveGeneration) {
+        if (!isLive()) {
             return;
         }
         if (down) {

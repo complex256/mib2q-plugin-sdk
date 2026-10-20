@@ -68,4 +68,22 @@ class MonotonicClockTest {
             clock.stop();
         }
     }
+
+    /** HMIEvent reads the clock (HmiPoster): it must never wait for the ticker's monitor. */
+    @Test
+    void uptimeNeverWaitsForTheTicker() throws Exception {
+        final MonotonicClock c = new MonotonicClock(new StepWall(), 10);
+        final long[] read = {-1};
+        Thread reader = new Thread() {
+            public void run() {
+                read[0] = c.uptimeMs();
+            }
+        };
+        synchronized (c) { // the ticker (or start/stop) holding the clock's monitor
+            reader.start();
+            reader.join(1000);
+            assertTrue(!reader.isAlive(), "uptimeMs returned while the monitor was held");
+        }
+        assertEquals(0, read[0]);
+    }
 }

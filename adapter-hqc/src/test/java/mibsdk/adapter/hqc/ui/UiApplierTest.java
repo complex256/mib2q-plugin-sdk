@@ -74,6 +74,7 @@ class UiApplierTest {
         UiApplier[] self = new UiApplier[1];
         applier = newApplier(self);
         self[0] = applier;
+        applier.claimLive(); // what start() does; these tests drive step() by hand
     }
 
     private UiApplier newApplier(UiApplier[] self) {
@@ -329,9 +330,44 @@ class UiApplierTest {
     @Test
     void neverShownStatusIsNeverHidden() throws Exception {
         publish("", "plugins");
+        applier.start();
+        assertTrue(eventually(() -> SdkGlobals.uiSlots.keyAt(0) != null), "a pass ran");
+        applier.stop(); // the exit teardown runs on the started thread
+        assertFalse(threadAlive("mibsdk-ui"));
+        assertTrue(SdkGlobals.uiDown, "the teardown ran");
+        assertFalse(drain().contains("hide"), "popup 65 untouched: the SDK never showed text");
+    }
+
+    /** Round 2: an applier created but never started does not take page rendering from the running one. */
+    @Test
+    void createdButUnstartedApplierDoesNotStealRendering() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        UiApplier[] other = new UiApplier[1];
+        other[0] = newApplier(other); // e.g. created on a waiter thread whose start was already stopped
+        publish("", Collections.singletonList("plugins"), pages("p1"), 1, "p1");
         applier.step(0);
-        applier.stop(); // not started: no teardown thread, nothing to write
-        assertEquals(Collections.emptyList(), drain());
+        sink.runHeld();
+        assertTrue(drain().contains("open:p1@1"), "the running applier still renders");
+    }
+
+    /** Round 2: a replaced applier's exit teardown leaves the new applier's rows, slots and uiDown alone. */
+    @Test
+    void replacedAppliersExitTeardownTouchesNothing() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("S", "plugins", "a");
+        UiApplier[] old = new UiApplier[1];
+        old[0] = newApplier(old);
+        old[0].start();
+        assertTrue(eventually(() -> writes.contains("show:S")));
+        applier.claimLive(); // the restarted runtime's applier
+        applier.step(0);
+        drain();
+        DrawerAssignment slots = SdkGlobals.uiSlots;
+        old[0].stop();
+        assertEquals(Collections.emptyList(), drain(), "no row or status writes from the old teardown");
+        assertSame(slots, SdkGlobals.uiSlots);
+        assertFalse(SdkGlobals.uiDown);
+        assertEquals(0, sink.size());
     }
 
     /** Critical 1 (a): before the drawer exists the HMI may not have its first screen; no page job is posted. */
@@ -386,6 +422,7 @@ class UiApplierTest {
             }
         };
         self[0] = new UiApplier(table, failing, failingStatus, pages, poster, clock, log);
+        self[0].claimLive();
         publish("S", Arrays.asList("plugins", "a"), pages("p1"), 1, "p1");
         self[0].step(0);
         self[0].step(0);
@@ -444,8 +481,12 @@ class UiApplierTest {
 
         UiApplier[] self = new UiApplier[1];
         self[0] = newApplier(self); // a restarted runtime's applier
+        self[0].claimLive();
         oldJob.run();
         assertEquals(Collections.emptyList(), drain(), "the old applier's job renders nothing");
+        assertEquals(0, sink.size(), "and does not re-post itself from its after-hook");
+        applier.wake();
+        assertEquals(0, sink.size(), "a replaced applier never posts again");
         self[0].step(0);
         sink.runHeld();
         assertTrue(drain().contains("open:p1@1"), "the new applier renders");

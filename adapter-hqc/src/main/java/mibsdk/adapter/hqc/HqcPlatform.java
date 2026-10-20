@@ -128,13 +128,13 @@ public final class HqcPlatform implements PlatformAdapter {
         }
     }
 
-    /** On the waiter thread: starts the applier unless this start was already stopped. */
+    /** On the waiter thread: creates and starts the applier unless this start was already stopped. */
     private void startUi(ServiceWaiter startedBy, Object frameworkAccess) {
-        UiApplier a = UiApplier.create(frameworkAccess, clock, SdkGlobals.LOG);
         synchronized (this) {
             if (waiter != startedBy) {
-                return; // stopped meanwhile
+                return; // stopped meanwhile (ServiceWaiter's documented late-delivery residual)
             }
+            UiApplier a = UiApplier.create(frameworkAccess, clock, SdkGlobals.LOG);
             ui = a;
             a.start();
         }
