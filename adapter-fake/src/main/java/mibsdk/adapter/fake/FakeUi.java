@@ -15,7 +15,15 @@ import mibsdk.platform.UiTable;
 public final class FakeUi {
 
     private final UiTable table;
-    private final PageStack stack = new PageStack();
+    private final PageStack stack = new PageStack(new PageStack.Listener() {
+        public void shown(String pageKey) {
+            table.input(new UiInput(UiInput.PAGE_SHOWN, pageKey, null, false));
+        }
+
+        public void closed(String pageKey) {
+            table.input(new UiInput(UiInput.PAGE_CLOSED, pageKey, null, false));
+        }
+    });
     private long seenOpenSeq;
 
     public FakeUi(UiTable table) {
@@ -64,6 +72,7 @@ public final class FakeUi {
         if (e.kind() == UiEntry.LINK) {
             sync();
             stack.push(e.targetPageKey(), null);
+            stack.reconcile(table.snapshot());
         } else if (e.kind() == UiEntry.ITEM) {
             table.input(new UiInput(UiInput.ENTRY_SELECTED, pageKey, entryKey, false));
         }
@@ -92,11 +101,8 @@ public final class FakeUi {
         UiSnapshot s = table.snapshot();
         if (s.openSeq() > seenOpenSeq) {
             seenOpenSeq = s.openSeq();
-            while (stack.top() != null) {
-                stack.back();
-            }
             if (s.openPageKey() != null) {
-                stack.push(s.openPageKey(), null);
+                stack.open(s.openPageKey(), null);
             }
         }
         stack.reconcile(s);

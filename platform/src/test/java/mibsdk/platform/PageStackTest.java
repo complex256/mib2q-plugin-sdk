@@ -75,4 +75,48 @@ class PageStackTest {
         assertEquals("p0", s.top());
         assertSame(origin, s.back());
     }
+
+    private static final class Log implements PageStack.Listener {
+        final java.util.List<String> ev = new java.util.ArrayList<String>();
+        public void shown(String k) { ev.add("+" + k); }
+        public void closed(String k) { ev.add("-" + k); }
+    }
+
+    @Test
+    void eventsPairOnePageOpenAtATime() {
+        Log log = new Log();
+        PageStack s = new PageStack(log);
+        s.push("a", null);
+        s.push("b", null);
+        s.back();
+        s.back();
+        assertEquals(java.util.Arrays.asList("+a", "-a", "+b", "-b", "+a", "-a"), log.ev);
+    }
+
+    @Test
+    void openReplacesWholeStackWithOneChange() {
+        Log log = new Log();
+        PageStack s = new PageStack(log);
+        s.push("a", null);
+        s.push("b", null);
+        log.ev.clear();
+        s.open("c", null);
+        assertEquals(java.util.Arrays.asList("-b", "+c"), log.ev);
+        assertEquals("c", s.top());
+        assertNull(s.back());
+    }
+
+    @Test
+    void vanishedTopClosesAndShowsNotice() {
+        Log log = new Log();
+        PageStack s = new PageStack(log);
+        s.push("a", null);
+        s.push("b", null);
+        log.ev.clear();
+        s.reconcile(snapWith("a"));
+        assertEquals(java.util.Arrays.asList("-b", "+mibsdk/stopped"), log.ev);
+        log.ev.clear();
+        s.reconcile(snapWith("a"));
+        assertEquals(java.util.Collections.emptyList(), log.ev);
+    }
 }

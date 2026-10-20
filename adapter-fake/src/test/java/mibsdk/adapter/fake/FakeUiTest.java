@@ -49,7 +49,75 @@ class FakeUiTest {
         assertEquals("mibsdk/plugins", ui.openPageKey());
         ui.select("mibsdk/plugins", "sdk");
         assertEquals("sdk/main", ui.openPageKey());
-        assertNull(table.poll(0));
+        for (String e : drain()) {
+            assertFalse(e.startsWith("E:"), e);
+        }
+    }
+
+    private java.util.List<String> drain() throws Exception {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        UiInput in;
+        while ((in = table.poll(0)) != null) {
+            String[] k = {"R", "E", "T", "+", "-"};
+            out.add(k[in.kind()] + ":" + in.pageKey());
+        }
+        return out;
+    }
+
+    @Test
+    void linkThenBackPairsPageEvents() throws Exception {
+        publish(1, 1, "mibsdk/plugins");
+        ui.select("mibsdk/plugins", "sdk");
+        ui.back();
+        ui.back();
+        assertEquals(Arrays.asList("+:mibsdk/plugins", "-:mibsdk/plugins", "+:sdk/main", "-:sdk/main",
+                "+:mibsdk/plugins", "-:mibsdk/plugins"), drain());
+    }
+
+    @Test
+    void linkToLinkClosesEachPrevious() throws Exception {
+        publish(1, 1, "mibsdk/plugins");
+        ui.select("mibsdk/plugins", "sdk");
+        Map<String, UiPage> pages = new HashMap<String, UiPage>(table.snapshot().pages());
+        pages.put("sdk/main", new UiPage("sdk/main", "SDK", Arrays.asList(
+                new UiEntry(UiEntry.LINK, "deep", "Deep", null, false, "sdk/deep"))));
+        pages.put("sdk/deep", new UiPage("sdk/deep", "Deep", null));
+        table.publish(new UiSnapshot(2, null, "", pages, 1, "mibsdk/plugins"));
+        ui.select("sdk/main", "deep");
+        assertEquals("sdk/deep", ui.openPageKey());
+        assertEquals(Arrays.asList("+:mibsdk/plugins", "-:mibsdk/plugins", "+:sdk/main", "-:sdk/main", "+:sdk/deep"),
+                drain());
+    }
+
+    @Test
+    void newOpenSeqReplacesOpenPage() throws Exception {
+        publish(1, 1, "mibsdk/plugins");
+        ui.select("mibsdk/plugins", "sdk");
+        drain();
+        publish(2, 2, "mibsdk/plugins");
+        assertEquals("mibsdk/plugins", ui.openPageKey());
+        assertEquals(Arrays.asList("-:sdk/main", "+:mibsdk/plugins"), drain());
+    }
+
+    @Test
+    void vanishedPageBecomesStoppedNotice() throws Exception {
+        publish(1, 1, "sdk/main");
+        assertEquals("sdk/main", ui.openPageKey());
+        drain();
+        table.publish(new UiSnapshot(2, null, "", new HashMap<String, UiPage>(), 1, "sdk/main"));
+        assertEquals("mibsdk/stopped", ui.openPageKey());
+        assertEquals(Arrays.asList("-:sdk/main", "+:mibsdk/stopped"), drain());
+    }
+
+    @Test
+    void linkToMissingTargetBecomesStoppedNotice() throws Exception {
+        publish(1, 1, "mibsdk/plugins");
+        Map<String, UiPage> pages = new HashMap<String, UiPage>();
+        pages.put("mibsdk/plugins", new UiPage("mibsdk/plugins", "Plugins", Arrays.asList(
+                new UiEntry(UiEntry.LINK, "gone", "Gone", null, false, "x/missing"))));
+        table.publish(new UiSnapshot(2, null, "", pages, 1, "mibsdk/plugins"));
+        ui.select("mibsdk/plugins", "gone");
+        assertEquals("mibsdk/stopped", ui.openPageKey());
     }
 
     @Test
