@@ -1,6 +1,7 @@
 import mibsdk.build.CheckStampTask
 import mibsdk.build.ClassVersionCheckTask
 import mibsdk.build.LinkCheckTask
+import mibsdk.build.MibpkgBuildTask
 import mibsdk.build.Toolchain
 
 plugins {
@@ -101,3 +102,39 @@ listOf(runtimeJar, adapterJar, retrotranslatorJar).forEach {
 
 tasks.named("assemble") { dependsOn("assembleUnit") }
 tasks.named("check") { dependsOn(distLinkCheck, unitStamp) }
+
+// The SDK package: the three stamped unit jars, the permission catalog and the [sdk] manifest.
+val sdkVersion = providers.gradleProperty("mibsdk.version").get()
+val sdkStageDir = layout.buildDirectory.dir("mibpkg-stage")
+
+val mibpkgStage = tasks.register<Sync>("mibpkgStage") {
+    description = "Stages manifest.toml, the three unit jars, mibsdk-unit.stamp and permissions.json for mibpkg."
+    dependsOn(unitStamp)
+    from(runtimeJar.flatMap { it.archiveFile }, adapterJar.flatMap { it.archiveFile },
+        retrotranslatorJar.map { distDir.get().file("mibsdk-rt-retrotranslator.jar") })
+    from(distDir.map { it.file("mibsdk-unit.stamp") })
+    from(rootProject.layout.projectDirectory.file("api/permissions.json"))
+    into(sdkStageDir)
+    inputs.property("sdkVersion", sdkVersion)
+    doFirst {
+        if (!distDir.get().file("mibsdk-unit.stamp").asFile.isFile) {
+            throw GradleException("dist: mibsdk-unit.stamp is missing: a dist check did not run, so the SDK is not packaged")
+        }
+    }
+    doLast {
+        sdkStageDir.get().file("manifest.toml").asFile.writeText(mibsdk.build.MpkStage.sdkManifest(sdkVersion))
+    }
+}
+
+tasks.register<MibpkgBuildTask>("mibpkgPackage") {
+    group = "build"
+    description = "build/dist/mibsdk-<version>.mpk with the host mibpkg (-Pmibsdk.mibpkg=<path>); older mibsdk-*.mpk are deleted."
+    dependsOn(mibpkgStage, unitStamp)
+    stage.set(sdkStageDir)
+    mibpkg.set(Toolchain.mibpkg(project))
+    mpk.set(distDir.map { it.file("mibsdk-$sdkVersion.mpk") })
+    doFirst {
+        distDir.get().asFile.listFiles { f -> f.name.startsWith("mibsdk-") && f.name.endsWith(".mpk") }
+            ?.forEach { it.delete() }
+    }
+}

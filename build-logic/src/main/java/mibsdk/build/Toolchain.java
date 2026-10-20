@@ -94,6 +94,28 @@ public final class Toolchain {
                 "projects/audi-mib2/firmware/mmxfs/app/eso/hmi/lsd/DSITracer.jar");
     }
 
+    /** Host {@code mibpkg}: {@code -Pmibsdk.mibpkg=<path>}, else {@code mibpkg} on {@code PATH}. */
+    public static String mibpkg(Project project) {
+        Object configured = project.findProperty("mibsdk.mibpkg");
+        return configured == null || configured.toString().isEmpty() ? "mibpkg" : configured.toString();
+    }
+
+    /** An executable file for a path, or a bare command name found on {@code PATH}; null when there is none. */
+    public static File resolveExecutable(String command) {
+        if (command.indexOf(File.separatorChar) >= 0) {
+            File f = new File(command);
+            return f.isFile() && f.canExecute() ? f : null;
+        }
+        String path = System.getenv("PATH");
+        for (String dir : (path == null ? "" : path).split(File.pathSeparator)) {
+            File f = new File(dir, command);
+            if (!dir.isEmpty() && f.isFile() && f.canExecute()) {
+                return f;
+            }
+        }
+        return null;
+    }
+
     private static File path(Project project, String property, String homeRelativeDefault) {
         Object configured = project.findProperty(property);
         if (configured != null) {

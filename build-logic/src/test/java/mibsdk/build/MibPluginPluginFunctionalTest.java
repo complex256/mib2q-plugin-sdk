@@ -189,6 +189,31 @@ class MibPluginPluginFunctionalTest {
     }
 
     @Test
+    void mibPackageBuildsMpk() throws Exception {
+        String mibpkg = System.getProperty("mibsdk.mibpkg", "");
+        org.junit.jupiter.api.Assumptions.assumeTrue(new File(mibpkg).canExecute(), "no host mibpkg: -Pmibsdk.mibpkg");
+        BuildResult result = runner(":plugins:hello:mibPackage", "-Pmibsdk.mibpkg=" + mibpkg).build();
+
+        assertSucceeded(result, ":plugins:hello:mibPluginJar");
+        assertSucceeded(result, ":plugins:hello:mibPackage");
+        File mpk = root.resolve("out/plugins_hello/mibsdk/hello-1.0.0.mpk").toFile();
+        assertTrue(mpk.isFile(), "missing " + mpk);
+        Process tar = new ProcessBuilder("tar", "-tzf", mpk.getPath()).redirectErrorStream(true).start();
+        String listing = new String(tar.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, tar.waitFor(), listing);
+        for (String entry : new String[] {"manifest.toml", "hello.jar", "hello.jar.stamp"}) {
+            assertTrue(listing.lines().anyMatch(l -> l.equals(entry) || l.equals("./" + entry)), entry + " in " + listing);
+        }
+    }
+
+    @Test
+    void mibPackageWithoutAHostMibpkgFailsWithAHint() {
+        BuildResult result = runner(":plugins:hello:mibPackage", "-Pmibsdk.mibpkg=/nonexistent/mibpkg").buildAndFail();
+        assertTrue(result.getOutput().contains("host mibpkg not found: build it (cargo build --release in the mibpkg repo)"
+                + " and pass -Pmibsdk.mibpkg=<path>"), result.getOutput());
+    }
+
+    @Test
     void apiTwoManifestBuilds() throws Exception {
         assertSucceeded(runner(":plugins:api2:mibPluginJar").build(), ":plugins:api2:mibPluginJar");
     }
