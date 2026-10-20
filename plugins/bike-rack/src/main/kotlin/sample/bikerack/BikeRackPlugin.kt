@@ -66,7 +66,12 @@ class BikeRackPlugin : MibPlugin() {
     }
 
     private fun ignitionOn(ctx: PluginContext, storage: Storage) {
-        if (armed || windowToken == null) return
+        if (armed) {
+            // armed while parked: the ledger ends a mute taken with the ignition off at ignition on; take it again
+            if (waiting == null && held?.isActive != true) muteWhenKnown(ctx)
+            return
+        }
+        if (windowToken == null) return
         windowToken = null
         window?.cancel()
         window = null
