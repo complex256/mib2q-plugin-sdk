@@ -137,6 +137,25 @@ class MibPluginPluginFunctionalTest {
     }
 
     @Test
+    void pluginJarComesWithAStampMatchingItsHash() throws Exception {
+        runner(":plugins:hello:mibPluginJar").build();
+
+        File jar = pluginJar("hello", "hello");
+        File stamp = new File(jar.getPath() + ".stamp");
+        assertTrue(stamp.isFile(), "missing " + stamp);
+        java.util.Properties p = new java.util.Properties();
+        try (java.io.InputStream in = new java.io.FileInputStream(stamp)) {
+            p.load(in);
+        }
+        assertEquals("1", p.getProperty("format"));
+        assertEquals("plugin", p.getProperty("kind"));
+        assertEquals("classVersion48,linkCheck,permissionScan", p.getProperty("checks"));
+        assertEquals("hello", p.getProperty("plugin.id"));
+        assertEquals("false", p.getProperty("plugin.unrestricted"));
+        assertEquals(CheckStamp.sha256(jar), p.getProperty("sha256.hello.jar"));
+    }
+
+    @Test
     void reflectionWithoutUnrestrictedFailsBuild() {
         BuildResult result = runner(":plugins:refl:mibPluginJar").buildAndFail();
 

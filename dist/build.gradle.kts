@@ -1,3 +1,4 @@
+import mibsdk.build.CheckStampTask
 import mibsdk.build.LinkCheckTask
 import mibsdk.build.Toolchain
 
@@ -58,10 +59,22 @@ val distLinkCheck = tasks.register<LinkCheckTask>("distLinkCheck") {
     report.set(layout.buildDirectory.file("reports/mibsdk/dist-linkcheck.txt"))
 }
 
+// Hashes (not signs) the three jars once distLinkCheck has passed; format in mibsdk.build.CheckStamp.
+val unitStamp = tasks.register<CheckStampTask>("unitStamp") {
+    description = "build/dist/mibsdk-unit.stamp: SHA-256 of the three unit jars, written after the dist checks."
+    group = "verification"
+    dependsOn(distLinkCheck)
+    jars.from(runtimeJar.flatMap { it.archiveFile }, adapterJar.flatMap { it.archiveFile },
+        retrotranslatorJar.map { distDir.get().file("mibsdk-rt-retrotranslator.jar") })
+    kind.set("unit")
+    checks.set(listOf("classVersion48", "distLinkCheck"))
+    stamp.set(distDir.map { it.file("mibsdk-unit.stamp") })
+}
+
 tasks.register("assembleUnit") {
     group = "build"
     description = "Builds build/dist/{mibsdk-runtime,mibsdk-adapter-hqc,mibsdk-rt-retrotranslator}.jar and link-checks them together."
-    dependsOn(runtimeJar, adapterJar, retrotranslatorJar, distLinkCheck)
+    dependsOn(runtimeJar, adapterJar, retrotranslatorJar, distLinkCheck, unitStamp)
 }
 
 tasks.named("assemble") { dependsOn("assembleUnit") }

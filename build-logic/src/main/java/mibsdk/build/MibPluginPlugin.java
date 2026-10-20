@@ -2,7 +2,10 @@ package mibsdk.build;
 
 import java.io.File;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
@@ -77,6 +80,21 @@ public class MibPluginPlugin implements Plugin<Project> {
             t.setReproducibleFileOrder(true);
             t.dependsOn("classVersionCheck", "linkCheck", "permissionScan");
             Provider<Directory> classes = backport.flatMap(BackportTask::getOutputDir);
+            t.getOutputs().file(t.getDestinationDirectory().zip(manifest, (d, m) -> new File(d.getAsFile(), m.id + ".jar.stamp")));
+            t.doLast("check stamp", task -> {
+                try {
+                    PluginJson m = PluginJson.read(manifestFile);
+                    File jar = new File(t.getDestinationDirectory().get().getAsFile(), m.id + ".jar");
+                    Map<String, String> attrs = new LinkedHashMap<>();
+                    attrs.put("plugin.id", m.id);
+                    attrs.put("plugin.unrestricted", String.valueOf(m.unrestricted()));
+                    CheckStamp.write(new File(jar.getPath() + ".stamp"), "plugin",
+                            Arrays.asList("classVersion48", "linkCheck", "permissionScan"), attrs,
+                            Collections.singletonList(jar));
+                } catch (java.io.IOException e) {
+                    throw new GradleException("mibsdk.plugin: cannot write the check stamp: " + e, e);
+                }
+            });
             t.doFirst("verify main class", task -> {
                 PluginJson m = PluginJson.read(manifestFile);
                 File mainClass = classes.get().file(m.main.replace('.', '/') + ".class").getAsFile();
