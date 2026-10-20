@@ -199,7 +199,7 @@ cmd_install() {
   DIST="$TMP/dist"
   why="$(python3 -I - verify "$DIST/mibsdk-unit.stamp" unit - "$DIST/mibsdk-runtime.jar" "$DIST/mibsdk-adapter-hqc.jar" \
          "$DIST/mibsdk-rt-retrotranslator.jar" 2>&1 <<<"$STAMP_PY")" \
-    || DIST="$src" die "$DIST is not a checked build ($why); build it with: ./gradlew :dist:assembleUnit; nothing changed"
+    || die "$src is not a checked build ($why); build it with: ./gradlew :dist:assembleUnit; nothing changed"
   connect
 
   # 1. Facts from the unit.
