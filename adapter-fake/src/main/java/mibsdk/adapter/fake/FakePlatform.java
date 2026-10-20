@@ -48,8 +48,8 @@ public final class FakePlatform implements PlatformAdapter {
                     dropped++;
                     return;
                 }
+                report = reportWrites && (reportUnchanged || !value.equals(ecu));
                 ecu = value;
-                report = reportWrites;
             }
             if (report) {
                 host().publish(new ParkingSoundChanged(value));
@@ -62,6 +62,7 @@ public final class FakePlatform implements PlatformAdapter {
     private int dropWrites;
     private int dropped;
     private boolean reportWrites = true;
+    private boolean reportUnchanged = true;
 
     /**
      * The SDK roots for a test: {@code <tmp>/mibsdk} (install, as on the unit), {@code <tmp>/persist} and
@@ -136,6 +137,16 @@ public final class FakePlatform implements PlatformAdapter {
     public void ecuReportWrites(boolean on) {
         synchronized (ecuLock) {
             reportWrites = on;
+        }
+    }
+
+    /**
+     * Whether an accepted write that leaves the ECU's value unchanged is reported too (default true). A real
+     * ECU may stay silent then: the value it last reported is still its value.
+     */
+    public void ecuReportUnchanged(boolean on) {
+        synchronized (ecuLock) {
+            reportUnchanged = on;
         }
     }
 

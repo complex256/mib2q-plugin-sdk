@@ -169,4 +169,33 @@ class FakePlatformTest {
         assertEquals(F1R0L1X1, p.ecuSoundDirections());
         assertTrue(host.events.isEmpty());
     }
+
+    @Test
+    void ecuThatDoesNotReportUnchangedValuesStaysSilentOnARewrite() throws Exception {
+        RecordingHost host = new RecordingHost();
+        FakePlatform p = started(host);
+        p.ecuReportUnchanged(false);
+
+        p.parking().apply(OLD); // the ECU already holds OLD
+
+        assertEquals(OLD, p.ecuSoundDirections());
+        assertTrue(host.events.isEmpty());
+        assertEquals(1, p.appliedLog().size());
+
+        p.parking().apply(F1R0L1X1); // a real change is still reported
+
+        assertEquals(1, host.events.size());
+        assertEquals(F1R0L1X1, ((ParkingSoundChanged) host.events.get(0)).value());
+    }
+
+    @Test
+    void ecuReportsUnchangedValuesByDefault() throws Exception {
+        RecordingHost host = new RecordingHost();
+        FakePlatform p = started(host);
+
+        p.parking().apply(OLD);
+
+        assertEquals(1, host.events.size());
+        assertEquals(OLD, ((ParkingSoundChanged) host.events.get(0)).value());
+    }
 }

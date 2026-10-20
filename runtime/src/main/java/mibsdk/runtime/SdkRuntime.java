@@ -92,8 +92,11 @@ public final class SdkRuntime {
     private static final String MANIFEST_ENTRY = "plugin.json";
     private static final int MAX_MANIFEST_BYTES = 64 * 1024;
     private static final long WAIT_SLICE_MS = 50;
-    /** How long stop() waits (real time) for queued restores before stopping the adapter. */
-    private static final long LEDGER_DRAIN_MS = 5000;
+    /**
+     * How long stop() waits (real time) for queued restores, and for the car to confirm them, before
+     * stopping the adapter: {@link OverrideLedger#CONFIRM_TIMEOUT_MS} + 2 s.
+     */
+    private static final long LEDGER_DRAIN_MS = OverrideLedger.CONFIRM_TIMEOUT_MS + 2000;
 
     /** Test hook: simulates an SDK-side failure (e.g. OOM creating a thread) while enabling. */
     interface EnableHook {
@@ -481,7 +484,7 @@ public final class SdkRuntime {
                 }
             }
         });
-        if (!ledger.awaitIdle(LEDGER_DRAIN_MS)) { // restores need the adapter: let them finish first
+        if (!ledger.awaitSettled(LEDGER_DRAIN_MS)) { // restores need the adapter: let them finish first
             log.append("WARN", SOURCE, "override restores still pending at stop; the ledger keeps them for the next boot");
         }
         dispatcher.stop();
