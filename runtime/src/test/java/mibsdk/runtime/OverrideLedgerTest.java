@@ -214,6 +214,16 @@ class OverrideLedgerTest {
         fail("expected '" + fragment + "' in\n" + log.snapshot());
     }
 
+    private void awaitLogHas(RingLog log, String level, String fragment) throws InterruptedException {
+        for (int i = 0; i < 500; i++) {
+            if (logHas(log, level, fragment)) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        fail("expected " + level + " '" + fragment + "' in\n" + log.snapshot());
+    }
+
     private void awaitApplied(int size, SoundDirections last) throws InterruptedException {
         List<SoundDirections> log = null;
         for (int i = 0; i < 500; i++) {
@@ -490,7 +500,7 @@ class OverrideLedgerTest {
         awaitApplied(1, F1R1L1X1);
         awaitLedgerEmpty();
         awaitNoOverrides();
-        assertTrue(logContains(rt.log(), "gone"), rt.log().snapshot().toString());
+        awaitLog(rt.log(), "gone");
     }
 
     @Test
@@ -765,7 +775,7 @@ class OverrideLedgerTest {
         awaitLedgerEmpty();
         assertTrue(l.active().isEmpty());
         assertEquals(1, a.calls.size(), "completed without another write");
-        assertTrue(logContains(log, "reported by the car"), log.snapshot().toString());
+        awaitLog(log, "reported by the car");
     }
 
     /**
@@ -1229,7 +1239,7 @@ class OverrideLedgerTest {
         awaitLedgerEmpty();
         assertEquals(0, ledgerFile().length());
         assertEquals(3, a.calls.size());
-        assertTrue(logContains(log, "restored k=OLD (confirmed by the car)"), log.snapshot().toString());
+        awaitLog(log, "restored k=OLD (confirmed by the car)");
     }
 
     @Test
@@ -1252,7 +1262,7 @@ class OverrideLedgerTest {
         awaitLedgerEmpty();
         assertTrue(l.awaitSettled(5000));
         assertEquals(Arrays.asList("NEW", "OLD"), calls, "exactly one restore write");
-        assertTrue(logContains(log, "restored k=OLD (confirmed by the car)"), log.snapshot().toString());
+        awaitLog(log, "restored k=OLD (confirmed by the car)");
     }
 
     @Test
@@ -1281,8 +1291,7 @@ class OverrideLedgerTest {
         awaitActiveSize(l, 0);
         awaitLedgerEmpty();
         assertEquals(Arrays.asList("NEW", "OLD"), calls);
-        assertTrue(logHas(log, "WARN", "restored k=OLD (confirmed by the car's last report; none after the write)"),
-                log.snapshot().toString());
+        awaitLogHas(log, "WARN", "restored k=OLD (confirmed by the car's last report; none after the write)");
     }
 
     @Test
@@ -1471,8 +1480,7 @@ class OverrideLedgerTest {
         assertEquals("k=OLD", a.calls.get(1));
         awaitActiveSize(l, 0);
         awaitLedgerEmpty();
-        assertTrue(logContains(log, "restoring k: acquired while the ignition was off; ignition on"),
-                log.snapshot().toString());
+        awaitLog(log, "restoring k: acquired while the ignition was off; ignition on");
     }
 
     @Test
@@ -1589,8 +1597,7 @@ class OverrideLedgerTest {
         fake.setIgnition(true);
         awaitNoOverrides();
         assertEquals(F1R1L1X1, fake.ecuSoundDirections());
-        assertTrue(logContains(rt.log(), "restoring " + KEY + ": acquired while the ignition was off; ignition on"),
-                rt.log().snapshot().toString());
+        awaitLog(rt.log(), "restoring " + KEY + ": acquired while the ignition was off; ignition on");
         awaitLedgerEmpty();
     }
 
@@ -1624,8 +1631,7 @@ class OverrideLedgerTest {
         assertEquals("shift", rt.activeOverrides().get(0).pluginId());
         assertTrue(text(ledgerFile()).startsWith(KEY + "=shift|UNTIL_IGNITION_OFF|"), text(ledgerFile()));
         assertTrue(text(ledgerFile()).endsWith("|A\n"), text(ledgerFile()));
-        assertTrue(logContains(rt.log(), "restoring " + KEY + ": acquired while the ignition was off; ignition on"),
-                rt.log().snapshot().toString());
+        awaitLog(rt.log(), "restoring " + KEY + ": acquired while the ignition was off; ignition on");
     }
 
     @Test
@@ -1803,8 +1809,7 @@ class OverrideLedgerTest {
         l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
         a.await(1);
         assertEquals("k=p|PERSISTENT|OLD|NEW|A\n", text(ledgerFile()));
-        assertTrue(logHas(log, "WARN", "ledger.properties written, but its final sync failed"),
-                log.snapshot().toString());
+        awaitLogHas(log, "WARN", "ledger.properties written, but its final sync failed");
     }
 
     /** Untouched {@link DurableFiles#SYSTEM}, except that the sync of a file (not a directory) fails. */
