@@ -26,6 +26,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 cmd="$*"
+# Test hook: a file that changes on disk once the tool has connected (after it verified its input).
+if [ -n "$FAKE_REWRITE" ] && [ "$cmd" = "echo ok" ]; then printf tampered >"$FAKE_REWRITE"; fi
 cmd="${cmd//\/mnt\/app/$FAKE_UNIT/mnt/app}"
 cmd="${cmd//\/mnt\/persist/$FAKE_UNIT/mnt/persist}"
 cmd="${cmd//\/ramdisk\//$FAKE_UNIT/ramdisk/}"
@@ -155,6 +157,7 @@ class FakeUnit(object):
         env = dict(self.env)
         env["FAKE_FAIL_MV"] = kw.get("fail_mv", "")
         env["FAKE_RO_AFTER_MV"] = kw.get("ro_after_mv", "")
+        env["FAKE_REWRITE"] = kw.get("rewrite", "")
         env["FAKE_FAIL_MV_SILENT"] = kw.get("fail_mv_silent", "")
         return subprocess.run([TOOL] + list(args), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               timeout=60)
@@ -186,6 +189,13 @@ class InstallTest(FakeUnitTestCase):
         self.assertIn(":dist:assembleUnit", err)
         self.assertNotIn(b"MibSdk", u.autostart())
         self.assertFalse(os.path.exists(u.sdk), "nothing changed on the unit")
+
+    def test_pushes_the_bytes_it_verified_not_a_jar_rewritten_afterwards(self):
+        u = self.unit(tracer_marker=False)
+        jar = os.path.join(u.dist, "mibsdk-runtime.jar")
+        original = read(jar)
+        self.ok(u.run("install", rewrite=jar))
+        self.assertEqual(original, read(os.path.join(u.lsd, "jars/mibsdk-runtime.jar")))
 
     def test_refuses_a_jar_that_does_not_match_its_stamp(self):
         u = self.unit(tracer_marker=False)
@@ -499,6 +509,23 @@ class PushTest(FakeUnitTestCase):
         self.assertIn("has no valid check stamp (%s)" % reason, err)
         self.assertIn(":mibPluginJar", err)
         self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins", plugin_id + ".jar")))
+
+    def test_pushes_the_bytes_it_verified_not_a_jar_rewritten_afterwards(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        jar = self.plugin_jar("hello")
+        original = read(jar)
+        self.ok(u.run("push", jar, rewrite=jar))
+        self.assertEqual(original, read(os.path.join(u.sdk, "plugins/hello.jar")))
+
+    def test_refuses_a_stamp_with_a_duplicate_key_or_no_checks(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        jar = self.plugin_jar("hello")
+        good = read(jar + ".stamp")
+        for bad in (good + b"plugin.id=hello\n", good.replace(b"checks=classVersion48,linkCheck,permissionScan", b"checks=")):
+            write(jar + ".stamp", bad)
+            self.assert_refused(u, u.run("push", jar), "hello", "format")
 
     def test_refuses_a_jar_without_a_stamp(self):
         u = self.unit(tracer_marker=False)

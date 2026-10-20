@@ -96,8 +96,10 @@ set_host() {
 
 connect() {
   rsh "echo ok" >/dev/null 2>&1 || die "cannot reach root@$HOST over ssh (is the unit on and is the host right?)"
-  TMP="$(mktemp -d "${TMPDIR:-/tmp}/mibsdk-dev.XXXXXX")"
+  [ -n "$TMP" ] || make_tmp
 }
+
+make_tmp() { TMP="$(mktemp -d "${TMPDIR:-/tmp}/mibsdk-dev.XXXXXX")"; }
 
 # remote_cat <remote path> <local file>: fetch; returns 1 if the remote file cannot be read.
 fetch() { rsh "cat '$1'" >"$2" 2>/dev/null; }
@@ -188,10 +190,16 @@ cmd_install() {
     [ -f "$DIST/$j" ] || die "$DIST/$j missing; build it with: ./gradlew :dist:assembleUnit"
   done
   command -v python3 >/dev/null || die "python3 is required on this machine"
-  local why
+  # Verify and push one snapshot: the bytes that pass the check are the bytes that reach the unit.
+  local why src="$DIST"
+  make_tmp
+  mkdir "$TMP/dist"
+  for j in $SDK_JARS; do cp "$DIST/$j" "$TMP/dist/$j" || die "cannot read $DIST/$j"; done
+  if [ -f "$DIST/mibsdk-unit.stamp" ]; then cp "$DIST/mibsdk-unit.stamp" "$TMP/dist/" || die "cannot read the stamp"; fi
+  DIST="$TMP/dist"
   why="$(python3 -I - verify "$DIST/mibsdk-unit.stamp" unit - "$DIST/mibsdk-runtime.jar" "$DIST/mibsdk-adapter-hqc.jar" \
          "$DIST/mibsdk-rt-retrotranslator.jar" 2>&1 <<<"$STAMP_PY")" \
-    || die "$DIST is not a checked build ($why); build it with: ./gradlew :dist:assembleUnit; nothing changed"
+    || DIST="$src" die "$DIST is not a checked build ($why); build it with: ./gradlew :dist:assembleUnit; nothing changed"
   connect
 
   # 1. Facts from the unit.
@@ -352,8 +360,10 @@ for line in lines:
     if "=" not in line:
         fail("format")
     k, v = line.split("=", 1)
+    if k in attrs:
+        fail("format")
     attrs[k] = v
-if lines[:1] != ["format=1"] or "checks" not in attrs:
+if lines[:1] != ["format=1"] or not attrs.get("checks"):
     fail("format")
 if attrs.get("kind") != kind:
     fail("kind")
@@ -503,7 +513,13 @@ cmd_push() {
   local jar="${1:-}"
   [ -n "$jar" ] && [ -f "$jar" ] || die "usage: mibsdk-dev push <plugin.jar> [host]"
   command -v python3 >/dev/null || die "python3 is required on this machine"
-  local id
+  # Verify and push one snapshot of the jar and its stamp, not the files on disk (they may change meanwhile).
+  local orig="$jar" id why
+  make_tmp
+  mkdir "$TMP/snap"
+  cp "$jar" "$TMP/snap/${jar##*/}" || die "cannot read $jar"
+  if [ -f "$jar.stamp" ]; then cp "$jar.stamp" "$TMP/snap/${jar##*/}.stamp" || die "cannot read $jar.stamp"; fi
+  jar="$TMP/snap/${jar##*/}"
   id="$(python3 -I - "$jar" <<'PY'
 import json, sys, zipfile
 try:
@@ -514,9 +530,8 @@ except Exception as e:
 PY
 )" || exit 1
   check_id "$id"
-  local why
   why="$(python3 -I - verify "$jar.stamp" plugin "$id" "$jar" 2>&1 <<<"$STAMP_PY")" \
-    || die "$jar has no valid check stamp ($why); only jars built by the mibsdk.plugin convention can be pushed: ./gradlew :<project>:mibPluginJar"
+    || die "$orig has no valid check stamp ($why); only jars built by the mibsdk.plugin convention can be pushed: ./gradlew :<project>:mibPluginJar"
   if [ "$why" = "unrestricted=true" ]; then
     info "WARNING: $id declares platform.unrestricted: it may use reflection, exec or exit; the SDK cannot contain it"
   fi
