@@ -72,4 +72,18 @@ public final class CheckStamp {
         Files.createDirectories(dir.toPath());
         Files.write(stamp.toPath(), format(kind, checks, attributes, jars).getBytes(StandardCharsets.ISO_8859_1));
     }
+
+    /**
+     * Fails unless every task ran (or was up to date) in this build. Gradle's {@code -x} drops a task from the
+     * graph without failing its dependents, so ordering alone does not prove a check ran.
+     */
+    public static void requireRan(org.gradle.api.Task stamping, List<? extends org.gradle.api.Task> checks) {
+        for (org.gradle.api.Task c : checks) {
+            org.gradle.api.tasks.TaskState st = c.getState();
+            if (!st.getExecuted() || st.getFailure() != null) {
+                throw new org.gradle.api.GradleException(stamping.getPath() + ": refusing to write a check stamp, "
+                        + c.getPath() + " did not run in this build (excluded with -x?)");
+            }
+        }
+    }
 }

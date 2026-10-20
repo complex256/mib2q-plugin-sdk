@@ -5,6 +5,7 @@ import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
@@ -81,7 +82,22 @@ public class MibPluginPlugin implements Plugin<Project> {
             t.dependsOn("classVersionCheck", "linkCheck", "permissionScan");
             Provider<Directory> classes = backport.flatMap(BackportTask::getOutputDir);
             t.getOutputs().file(t.getDestinationDirectory().zip(manifest, (d, m) -> new File(d.getAsFile(), m.id + ".jar.stamp")));
+            List<TaskProvider<? extends Task>> required = Arrays.asList(
+                    project.getTasks().named("classVersionCheck"), project.getTasks().named("linkCheck"),
+                    project.getTasks().named("permissionScan"));
+            t.doFirst("drop old stamp", task -> {
+                File old = new File(t.getDestinationDirectory().get().getAsFile(),
+                        PluginJson.read(manifestFile).id + ".jar.stamp");
+                if (old.exists() && !old.delete()) {
+                    throw new GradleException("mibsdk.plugin: cannot delete stale stamp " + old);
+                }
+            });
             t.doLast("check stamp", task -> {
+                List<Task> checks = new java.util.ArrayList<>();
+                for (TaskProvider<? extends Task> r : required) {
+                    checks.add(r.get());
+                }
+                CheckStamp.requireRan(task, checks);
                 try {
                     PluginJson m = PluginJson.read(manifestFile);
                     File jar = new File(t.getDestinationDirectory().get().getAsFile(), m.id + ".jar");

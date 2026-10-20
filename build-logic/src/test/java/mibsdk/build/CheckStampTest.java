@@ -43,4 +43,19 @@ class CheckStampTest {
         assertEquals(expected, first);
         assertEquals(first, CheckStamp.format("plugin", checks, attrs, List.of(a, b)));
     }
+
+    @Test
+    void unitStampLayoutIsPinned() throws Exception {
+        String h = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        File rt = file("mibsdk-runtime.jar", "abc");
+        File ad = file("mibsdk-adapter-hqc.jar", "abc");
+        File re = file("mibsdk-rt-retrotranslator.jar", "abc");
+        File out = tmp.resolve("sub/mibsdk-unit.stamp").toFile();
+        CheckStamp.write(out, "unit", List.of("classVersion48", "distLinkCheck"), Map.of(), List.of(rt, ad, re));
+        assertEquals("format=1\nkind=unit\nchecks=classVersion48,distLinkCheck\n"
+                + "sha256.mibsdk-adapter-hqc.jar=" + h + "\n"
+                + "sha256.mibsdk-rt-retrotranslator.jar=" + h + "\n"
+                + "sha256.mibsdk-runtime.jar=" + h + "\n",
+                new String(Files.readAllBytes(out.toPath()), StandardCharsets.ISO_8859_1));
+    }
 }

@@ -1,4 +1,5 @@
 import mibsdk.build.CheckStampTask
+import mibsdk.build.ClassVersionCheckTask
 import mibsdk.build.LinkCheckTask
 import mibsdk.build.Toolchain
 
@@ -59,11 +60,22 @@ val distLinkCheck = tasks.register<LinkCheckTask>("distLinkCheck") {
     report.set(layout.buildDirectory.file("reports/mibsdk/dist-linkcheck.txt"))
 }
 
+val distClassVersionCheck = tasks.register<ClassVersionCheckTask>("distClassVersionCheck") {
+    description = "Every class in the three unit jars is class-file v48 (the Retrotranslator runtime included)."
+    group = "verification"
+    classes.from(runtimeJar.map { zipTree(it.archiveFile) }, adapterJar.map { zipTree(it.archiveFile) },
+        retrotranslatorJar.map { zipTree(distDir.get().file("mibsdk-rt-retrotranslator.jar")) })
+}
+
 // Hashes (not signs) the three jars once distLinkCheck has passed; format in mibsdk.build.CheckStamp.
 val unitStamp = tasks.register<CheckStampTask>("unitStamp") {
     description = "build/dist/mibsdk-unit.stamp: SHA-256 of the three unit jars, written after the dist checks."
     group = "verification"
-    dependsOn(distLinkCheck)
+    dependsOn(distLinkCheck, distClassVersionCheck)
+    doFirst {
+        stamp.get().asFile.delete()
+        mibsdk.build.CheckStamp.requireRan(this, listOf(distClassVersionCheck.get(), distLinkCheck.get()))
+    }
     jars.from(runtimeJar.flatMap { it.archiveFile }, adapterJar.flatMap { it.archiveFile },
         retrotranslatorJar.map { distDir.get().file("mibsdk-rt-retrotranslator.jar") })
     kind.set("unit")
