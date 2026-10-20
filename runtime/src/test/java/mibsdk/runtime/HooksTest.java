@@ -258,6 +258,20 @@ class HooksTest {
     }
 
     @Test
+    void netNeedsTheNetworkPermissionAtTheContext() throws Exception {
+        // A granted but undeclared permission is not usable.
+        plugin("offline", new String[] {"vehicle.read"}, new String[] {"vehicle.read", "network"},
+                "try { ctx.net(); ctx.log().info(\"net allowed\"); }\n"
+                + "catch (PermissionDeniedException e) { ctx.log().info(\"net denied \" + e.permission()); }");
+        plugin("online", new String[] {"network"}, new String[] {"network"},
+                "ctx.log().info(\"net ok \" + (ctx.net() != null));");
+        start(null);
+
+        awaitCount("offline", "net denied network", 1);
+        awaitCount("online", "net ok true", 1);
+    }
+
+    @Test
     void grantedFlagsReflectGrantsFile() throws Exception {
         // Effective permissions are declared AND granted, so the manifest declares vehicle.parking.write too.
         plugin("full", new String[] {"vehicle.read", HOOKS, "vehicle.parking.write"},

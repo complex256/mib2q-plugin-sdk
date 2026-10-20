@@ -1100,7 +1100,7 @@ public final class SdkRuntime {
         h.exec = new SerialExecutor("plugin-" + h.id, clock, cfg.slowMs(), cfg.hungMs(), executorListener(h));
         h.scheduler = new PluginScheduler(h.exec, clock);
         h.ctx = new PluginContextImpl(h.id, log, h.storage, bus, h.exec, h.scheduler, h.registrations, features,
-                effectivePermissions(m), hooks, parkingSource, ledger, uiHub);
+                effectivePermissions(m), hooks, parkingSource, ledger, uiHub, clock);
         EnableHook hook = testEnableHook;
         if (hook != null) {
             hook.afterResources(h.id);

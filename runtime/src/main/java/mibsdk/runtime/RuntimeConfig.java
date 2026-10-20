@@ -34,6 +34,7 @@ import mibsdk.platform.SdkRoots;
  * storage.total.max.bytes         1048576   every plugin's data file together (the persist partition is shared)
  * ui.publish.min.ms                   100   minimum interval between two published UI snapshots
  * ui.status.max.chars                  24   status-line length (indicators, then plugin items)
+ * ui.enabled                         true   SDK HMI UI (Car drawer rows, pages, status line); only "false" turns it off
  * </pre>
  * Files: read-only at runtime, under {@link SdkRoots#install()}: sdk.properties, grants.properties, SAFE_MODE,
  * plugins/; writable and persistent, under {@link SdkRoots#persist()}: boot.state, ledger.properties, data/,
@@ -66,6 +67,7 @@ public final class RuntimeConfig {
     private final long storageTotalMaxBytes;
     private final long uiPublishMinMs;
     private final int uiStatusMaxChars;
+    private final boolean uiEnabled;
 
     private RuntimeConfig(SdkRoots roots, Properties p) {
         this.roots = roots;
@@ -91,6 +93,7 @@ public final class RuntimeConfig {
         this.storageTotalMaxBytes = longValue(p, "storage.total.max.bytes", 1048576, 1);
         this.uiPublishMinMs = longValue(p, "ui.publish.min.ms", 100, 0);
         this.uiStatusMaxChars = (int) longValue(p, "ui.status.max.chars", 24, 4);
+        this.uiEnabled = !"false".equalsIgnoreCase(trimmed(p, "ui.enabled"));
     }
 
     /** Reads {@code <install>/sdk.properties}; never throws for a missing or unreadable file. */
@@ -237,6 +240,14 @@ public final class RuntimeConfig {
     /** Status-line length in characters ({@code ui.status.max.chars}, at least 4). */
     public int uiStatusMaxChars() {
         return uiStatusMaxChars;
+    }
+
+    /**
+     * {@code ui.enabled}: whether the HMI adapter may show the SDK UI. Only {@code false} (any case) turns it off. The
+     * adapter also requires a supported HMI and no wrap-loop latch.
+     */
+    public boolean uiEnabled() {
+        return uiEnabled;
     }
 
     public long storageTotalMaxBytes() {

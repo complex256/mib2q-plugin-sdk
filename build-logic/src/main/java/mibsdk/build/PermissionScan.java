@@ -36,7 +36,15 @@ public final class PermissionScan {
             "java/lang/Thread.stop",
             "java/net/Socket.<init>",
             "java/net/ServerSocket.<init>",
-            "java/net/URL.openConnection");
+            "java/net/URL.openConnection",
+            "java/net/URL.openStream",
+            "java/net/URLConnection.connect",
+            "java/net/HttpURLConnection.connect",
+            "java/net/DatagramSocket.<init>",
+            "java/net/MulticastSocket.<init>",
+            "java/net/InetAddress.getByName",
+            "java/net/InetAddress.getAllByName",
+            "javax/microedition/io/Connector.open");
 
     /** Outcome of a permission scan. */
     public static final class Result {

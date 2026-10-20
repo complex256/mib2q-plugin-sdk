@@ -179,7 +179,8 @@ final class PluginContextImpl implements PluginContext {
      */
     PluginContextImpl(String id, RingLog ringLog, PluginStorage storage, EventBus bus, SerialExecutor exec,
             PluginScheduler pluginScheduler, Registrations registrations, LiveFeatures features,
-            Set<String> granted, HookTable hookTable, ParkingSource parking, OverrideLedger ledger, UiHub uiHub) {
+            Set<String> granted, HookTable hookTable, ParkingSource parking, OverrideLedger ledger, UiHub uiHub,
+            Clock clock) {
         this.id = id;
         this.ringLog = ringLog;
         this.storage = storage;
@@ -192,7 +193,7 @@ final class PluginContextImpl implements PluginContext {
         this.hooks = new HooksImpl(hookTable, bus, id, exec, registrations, features, granted);
         this.parkingSource = parking;
         this.ledger = ledger;
-        this.net = new NetImpl(id, granted);
+        this.net = new NetImpl(granted, clock);
         this.ui = new UiImpl(id, uiHub, features, granted, exec, registrations);
         this.vehicle = new Vehicle() {
             @Override

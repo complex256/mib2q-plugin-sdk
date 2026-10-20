@@ -20,16 +20,16 @@ import mibsdk.api.Permissions;
  */
 final class NetImpl implements Net {
 
-    private final String pluginId;
+    /** Largest request, in UTF-8 bytes before the newline; the write has no deadline, so it must fit the socket buffer. */
+    static final int MAX_REQUEST_BYTES = 2048;
+
     private final Set<String> granted;
+    private final Clock clock;
 
-    NetImpl(String pluginId, Set<String> granted) {
-        this.pluginId = pluginId;
+    /** @param clock the SDK's monotonic clock: the unit's wall clock starts at 1970 and is stepped by GPS */
+    NetImpl(Set<String> granted, Clock clock) {
         this.granted = granted;
-    }
-
-    String pluginId() {
-        return pluginId;
+        this.clock = clock;
     }
 
     @Override
@@ -43,15 +43,22 @@ final class NetImpl implements Net {
         if (port < 1 || port > 65535) {
             throw new IOException("network: bad port");
         }
+        byte[] req = null;
+        if (request != null) {
+            req = (request + "\n").getBytes("UTF-8");
+            if (req.length - 1 > MAX_REQUEST_BYTES) {
+                throw new IOException("network: request too large");
+            }
+        }
         int timeout = Math.max(1, Math.min(timeoutMs, MAX_TIMEOUT_MS));
-        long deadline = System.currentTimeMillis() + timeout;
+        long deadline = clock.uptimeMs() + timeout;
         Socket s = new Socket();
         try {
             // Both names go to the literal address, so no resolver is involved.
-            s.connect(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), timeout);
-            if (request != null) {
+            s.connect(new InetSocketAddress(InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), port), timeout);
+            if (req != null) {
                 OutputStream out = s.getOutputStream();
-                out.write((request + "\n").getBytes("UTF-8"));
+                out.write(req);
                 out.flush();
             }
             InputStream in = s.getInputStream();
@@ -59,11 +66,12 @@ final class NetImpl implements Net {
             int n = 0;
             byte[] sink = new byte[512];
             while (true) {
-                long left = deadline - System.currentTimeMillis();
+                long left = deadline - clock.uptimeMs();
                 if (left <= 0) {
                     throw new SocketTimeoutException("network: read timed out");
                 }
-                s.setSoTimeout((int) left);
+                // Also bounded by the per-call timeout, so a clock that is slow to tick cannot stretch a read.
+                s.setSoTimeout((int) Math.min(left, timeout));
                 int r;
                 if (n < buf.length) {
                     r = in.read(buf, n, buf.length - n);
