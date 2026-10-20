@@ -48,6 +48,7 @@ class RuntimeConfigTest {
         assertEquals(8388608, c.heapLowBytes());
         assertEquals(3, c.heapLowChecks());
         assertEquals(5000, c.heapCheckMs());
+        assertEquals(100, c.uiPublishMinMs());
     }
 
     @Test
@@ -79,6 +80,7 @@ class RuntimeConfigTest {
                 + "tick.ms=-5\n"
                 + "log.file=/tmp/other.log\n"
                 + "storage.plugin.max.bytes=1000\n"
+                + "ui.publish.min.ms=0\n"
                 + "storage.total.max.bytes=0\n").getBytes(StandardCharsets.ISO_8859_1));
         RuntimeConfig c = RuntimeConfig.load(FakePlatform.roots(tmp));
         assertEquals(1000, c.storagePluginMaxBytes());
@@ -92,5 +94,6 @@ class RuntimeConfigTest {
         assertEquals(1000, c.tickMs(), "out-of-range value falls back to the default");
         assertEquals(new File("/tmp/other.log"), c.logFile());
         assertEquals(5000, c.slowMs(), "absent key keeps its default");
+        assertEquals(0, c.uiPublishMinMs(), "0 publishes every change");
     }
 }

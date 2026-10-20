@@ -28,6 +28,7 @@ import mibsdk.platform.HookTable;
 import mibsdk.platform.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
+import mibsdk.platform.UiTable;
 
 /**
  * Discovers, orders, enables and contains plugins.
@@ -155,6 +156,7 @@ public final class SdkRuntime {
     private final OverrideLedger ledger;
     private final BootGuard bootGuard;
     private final StorageQuota storageQuota;
+    private final UiTable uiTable;
 
     private final List hosts = new ArrayList(); // PluginHost in discovery order; guarded by this
     private final List enabledOrder = new ArrayList(); // active PluginHost, oldest enable first; guarded by this
@@ -177,6 +179,9 @@ public final class SdkRuntime {
     private PluginScheduler timer; // posts to the control executor; guarded by this
     private final List timers = new ArrayList(); // Subscription; cancelled by stop(); guarded by this
     private DevChannel dev; // guarded by this
+    /** Created in start() once the control timer exists; plugin contexts and disableHost use it. */
+    private volatile UiHub uiHub;
+    private UiDispatcher uiDispatcher; // guarded by this
 
     /** Quarantines the most recently enabled plugin; HeapWatch calls it on the control thread. */
     private final HeapWatch.Victim heapVictim = new HeapWatch.Victim() {
@@ -253,7 +258,14 @@ public final class SdkRuntime {
     };
 
     public SdkRuntime(RuntimeConfig cfg, PlatformAdapter platform, Clock clock, HookTable hooks, RingLog log) {
+        this(cfg, platform, clock, hooks, new UiTable(64), log);
+    }
+
+    /** {@code ui} is where the runtime publishes UI snapshots and takes user input (the adapter's side). */
+    public SdkRuntime(RuntimeConfig cfg, PlatformAdapter platform, Clock clock, HookTable hooks, UiTable ui,
+            RingLog log) {
         this.cfg = cfg;
+        this.uiTable = ui;
         this.platform = platform;
         this.clock = clock;
         this.hooks = hooks;
@@ -289,6 +301,8 @@ public final class SdkRuntime {
             } else {
                 control = newControlExecutor();
                 timer = new PluginScheduler(control, clock);
+                uiHub = new UiHub(uiTable, log, clock, timer, cfg.uiPublishMinMs());
+                uiDispatcher = new UiDispatcher(uiTable, uiHub);
                 c = control;
                 t = timer;
             }
@@ -311,6 +325,9 @@ public final class SdkRuntime {
             adapterStarted = true;
         } catch (Throwable e) {
             log.append("ERROR", SOURCE, "adapter failed to start, no plugins will load: " + describe(e));
+        }
+        if (adapterStarted) {
+            startUiDispatcher(); // also in safe mode: the SDK's own pages take input
         }
         if (safeMode && adapterStarted) {
             ledger.restorePendingOnBoot(platformApplier); // safe mode: no plugin will re-claim anything
@@ -480,6 +497,16 @@ public final class SdkRuntime {
         d.start();
     }
 
+    private void startUiDispatcher() {
+        UiDispatcher ud;
+        synchronized (this) {
+            ud = stopped ? null : uiDispatcher;
+        }
+        if (ud != null) {
+            ud.start(); // a no-op if beginStop() stopped it meanwhile
+        }
+    }
+
     /** Keeps a timer subscription for stop() to cancel (or cancels it at once if already stopping). */
     private void schedule(Subscription sub) {
         synchronized (this) {
@@ -541,13 +568,15 @@ public final class SdkRuntime {
 
     /**
      * First step of stop() and haltForTest(): marks the runtime stopped (from here no plugin is enabled any
-     * more, see loadPlugins/enableUnguarded), cancels the timers and stops the dev channel. Returns the
+     * more, see loadPlugins/enableUnguarded), stops the UI input dispatcher, cancels the timers and stops the
+     * dev channel. Returns the
      * control executor, or null if the runtime was not started or is already stopped.
      */
     private SerialExecutor beginStop() {
         SerialExecutor c;
         Subscription[] subs;
         DevChannel d;
+        UiDispatcher ud;
         synchronized (this) {
             if (!started || stopped) {
                 return null;
@@ -558,6 +587,10 @@ public final class SdkRuntime {
             timers.clear();
             d = dev;
             dev = null;
+            ud = uiDispatcher;
+        }
+        if (ud != null) {
+            ud.stop(); // no input reaches a plugin from here on; down before ledger.beginShutdown()
         }
         for (int i = 0; i < subs.length; i++) {
             subs[i].cancel();
@@ -872,6 +905,7 @@ public final class SdkRuntime {
             if (h.registrations != null) {
                 h.registrations.cancelAll();
             }
+            uiHub.removeOwner(h.id, null);
             ledger.releaseAllFor(h.id);
             if (h.exec != null) {
                 h.exec.shutdown();
@@ -923,7 +957,7 @@ public final class SdkRuntime {
         h.exec = new SerialExecutor("plugin-" + h.id, clock, cfg.slowMs(), cfg.hungMs(), executorListener(h));
         h.scheduler = new PluginScheduler(h.exec, clock);
         h.ctx = new PluginContextImpl(h.id, log, h.storage, bus, h.exec, h.scheduler, h.registrations, features,
-                effectivePermissions(m), hooks, parkingSource, ledger);
+                effectivePermissions(m), hooks, parkingSource, ledger, uiHub);
         EnableHook hook = testEnableHook;
         if (hook != null) {
             hook.afterResources(h.id);
@@ -972,6 +1006,15 @@ public final class SdkRuntime {
      * Does nothing if the host is not active (already disabled).
      */
     private void disableHost(final PluginHost h, PluginState state, String reason, boolean runOnDisable) {
+        disableHost(h, state, reason, runOnDisable, true);
+    }
+
+    /**
+     * As above; {@code notice} false (a reload) removes the plugin's UI silently, else an open page of the
+     * plugin turns into the notice {@code "<name> stopped: <reason>"}.
+     */
+    private void disableHost(final PluginHost h, PluginState state, String reason, boolean runOnDisable,
+            boolean notice) {
         synchronized (this) {
             if (!h.active) {
                 return;
@@ -980,6 +1023,7 @@ public final class SdkRuntime {
             enabledOrder.remove(h);
         }
         h.registrations.cancelAll(); // releases the plugin's live overrides
+        uiHub.removeOwner(h.id, notice ? displayName(h) + " stopped: " + reason : null);
         ledger.releaseAllFor(h.id); // and any it owns from a previous run
         h.storage.flushNow();
         final MibPlugin p = h.plugin;
@@ -1009,6 +1053,11 @@ public final class SdkRuntime {
         setState(h, state, reason);
     }
 
+    private static String displayName(PluginHost h) {
+        String name = h.manifest == null ? null : h.manifest.name();
+        return name == null || name.length() == 0 ? h.id : name;
+    }
+
     private void reloadNow(String id) {
         if (isStopped()) {
             return;
@@ -1032,7 +1081,7 @@ public final class SdkRuntime {
         grants = Grants.load(cfg.grantsFile());
         PluginHost old = findHost(id);
         if (old != null) {
-            disableHost(old, PluginState.DISABLED, "reloading", true);
+            disableHost(old, PluginState.DISABLED, "reloading", true, false); // no notice flash during a reload
         }
         File jar = new File(cfg.pluginsDir(), id + ".jar");
         if (!jar.isFile()) {

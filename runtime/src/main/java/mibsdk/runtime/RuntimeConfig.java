@@ -62,6 +62,7 @@ public final class RuntimeConfig {
     private final long heapCheckMs;
     private final long storagePluginMaxBytes;
     private final long storageTotalMaxBytes;
+    private final long uiPublishMinMs;
 
     private RuntimeConfig(SdkRoots roots, Properties p) {
         this.roots = roots;
@@ -85,6 +86,7 @@ public final class RuntimeConfig {
         this.heapCheckMs = longValue(p, "heap.check.ms", 5000, 1);
         this.storagePluginMaxBytes = longValue(p, "storage.plugin.max.bytes", 262144, 1);
         this.storageTotalMaxBytes = longValue(p, "storage.total.max.bytes", 1048576, 1);
+        this.uiPublishMinMs = longValue(p, "ui.publish.min.ms", 100, 0);
     }
 
     /** Reads {@code <install>/sdk.properties}; never throws for a missing or unreadable file. */
@@ -216,6 +218,11 @@ public final class RuntimeConfig {
 
     public long storagePluginMaxBytes() {
         return storagePluginMaxBytes;
+    }
+
+    /** Minimum interval between two published UI snapshots ({@code ui.publish.min.ms}); 0 publishes every change. */
+    public long uiPublishMinMs() {
+        return uiPublishMinMs;
     }
 
     public long storageTotalMaxBytes() {
