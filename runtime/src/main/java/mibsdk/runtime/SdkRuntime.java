@@ -80,7 +80,10 @@ import mibsdk.platform.PlatformHost;
  * current jar). The boot counts toward safe mode only from the start of the plugin load
  * ({@link BootGuard#markPluginsLoading}), and {@code healthyAfterMs} after loading it is marked healthy. Every
  * {@code IgnitionChanged(false)} marks a clean shutdown. Independently of plugins, {@code healthyAfterMs} after
- * {@code start()} the HMI is marked healthy for the configurator ({@link BootGuard#markHmiHealthy}). A {@link HeapWatch} samples free heap every
+ * {@code start()} the HMI is marked healthy for the configurator ({@link BootGuard#markHmiHealthy}), unless
+ * {@code pluginStartDelayMs >= healthyAfterMs}: then the wrap count is cleared in the same write that starts the
+ * plugin count, so it is kept until the load and no crash counts nowhere. A boot where every plugin FAILED is not
+ * counted as unhealthy (a failed plugin runs no code, so a later HMI crash is not its doing). A {@link HeapWatch} samples free heap every
  * {@code heapCheckMs} once plugins are loaded. With no adapter (null: no adapter supports this HMI version)
  * the runtime logs the STATUS line with {@code adapter=none} and stops at once, leaving the boot guard and
  * the ledger untouched. Once {@link #stop()} is requested no plugin is enabled any more: a delayed or
@@ -154,6 +157,7 @@ public final class SdkRuntime {
     private boolean stopped; // guarded by this
     /** False if the adapter failed to start: then no plugin loads, not even through reload(). */
     private volatile boolean adapterStarted;
+    private volatile boolean healthAtLoad; // set once in start(): the wrap count clears with the plugin-load write
     /** Set once in start(), before the STATUS line: no plugin loads, not even through reload(). */
     private volatile boolean safeMode;
     /** Set on the control thread once the initial plugin load ran; reload() is deferred until then. */
@@ -279,7 +283,10 @@ public final class SdkRuntime {
         }
         log.append("STATUS", SOURCE, "runtime started adapter=" + adapterId + " safeMode=" + safeMode);
         logHeap();
-        scheduleHmiHealthy(t);
+        healthAtLoad = !safeMode && adapterStarted && cfg.pluginStartDelayMs() >= cfg.healthyAfterMs();
+        if (!healthAtLoad) {
+            scheduleHmiHealthy(t);
+        }
         startDevChannel();
         if (!adapterStarted || safeMode) {
             return;
@@ -575,7 +582,7 @@ public final class SdkRuntime {
         if (isStopped()) {
             return;
         }
-        bootGuard.markPluginsLoading(); // from here a restart counts as unhealthy (unless the ignition went off)
+        bootGuard.markPluginsLoading(healthAtLoad); // from here a restart counts as unhealthy (unless the ignition went off)
         boolean done;
         try {
             done = loadAll();
@@ -644,7 +651,8 @@ public final class SdkRuntime {
                     + " plugin(s) enabled, but cannot write " + bootGuard.file() + "; nothing recorded");
         } else if (enabled == 0) {
             log.append("INFO", SOURCE, "boot ran " + ms + " ms without a restart, but no plugin is enabled ("
-                    + (others.length() == 0 ? "none installed" : others.toString()) + ")");
+                    + (others.length() == 0 ? "none installed" : others.toString())
+                    + "); unhealthy-boot count reset: only HMI restarts count, plugin failures are contained");
         } else {
             log.append("INFO", SOURCE, "boot healthy: " + enabled + " plugin(s) enabled for " + ms + " ms");
         }

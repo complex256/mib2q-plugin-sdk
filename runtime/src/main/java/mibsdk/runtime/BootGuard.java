@@ -33,7 +33,9 @@ import java.util.Properties;
  * over it or a bridge. The configurator, at init only, passes everything through if
  * {@link #wrapLoopDetected} (wrapBoots &gt;= threshold), else counts its boot with {@link #countWrapBoot}. The
  * runtime clears the count once the HMI ran healthyAfterMs after the runtime started, plugins or not
- * ({@link #markHmiHealthy}), and on a clean shutdown ({@link #markCleanShutdown}). Once the threshold is reached
+ * ({@link #markHmiHealthy}), and on a clean shutdown ({@link #markCleanShutdown}). When the plugin-start delay is
+ * at least healthyAfterMs there is no such timer: the count is cleared in the same write that starts the plugin
+ * count ({@link #markPluginsLoading(boolean)}), so a crash is always counted by one of the two. Once the threshold is reached
  * it latches like safe mode: a pass-through boot that runs fine proves nothing about wrapping, so only
  * {@link #reset()} (mibsdk-dev safe-mode off) clears it.
  *
@@ -137,12 +139,18 @@ public final class BootGuard {
 
     /**
      * Plugins start loading: from here a restart without ignition-off or health counts as unhealthy (unless
-     * the ignition already went off during this run).
+     * the ignition already went off during this run). With {@code hmiHealthy} (the start delay is at least
+     * healthyAfterMs, so no HMI-healthy timer ran) it also clears wrapBoots (unless latched), in the same write:
+     * the wrap count hands over to the plugin count with no gap in which a crash counts nowhere.
      */
-    synchronized void markPluginsLoading() {
+    synchronized void markPluginsLoading(boolean hmiHealthy) {
         loadOnce();
+        boolean changed = hmiHealthy && clearWrapBoots();
         if (!ignitionOffSeen && lastShutdownClean) {
             lastShutdownClean = false;
+            changed = true;
+        }
+        if (changed) {
             write();
         }
     }

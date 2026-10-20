@@ -372,6 +372,19 @@ class SdkRuntimeBootTest {
     }
 
     @Test
+    void wrapCountIsKeptUntilPluginsStartLoadingWhenTheDelayExceedsHealthyAfter() throws Exception {
+        assertTrue(BootGuard.countWrapBoot(new File(persist(), "boot.state"), null));
+        start("plugin.start.delay.ms=120000\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
+        clock.advance(90000);
+        Thread.sleep(300);
+        assertEquals("1", bootState().getProperty("wrapBoots"));
+        assertEquals("true", bootState().getProperty("lastShutdownClean"));
+        clock.advance(30000);
+        awaitBootState("wrapBoots", "0");
+        assertEquals("false", bootState().getProperty("lastShutdownClean"));
+    }
+
+    @Test
     void wrapLoopIsLoggedAndLatched() throws Exception {
         write(new File(persist(), "boot.state"), "unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=3\n");
         start("plugin.start.delay.ms=0\nhealthy.after.ms=60000\nheap.low.bytes=0\n");
@@ -466,6 +479,7 @@ class SdkRuntimeBootTest {
 
         clock.advance(60000);
         awaitLog("no plugin is enabled (FAILED=1)");
+        awaitLog("unhealthy-boot count reset: only HMI restarts count");
         assertFalse(logContains("boot healthy"), rt.log().snapshot().toString());
         assertEquals("0", bootState().getProperty("unhealthyBoots"), "the HMI itself survived: no crash to count");
     }

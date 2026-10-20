@@ -43,12 +43,35 @@ class BootGuardTest {
         return p;
     }
 
+    @Test
+    void pluginsLoadingClearsTheWrapCountInTheSameWriteWhenAsked() throws Exception {
+        BootGuard.countWrapBoot(state, null);
+        BootGuard g = boot();
+        assertFalse(g.beginBoot());
+        g.markPluginsLoading(false);
+        assertEquals("unhealthyBoots=0\nlastShutdownClean=false\nwrapBoots=1\n", text());
+
+        write("unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=1\n");
+        BootGuard h = boot();
+        assertFalse(h.beginBoot());
+        h.markPluginsLoading(true);
+        assertEquals("unhealthyBoots=0\nlastShutdownClean=false\nwrapBoots=0\n", text());
+    }
+
+    private String text() throws IOException {
+        return new String(java.nio.file.Files.readAllBytes(state.toPath()), "ISO-8859-1");
+    }
+
+    private void write(String s) throws IOException {
+        java.nio.file.Files.write(state.toPath(), s.getBytes("ISO-8859-1"));
+    }
+
     /** A boot that loads plugins and then dies without ignition-off or health: returns beginBoot's verdict. */
     private boolean crashingBoot() {
         BootGuard g = boot();
         boolean safe = g.beginBoot();
         if (!safe) {
-            g.markPluginsLoading();
+            g.markPluginsLoading(false);
         }
         return safe;
     }
@@ -70,7 +93,7 @@ class BootGuardTest {
         assertFalse(crashingBoot());
         BootGuard g = boot();
         assertFalse(g.beginBoot());
-        g.markPluginsLoading();
+        g.markPluginsLoading(false);
         assertEquals("2", props().getProperty("unhealthyBoots"));
         g.markHealthy(); // ran healthyAfterMs with plugins enabled, then crashed
         assertEquals("0", props().getProperty("unhealthyBoots"));
@@ -86,7 +109,7 @@ class BootGuardTest {
         for (int i = 0; i < 3; i++) {
             BootGuard g = boot();
             assertFalse(g.beginBoot(), "boot " + (i + 1));
-            g.markPluginsLoading();
+            g.markPluginsLoading(false);
             assertEquals("false", props().getProperty("lastShutdownClean"));
             g.markCleanShutdown(); // IgnitionChanged(false) before healthyAfterMs
             assertEquals("true", props().getProperty("lastShutdownClean"));
@@ -101,7 +124,7 @@ class BootGuardTest {
             BootGuard g = boot();
             assertFalse(g.beginBoot());
             g.markCleanShutdown(); // during the plugin-start delay
-            g.markPluginsLoading(); // the delay ends before power-off
+            g.markPluginsLoading(false); // the delay ends before power-off
             assertEquals("true", props().getProperty("lastShutdownClean"));
         }
         assertFalse(boot().beginBoot());
@@ -122,7 +145,7 @@ class BootGuardTest {
         assertFalse(crashingBoot());
         BootGuard g = boot();
         assertFalse(g.beginBoot()); // previous crashed: 1
-        g.markPluginsLoading();
+        g.markPluginsLoading(false);
         g.markCleanShutdown();
         assertFalse(crashingBoot()); // clean: still 1
         assertEquals("1", props().getProperty("unhealthyBoots"));
@@ -183,7 +206,7 @@ class BootGuardTest {
     void stateFileFormatIsExact() throws Exception {
         BootGuard g = boot();
         g.beginBoot();
-        g.markPluginsLoading();
+        g.markPluginsLoading(false);
         assertEquals("unhealthyBoots=0\nlastShutdownClean=false\nwrapBoots=0\n", text(state));
         g.markCleanShutdown();
         assertEquals("unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0\n", text(state));
@@ -263,7 +286,7 @@ class BootGuardTest {
         configuratorBoot();
         BootGuard g = boot();
         g.beginBoot();
-        g.markPluginsLoading();
+        g.markPluginsLoading(false);
         g.markHealthy();
         assertEquals("1", props().getProperty("wrapBoots"), "only markHmiHealthy/markCleanShutdown/reset clear it");
     }
@@ -316,7 +339,7 @@ class BootGuardTest {
         assertTrue(g.inert());
 
         assertTrue(dir.delete());
-        g.markPluginsLoading();
+        g.markPluginsLoading(false);
         assertFalse(g.inert(), "writable again");
         assertEquals("false", props().getProperty("lastShutdownClean"));
     }
