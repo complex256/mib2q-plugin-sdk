@@ -9,6 +9,9 @@ import mibsdk.api.SdkInfo;
 /** Parses and validates plugin.json. No java.util.regex: the car has none. */
 public final class ManifestParser {
 
+    /** Runtime-owned UI pages use this owner, so no plugin may take it. */
+    static final String RESERVED_ID = "mibsdk";
+
     private ManifestParser() {
     }
 
@@ -23,6 +26,9 @@ public final class ManifestParser {
         if (!isValidId(id)) {
             throw new ManifestException("invalid id '" + id + "': must match [a-z0-9][a-z0-9-]{1,40}");
         }
+        if (RESERVED_ID.equals(id)) {
+            throw new ManifestException("reserved plugin id '" + RESERVED_ID + "'");
+        }
         String name = optString(m, "name", id);
         String version = optString(m, "version", "0");
         String author = optString(m, "author", "");
@@ -32,8 +38,9 @@ public final class ManifestParser {
             throw new ManifestException("api must be an integer");
         }
         long api = ((Long) apiVal).longValue();
-        if (api != SdkInfo.API_VERSION) {
-            throw new ManifestException("unsupported api " + api + ", this SDK implements api " + SdkInfo.API_VERSION);
+        if (api < SdkInfo.MIN_API_VERSION || api > SdkInfo.API_VERSION) {
+            throw new ManifestException("unsupported api " + api + ", this SDK implements api "
+                    + SdkInfo.MIN_API_VERSION + ".." + SdkInfo.API_VERSION);
         }
 
         String main = requireString(m, "main");

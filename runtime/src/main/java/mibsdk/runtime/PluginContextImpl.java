@@ -8,6 +8,7 @@ import mibsdk.api.HookPoint;
 import mibsdk.api.Hooks;
 import mibsdk.api.Listener;
 import mibsdk.api.Log;
+import mibsdk.api.Net;
 import mibsdk.api.Parking;
 import mibsdk.api.PermissionDeniedException;
 import mibsdk.api.Permissions;
@@ -15,6 +16,7 @@ import mibsdk.api.PluginContext;
 import mibsdk.api.Scheduler;
 import mibsdk.api.Storage;
 import mibsdk.api.Subscription;
+import mibsdk.api.Ui;
 import mibsdk.api.Vehicle;
 import mibsdk.platform.HookTable;
 import mibsdk.platform.ParkingIo;
@@ -245,6 +247,16 @@ final class PluginContextImpl implements PluginContext {
     @Override
     public Scheduler scheduler() {
         return scheduler;
+    }
+
+    @Override
+    public Ui ui() {
+        throw new UnsupportedOperationException("not yet wired");
+    }
+
+    @Override
+    public Net net() {
+        throw new UnsupportedOperationException("not yet wired");
     }
 
     @Override
