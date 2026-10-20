@@ -129,7 +129,9 @@ class HqcPlatformTest {
     @Test
     void idAndFeatures() {
         boolean wrapping = SdkGlobals.wrappingEnabled;
+        boolean ui = SdkGlobals.uiEnabled;
         try {
+            SdkGlobals.uiEnabled = false; // UI features: uiFeaturesFollowUiEnabled
             HqcPlatform p = new HqcPlatform(new Ctx().context());
             assertEquals("hqc-nar-g22-c10", p.id());
             HashSet<String> base = new HashSet<>(Arrays.asList(Features.PARKING, Features.IGNITION));
@@ -150,7 +152,88 @@ class HqcPlatformTest {
             assertThrows(UnsupportedOperationException.class, () -> p.features().add("x"));
         } finally {
             SdkGlobals.wrappingEnabled = wrapping;
+            SdkGlobals.uiEnabled = ui;
             RawServices.clear();
+        }
+    }
+
+    @Test
+    void uiFeaturesFollowUiEnabled() {
+        boolean wrapping = SdkGlobals.wrappingEnabled;
+        boolean ui = SdkGlobals.uiEnabled;
+        try {
+            HqcPlatform p = new HqcPlatform(new Ctx().context());
+            List<String> uiFeatures = Arrays.asList(Features.SLOT_CAR_MENU, Features.UI_PAGES, Features.SLOT_STATUS_BAR);
+            for (boolean hooked : new boolean[] {false, true}) {
+                RawServices.clear();
+                SdkGlobals.wrappingEnabled = hooked;
+                if (hooked) {
+                    RawServices.record(PARKING, new Object());
+                }
+                SdkGlobals.uiEnabled = true;
+                assertTrue(p.features().containsAll(uiFeatures), "ui on, hooked=" + hooked);
+                assertEquals(hooked, p.features().contains(Features.HOOK_PARKING));
+                assertTrue(p.features().contains(Features.PARKING));
+                assertThrows(UnsupportedOperationException.class, () -> p.features().add("x"));
+                SdkGlobals.uiEnabled = false;
+                for (String f : uiFeatures) {
+                    assertFalse(p.features().contains(f), "ui off, hooked=" + hooked + ": " + f);
+                }
+                assertEquals(hooked, p.features().contains(Features.HOOK_PARKING));
+            }
+        } finally {
+            SdkGlobals.wrappingEnabled = wrapping;
+            SdkGlobals.uiEnabled = ui;
+            RawServices.clear();
+        }
+    }
+
+    private static boolean threadAlive(String name) {
+        for (Thread t : Thread.getAllStackTraces().keySet()) {
+            if (name.equals(t.getName()) && t.isAlive()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Carried requirement 4: with the UI off (wrap-loop latch) start never waits for the HMI nor starts mibsdk-ui. */
+    @Test
+    void uiOffStartsNoUiThreadAndNeverAsksForTheHmi() throws Exception {
+        boolean ui = SdkGlobals.uiEnabled;
+        try {
+            SdkGlobals.uiEnabled = false;
+            Ctx c = new Ctx();
+            c.services.put(HqcPlatform.FRAMEWORK_ACCESS, new Object());
+            HqcPlatform p = new HqcPlatform(c.context(), () -> 0L);
+            p.start(new RecordingHost());
+            assertTrue(eventually(2000, () -> c.lookups.get() >= 2));
+            Thread.sleep(300);
+            assertFalse(c.lookupThreads.contains("mibsdk-wait-IFrameworkAccess"), "no HMI wait");
+            assertFalse(threadAlive("mibsdk-ui"));
+            p.stop();
+        } finally {
+            SdkGlobals.uiEnabled = ui;
+        }
+    }
+
+    @Test
+    void uiOnStartsTheApplierOnceTheHmiFrameworkAppearsAndStopEndsIt() throws Exception {
+        boolean ui = SdkGlobals.uiEnabled;
+        try {
+            SdkGlobals.uiEnabled = true;
+            Ctx c = new Ctx();
+            HqcPlatform p = new HqcPlatform(c.context(), () -> 0L);
+            p.start(new RecordingHost());
+            assertTrue(eventually(2000, () -> c.lookupThreads.contains("mibsdk-wait-IFrameworkAccess")));
+            assertFalse(threadAlive("mibsdk-ui"), "not before the framework service exists");
+            c.services.put(HqcPlatform.FRAMEWORK_ACCESS, Proxy.newProxyInstance(getClass().getClassLoader(),
+                    new Class<?>[] {de.audi.atip.base.IFrameworkAccess.class}, (px, m, a) -> null));
+            assertTrue(eventually(3000, () -> threadAlive("mibsdk-ui")));
+            p.stop();
+            assertFalse(threadAlive("mibsdk-ui"), "stop waits for the applier's teardown");
+        } finally {
+            SdkGlobals.uiEnabled = ui;
         }
     }
 

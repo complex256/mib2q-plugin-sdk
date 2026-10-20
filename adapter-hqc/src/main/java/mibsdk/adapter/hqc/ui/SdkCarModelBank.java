@@ -40,6 +40,16 @@ final class SdkCarModelBank extends CarModelBank {
         this.modelIDs = ids;
     }
 
+    /**
+     * The grown {@code modelIDs} (stock ids, then the SDK's), as CarModelBank answers. Pinned here because
+     * AbstractModelBank's own version sizes its array by the stock model count while walking the grown
+     * {@code models[]}: reaching it would overflow on a stock thread once SDK models exist. {@code getModels()} (final)
+     * sizes by this.
+     */
+    public int[] getAllModelIds() {
+        return this.modelIDs;
+    }
+
     /** Stock thread (HMIEvent). SDK indices: create the SDK model; never throws, never runs plugin code. */
     protected synchronized void createModel(int i) {
         if (i < BASE_INDEX || i >= BASE_INDEX + HqcUiIds.MODEL_COUNT) {

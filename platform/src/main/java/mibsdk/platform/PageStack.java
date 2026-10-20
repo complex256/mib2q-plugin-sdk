@@ -35,6 +35,14 @@ public final class PageStack {
 
     /** Pushes a page. {@code returnTo} is kept only when the stack was empty (it belongs to the bottom page). */
     public void push(String pageKey, Object returnTo) {
+        push(pageKey, returnTo, null);
+    }
+
+    /**
+     * {@link #push} then {@link #reconcile} against {@code s} (if not null), with one notification: a LINK to a key
+     * the snapshot lacks shows "mibsdk/stopped" straight away, never a transient {@code shown(missing)}.
+     */
+    public void push(String pageKey, Object returnTo, UiSnapshot s) {
         String old = top();
         if (keys.isEmpty()) {
             bottomReturnTo = returnTo;
@@ -42,6 +50,9 @@ public final class PageStack {
             keys.remove(1); // drop the oldest above the bottom
         }
         keys.add(pageKey);
+        if (s != null) {
+            replaceVanished(s);
+        }
         changed(old);
     }
 
@@ -78,13 +89,17 @@ public final class PageStack {
     /** Replaces vanished pages with "mibsdk/stopped" unless the snapshot carries a page under the same key. */
     public void reconcile(UiSnapshot s) {
         String old = top();
+        replaceVanished(s);
+        changed(old);
+    }
+
+    private void replaceVanished(UiSnapshot s) {
         for (int i = 0; i < keys.size(); i++) {
             String k = keys.get(i);
             if (!STOPPED.equals(k) && !s.pages().containsKey(k)) {
                 keys.set(i, STOPPED);
             }
         }
-        changed(old);
     }
 
     private void changed(String old) {

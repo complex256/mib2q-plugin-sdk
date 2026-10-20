@@ -41,7 +41,7 @@ final class SdkCarScreenFactory extends CarScreenFactory {
         return drawers;
     }
 
-    /** Appends the SDK rows once per drawer object. Views first: if that throws, the drawer is untouched. */
+    /** Appends the SDK rows once per drawer object; {@link #install} keeps the drawer whole if that fails. */
     private void addRows(DrawerController d) {
         int[] ids = d.getViewIDs();
         int n = ids == null ? 0 : ids.length;
@@ -97,9 +97,30 @@ final class SdkCarScreenFactory extends CarScreenFactory {
             nids[o] = addIds[a];
             nviews[o++] = addViews[a++];
         }
-        d.setViews(nids, nviews);
-        for (int slot = 0; slot < HqcUiIds.ROW_SLOTS; slot++) {
-            ((AbstractWidgetController) main).add(rows[slot]);
+        install(d, (AbstractWidgetController) main, rows, nids, nviews);
+    }
+
+    /**
+     * Adds the rows to the drawer's menu, then maps the views. If either step throws, the rows added so far are
+     * removed again, so the drawer is never left half-built (views pointing at rows outside the menu, or rows
+     * without their visibility views).
+     */
+    static void install(DrawerController d, AbstractWidgetController menu, MenuItemController[] rows, int[] ids,
+                        HMIView[][] views) {
+        int added = 0;
+        try {
+            for (; added < rows.length; added++) {
+                menu.add(rows[added]);
+            }
+            d.setViews(ids, views);
+        } catch (Throwable t) {
+            for (int k = added - 1; k >= 0; k--) {
+                try {
+                    menu.remove(rows[k]);
+                } catch (Throwable ignored) {
+                    // keep removing the others
+                }
+            }
         }
     }
 

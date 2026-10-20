@@ -119,4 +119,20 @@ class PageStackTest {
         s.reconcile(snapWith("a"));
         assertEquals(java.util.Collections.emptyList(), log.ev);
     }
+
+    /** Carried requirement: a LINK to a missing key shows the notice at once, never a transient shown(missing). */
+    @Test
+    void pushWithSnapshotNeverShowsAMissingTarget() {
+        Log log = new Log();
+        PageStack s = new PageStack(log);
+        s.push("a", null, snapWith("a"));
+        s.push("gone", null, snapWith("a"));
+        assertEquals(java.util.Arrays.asList("+a", "-a", "+mibsdk/stopped"), log.ev);
+        log.ev.clear();
+        s.back();
+        assertEquals(java.util.Arrays.asList("-mibsdk/stopped", "+a"), log.ev);
+        log.ev.clear();
+        s.push("a2", null, snapWith("a", "a2")); // present target: an ordinary push
+        assertEquals(java.util.Arrays.asList("-a", "+a2"), log.ev);
+    }
 }

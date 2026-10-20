@@ -43,10 +43,12 @@ val hostStockJar = tasks.register<HostStockJarTask>("hostStockJar") {
         "org/dsi/ifc/global/",
         "org/dsi/ifc/powermanagement/",
         "de/audi/tghu/dsitrace/",
-        // UI (Car activator, bank, models): the activator/bank tests construct them on the host.
+        // UI (Car activator, bank, models, drawer widgets): the UI tests construct them on the host.
         "de/audi/atip/",
         "de/audi/tghu/car/hmi/",
-        "de/esolutions/hmi/"))
+        "de/audi/tghu/hmi/",
+        "de/esolutions/hmi/",
+        "de/esolutions/fw/util/commons/"))
     outputJar.set(layout.buildDirectory.file("host-stock/stock-host.jar"))
 }
 

@@ -28,9 +28,19 @@ class TextIdsTest {
         assertNull(ids.textFor(608999, a));
         assertNull(ids.textFor(609009, a));
         assertNull(ids.textFor(601352, a), "stock text");
-        assertEquals("", ids.textFor(609000, DrawerAssignment.EMPTY));
-        assertEquals("", ids.textFor(609000, null));
         assertNull(ids.textFor(Integer.MIN_VALUE, a));
         assertNull(ids.textFor(Integer.MAX_VALUE, a));
+    }
+
+    /** Carried requirement 3: the drawer may be built before the runtime publishes; slot 0 still reads "Plugins". */
+    @Test
+    void pluginsRowFallsBackToLiteralUntilPublished() {
+        TextIds ids = new TextIds(HqcUiIds.TEXT_BASE);
+        assertEquals("Plugins", ids.textFor(609000, DrawerAssignment.EMPTY));
+        assertEquals("Plugins", ids.textFor(609000, null));
+        assertEquals("", ids.textFor(609001, DrawerAssignment.EMPTY), "plugin slots stay blank");
+        DrawerAssignment named = DrawerSlots.assign(DrawerAssignment.EMPTY,
+                java.util.Collections.singletonList(new UiRow("mibsdk.plugins", "Plugins (safe mode)", "p")), 8);
+        assertEquals("Plugins (safe mode)", ids.textFor(609000, named), "the published label wins");
     }
 }

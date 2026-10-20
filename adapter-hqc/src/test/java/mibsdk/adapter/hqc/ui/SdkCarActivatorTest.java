@@ -155,4 +155,24 @@ class SdkCarActivatorTest {
         assertNull(SdkGlobals.UI.poll(0));
         assertEquals(-1, sel.getValue(), "no selection reset");
     }
+
+    /**
+     * Carried requirement 3: the bank answers the grown id list (stock, then all 10 SDK ids) even once every SDK model
+     * exists, never AbstractModelBank's version sized by the stock model count. getModels() is final and sizes by it.
+     */
+    @Test
+    void allModelIdsCoverTheGrownModels() throws Exception {
+        SdkGlobals.uiEnabled = true;
+        SdkCarModelBank bank = (SdkCarModelBank) bankOf(new SdkCarActivator());
+        int[] before = bank.getAllModelIds();
+        for (int i = 0; i < HqcUiIds.MODEL_COUNT; i++) {
+            model(bank, HqcUiIds.MODEL_BASE + i);
+        }
+        int[] ids = bank.getAllModelIds();
+        assertEquals(before.length, ids.length);
+        for (int i = 0; i < HqcUiIds.MODEL_COUNT; i++) {
+            assertEquals(HqcUiIds.MODEL_BASE + i, ids[ids.length - HqcUiIds.MODEL_COUNT + i]);
+        }
+        assertEquals(1147 + HqcUiIds.MODEL_COUNT, ids.length, "CarModelBank's 1147 stock ids, then the SDK's");
+    }
 }
