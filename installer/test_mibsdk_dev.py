@@ -5,6 +5,7 @@ import os
 import shutil
 import stat
 import subprocess
+import hashlib
 import tempfile
 import unittest
 import zipfile
@@ -89,6 +90,15 @@ def write(path, data):
         f.write(data)
 
 
+def stamp(path, kind, jars, attrs=None):
+    """Writes a check stamp in the format of build-logic's CheckStamp (version 1)."""
+    lines = ["format=1", "kind=" + kind, "checks=classVersion48,linkCheck,permissionScan"]
+    lines += ["%s=%s" % (k, v) for k, v in sorted((attrs or {}).items())]
+    for jar in sorted(jars, key=os.path.basename):
+        lines.append("sha256.%s=%s" % (os.path.basename(jar), hashlib.sha256(read(jar)).hexdigest()))
+    write(path, ("\n".join(lines) + "\n").encode("latin-1"))
+
+
 def executable(path, text):
     write(path, text.encode("utf-8"))
     os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -113,6 +123,7 @@ class FakeUnit(object):
         self.dist = os.path.join(root, "dist")
         for j in SDK_JARS:
             write(os.path.join(self.dist, j), ("jar " + j).encode("ascii"))
+        stamp(os.path.join(self.dist, "mibsdk-unit.stamp"), "unit", [os.path.join(self.dist, j) for j in SDK_JARS])
         write(os.path.join(self.unit, "ifs/version_info.txt"), ("HMI = %s\n" % HMI).encode("ascii"))
         write(os.path.join(self.lsd, "bundles_dsitracer_enabled.properties"), read(STOCK))
         write(os.path.join(self.lsd, "DSITracer.jar"), b"tracer")
@@ -165,6 +176,28 @@ class FakeUnitTestCase(unittest.TestCase):
 
 
 class InstallTest(FakeUnitTestCase):
+    def test_refuses_a_dist_without_a_stamp(self):
+        u = self.unit(tracer_marker=False)
+        os.remove(os.path.join(u.dist, "mibsdk-unit.stamp"))
+        r = u.run("install")
+        self.assertNotEqual(0, r.returncode)
+        err = r.stderr.decode("utf-8")
+        self.assertIn("not a checked build (missing)", err)
+        self.assertIn(":dist:assembleUnit", err)
+        self.assertNotIn(b"MibSdk", u.autostart())
+        self.assertFalse(os.path.exists(u.sdk), "nothing changed on the unit")
+
+    def test_refuses_a_jar_that_does_not_match_its_stamp(self):
+        u = self.unit(tracer_marker=False)
+        write(os.path.join(u.dist, "mibsdk-runtime.jar"), b"rebuilt without the checks")
+        r = u.run("install")
+        self.assertNotEqual(0, r.returncode)
+        err = r.stderr.decode("utf-8")
+        self.assertIn("hash mismatch for mibsdk-runtime.jar", err)
+        self.assertIn(":dist:assembleUnit", err)
+        self.assertNotIn(b"MibSdk", u.autostart())
+        self.assertFalse(os.path.exists(u.sdk), "nothing changed on the unit")
+
     def test_tracer_off_unit_does_not_get_dsitracer_autostarted(self):
         u = self.unit(tracer_marker=False)
         self.ok(u.run("install"))
@@ -219,8 +252,8 @@ class InstallTest(FakeUnitTestCase):
         self.ok(u.run("install"))
         self.assertEqual(b"new\n", read(os.path.join(u.persist, "data/p.properties")))
 
-    ENTRY = b"parking.sound.rear=bike-rack|PERSISTENT|on|off\n"
-    OTHER = b"parking.sound.front=bike-rack|PERSISTENT|on|off\n"
+    ENTRY = b"parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A\n"
+    OTHER = b"parking.soundLevel=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A\n"
 
     def old_ledger(self, u):
         return os.path.join(u.sdk, "ledger.properties")
@@ -240,11 +273,11 @@ class InstallTest(FakeUnitTestCase):
     def test_old_ledger_entry_that_conflicts_is_kept_where_it_is(self):
         u = self.unit(tracer_marker=False)
         self.ok(u.run("install"))
-        newer = b"parking.sound.rear=bike-rack|PERSISTENT|off|on\n"
+        newer = b"parking.soundDirections=bike-rack|PERSISTENT|F0R0L0X0|F1R1L1X1|A\n"
         write(self.new_ledger(u), newer)
         write(self.old_ledger(u), self.ENTRY)
         r = self.ok(u.run("install"))
-        self.assertIn("parking.sound.rear", r.stderr.decode("utf-8"))
+        self.assertIn("parking.soundDirections", r.stderr.decode("utf-8"))
         self.assertEqual(newer, read(self.new_ledger(u)))
         self.assertEqual(self.ENTRY, read(self.old_ledger(u)), "not merged: never deleted")
 
@@ -308,7 +341,7 @@ class InstallTest(FakeUnitTestCase):
 
 
 class UninstallTest(FakeUnitTestCase):
-    ENTRY = b"parking.sound.rear=bike-rack|PERSISTENT|on|off\n"
+    ENTRY = b"parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A\n"
 
     def installed(self, ledger):
         u = self.unit(tracer_marker=False)
@@ -329,20 +362,29 @@ class UninstallTest(FakeUnitTestCase):
             r = u.run(*args)
             err = r.stderr.decode("utf-8")
             self.assertNotEqual(0, r.returncode, args)
-            self.assertIn("parking.sound.rear=bike-rack|PERSISTENT|on|off", err)
-            self.assertIn("disable the plugin", err)
+            self.assertIn("parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A", err)
+            self.assertIn("mibsdk-dev safe-mode on && mibsdk-dev restart", err)
+            self.assertIn("safe-mode off", err)
             self.assertIn("mibsdk-dev log", err)
             self.assertIn("--force", err)
             self.assert_still_installed(u)
             shutil.rmtree(self.tmp)
             os.makedirs(self.tmp)
 
+    def test_refusal_shows_a_pending_restore_line(self):
+        line = "parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|R"
+        u = self.installed((line + "\n").encode("ascii"))
+        r = u.run("uninstall")
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn(line, r.stderr.decode("utf-8"))
+        self.assert_still_installed(u)
+
     def test_force_uninstalls_with_a_loud_warning(self):
         u = self.installed(self.ENTRY)
         r = self.ok(u.run("uninstall", "--force", "--purge"))
         err = r.stderr.decode("utf-8")
         self.assertIn("WARNING", err)
-        self.assertIn("parking.sound.rear=bike-rack|PERSISTENT|on|off", err)
+        self.assertIn("parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A", err)
         self.assertNotIn(b"MibSdk", u.autostart())
         self.assertFalse(os.path.exists(u.sdk))
         self.assertFalse(os.path.exists(u.persist), "--purge removes the plugin data too")
@@ -352,7 +394,7 @@ class UninstallTest(FakeUnitTestCase):
         write(os.path.join(u.sdk, "ledger.properties"), self.ENTRY)  # an install from before the move
         r = u.run("uninstall")
         self.assertNotEqual(0, r.returncode)
-        self.assertIn("parking.sound.rear=bike-rack|PERSISTENT|on|off", r.stderr.decode("utf-8"))
+        self.assertIn("parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A", r.stderr.decode("utf-8"))
 
     def test_default_uninstall_keeps_plugin_data_purge_removes_it(self):
         u = self.installed(None)
@@ -420,12 +462,12 @@ class DataClearTest(FakeUnitTestCase):
         write(os.path.join(data, "hello.properties"), b"x=1\n")
         write(os.path.join(data, "hello.properties.tmp"), b"x=")
         write(os.path.join(data, "hello2.properties"), b"y=1\n")
-        write(os.path.join(u.persist, "ledger.properties"), b"k=hello|PERSISTENT|a|b\n")
+        write(os.path.join(u.persist, "ledger.properties"), b"k=hello|PERSISTENT|a|b|A\n")
         write(os.path.join(u.persist, "boot.state"), b"unhealthyBoots=1\n")
         r = self.ok(u.run("data-clear", "hello"))
         self.assertIn("hello", r.stdout.decode("utf-8"))
         self.assertEqual(["hello2.properties"], sorted(os.listdir(data)))
-        self.assertEqual(b"k=hello|PERSISTENT|a|b\n", read(os.path.join(u.persist, "ledger.properties")))
+        self.assertEqual(b"k=hello|PERSISTENT|a|b|A\n", read(os.path.join(u.persist, "ledger.properties")))
         self.assertEqual(b"unhealthyBoots=1\n", read(os.path.join(u.persist, "boot.state")))
         self.ok(u.run("data-clear", "hello"))  # nothing left: still fine
 
@@ -440,11 +482,54 @@ class DataClearTest(FakeUnitTestCase):
 
 
 class PushTest(FakeUnitTestCase):
-    def plugin_jar(self, plugin_id):
+    def plugin_jar(self, plugin_id, content="", unrestricted="false", stamped=True, stamp_id=None):
         path = os.path.join(self.tmp, plugin_id + ".jar")
         with zipfile.ZipFile(path, "w") as z:
             z.writestr("plugin.json", '{"id": "%s"}' % plugin_id)
+            if content:
+                z.writestr("content.txt", content)
+        if stamped:
+            stamp(path + ".stamp", "plugin", [path],
+                  {"plugin.id": stamp_id or plugin_id, "plugin.unrestricted": unrestricted})
         return path
+
+    def assert_refused(self, u, r, plugin_id, reason):
+        self.assertNotEqual(0, r.returncode)
+        err = r.stderr.decode("utf-8")
+        self.assertIn("has no valid check stamp (%s)" % reason, err)
+        self.assertIn(":mibPluginJar", err)
+        self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins", plugin_id + ".jar")))
+
+    def test_refuses_a_jar_without_a_stamp(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        self.assert_refused(u, u.run("push", self.plugin_jar("hello", stamped=False)), "hello", "missing")
+
+    def test_refuses_a_stamp_for_another_id(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        r = u.run("push", self.plugin_jar("hello", stamp_id="other"))
+        self.assert_refused(u, r, "hello", "id other != hello")
+
+    def test_refuses_a_stale_stamp(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        jar = self.plugin_jar("hello")
+        self.plugin_jar("hello", content="rebuilt after stamping", stamped=False)
+        self.assert_refused(u, u.run("push", jar), "hello", "hash mismatch for hello.jar")
+
+    def test_warns_loudly_for_an_unrestricted_plugin(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        r = self.ok(u.run("push", self.plugin_jar("hello", unrestricted="true")))
+        self.assertIn("WARNING: hello declares platform.unrestricted", r.stderr.decode("utf-8"))
+        self.assertTrue(os.path.exists(os.path.join(u.sdk, "plugins/hello.jar")))
+
+    def test_a_restricted_plugin_gets_no_warning(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        r = self.ok(u.run("push", self.plugin_jar("hello")))
+        self.assertNotIn("unrestricted", r.stderr.decode("utf-8"))
 
     def test_each_push_writes_a_fresh_reload_marker(self):
         """The runtime never deletes markers (read-only /mnt/app); it reloads when a marker's content changes."""
