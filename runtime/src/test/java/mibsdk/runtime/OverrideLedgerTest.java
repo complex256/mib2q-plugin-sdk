@@ -1793,6 +1793,60 @@ class OverrideLedgerTest {
         awaitLedgerText(KEY + "=p|UNTIL_IGNITION_OFF|F1R1L1X1|F1R0L1X1|A\n");
     }
 
+    /** Triage T1: the ledger file is in place but its final sync failed: a WARN says it may not survive. */
+    @Test
+    void ledgerWriteWhoseFinalSyncFailsIsWarned() throws Exception {
+        RingLog log = new RingLog(100);
+        OverrideLedger l = ledger(log);
+        l.fileOps = new TargetSyncFails();
+        RecordingApplier a = reporting(l);
+        l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        a.await(1);
+        assertEquals("k=p|PERSISTENT|OLD|NEW|A\n", text(ledgerFile()));
+        assertTrue(logHas(log, "WARN", "ledger.properties written, but its final sync failed"),
+                log.snapshot().toString());
+    }
+
+    /** Untouched {@link DurableFiles#SYSTEM}, except that the sync of a file (not a directory) fails. */
+    static final class TargetSyncFails implements DurableFiles.Ops {
+        public void syncFile(java.io.FileDescriptor fd) throws IOException {
+            DurableFiles.SYSTEM.syncFile(fd);
+        }
+
+        public void syncPath(File f, boolean directory) throws IOException {
+            if (!directory) {
+                throw new IOException("sync refused (test)");
+            }
+            DurableFiles.SYSTEM.syncPath(f, directory);
+        }
+
+        public boolean rename(File from, File to) {
+            return DurableFiles.SYSTEM.rename(from, to);
+        }
+
+        public boolean delete(File f) {
+            return DurableFiles.SYSTEM.delete(f);
+        }
+    }
+
+    /**
+     * An UNTIL_IGNITION_OFF override taken before the ledger saw any ignition event ends when the first event is
+     * "off".
+     */
+    @Test
+    void untilIgnitionOffOverrideTakenBeforeTheFirstIgnitionEventEndsAtAFirstOff() throws Exception {
+        OverrideLedger l = ledger(new RingLog(50));
+        RecordingApplier a = reporting(l);
+        l.acquire("k", "p", OverrideScope.UNTIL_IGNITION_OFF, "OLD", "NEW", a);
+        a.await(1);
+
+        l.ignitionChanged(false);
+        a.await(2);
+        assertEquals("k=OLD", a.calls.get(1));
+        awaitActiveSize(l, 0);
+        awaitLedgerEmpty();
+    }
+
     // ---- fixtures ----
 
     /** Delegates to a {@link FakePlatform}, with a hook before every ParkingIo.apply. */

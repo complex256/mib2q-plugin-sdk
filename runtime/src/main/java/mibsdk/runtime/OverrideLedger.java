@@ -217,6 +217,7 @@ public final class OverrideLedger {
     private boolean halted; // guarded by lock; simulated power loss: no file write any more
     private boolean ignitionOff; // guarded by lock; unknown (false) until the first ignition event
     private int restoresFinished; // guarded by lock; entries removed after their restore
+    volatile DurableFiles.Ops fileOps = DurableFiles.SYSTEM; // test seam
     private SerialExecutor worker; // guarded by lock; created on first use
     private PluginScheduler timer; // guarded by lock
 
@@ -1186,7 +1187,9 @@ public final class OverrideLedger {
             }
         }
         try {
-            DurableFiles.replace(file, b.toString().getBytes("ISO-8859-1"));
+            if (!DurableFiles.replace(file, b.toString().getBytes("ISO-8859-1"), fileOps)) {
+                warn(file.getName() + " written, but its final sync failed: it may not survive a power cut");
+            }
             return true;
         } catch (Throwable t) {
             error("cannot write " + file.getName() + ": " + SdkRuntime.describe(t));

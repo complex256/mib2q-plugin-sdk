@@ -355,4 +355,19 @@ class BootGuardTest {
         f.close();
         assertFalse(BootGuard.countWrapBoot(new File(dir, "boot.state"), null));
     }
+
+    /** Triage T1: boot.state is in place but its final sync failed: a WARN says it may not survive. */
+    @Test
+    void bootStateWriteWhoseFinalSyncFailsIsWarned() throws Exception {
+        RingLog log = new RingLog(50);
+        BootGuard g = new BootGuard(state, marker, 3, log);
+        g.fileOps = new OverrideLedgerTest.TargetSyncFails();
+        assertFalse(g.beginBoot());
+        assertTrue(state.isFile());
+        boolean warned = false;
+        for (String line : log.snapshot()) {
+            warned |= line.contains(" WARN ") && line.contains("boot.state written, but its final sync failed");
+        }
+        assertTrue(warned, log.snapshot().toString());
+    }
 }

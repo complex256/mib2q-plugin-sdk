@@ -67,6 +67,7 @@ public final class BootGuard {
     private boolean ignitionOffSeen; // guarded by this; in memory only: this run saw IgnitionChanged(false)
     private boolean loaded; // guarded by this; the mark methods never write state they have not read
     private boolean writeFailed; // guarded by this; the last write of boot.state failed
+    DurableFiles.Ops fileOps = DurableFiles.SYSTEM; // test seam; set before the first write
 
     public BootGuard(File bootState, File safeModeMarker, int threshold) {
         this(bootState, safeModeMarker, threshold, null);
@@ -121,7 +122,7 @@ public final class BootGuard {
             if (st.wrapBoots < Integer.MAX_VALUE) {
                 st.wrapBoots++;
             }
-            return write(bootState, st, log);
+            return write(bootState, st, log, DurableFiles.SYSTEM);
         } catch (Throwable t) {
             append(log, "ERROR", "cannot count the wrap boot: " + SdkRuntime.describe(t));
             return false;
@@ -321,15 +322,18 @@ public final class BootGuard {
     }
 
     private void write() {
-        writeFailed = !write(bootState, currentState(), log);
+        writeFailed = !write(bootState, currentState(), log, fileOps);
     }
 
     /** False if it failed (logged). */
-    private static boolean write(File bootState, State st, RingLog log) {
+    private static boolean write(File bootState, State st, RingLog log, DurableFiles.Ops ops) {
         String text = UNHEALTHY_BOOTS + "=" + st.unhealthyBoots + "\n" + LAST_SHUTDOWN_CLEAN + "="
                 + st.lastShutdownClean + "\n" + WRAP_BOOTS + "=" + st.wrapBoots + "\n";
         try {
-            DurableFiles.replace(bootState, text.getBytes("ISO-8859-1"));
+            if (!DurableFiles.replace(bootState, text.getBytes("ISO-8859-1"), ops)) {
+                append(log, "WARN", bootState.getName()
+                        + " written, but its final sync failed: it may not survive a power cut");
+            }
             return true;
         } catch (Throwable t) {
             append(log, "ERROR", "cannot write " + bootState + ": " + SdkRuntime.describe(t));
