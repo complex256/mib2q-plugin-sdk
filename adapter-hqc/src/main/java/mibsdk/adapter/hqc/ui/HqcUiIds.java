@@ -1,0 +1,51 @@
+package mibsdk.adapter.hqc.ui;
+
+/**
+ * Every stock HMI id the SDK UI uses, as a literal: real values from the {@code lsd-src} decompile, confirmed on the
+ * bench by spike A (docs/research/2026-10-20-hmi-ui-injection.md §8). Nothing in this package may reference a stock
+ * constant instead (javac would inline jxe2jar's byte-swapped value): NoStockConstantsTest enforces it.
+ */
+public final class HqcUiIds {
+
+    /** Car HMI module id (the {@code HMICar=} activator's first constructor argument). */
+    public static final int CAR_MODULE = 6;
+    /** First free Car model id: CarModelBank has models.length=2738, so 602738 onwards are the SDK's. */
+    public static final int MODEL_BASE = 602738;
+    /** First SDK text id; served by the factory's {@code getText}, never by the stock string resources. */
+    public static final int TEXT_BASE = 609000;
+    /** Car selection drawer {@code cARSEL} (a SelectionMenuController). */
+    public static final int DRAWER_ID = 600043;
+    /** Menu-item type of the stock cARSEL rows. */
+    public static final int DRAWER_ROW_TYPE_ACTION = 2;
+    /** The stock cARSEL rows' shared selection ChoiceModel (logged only; the SDK rows use their own). */
+    public static final int DRAWER_SELECTION_MODEL = 601227;
+    /** SDK plugin rows in the Car drawer, after the Plugins row (slot 0). */
+    public static final int PLUGIN_ROW_SLOTS = 8;
+    /** Drawer slots the SDK owns: the Plugins row plus {@link #PLUGIN_ROW_SLOTS}. */
+    public static final int ROW_SLOTS = 1 + PLUGIN_ROW_SLOTS;
+    /** Row visibility ChoiceModel of slot 0; slots 0..8 use 602738..602746 (value 0 visible, 1 hidden). */
+    public static final int ROW_VISIBILITY_MODEL_0 = MODEL_BASE;
+    /** Selection ChoiceModel shared by every SDK row; a row's {@code widgetID} is its slot. */
+    public static final int ROW_SELECTION_MODEL = MODEL_BASE + 9;
+    /** Models the SDK bank grows: the 9 visibility models and the selection model. */
+    public static final int MODEL_COUNT = ROW_SLOTS + 1;
+    /** SDK rows' menu-item internal ids, one per slot (as spike A wired them). */
+    public static final int ROW_INTERNAL_ID_BASE = 609900;
+    /**
+     * Where the SDK rows' bitmaps come from: -1 none; n &gt;= 0 copies drawer child n's bitmaps (1 = the stock
+     * 'Audi drive select' row, which is what spike A copied).
+     */
+    public static final int ROW_BITMAP_SOURCE = -1;
+    /** Glass-plate insets of the stock cARSEL rows, as spike A set them on the SDK rows. */
+    public static final int ROW_GLASSPLATE_INSET_TOP = 7;
+    public static final int ROW_GLASSPLATE_INSET_BOTTOM = 6;
+    /** Status-line popup: label model 416, visible while system ChoiceModel 1 is 1. */
+    public static final int POPUP_STATUS = 65;
+    public static final int STATUS_LABEL_MODEL = 416;
+    public static final int STATUS_VISIBLE_CHOICE = 1;
+    /** 25 characters measured on the bench; one of margin for the proportional font. */
+    public static final int STATUS_MAX_CHARS = 24;
+
+    private HqcUiIds() {
+    }
+}

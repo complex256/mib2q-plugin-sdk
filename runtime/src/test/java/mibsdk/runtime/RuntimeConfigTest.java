@@ -2,6 +2,7 @@ package mibsdk.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -95,5 +96,17 @@ class RuntimeConfigTest {
         assertEquals(new File("/tmp/other.log"), c.logFile());
         assertEquals(5000, c.slowMs(), "absent key keeps its default");
         assertEquals(0, c.uiPublishMinMs(), "0 publishes every change");
+    }
+
+    @Test
+    void uiEnabledDefaultsOnAndOnlyAnExactFalseTurnsItOff() throws Exception {
+        assertTrue(RuntimeConfig.load(FakePlatform.roots(tmp)).uiEnabled());
+        String[][] cases = {{"false", "false"}, {" FALSE ", "false"}, {"true", "true"}, {"no", "true"}, {"", "true"}};
+        for (String[] c : cases) {
+            Files.write(new File(base, "sdk.properties").toPath(),
+                    ("ui.enabled=" + c[0] + "\n").getBytes(StandardCharsets.ISO_8859_1));
+            assertEquals(Boolean.parseBoolean(c[1]), RuntimeConfig.load(FakePlatform.roots(tmp)).uiEnabled(),
+                    "ui.enabled=" + c[0]);
+        }
     }
 }

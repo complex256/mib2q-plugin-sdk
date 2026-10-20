@@ -65,44 +65,63 @@ final class ConfiguratorCore {
 
     private void configure(SdkRoots roots, File versionInfo) {
         SdkGlobals.configuratorSeen = true;
+        SdkGlobals.uiEnabled = false; // decided below; off until then
         boolean on = false;
         String reason = null;
+        boolean ui = false;
+        String uiReason = "init-failed";
         try {
             String version = AdapterSelector.readHmiVersion(versionInfo);
             RuntimeConfig cfg = RuntimeConfig.load(roots);
             int threshold = cfg.safeModeAfterUnhealthyBoots();
             boolean safeMode = BootGuard.wouldEnterSafeMode(cfg.bootStateFile(), cfg.safeModeMarker(), threshold);
             boolean wrapLoop = BootGuard.wrapLoopDetected(cfg.bootStateFile(), threshold);
-            on = HqcVersion.SUPPORTED.equals(version) && !safeMode && !wrapLoop;
-            reason = !HqcVersion.SUPPORTED.equals(version) ? "unsupported-hmi" : safeMode ? "safe-mode"
-                    : wrapLoop ? "wrap-boots" : null;
+            boolean supported = HqcVersion.SUPPORTED.equals(version);
+            on = supported && !safeMode && !wrapLoop;
+            reason = !supported ? "unsupported-hmi" : safeMode ? "safe-mode" : wrapLoop ? "wrap-boots" : null;
+            // The UI wraps the Car HMI: under the latch it is off as a whole (it may be what crashes the HMI). Safe
+            // mode keeps it on, so the Plugins menu can say so.
+            ui = supported && !wrapLoop && cfg.uiEnabled();
+            uiReason = !supported ? "unsupported-hmi" : wrapLoop ? "wrap-boots" : !cfg.uiEnabled() ? "ui-disabled"
+                    : null;
             if (wrapLoop) {
                 warn("configurator: wrapping=off reason=wrap-boots (" + threshold + " boots in a row wrapped the DSI"
                         + " services and died before the HMI ran healthy; passing everything through until the boot"
                         + " state is reset: mibsdk-dev safe-mode off)");
             }
-            // Cleared by the runtime once the HMI is healthy. A wrap boot that cannot be counted is a wrap loop
-            // that could never be caught: fail safe, as when boot.state cannot be judged.
-            if (on && !BootGuard.countWrapBoot(cfg.bootStateFile(), log)) {
+            // One count per boot, wrapping or UI or both; cleared by the runtime once the HMI is healthy. A boot that
+            // cannot be counted is a loop that could never be caught: fail safe, as when boot.state cannot be judged.
+            if ((on || ui) && !BootGuard.countWrapBoot(cfg.bootStateFile(), log)) {
+                if (on) {
+                    reason = "boot-state-unwritable";
+                    warn("configurator: wrap skipped: cannot record wrap boot in "
+                            + cfg.bootStateFile().getAbsoluteFile().getParent() + " (passing everything through)");
+                }
+                if (ui) {
+                    uiReason = "count-failed";
+                    warn("configurator: ui=off reason=count-failed (stock Car drawer this boot)");
+                }
                 on = false;
-                reason = "boot-state-unwritable";
-                warn("configurator: wrap skipped: cannot record wrap boot in "
-                        + cfg.bootStateFile().getAbsoluteFile().getParent() + " (passing everything through)");
+                ui = false;
             }
             List names = cfg.hookServices();
             hookServices = (String[]) names.toArray(new String[names.size()]);
             info("configurator: hmi=" + version + " safeMode=" + safeMode + " wrapLoop=" + wrapLoop
-                    + " wrappingEnabled=" + on + " hookServices=" + join(hookServices));
+                    + " wrappingEnabled=" + on + " uiEnabled=" + ui + " hookServices=" + join(hookServices));
             // The chain is loaded even when wrapping is off: it is what stock would run in our place.
             loadChain(cfg.chainConfigurator());
         } catch (Throwable t) {
             on = false;
             reason = "init-failed";
+            ui = false;
+            uiReason = "init-failed";
             warn("configurator init failed, passing everything through: " + t);
         }
         enabled = on;
         SdkGlobals.wrapOffReason = on ? null : reason;
         SdkGlobals.wrappingEnabled = on;
+        SdkGlobals.uiOffReason = ui ? null : uiReason;
+        SdkGlobals.uiEnabled = ui;
     }
 
     private void loadChain(String className) {
