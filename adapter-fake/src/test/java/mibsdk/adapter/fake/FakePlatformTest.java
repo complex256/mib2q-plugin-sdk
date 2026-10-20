@@ -25,10 +25,16 @@ class FakePlatformTest {
     private static final class RecordingHost implements PlatformHost {
         final List<Object> events = Collections.synchronizedList(new ArrayList<Object>());
         final HookTable table = new HookTable(16);
+        int featuresChanged;
 
         @Override
         public void publish(Object apiEvent) {
             events.add(apiEvent);
+        }
+
+        @Override
+        public void featuresChanged() {
+            featuresChanged++;
         }
 
         @Override
@@ -106,5 +112,117 @@ class FakePlatformTest {
         assertEquals(v, second.value());
         assertEquals(HookPoint.PARKING_SOUND_SET, second.point());
         assertTrue(p.appliedLog().isEmpty());
+    }
+
+    private static final SoundDirections OLD = new SoundDirections(true, true, true, true);
+    private static final SoundDirections F1R0L1X1 = new SoundDirections(true, false, true, true);
+
+    @Test
+    void acceptedWriteIsReportedBeforeApplyReturns() throws Exception {
+        RecordingHost host = new RecordingHost();
+        FakePlatform p = started(host);
+
+        p.parking().apply(F1R0L1X1);
+
+        assertEquals(1, host.events.size());
+        assertEquals(F1R0L1X1, ((ParkingSoundChanged) host.events.get(0)).value());
+        assertEquals(F1R0L1X1, p.parking().current());
+    }
+
+    @Test
+    void droppedWriteLeavesTheEcuAndReportsNothing() throws Exception {
+        RecordingHost host = new RecordingHost();
+        FakePlatform p = started(host);
+        p.ecuDropWrites(1);
+
+        p.parking().apply(F1R0L1X1);
+
+        assertEquals(OLD, p.ecuSoundDirections());
+        assertTrue(host.events.isEmpty());
+        assertEquals(1, p.droppedWrites());
+
+        p.parking().apply(F1R0L1X1);
+
+        assertEquals(F1R0L1X1, p.ecuSoundDirections());
+        assertEquals(1, host.events.size());
+        assertEquals(1, p.droppedWrites());
+        assertEquals(2, p.appliedLog().size());
+    }
+
+    @Test
+    void failedWriteThrowsAndChangesNothing() throws Exception {
+        RecordingHost host = new RecordingHost();
+        FakePlatform p = started(host);
+        p.ecuFailWrites(1);
+
+        IllegalStateException e = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalStateException.class, () -> p.parking().apply(F1R0L1X1));
+
+        assertEquals("ECU rejected the write (fake)", e.getMessage());
+        assertEquals(OLD, p.ecuSoundDirections());
+        assertTrue(host.events.isEmpty());
+        assertEquals(1, p.appliedLog().size());
+    }
+
+    @Test
+    void silentEcuAcceptsWithoutReporting() throws Exception {
+        RecordingHost host = new RecordingHost();
+        FakePlatform p = started(host);
+        p.ecuReportWrites(false);
+
+        p.parking().apply(F1R0L1X1);
+
+        assertEquals(F1R0L1X1, p.ecuSoundDirections());
+        assertTrue(host.events.isEmpty());
+    }
+
+    @Test
+    void ecuThatDoesNotReportUnchangedValuesStaysSilentOnARewrite() throws Exception {
+        RecordingHost host = new RecordingHost();
+        FakePlatform p = started(host);
+        p.ecuReportUnchanged(false);
+
+        p.parking().apply(OLD); // the ECU already holds OLD
+
+        assertEquals(OLD, p.ecuSoundDirections());
+        assertTrue(host.events.isEmpty());
+        assertEquals(1, p.appliedLog().size());
+
+        p.parking().apply(F1R0L1X1); // a real change is still reported
+
+        assertEquals(1, host.events.size());
+        assertEquals(F1R0L1X1, ((ParkingSoundChanged) host.events.get(0)).value());
+    }
+
+    @Test
+    void ecuReportsUnchangedValuesByDefault() throws Exception {
+        RecordingHost host = new RecordingHost();
+        FakePlatform p = started(host);
+
+        p.parking().apply(OLD);
+
+        assertEquals(1, host.events.size());
+        assertEquals(OLD, ((ParkingSoundChanged) host.events.get(0)).value());
+    }
+
+    @Test
+    void setFeaturesNotifiesTheHost() throws Exception {
+        Set<String> more = new HashSet<String>();
+        more.add(Features.PARKING);
+        more.add(Features.IGNITION);
+        more.add(Features.HOOK_PARKING);
+        FakePlatform unstarted = new FakePlatform("FAKE_HMI", new HashSet<String>());
+        unstarted.setFeatures(more); // not started: nobody to tell
+        assertEquals(more, unstarted.features());
+
+        RecordingHost host = new RecordingHost();
+        FakePlatform p = started(host);
+        assertFalse(p.features().contains(Features.HOOK_PARKING));
+        p.setFeatures(more);
+        assertEquals(more, p.features());
+        assertEquals(1, host.featuresChanged);
+        more.clear();
+        assertTrue(p.features().contains(Features.HOOK_PARKING), "a copy is kept");
+        assertTrue(host.events.isEmpty(), "no API event");
     }
 }

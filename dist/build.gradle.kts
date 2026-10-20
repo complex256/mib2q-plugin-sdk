@@ -1,3 +1,5 @@
+import mibsdk.build.CheckStampTask
+import mibsdk.build.ClassVersionCheckTask
 import mibsdk.build.LinkCheckTask
 import mibsdk.build.Toolchain
 
@@ -58,11 +60,44 @@ val distLinkCheck = tasks.register<LinkCheckTask>("distLinkCheck") {
     report.set(layout.buildDirectory.file("reports/mibsdk/dist-linkcheck.txt"))
 }
 
+val distClassVersionCheck = tasks.register<ClassVersionCheckTask>("distClassVersionCheck") {
+    description = "Every class in the three unit jars is class-file v48 (the Retrotranslator runtime included)."
+    group = "verification"
+    classes.from(runtimeJar.map { zipTree(it.archiveFile) }, adapterJar.map { zipTree(it.archiveFile) },
+        retrotranslatorJar.map { zipTree(distDir.get().file("mibsdk-rt-retrotranslator.jar")) })
+}
+
+// Hashes (not signs) the three jars once distLinkCheck has passed; format in mibsdk.build.CheckStamp.
+val unitStamp = tasks.register<CheckStampTask>("unitStamp") {
+    description = "build/dist/mibsdk-unit.stamp: SHA-256 of the three unit jars, written after the dist checks."
+    group = "verification"
+    dependsOn(distLinkCheck, distClassVersionCheck)
+    doFirst {
+        stamp.get().asFile.delete()
+        mibsdk.build.CheckStamp.requireRan(this, listOf(distClassVersionCheck.get(), distLinkCheck.get()))
+    }
+    jars.from(runtimeJar.flatMap { it.archiveFile }, adapterJar.flatMap { it.archiveFile },
+        retrotranslatorJar.map { distDir.get().file("mibsdk-rt-retrotranslator.jar") })
+    kind.set("unit")
+    checks.set(listOf("classVersion48", "distLinkCheck"))
+    stamp.set(distDir.map { it.file("mibsdk-unit.stamp") })
+}
+
 tasks.register("assembleUnit") {
     group = "build"
     description = "Builds build/dist/{mibsdk-runtime,mibsdk-adapter-hqc,mibsdk-rt-retrotranslator}.jar and link-checks them together."
-    dependsOn(runtimeJar, adapterJar, retrotranslatorJar, distLinkCheck)
+    dependsOn(runtimeJar, adapterJar, retrotranslatorJar, distLinkCheck, unitStamp)
+}
+
+// The stamp must describe the jars on disk. Any task that rewrites a unit jar (assembleUnit, but also check via
+// distLinkCheck, or a jar task run alone) first deletes the stamp and is finalized by unitStamp, which writes it again
+// only if the dist checks pass: build/dist holds a matching stamp or none, never a stale one.
+listOf(runtimeJar, adapterJar, retrotranslatorJar).forEach {
+    it.configure {
+        doFirst { distDir.get().file("mibsdk-unit.stamp").asFile.delete() }
+        finalizedBy(unitStamp)
+    }
 }
 
 tasks.named("assemble") { dependsOn("assembleUnit") }
-tasks.named("check") { dependsOn(distLinkCheck) }
+tasks.named("check") { dependsOn(distLinkCheck, unitStamp) }

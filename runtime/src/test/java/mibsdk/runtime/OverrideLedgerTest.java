@@ -214,6 +214,16 @@ class OverrideLedgerTest {
         fail("expected '" + fragment + "' in\n" + log.snapshot());
     }
 
+    private void awaitLogHas(RingLog log, String level, String fragment) throws InterruptedException {
+        for (int i = 0; i < 500; i++) {
+            if (logHas(log, level, fragment)) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        fail("expected " + level + " '" + fragment + "' in\n" + log.snapshot());
+    }
+
     private void awaitApplied(int size, SoundDirections last) throws InterruptedException {
         List<SoundDirections> log = null;
         for (int i = 0; i < 500; i++) {
@@ -265,11 +275,15 @@ class OverrideLedgerTest {
         assertTrue(calls.contains(value), calls.toString());
     }
 
-    /** Records every apply; optionally fails the first {@code failures} calls. */
+    /**
+     * Records every apply; optionally fails the first {@code failures} calls. With {@code reportTo} set it
+     * models an ECU that reports: a successful apply reports its value to that ledger before returning.
+     */
     private static final class RecordingApplier implements OverrideLedger.Applier {
         final List<String> calls = Collections.synchronizedList(new ArrayList<String>());
         final List<String> threads = Collections.synchronizedList(new ArrayList<String>());
         volatile int failures;
+        volatile OverrideLedger reportTo;
 
         @Override
         public void apply(String key, String encodedValue) throws Exception {
@@ -279,6 +293,10 @@ class OverrideLedgerTest {
                 throw new IllegalStateException("ECU busy");
             }
             calls.add(key + "=" + encodedValue);
+            OverrideLedger l = reportTo;
+            if (l != null) {
+                l.onObserved(key, encodedValue);
+            }
         }
 
         void await(int n) throws InterruptedException {
@@ -287,6 +305,13 @@ class OverrideLedgerTest {
             }
             assertEquals(n, calls.size(), calls.toString());
         }
+    }
+
+    /** An applier whose ECU reports every accepted write to {@code l}. */
+    private static RecordingApplier reporting(OverrideLedger l) {
+        RecordingApplier a = new RecordingApplier();
+        a.reportTo = l;
+        return a;
     }
 
     private OverrideLedger ledger(RingLog log) {
@@ -306,7 +331,7 @@ class OverrideLedgerTest {
         fake.setIgnition(true);
         awaitCount("muter", "override active=true", 1);
         awaitApplied(1, F1R0L0X0);
-        assertEquals("parking.soundDirections=muter|UNTIL_IGNITION_OFF|F1R1L0X0|F1R0L0X0\n", text(ledgerFile()));
+        assertEquals("parking.soundDirections=muter|UNTIL_IGNITION_OFF|F1R1L0X0|F1R0L0X0|A\n", text(ledgerFile()));
         List<ActiveOverride> active = rt.activeOverrides();
         assertEquals(1, active.size());
         assertEquals(KEY, active.get(0).key());
@@ -326,7 +351,7 @@ class OverrideLedgerTest {
         // Ledger level: two keys, one per scope.
         RingLog log = new RingLog(100);
         OverrideLedger l = ledger(log);
-        RecordingApplier a = new RecordingApplier();
+        RecordingApplier a = reporting(l);
         VehicleOverride temp = l.acquire("k.temp", "p", OverrideScope.UNTIL_IGNITION_OFF, "A0", "A1", a);
         VehicleOverride keep = l.acquire("k.keep", "p", OverrideScope.PERSISTENT, "B0", "B1", a);
         a.await(2);
@@ -438,7 +463,7 @@ class OverrideLedgerTest {
     void stickyBudgetIsPerSixtySecondWindow() throws Exception {
         RingLog log = new RingLog(100);
         OverrideLedger l = ledger(log);
-        RecordingApplier a = new RecordingApplier();
+        RecordingApplier a = reporting(l);
         l.acquire(KEY, "p", OverrideScope.PERSISTENT, "F1R1L0X0", "F1R0L0X0", a);
         a.await(1);
         for (int i = 1; i <= 7; i++) {
@@ -455,7 +480,7 @@ class OverrideLedgerTest {
                 + "other.key=gone|UNTIL_IGNITION_OFF|V0|V1\n");
         OverrideLedger l = ledger(new RingLog(100));
         assertEquals(2, l.active().size());
-        RecordingApplier a = new RecordingApplier();
+        RecordingApplier a = reporting(l);
 
         l.restorePendingOnBoot(a);
         a.await(2);
@@ -475,7 +500,7 @@ class OverrideLedgerTest {
         awaitApplied(1, F1R1L1X1);
         awaitLedgerEmpty();
         awaitNoOverrides();
-        assertTrue(logContains(rt.log(), "gone"), rt.log().snapshot().toString());
+        awaitLog(rt.log(), "gone");
     }
 
     @Test
@@ -512,7 +537,7 @@ class OverrideLedgerTest {
         fake.setIgnition(true); // re-acquire: current() is the overridden value, must not become the prior
         awaitCount("keeper", "override active=true", 1);
         awaitApplied(1, F1R0L0X0);
-        assertEquals("parking.soundDirections=keeper|PERSISTENT|F1R1L0X0|F1R0L0X0\n", text(ledgerFile()));
+        assertEquals("parking.soundDirections=keeper|PERSISTENT|F1R1L0X0|F1R0L0X0|A\n", text(ledgerFile()));
 
         fake.setIgnition(true); // release
         awaitApplied(2, F1R1L0X0);
@@ -539,7 +564,7 @@ class OverrideLedgerTest {
 
         // Ledger level, with the holder id in the exception.
         OverrideLedger l = ledger(new RingLog(10));
-        RecordingApplier a = new RecordingApplier();
+        RecordingApplier a = reporting(l);
         l.acquire("k", "one", OverrideScope.PERSISTENT, "0", "1", a);
         OverrideConflictException e = assertThrows(OverrideConflictException.class,
                 () -> l.acquire("k", "two", OverrideScope.PERSISTENT, "0", "2", a));
@@ -626,6 +651,24 @@ class OverrideLedgerTest {
     }
 
     @Test
+    void parkingLearnedAfterTheLoadBecomesAvailable() throws Exception {
+        fake = platform(Features.IGNITION);
+        plugin("latepark", READ_WRITE, READ_WRITE,
+                "ctx.events().on(IgnitionChanged.class, e -> {\n"
+                + "  try { ctx.vehicle().parking(); ctx.log().info(\"parking ok\"); }\n"
+                + "  catch (UnsupportedOperationException x) { ctx.log().info(\"parking unsupported\"); }\n"
+                + "});", null);
+        start(null);
+        fake.setIgnition(true);
+        awaitCount("latepark", "parking unsupported", 1);
+
+        fake.setFeatures(new HashSet<String>(Arrays.asList(Features.IGNITION, Features.PARKING)));
+        awaitLog(rt.log(), "STATUS mibsdk features=[vehicle.ignition, vehicle.parking]");
+        fake.setIgnition(false);
+        awaitCount("latepark", "parking ok", 1);
+    }
+
+    @Test
     void applyRunsOnLedgerThreadAndFailureIsContained() throws Exception {
         final List<String> threads = Collections.synchronizedList(new ArrayList<String>());
         final int[] failNext = {1};
@@ -663,7 +706,7 @@ class OverrideLedgerTest {
     void restoreFailureIsRetriedAndKeptInLedger() throws Exception {
         RingLog log = new RingLog(100);
         OverrideLedger l = ledger(log);
-        RecordingApplier a = new RecordingApplier();
+        RecordingApplier a = reporting(l);
         VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
         a.await(1);
 
@@ -685,7 +728,7 @@ class OverrideLedgerTest {
     void failedRestoreNeverGivesUpBacksOffAndStaysVisible() throws Exception {
         RingLog log = new RingLog(200);
         OverrideLedger l = ledger(log);
-        RecordingApplier a = new RecordingApplier();
+        RecordingApplier a = reporting(l);
         VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
         a.await(1);
 
@@ -717,7 +760,7 @@ class OverrideLedgerTest {
     void observationRetriesPendingRestoreAndObservedPriorCompletesIt() throws Exception {
         RingLog log = new RingLog(200);
         OverrideLedger l = ledger(log);
-        RecordingApplier a = new RecordingApplier();
+        RecordingApplier a = reporting(l);
         VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
         a.await(1);
         a.failures = 1000; // the ECU never accepts the write
@@ -732,7 +775,7 @@ class OverrideLedgerTest {
         awaitLedgerEmpty();
         assertTrue(l.active().isEmpty());
         assertEquals(1, a.calls.size(), "completed without another write");
-        assertTrue(logContains(log, "reported by the car"), log.snapshot().toString());
+        awaitLog(log, "reported by the car");
     }
 
     /**
@@ -894,6 +937,7 @@ class OverrideLedgerTest {
                     }
                 }
                 calls.add(v);
+                l.onObserved(key, v); // the car reports the write
             }
         };
         VehicleOverride first = l.acquire("k", "p", OverrideScope.PERSISTENT, "ORIG", "X", slow);
@@ -909,7 +953,7 @@ class OverrideLedgerTest {
             Thread.sleep(10);
         }
         assertEquals("Y", calls.get(calls.size() - 1), calls.toString());
-        assertEquals("k=q|PERSISTENT|ORIG|Y\n", text(ledgerFile()));
+        assertEquals("k=q|PERSISTENT|ORIG|Y|A\n", text(ledgerFile()));
         second.release();
         for (int i = 0; i < 500 && !"ORIG".equals(calls.get(calls.size() - 1)); i++) {
             Thread.sleep(10);
@@ -936,9 +980,9 @@ class OverrideLedgerTest {
     @Test
     void ledgerFileHasNoWallClockAndSurvivesRestart() throws Exception {
         OverrideLedger l = ledger(new RingLog(10));
-        RecordingApplier a = new RecordingApplier();
+        RecordingApplier a = reporting(l);
         l.acquire(KEY, "muter", OverrideScope.PERSISTENT, "F1R1L0X0", "F1R0L0X0", a);
-        assertEquals("parking.soundDirections=muter|PERSISTENT|F1R1L0X0|F1R0L0X0\n", text(ledgerFile()),
+        assertEquals("parking.soundDirections=muter|PERSISTENT|F1R1L0X0|F1R0L0X0|A\n", text(ledgerFile()),
                 "the prior is on disk before acquire returns, and nothing else is");
         assertFalse(new File(ledgerFile().getPath() + ".tmp").exists());
 
@@ -953,7 +997,7 @@ class OverrideLedgerTest {
     @Test
     void releaseAllForRestoresOnlyThatPlugin() throws Exception {
         OverrideLedger l = ledger(new RingLog(10));
-        RecordingApplier a = new RecordingApplier();
+        RecordingApplier a = reporting(l);
         VehicleOverride x = l.acquire("k1", "p1", OverrideScope.PERSISTENT, "A0", "A1", a);
         VehicleOverride y = l.acquire("k2", "p2", OverrideScope.UNTIL_IGNITION_OFF, "B0", "B1", a);
         a.await(2);
@@ -971,17 +1015,17 @@ class OverrideLedgerTest {
     @Test
     void shutdownKeepsPersistentForNextBootAndRestoresUntilIgnitionOff() throws Exception {
         OverrideLedger l = ledger(new RingLog(10));
-        RecordingApplier a = new RecordingApplier();
+        RecordingApplier a = reporting(l);
         l.acquire("k1", "p", OverrideScope.PERSISTENT, "A0", "A1", a);
         l.acquire("k2", "p", OverrideScope.UNTIL_IGNITION_OFF, "B0", "B1", a);
         a.await(2);
 
         l.beginShutdown();
         l.releaseAllFor("p"); // what disabling the plugin does during runtime stop
-        assertTrue(l.awaitIdle(5000));
+        assertTrue(l.awaitSettled(5000));
         assertEquals(3, a.calls.size(), a.calls.toString());
         assertEquals("k2=B0", a.calls.get(2));
-        assertEquals("k1=p|PERSISTENT|A0|A1\n", text(ledgerFile()));
+        assertEquals("k1=p|PERSISTENT|A0|A1|A\n", text(ledgerFile()));
     }
 
     @Test
@@ -1025,7 +1069,7 @@ class OverrideLedgerTest {
     @Test
     void acquireRejectsValuesThatWouldBreakTheFileFormat() {
         OverrideLedger l = ledger(new RingLog(10));
-        RecordingApplier a = new RecordingApplier();
+        RecordingApplier a = reporting(l);
         assertThrows(IllegalArgumentException.class, () -> l.acquire("k", "p|q", OverrideScope.PERSISTENT, "0", "1", a));
         assertThrows(IllegalArgumentException.class, () -> l.acquire("k=x", "p", OverrideScope.PERSISTENT, "0", "1", a));
         assertThrows(IllegalArgumentException.class, () -> l.acquire("k", "p", OverrideScope.PERSISTENT, "0\n", "1", a));
@@ -1033,6 +1077,779 @@ class OverrideLedgerTest {
         assertThrows(IllegalArgumentException.class, () -> l.acquire("k", "p", OverrideScope.PERSISTENT, "0", "1", null));
         assertTrue(l.active().isEmpty());
         assertFalse(ledgerFile().exists());
+    }
+
+    // ---- restore state on disk (T11) ----
+
+    private void awaitLedgerText(String expected) throws Exception {
+        for (int i = 0; i < 500; i++) {
+            if (ledgerFile().isFile() && expected.equals(text(ledgerFile()))) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        assertEquals(expected, ledgerFile().isFile() ? text(ledgerFile()) : "(missing)");
+    }
+
+    @Test
+    void fileLinesCarryTheRestoreState() throws Exception {
+        OverrideLedger l = ledger(new RingLog(50));
+        RecordingApplier a = reporting(l);
+        a.failures = Integer.MAX_VALUE; // the ECU never accepts a write
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        assertEquals("k=p|PERSISTENT|OLD|NEW|A\n", text(ledgerFile()));
+
+        ov.release();
+        awaitLedgerText("k=p|PERSISTENT|OLD|NEW|R\n"); // no Clock advance: written before the first restore
+    }
+
+    @Test
+    void fourFieldLinesFromOlderRunsLoadAsHeld() throws Exception {
+        write(ledgerFile(), "k=p|PERSISTENT|OLD|NEW\n");
+        OverrideLedger l = ledger(new RingLog(50));
+        assertEquals(1, l.active().size());
+        assertFalse(l.active().get(0).restorePending());
+
+        final List<String> fileAtApply = Collections.synchronizedList(new ArrayList<String>());
+        final List<String> calls = Collections.synchronizedList(new ArrayList<String>());
+        l.attach(new OverrideLedger.Applier() {
+            public void apply(String key, String value) throws Exception {
+                fileAtApply.add(text(ledgerFile()));
+                calls.add(key + "=" + value);
+                l.onObserved(key, value); // the car reports the write
+            }
+        });
+        assertTrue(l.awaitSettled(5000));
+        assertTrue(calls.isEmpty(), "a held entry is not applied by attach: " + calls);
+
+        l.releaseAllFor("p");
+        awaitFirst(calls, "k=OLD");
+        assertEquals("k=p|PERSISTENT|OLD|NEW|R\n", fileAtApply.get(0), "the R state is on disk before the restore");
+        awaitLedgerEmpty();
+    }
+
+    @Test
+    void restorePendingAtShutdownIsFinishedByTheNextLedger() throws Exception {
+        OverrideLedger l = ledger(new RingLog(50));
+        RecordingApplier failing = reporting(l);
+        failing.failures = Integer.MAX_VALUE;
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", failing);
+        ov.release();
+        awaitAttempts(failing, 2);
+        assertFalse(l.awaitSettled(5000), "a restore in backoff is not settled");
+        l.shutdown();
+        assertTrue(text(ledgerFile()).endsWith("|R\n"), text(ledgerFile()));
+
+        OverrideLedger next = ledger(new RingLog(50));
+        assertEquals(1, next.active().size());
+        assertTrue(next.active().get(0).restorePending());
+        RecordingApplier ok = reporting(next);
+        next.attach(ok);
+        ok.await(1);
+        assertEquals("k=OLD", ok.calls.get(0));
+        awaitActiveSize(next, 0);
+        awaitLedgerEmpty();
+    }
+
+    @Test
+    void pendingRestoreOfAnEnabledPluginIsFinishedAtTheNextStart() throws Exception {
+        togglePlugin("keeper", "PERSISTENT");
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+
+        fake.ecuFailWrites(Integer.MAX_VALUE);
+        rt.disable("keeper", "test");
+        awaitApplied(2, F1R1L0X0); // the restore was attempted and rejected
+        rt.stop();
+        assertTrue(text(ledgerFile()).endsWith("|R\n"), text(ledgerFile()));
+
+        fake.ecuFailWrites(0);
+        start(null); // same roots; keeper is still installed and enabled, and does not re-acquire
+        assertEquals(PluginState.ENABLED, status("keeper").state());
+        awaitNoOverrides();
+        assertEquals(F1R1L0X0, fake.ecuSoundDirections());
+        awaitLedgerEmpty();
+    }
+
+    /** Task 3 review: the R state reaches the file through shutdown()'s own write, not the queued one. */
+    @Test
+    void shutdownWritesTheRestoreStateWhileTheLedgerThreadIsBlocked() throws Exception {
+        OverrideLedger l = ledger(new RingLog(50));
+        final java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch gate = new java.util.concurrent.CountDownLatch(1);
+        OverrideLedger.Applier gated = new OverrideLedger.Applier() {
+            public void apply(String key, String value) throws Exception {
+                entered.countDown();
+                gate.await(); // the ledger thread is stuck in the platform
+            }
+        };
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", gated);
+        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+
+        ov.release(); // its R write is queued behind the blocked apply
+        Thread.sleep(100);
+        assertEquals("k=p|PERSISTENT|OLD|NEW|A\n", text(ledgerFile()), "the queued write has not run");
+        l.shutdown();
+        assertEquals("k=p|PERSISTENT|OLD|NEW|R\n", text(ledgerFile()));
+
+        gate.countDown();
+        Thread.sleep(100);
+        assertEquals("k=p|PERSISTENT|OLD|NEW|R\n", text(ledgerFile()), "nothing after shutdown rewrites it");
+    }
+
+    // ---- a restore completes only when the car reports the prior (I4) ----
+
+    private static boolean logHas(RingLog log, String level, String fragment) {
+        for (String line : log.snapshot()) {
+            if (line.contains(" " + level + " ") && line.contains(fragment)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
+    void restoreStaysPendingUntilTheCarReportsThePrior() throws Exception {
+        RingLog log = new RingLog(100);
+        OverrideLedger l = ledger(log);
+        RecordingApplier a = new RecordingApplier(); // a silent ECU: accepts writes, reports nothing
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        a.await(1);
+
+        ov.release();
+        a.await(2);
+        assertEquals("k=OLD", a.calls.get(1));
+        assertFalse(l.awaitSettled(300), "the write returned; the car has not confirmed it");
+        assertEquals(1, l.active().size());
+        assertTrue(l.active().get(0).restorePending());
+        assertEquals("k=p|PERSISTENT|OLD|NEW|R\n", text(ledgerFile()));
+
+        clock.advance(5000);
+        awaitLog(log, "restore of k to OLD for p not confirmed by the car (no report within 5000 ms) (attempt 1);"
+                + " retrying in 5000 ms");
+        assertTrue(l.active().get(0).restorePending());
+        clock.advance(5000);
+        a.await(3);
+        assertEquals("k=OLD", a.calls.get(2));
+
+        l.onObserved("k", "OLD");
+        awaitActiveSize(l, 0);
+        awaitLedgerEmpty();
+        assertEquals(0, ledgerFile().length());
+        assertEquals(3, a.calls.size());
+        awaitLog(log, "restored k=OLD (confirmed by the car)");
+    }
+
+    @Test
+    void reportArrivingBeforeApplyReturnsConfirms() throws Exception {
+        RingLog log = new RingLog(100);
+        final OverrideLedger l = ledger(log);
+        final List<String> calls = Collections.synchronizedList(new ArrayList<String>());
+        OverrideLedger.Applier racing = new OverrideLedger.Applier() {
+            public void apply(String key, String value) throws Exception {
+                calls.add(value);
+                l.onObserved(key, value); // the report overtakes the return of apply()
+                Thread.sleep(50);
+            }
+        };
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", racing);
+        awaitFirst(calls, "NEW");
+
+        ov.release();
+        awaitActiveSize(l, 0);
+        awaitLedgerEmpty();
+        assertTrue(l.awaitSettled(5000));
+        assertEquals(Arrays.asList("NEW", "OLD"), calls, "exactly one restore write");
+        awaitLog(log, "restored k=OLD (confirmed by the car)");
+    }
+
+    @Test
+    void lastReportEqualToPriorConfirmsAfterTimeout() throws Exception {
+        RingLog log = new RingLog(100);
+        final OverrideLedger l = ledger(log);
+        final List<String> calls = Collections.synchronizedList(new ArrayList<String>());
+        OverrideLedger.Applier a = new OverrideLedger.Applier() {
+            public void apply(String key, String value) throws Exception {
+                calls.add(value);
+                // the car rejects NEW silently, and the restore write is accepted silently: the value did not
+                // change, so the car says nothing
+            }
+        };
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        awaitFirst(calls, "NEW");
+        assertTrue(l.awaitSettled(5000)); // the apply returned
+        l.onObserved("k", "OLD"); // after the override's apply: the car still reports OLD
+
+        ov.release();
+        awaitFirst(calls, "OLD");
+        assertFalse(l.awaitSettled(300), "no report since the write");
+        assertTrue(l.active().get(0).restorePending());
+
+        clock.advance(5000);
+        awaitActiveSize(l, 0);
+        awaitLedgerEmpty();
+        assertEquals(Arrays.asList("NEW", "OLD"), calls);
+        awaitLogHas(log, "WARN", "restored k=OLD (confirmed by the car's last report; none after the write)");
+    }
+
+    @Test
+    void reportOfAnotherValueAfterRestoreWriteRetries() throws Exception {
+        RingLog log = new RingLog(100);
+        OverrideLedger l = ledger(log);
+        RecordingApplier a = new RecordingApplier(); // silent
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        a.await(1);
+
+        ov.release();
+        a.await(2);
+        assertFalse(l.awaitSettled(300));
+        l.onObserved("k", "NEW"); // the car still has the override value: the write did not take
+        a.await(3); // no Clock advance
+        assertEquals("k=OLD", a.calls.get(2));
+        assertTrue(l.active().get(0).restorePending());
+        assertTrue(logContains(log, "restore of k to OLD for p not confirmed by the car (reported NEW) (attempt 1);"
+                + " retrying now"), log.snapshot().toString());
+        assertFalse(logContains(log, "(reported NEW) (attempt 1); retrying in"), log.snapshot().toString());
+    }
+
+    @Test
+    void droppedRestoreWriteIsRetriedUntilObserved() throws Exception {
+        togglePlugin("muter", null); // UNTIL_IGNITION_OFF, rear=false
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+
+        fake.ecuDropWrites(2);
+        fake.setIgnition(false);
+        awaitApplied(2, F1R1L0X0);
+        assertFalse(rt.ledger().awaitSettled(300));
+        assertTrue(rt.activeOverrides().get(0).restorePending());
+        assertTrue(text(ledgerFile()).endsWith("|R\n"), text(ledgerFile()));
+
+        clock.advance(5000); // timeout 1
+        awaitLog(rt.log(), "(no report within 5000 ms) (attempt 1); retrying in 5000 ms");
+        clock.advance(5000); // backoff 1
+        awaitApplied(3, F1R1L0X0);
+        assertFalse(rt.ledger().awaitSettled(300));
+        clock.advance(5000); // timeout 2
+        awaitLog(rt.log(), "(no report within 5000 ms) (attempt 2); retrying in 10000 ms");
+        clock.advance(10000); // backoff 2: the third restore write is accepted and reported
+        awaitApplied(4, F1R1L0X0);
+        awaitNoOverrides();
+        awaitLedgerEmpty();
+        assertEquals(F1R1L0X0, fake.ecuSoundDirections());
+        assertEquals(2, fake.droppedWrites());
+    }
+
+    /** Review Focus 1 with the fake ECU: the restore rewrites the value the ECU already holds, so it stays silent. */
+    @Test
+    void restoreOfAValueTheEcuStillHoldsConfirmsByItsLastReport() throws Exception {
+        togglePlugin("muter", null);
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.ecuReportUnchanged(false);
+        fake.ecuDropWrites(1); // the override itself never reaches the ECU
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+        assertTrue(rt.ledger().awaitSettled(5000)); // the apply returned
+        fake.ecuSetSoundDirections(F1R1L0X0); // the car reports the value it kept, after the apply
+
+        fake.setIgnition(false);
+        awaitApplied(2, F1R1L0X0);
+        assertFalse(rt.ledger().awaitSettled(300), "an unchanged value is not reported");
+        assertTrue(rt.activeOverrides().get(0).restorePending());
+
+        clock.advance(5000);
+        awaitNoOverrides();
+        awaitLedgerEmpty();
+        awaitLog(rt.log(), "(confirmed by the car's last report; none after the write)");
+        assertEquals(2, fake.appliedLog().size(), "no second restore write");
+    }
+
+    @Test
+    void stopKeepsAnUnconfirmedRestorePendingForTheNextBoot() throws Exception {
+        jars.write(plugins, "tidy", "1", null, READ_WRITE,
+                "ov = ctx.vehicle().parking().overrideSoundDirections(\n"
+                + "    new SoundDirections(true, false, true, true), OverrideScope.PERSISTENT);",
+                "VehicleOverride ov;",
+                "ov.release();");
+        grants.append("tidy=vehicle.read,vehicle.parking.write\n");
+        start(null);
+        awaitApplied(1, F1R0L1X1);
+
+        fake.ecuDropWrites(Integer.MAX_VALUE);
+        long t0 = System.nanoTime();
+        rt.stop();
+        long ms = (System.nanoTime() - t0) / 1000000L;
+        assertTrue(ms < 8500, "stop took " + ms + " ms");
+        assertEquals(2, fake.appliedLog().size(), "the restore was written once and dropped");
+        assertTrue(text(ledgerFile()).endsWith("|R\n"), text(ledgerFile()));
+        assertTrue(logContains(rt.log(), "override restores still pending at stop"), rt.log().snapshot().toString());
+    }
+
+    /**
+     * Ruling A: at the timeout, a last report equal to the prior confirms only if it came after the
+     * override's own apply. Here the car reports OLD before the NEW write lands, NEW's notification is lost and
+     * the restore write is dropped: the car still holds NEW, so the restore must be retried.
+     */
+    @Test
+    void lastReportFromBeforeTheOverrideApplyDoesNotConfirmAtTimeout() throws Exception {
+        RingLog log = new RingLog(100);
+        final OverrideLedger l = ledger(log);
+        final List<String> calls = Collections.synchronizedList(new ArrayList<String>());
+        OverrideLedger.Applier a = new OverrideLedger.Applier() {
+            public void apply(String key, String value) throws Exception {
+                calls.add(value);
+                if (value.equals("NEW") && calls.size() == 1) {
+                    l.onObserved(key, "OLD"); // a stale report, overtaken by the write; NEW's report is lost
+                }
+                // the restore writes are dropped: the car keeps NEW and says nothing
+            }
+        };
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        awaitFirst(calls, "NEW");
+        assertTrue(l.awaitSettled(5000));
+
+        ov.release();
+        awaitFirst(calls, "OLD");
+        assertFalse(l.awaitSettled(300));
+        clock.advance(5000);
+        awaitLog(log, "restore of k to OLD for p not confirmed by the car (no report within 5000 ms) (attempt 1);"
+                + " retrying in 5000 ms");
+        assertEquals(1, l.active().size());
+        assertTrue(l.active().get(0).restorePending());
+        assertFalse(logContains(log, "confirmed by the car's last report"), log.snapshot().toString());
+
+        clock.advance(5000);
+        for (int i = 0; i < 500 && calls.size() < 3; i++) {
+            Thread.sleep(10);
+        }
+        assertEquals(Arrays.asList("NEW", "OLD", "OLD"), calls, "the restore is written again");
+        l.onObserved("k", "OLD");
+        awaitActiveSize(l, 0);
+        awaitLedgerEmpty();
+    }
+
+    /** Ruling B: a restore moved to backoff (not awaiting confirmation) still means "not settled". */
+    @Test
+    void awaitSettledIsFalseWhileARestoreWaitsForItsBackoff() throws Exception {
+        OverrideLedger l = ledger(new RingLog(50));
+        RecordingApplier a = reporting(l);
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        a.await(1);
+        a.failures = Integer.MAX_VALUE;
+        ov.release();
+        awaitAttempts(a, 2); // the restore threw: a failed attempt, retried on the Clock in 5 s
+        assertFalse(l.awaitSettled(300));
+    }
+
+    @Test
+    void stopWarnsWhenARestoreIsInBackoff() throws Exception {
+        togglePlugin("keeper", "PERSISTENT");
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+
+        fake.ecuFailWrites(Integer.MAX_VALUE);
+        rt.disable("keeper", "test");
+        awaitApplied(2, F1R1L0X0); // rejected: in backoff, nothing awaits confirmation
+        rt.stop();
+        assertTrue(logHas(rt.log(), "WARN", "override restores still pending at stop"), rt.log().snapshot().toString());
+    }
+
+    // ---- ignition-aware ledger and power loss around KL15 (T18) ----
+
+    @Test
+    void untilIgnitionOffOverrideAcquiredWhileOffEndsAtIgnitionOn() throws Exception {
+        RingLog log = new RingLog(100);
+        OverrideLedger l = ledger(log);
+        RecordingApplier a = reporting(l);
+        l.ignitionChanged(false);
+        l.acquire("k", "p", OverrideScope.UNTIL_IGNITION_OFF, "OLD", "NEW", a);
+        a.await(1);
+        assertEquals("k=NEW", a.calls.get(0));
+        assertTrue(l.awaitSettled(5000));
+        assertEquals(1, l.active().size());
+
+        l.ignitionChanged(true);
+        a.await(2);
+        assertEquals("k=OLD", a.calls.get(1));
+        awaitActiveSize(l, 0);
+        awaitLedgerEmpty();
+        awaitLog(log, "restoring k: acquired while the ignition was off; ignition on");
+    }
+
+    @Test
+    void persistentOverrideAcquiredWhileOffIsKept() throws Exception {
+        OverrideLedger l = ledger(new RingLog(50));
+        RecordingApplier a = reporting(l);
+        l.ignitionChanged(false);
+        l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        a.await(1);
+
+        l.ignitionChanged(true);
+        assertTrue(l.awaitSettled(5000));
+        assertEquals(1, l.active().size());
+        assertFalse(l.active().get(0).restorePending());
+        assertEquals(1, a.calls.size(), a.calls.toString());
+        assertEquals("k=p|PERSISTENT|OLD|NEW|A\n", text(ledgerFile()));
+    }
+
+    @Test
+    void untilIgnitionOffOverrideAcquiredWhileOnIsKeptAtIgnitionOn() throws Exception {
+        OverrideLedger l = ledger(new RingLog(50));
+        RecordingApplier a = reporting(l);
+        l.ignitionChanged(true);
+        l.acquire("k", "p", OverrideScope.UNTIL_IGNITION_OFF, "OLD", "NEW", a);
+        a.await(1);
+
+        l.ignitionChanged(true); // a repeated ignition on ends nothing
+        assertTrue(l.awaitSettled(5000));
+        assertEquals(1, l.active().size());
+        assertFalse(l.active().get(0).restorePending());
+
+        l.ignitionChanged(false);
+        a.await(2);
+        assertEquals("k=OLD", a.calls.get(1));
+        awaitActiveSize(l, 0);
+    }
+
+    @Test
+    void haltWritesNothingMore() throws Exception {
+        OverrideLedger l = ledger(new RingLog(50));
+        RecordingApplier a = new RecordingApplier(); // silent: the restore waits for a report
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        a.await(1);
+        ov.release();
+        a.await(2);
+        awaitLedgerText("k=p|PERSISTENT|OLD|NEW|R\n");
+
+        l.halt();
+        l.onObserved("k", "OLD"); // would complete the restore and empty the file
+        clock.advance(60000);
+        Thread.sleep(100);
+        l.shutdown(); // after a halt: no final write either
+        assertEquals("k=p|PERSISTENT|OLD|NEW|R\n", text(ledgerFile()));
+        assertEquals(2, a.calls.size(), a.calls.toString());
+    }
+
+    /** Fix round 1: a task already on the ledger thread when the power goes cannot write the file afterwards. */
+    @Test
+    void haltStopsTheWriteOfARestoreFinishingOnTheLedgerThread() throws Exception {
+        final OverrideLedger l = ledger(new RingLog(50));
+        final java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch gate = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch returned = new java.util.concurrent.CountDownLatch(1);
+        OverrideLedger.Applier a = new OverrideLedger.Applier() {
+            public void apply(String key, String value) throws Exception {
+                if (value.equals("OLD")) {
+                    entered.countDown();
+                    while (gate.getCount() > 0) { // the platform call ignores the halt's interrupt
+                        try {
+                            gate.await();
+                        } catch (InterruptedException ignored) {
+                            // keep blocking until the test releases it
+                        }
+                    }
+                    returned.countDown();
+                }
+            }
+        };
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        assertTrue(l.awaitSettled(5000)); // NEW applied: the R write is queued ahead of the restore below
+        ov.release();
+        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        awaitLedgerText("k=p|PERSISTENT|OLD|NEW|R\n");
+
+        l.onObserved("k", "OLD"); // overtakes the blocked restore write: it completes when apply() returns
+        l.halt();
+        gate.countDown();
+        assertTrue(returned.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        awaitActiveSize(l, 0); // the restore finished in memory and tried to rewrite the file
+        Thread.sleep(100);
+        assertEquals("k=p|PERSISTENT|OLD|NEW|R\n", text(ledgerFile()), "no write after the halt");
+    }
+
+    /**
+     * T5 review: the adapter's first observation is "off" (KL15 already off at boot) and arrives before the plugin
+     * load. An UNTIL_IGNITION_OFF override a plugin takes after that (here in onEnable) belongs to no drive: the next
+     * ignition on ends it.
+     */
+    @Test
+    void overrideAcquiredAfterAnInitialIgnitionOffEndsAtTheNextIgnitionOn() throws Exception {
+        plugin("early", READ_WRITE, READ_WRITE,
+                "ov = ctx.vehicle().parking().overrideSoundDirections(new SoundDirections(true, false, true, true),\n"
+                + "    OverrideScope.UNTIL_IGNITION_OFF);\n"
+                + "ctx.log().info(\"acquired active=\" + ov.isActive());",
+                "VehicleOverride ov;");
+        start("plugin.start.delay.ms=30000\n");
+        fake.ecuSetSoundDirections(F1R1L1X1);
+        fake.setIgnition(false); // the adapter's first observation, before the load
+        clock.advance(30000);
+        awaitCount("early", "acquired active=true", 1);
+        awaitApplied(1, F1R0L1X1);
+        assertEquals(1, rt.activeOverrides().size());
+
+        fake.setIgnition(true);
+        awaitNoOverrides();
+        assertEquals(F1R1L1X1, fake.ecuSoundDirections());
+        awaitLog(rt.log(), "restoring " + KEY + ": acquired while the ignition was off; ignition on");
+        awaitLedgerEmpty();
+    }
+
+    /** Fix round 1: a plugin that re-acquires on IgnitionChanged(true) keeps its new override in force. */
+    @Test
+    void reacquireOnIgnitionOnAfterTheRestoreOfAnOverrideAcquiredWhileOffStays() throws Exception {
+        plugin("shift", READ_WRITE, READ_WRITE,
+                "ctx.events().on(IgnitionChanged.class, e -> {\n"
+                + "  try {\n"
+                + "    ov = ctx.vehicle().parking().overrideSoundDirections(e.isOn()\n"
+                + "        ? new SoundDirections(true, true, false, false) : new SoundDirections(true, false, true, true),\n"
+                + "        OverrideScope.UNTIL_IGNITION_OFF);\n"
+                + "    ctx.log().info(\"acquired on=\" + e.isOn());\n"
+                + "  } catch (OverrideConflictException x) { ctx.log().info(\"conflict \" + x.getMessage()); }\n"
+                + "});",
+                "VehicleOverride ov;");
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L1X1);
+        fake.setIgnition(false);
+        awaitApplied(1, F1R0L1X1); // acquired while off
+
+        fake.setIgnition(true); // the ledger restores the off-override first, then the plugin re-acquires
+        awaitLog(rt.log(), "acquired on=true");
+        for (int i = 0; i < 500 && !F1R1L0X0.equals(fake.ecuSoundDirections()); i++) {
+            Thread.sleep(10);
+        }
+        assertTrue(rt.ledger().awaitSettled(5000), rt.activeOverrides().toString());
+        assertEquals(F1R1L0X0, fake.ecuSoundDirections());
+        assertEquals(1, rt.activeOverrides().size());
+        assertFalse(rt.activeOverrides().get(0).restorePending());
+        assertEquals("shift", rt.activeOverrides().get(0).pluginId());
+        assertTrue(text(ledgerFile()).startsWith(KEY + "=shift|UNTIL_IGNITION_OFF|"), text(ledgerFile()));
+        assertTrue(text(ledgerFile()).endsWith("|A\n"), text(ledgerFile()));
+        awaitLog(rt.log(), "restoring " + KEY + ": acquired while the ignition was off; ignition on");
+    }
+
+    @Test
+    void overrideAppliedAsIgnitionDropsIsRestoredAfterPowerLoss() throws Exception {
+        togglePlugin("muter", null); // UNTIL_IGNITION_OFF, rear=false
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+
+        fake.ecuDropWrites(Integer.MAX_VALUE); // the PDC ECU sleeps after KL15 off
+        fake.setIgnition(false);
+        for (int i = 0; i < 500 && !(ledgerFile().isFile() && text(ledgerFile()).endsWith("|R\n")
+                && fake.droppedWrites() >= 1); i++) {
+            Thread.sleep(10);
+        }
+        assertTrue(text(ledgerFile()).endsWith("|R\n"), text(ledgerFile()));
+        assertEquals(1, fake.droppedWrites());
+        assertEquals(F1R0L0X0, fake.ecuSoundDirections());
+
+        rt.haltForTest(); // power loss: no stop(), no awaitSettled, no final write
+        assertTrue(text(ledgerFile()).endsWith("|R\n"), text(ledgerFile()));
+
+        fake.ecuDropWrites(0);
+        start(null); // the next boot, same roots and the same car
+        awaitNoOverrides();
+        assertEquals(F1R1L0X0, fake.ecuSoundDirections());
+        awaitLedgerEmpty();
+    }
+
+    @Test
+    void acquireIsOnDiskBeforeTheEcuSeesIt() throws Exception {
+        togglePlugin("muter", null);
+        final List<String> fileAtApply = Collections.synchronizedList(new ArrayList<String>());
+        PlatformAdapter watching = new DelegatingAdapter(fake) {
+            @Override
+            void beforeApply(SoundDirections v) throws Exception {
+                fileAtApply.add(text(ledgerFile()));
+            }
+        };
+        start(null, watching);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.setIgnition(true);
+        awaitApplied(1, F1R0L0X0);
+        assertEquals(1, fileAtApply.size(), fileAtApply.toString());
+        assertTrue(fileAtApply.get(0).startsWith(KEY + "=muter|UNTIL_IGNITION_OFF|"), fileAtApply.get(0));
+        assertTrue(fileAtApply.get(0).endsWith("|A\n"), fileAtApply.get(0));
+    }
+
+    /**
+     * Final review C1: the override is released while its own NEW write is in flight, and the car reports the
+     * prior (OLD) before NEW lands. That report predates the write: it must not confirm the restore. The restore
+     * is written after NEW and the entry stays until the car reports OLD after it.
+     */
+    @Test
+    void reportOfThePriorDuringTheOverrideWriteDoesNotConfirmTheRestore() throws Exception {
+        RingLog log = new RingLog(100);
+        final OverrideLedger l = ledger(log);
+        final List<String> calls = Collections.synchronizedList(new ArrayList<String>());
+        final java.util.concurrent.CountDownLatch landed = new java.util.concurrent.CountDownLatch(1);
+        OverrideLedger.Applier a = new OverrideLedger.Applier() {
+            public void apply(String key, String value) throws Exception {
+                calls.add(value);
+                if (value.equals("NEW")) {
+                    landed.await(); // the NEW write is in flight; its report is lost
+                }
+            }
+        };
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.UNTIL_IGNITION_OFF, "OLD", "NEW", a);
+        awaitFirst(calls, "NEW");
+        ov.release();
+        l.onObserved("k", "OLD"); // the car's value before NEW landed
+        landed.countDown();
+
+        awaitFirst(calls, "OLD");
+        assertEquals(Arrays.asList("NEW", "OLD"), calls);
+        assertFalse(l.awaitSettled(300), "the restore awaits a report after its write");
+        assertEquals(1, l.active().size());
+        assertTrue(l.active().get(0).restorePending());
+        assertFalse(logContains(log, "restored k=OLD (reported by the car)"), log.snapshot().toString());
+
+        l.onObserved("k", "OLD");
+        awaitActiveSize(l, 0);
+        awaitLedgerEmpty();
+    }
+
+    /**
+     * Final review C1, end to end: the mute is in flight when the ignition goes off and the PDC ECU reports its
+     * old value before the mute lands. The old value must be written back and the override kept until the car
+     * reports it after that write.
+     */
+    @Test
+    void staleReportWhileTheMuteIsInFlightAtIgnitionOffStillRestores() throws Exception {
+        togglePlugin("muter", null); // UNTIL_IGNITION_OFF, rear=false
+        final java.util.concurrent.CountDownLatch inFlight = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch landed = new java.util.concurrent.CountDownLatch(1);
+        PlatformAdapter blocking = new DelegatingAdapter(fake) {
+            @Override
+            void beforeApply(SoundDirections v) throws Exception {
+                if (v.equals(F1R0L0X0)) {
+                    inFlight.countDown();
+                    landed.await();
+                }
+            }
+        };
+        start(null, blocking);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.ecuReportWrites(false); // the ECU's reports of the SDK's writes are lost
+        fake.setIgnition(true);
+        assertTrue(inFlight.await(5, java.util.concurrent.TimeUnit.SECONDS));
+
+        fake.setIgnition(false);
+        fake.ecuSetSoundDirections(F1R1L0X0); // stale: the ECU reports its value before the mute lands
+        landed.countDown();
+
+        awaitApplied(2, F1R1L0X0);
+        assertEquals(F1R1L0X0, fake.ecuSoundDirections());
+        assertFalse(rt.ledger().awaitSettled(300));
+        assertEquals(1, rt.activeOverrides().size());
+        assertTrue(rt.activeOverrides().get(0).restorePending());
+
+        fake.ecuSetSoundDirections(F1R1L0X0); // the car reports the old value after the restore write
+        awaitNoOverrides();
+        awaitLedgerEmpty();
+    }
+
+    /**
+     * Final review M3 follow-up: a plugin re-acquires at the moment the ledger finishes restoring its previous
+     * override. The value it read as the prior is still the override value; the ledger has since restored and
+     * dropped the entry. Recording that stale prior would end the new override back on the muted value. The
+     * prior is read again instead.
+     */
+    @Test
+    void priorReadBeforeARestoreFinishedIsReadAgain() throws Exception {
+        final OverrideLedger l = ledger(new RingLog(100));
+        final RecordingApplier a = reporting(l);
+        final VehicleOverride first = l.acquire(KEY, "p", OverrideScope.UNTIL_IGNITION_OFF, "F1R1L1X1", "F1R0L1X1", a);
+        a.await(1);
+        final List<String> reads = Collections.synchronizedList(new ArrayList<String>());
+        ParkingIo io = new ParkingIo() {
+            public SoundDirections current() {
+                if (reads.isEmpty()) {
+                    reads.add("stale");
+                    first.release(); // the restore finishes right after this read
+                    try {
+                        awaitActiveSize(l, 0);
+                    } catch (InterruptedException x) {
+                        throw new AssertionError(x);
+                    }
+                    return F1R0L1X1;
+                }
+                reads.add("fresh");
+                return F1R1L1X1;
+            }
+
+            public void apply(SoundDirections value) throws Exception {
+                a.apply(KEY, ParkingImpl.encode(value));
+            }
+        };
+        Set<String> granted = new HashSet<String>(Arrays.asList(READ_WRITE));
+        ParkingImpl parking = new ParkingImpl("p", io, l, new Registrations(), granted);
+
+        parking.overrideSoundDirections(F1R0L1X1, OverrideScope.UNTIL_IGNITION_OFF);
+        assertEquals(Arrays.asList("stale", "fresh"), reads);
+        awaitLedgerText(KEY + "=p|UNTIL_IGNITION_OFF|F1R1L1X1|F1R0L1X1|A\n");
+    }
+
+    /** Triage T1: the ledger file is in place but its final sync failed: a WARN says it may not survive. */
+    @Test
+    void ledgerWriteWhoseFinalSyncFailsIsWarned() throws Exception {
+        RingLog log = new RingLog(100);
+        OverrideLedger l = ledger(log);
+        l.fileOps = new TargetSyncFails();
+        RecordingApplier a = reporting(l);
+        l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        a.await(1);
+        assertEquals("k=p|PERSISTENT|OLD|NEW|A\n", text(ledgerFile()));
+        awaitLogHas(log, "WARN", "ledger.properties written, but its final sync failed");
+    }
+
+    /** Untouched {@link DurableFiles#SYSTEM}, except that the sync of a file (not a directory) fails. */
+    static final class TargetSyncFails implements DurableFiles.Ops {
+        public void syncFile(java.io.FileDescriptor fd) throws IOException {
+            DurableFiles.SYSTEM.syncFile(fd);
+        }
+
+        public void syncPath(File f, boolean directory) throws IOException {
+            if (!directory) {
+                throw new IOException("sync refused (test)");
+            }
+            DurableFiles.SYSTEM.syncPath(f, directory);
+        }
+
+        public boolean rename(File from, File to) {
+            return DurableFiles.SYSTEM.rename(from, to);
+        }
+
+        public boolean delete(File f) {
+            return DurableFiles.SYSTEM.delete(f);
+        }
+    }
+
+    /**
+     * An UNTIL_IGNITION_OFF override taken before the ledger saw any ignition event ends when the first event is
+     * "off".
+     */
+    @Test
+    void untilIgnitionOffOverrideTakenBeforeTheFirstIgnitionEventEndsAtAFirstOff() throws Exception {
+        OverrideLedger l = ledger(new RingLog(50));
+        RecordingApplier a = reporting(l);
+        l.acquire("k", "p", OverrideScope.UNTIL_IGNITION_OFF, "OLD", "NEW", a);
+        a.await(1);
+
+        l.ignitionChanged(false);
+        a.await(2);
+        assertEquals("k=OLD", a.calls.get(1));
+        awaitActiveSize(l, 0);
+        awaitLedgerEmpty();
     }
 
     // ---- fixtures ----

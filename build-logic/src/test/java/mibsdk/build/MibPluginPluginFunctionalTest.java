@@ -1,6 +1,7 @@
 package mibsdk.build;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -134,6 +135,37 @@ class MibPluginPluginFunctionalTest {
             assertNotNull(zip.getEntry("sample/hello/HelloPlugin.class"));
             assertAllV48(zip);
         }
+    }
+
+    @Test
+    void pluginJarComesWithAStampMatchingItsHash() throws Exception {
+        runner(":plugins:hello:mibPluginJar").build();
+
+        File jar = pluginJar("hello", "hello");
+        File stamp = new File(jar.getPath() + ".stamp");
+        assertTrue(stamp.isFile(), "missing " + stamp);
+        java.util.Properties p = new java.util.Properties();
+        try (java.io.InputStream in = new java.io.FileInputStream(stamp)) {
+            p.load(in);
+        }
+        assertEquals("1", p.getProperty("format"));
+        assertEquals("plugin", p.getProperty("kind"));
+        assertEquals("classVersion48,linkCheck,permissionScan", p.getProperty("checks"));
+        assertEquals("hello", p.getProperty("plugin.id"));
+        assertEquals("false", p.getProperty("plugin.unrestricted"));
+        assertEquals(CheckStamp.sha256(jar), p.getProperty("sha256.hello.jar"));
+    }
+
+    @Test
+    void excludingACheckWritesNoStamp() throws Exception {
+        File stamp = new File(pluginJar("hello", "hello").getPath() + ".stamp");
+        runner(":plugins:hello:mibPluginJar").build();
+        assertTrue(stamp.isFile());
+        Files.delete(stamp.toPath());
+        Files.delete(pluginJar("hello", "hello").toPath()); // forces the jar task to run again
+        BuildResult result = runner(":plugins:hello:mibPluginJar", "-x", "linkCheck").buildAndFail();
+        assertTrue(result.getOutput().contains("refusing to write a check stamp"), result.getOutput());
+        assertFalse(stamp.exists(), "stale stamp must not survive");
     }
 
     @Test

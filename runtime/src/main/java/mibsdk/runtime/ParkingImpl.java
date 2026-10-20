@@ -21,6 +21,7 @@ import mibsdk.platform.ParkingIo;
 final class ParkingImpl implements Parking {
 
     static final String KEY = "parking.soundDirections";
+    private static final int MAX_PRIOR_READS = 5;
 
     private final String pluginId;
     private final ParkingIo io;
@@ -65,11 +66,20 @@ final class ParkingImpl implements Parking {
         if (value == null || scope == null) {
             throw new IllegalArgumentException("value and scope are required");
         }
-        SoundDirections prior = io.current();
-        if (prior == null) {
-            throw new IllegalStateException("the current parking sound directions are not known yet");
+        VehicleOverride acquired = null;
+        for (int attempt = 0; acquired == null; attempt++) {
+            if (attempt == MAX_PRIOR_READS) {
+                throw new IllegalStateException("the parking sound directions kept changing; try again");
+            }
+            int restoresSeen = ledger.restoresFinished();
+            SoundDirections prior = io.current();
+            if (prior == null) {
+                throw new IllegalStateException("the current parking sound directions are not known yet");
+            }
+            // null: a restore finished after the read, so the prior may be the value it restored away from
+            acquired = ledger.acquire(KEY, pluginId, scope, encode(prior), encode(value), applier, restoresSeen);
         }
-        final VehicleOverride inner = ledger.acquire(KEY, pluginId, scope, encode(prior), encode(value), applier);
+        final VehicleOverride inner = acquired;
         final Subscription releaser = new Subscription() {
             public void cancel() {
                 ledger.releaseByRuntime(inner);

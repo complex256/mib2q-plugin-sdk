@@ -84,10 +84,10 @@ class IgnitionBridgeTest {
     }
 
     @Test
-    void initialOffPublishesNothing() throws Exception {
+    void initialOffIsPublished() throws Exception {
         clamp15(false, VALID);
         clamp15(false, VALID);
-        assertEquals(Arrays.asList(), published(), "the first callback only establishes the state");
+        assertEquals(Arrays.asList(false), published(), "the runtime and the ledger learn KL15 was off at boot");
     }
 
     @Test
@@ -95,7 +95,7 @@ class IgnitionBridgeTest {
         clamp15(false, VALID);
         clamp15(true, VALID);
         clamp15(false, VALID);
-        assertEquals(Arrays.asList(true, false), published(), "off only after a real on-to-off transition");
+        assertEquals(Arrays.asList(false, true, false), published());
     }
 
     @Test

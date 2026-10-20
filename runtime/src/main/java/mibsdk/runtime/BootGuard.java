@@ -2,7 +2,6 @@ package mibsdk.runtime;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
@@ -34,7 +33,9 @@ import java.util.Properties;
  * over it or a bridge. The configurator, at init only, passes everything through if
  * {@link #wrapLoopDetected} (wrapBoots &gt;= threshold), else counts its boot with {@link #countWrapBoot}. The
  * runtime clears the count once the HMI ran healthyAfterMs after the runtime started, plugins or not
- * ({@link #markHmiHealthy}), and on a clean shutdown ({@link #markCleanShutdown}). Once the threshold is reached
+ * ({@link #markHmiHealthy}), and on a clean shutdown ({@link #markCleanShutdown}). When the plugin-start delay is
+ * at least healthyAfterMs there is no such timer: the count is cleared in the same write that starts the plugin
+ * count ({@link #markPluginsLoading(boolean)}), so a crash is always counted by one of the two. Once the threshold is reached
  * it latches like safe mode: a pass-through boot that runs fine proves nothing about wrapping, so only
  * {@link #reset()} (mibsdk-dev safe-mode off) clears it.
  *
@@ -66,6 +67,7 @@ public final class BootGuard {
     private boolean ignitionOffSeen; // guarded by this; in memory only: this run saw IgnitionChanged(false)
     private boolean loaded; // guarded by this; the mark methods never write state they have not read
     private boolean writeFailed; // guarded by this; the last write of boot.state failed
+    DurableFiles.Ops fileOps = DurableFiles.SYSTEM; // test seam; set before the first write
 
     public BootGuard(File bootState, File safeModeMarker, int threshold) {
         this(bootState, safeModeMarker, threshold, null);
@@ -120,7 +122,7 @@ public final class BootGuard {
             if (st.wrapBoots < Integer.MAX_VALUE) {
                 st.wrapBoots++;
             }
-            return write(bootState, st, log);
+            return write(bootState, st, log, DurableFiles.SYSTEM);
         } catch (Throwable t) {
             append(log, "ERROR", "cannot count the wrap boot: " + SdkRuntime.describe(t));
             return false;
@@ -138,12 +140,18 @@ public final class BootGuard {
 
     /**
      * Plugins start loading: from here a restart without ignition-off or health counts as unhealthy (unless
-     * the ignition already went off during this run).
+     * the ignition already went off during this run). With {@code hmiHealthy} (the start delay is at least
+     * healthyAfterMs, so no HMI-healthy timer ran) it also clears wrapBoots (unless latched), in the same write:
+     * the wrap count hands over to the plugin count with no gap in which a crash counts nowhere.
      */
-    synchronized void markPluginsLoading() {
+    synchronized void markPluginsLoading(boolean hmiHealthy) {
         loadOnce();
+        boolean changed = hmiHealthy && clearWrapBoots();
         if (!ignitionOffSeen && lastShutdownClean) {
             lastShutdownClean = false;
+            changed = true;
+        }
+        if (changed) {
             write();
         }
     }
@@ -251,7 +259,7 @@ public final class BootGuard {
     }
 
     private static File tmpFile(File bootState) {
-        return new File(bootState.getPath() + ".tmp");
+        return DurableFiles.tmpFile(bootState);
     }
 
     private void loadOnce() {
@@ -314,43 +322,22 @@ public final class BootGuard {
     }
 
     private void write() {
-        writeFailed = !write(bootState, currentState(), log);
+        writeFailed = !write(bootState, currentState(), log, fileOps);
     }
 
     /** False if it failed (logged). */
-    private static boolean write(File bootState, State st, RingLog log) {
+    private static boolean write(File bootState, State st, RingLog log, DurableFiles.Ops ops) {
         String text = UNHEALTHY_BOOTS + "=" + st.unhealthyBoots + "\n" + LAST_SHUTDOWN_CLEAN + "="
                 + st.lastShutdownClean + "\n" + WRAP_BOOTS + "=" + st.wrapBoots + "\n";
-        File tmp = tmpFile(bootState);
-        FileOutputStream out = null;
         try {
-            File dir = bootState.getAbsoluteFile().getParentFile();
-            if (dir != null && !dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
-                throw new IOException("cannot create " + dir);
-            }
-            out = new FileOutputStream(tmp);
-            out.write(text.getBytes("ISO-8859-1"));
-            out.getFD().sync();
-            out.close();
-            out = null;
-            if (!tmp.renameTo(bootState)) {
-                bootState.delete(); // non-POSIX rename cannot replace; read() recovers from .tmp
-                if (!tmp.renameTo(bootState)) {
-                    throw new IOException("cannot rename " + tmp.getName() + " to " + bootState.getName());
-                }
+            if (!DurableFiles.replace(bootState, text.getBytes("ISO-8859-1"), ops)) {
+                append(log, "WARN", bootState.getName()
+                        + " written, but its final sync failed: it may not survive a power cut");
             }
             return true;
         } catch (Throwable t) {
             append(log, "ERROR", "cannot write " + bootState + ": " + SdkRuntime.describe(t));
             return false;
-        } finally {
-            if (out != null) {
-                try {
-                    out.close();
-                } catch (IOException ignored) {
-                    // the original failure is logged
-                }
-            }
         }
     }
 

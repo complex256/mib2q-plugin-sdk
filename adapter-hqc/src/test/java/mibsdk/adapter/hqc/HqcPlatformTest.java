@@ -240,6 +240,27 @@ class HqcPlatformTest {
     }
 
     @Test
+    void lateParkingServiceAnnouncesFeatureChange() throws Exception {
+        Ctx c = new Ctx();
+        Recorder parking = new Recorder();
+        c.services.put(POWER, Fakes.fake(DSIPowerManagement.class, new Recorder()));
+        HqcPlatform p = new HqcPlatform(c.context());
+        RecordingHost host = new RecordingHost();
+        p.start(host);
+        try {
+            Thread.sleep(250);
+            assertEquals(0, host.featuresChanged.get(), "nothing learned yet");
+            c.services.put(PARKING, Fakes.fake(DSICarParkingSystem.class, parking));
+            assertTrue(eventually(3000, () -> host.featuresChanged.get() == 1));
+            assertEquals(1, parking.named("setNotification").size(), "announced after the bridge attached");
+            Thread.sleep(300);
+            assertEquals(1, host.featuresChanged.get(), "once");
+        } finally {
+            p.stop();
+        }
+    }
+
+    @Test
     void stopEndsTheServiceWait() throws Exception {
         Ctx c = new Ctx();
         HqcPlatform p = new HqcPlatform(c.context());
