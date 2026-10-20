@@ -152,4 +152,53 @@ Neither daemon has a TCP status endpoint; J9's Foundation profile has no AF_UNIX
 
 ## 8. Spike results
 
-(Filled in by Plan 2 Tasks 1–2.)
+### Spike A (Plan 2 Task 1): Car drawer, labels, presses, status line
+
+Date: 2026-10-19. Bench MHI2Q, `HMI_AU_MIB2_HQC_NAR_G22_C10_180803`, SDK installed (hello, bike-rack, crashy).
+
+Setup:
+- `spikes/hmi-ui` (`SpikeCarActivator` on the `HMICar=` line; see its README). One boot, three probe rounds.
+- Round 0 ran unseen while the unit had no lease (`ssh rpi-bench keypanel up`). Rounds 1 and 2 were
+  re-triggered with `/tmp/mibsdk-spike-ui.rerun` and watched on screen.
+- Log lines are `/tmp/mibsdk.log`, tag `spike.ui`; the first number is ms since the runtime started.
+- Frames are `docs/research/ui-spike-a-*.jpg`; the full `spike.ui` log is `docs/research/ui-spike-a-log.txt`.
+
+| # | Result | Evidence |
+|---|--------|----------|
+| S1a | **go**: `cARSEL` (drawer 600043, a `SelectionMenuController`) is the left drawer in Car. Its 13 rows match the screen. | `13389 row 1 label=601352 text='Audi drive select' event=600050 widgetID=0 model=601227 type=2`, then rows 2..13 ('Charge', 'Range & statistics', 'Statistics', 'Vehicle settings', 'Driver assistance', 'Air conditioning', 'Auxiliary heating', 'Auxiliary air conditioning', 'Auxiliary heating / AC', 'Service & checks', "Owner's manual", 'Sportanzeige' visible=false). Child 0 is a `SelectionMenuIdleTimerController`, not a row. Frame `ui-spike-a-drawer-top.jpg` |
+| S1b | **go**: the `HMICar=` substitution boots like stock. The drawer, drive select (`Vehicle: Audi drive select`) and Vehicle settings all open, and keypanel `/status` stayed `bridge_connected:true`. | `8075 activator constructed on fw[HMIThreadPool:2]Dispatcher-Startup`, `factory: SpikeFactory`. Frames `ui-spike-a-vehicle-settings.jpg`, `ui-spike-a-after-s3c-car.jpg` |
+| S1c | **go**: a pre-allocated hidden row appears when its visibility model flips, while the drawer stays open (no reopen). Timing ≤ 1 s is not proven: the frames are ≥ 2 s apart. | `835604 probe T+0 S1c row1 visibility model 602739 := 0` with the drawer open (`ui-spike-a-live-before.jpg`); the row is present and focusable without reopening (`ui-spike-a-row1-shown.jpg`). Round 1 (`:= 1`) hid it again. |
+| S1d | **go (factory `getText`)**: row 0's text changed **live, while the drawer was open**, without any input. **The model-bound label is no-go as wired**: `setReplacementModelIds({602748})` on the row plus an empty drawer replacement entry rendered `%1` literally. | `845606 probe T+10 S1d text[0]='SDK row 0 B2 [%1]'`. Frames `ui-spike-a-live-before.jpg` (B1) → `ui-spike-a-live-after.jpg` (B2), 12 s apart, no key pressed |
+| S1e | **go**: an SDK row press reaches the SDK ChoiceModel listener on HMIEvent, with no SMM event. The drawer stays open and the Car state is unchanged. | `639562 press slot=1 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747`, `874609 press slot=0 ...`. Frames `ui-spike-a-press-row1.jpg`, `ui-spike-a-press-row0.jpg` |
+| S3a | **go**: popup 65 shows SDK text set from an SDK thread (`mibsdk-spike-ui`) via `getLabelModel(416).setText` + `getChoiceModel(1).setValue(1)`. It is visible top right on Car, media and home. `setValue(0)` hides it. | `S3 status len=15 ... choice1=1`, then `len=0 ... choice1=0`. Frames `ui-spike-a-status15-car.jpg`, `ui-spike-a-status20-media.jpg`, `ui-spike-a-status25-home.jpg`, `ui-spike-a-status-hidden-home.jpg` |
+| S3b | **measured: 25 characters fit** (uppercase ruler `ABC…Y`). With 30 characters, the stock label truncates to about 25 + `…`. Proposed `STATUS_MAX_CHARS = 24`, one character of margin for the proportional font. | Frames `ui-spike-a-status25-home.jpg` (all 25 shown), `ui-spike-a-status30-home.jpg` (`…UVWXY...`) |
+| S3c | **go**: a `RunnableEvent(false, r)` whose `r` throws runs on HMIEvent, and dispatching continues. The screens kept changing (home → Car → home), and the log has only our own line. | `781586 S3c runnable on fw[HMIThreadPool:5]Dispatcher-HMIEvent, throwing`. Frames `ui-spike-a-after-s3c-car.jpg`, `ui-spike-a-status-hidden-home.jpg` |
+
+Confirmed values for `HqcUiIds`:
+- `CAR_MODULE=6`.
+- `MODEL_BASE=602738`: `CarModelBank` has `models.length=2738` and `modelIDs.length=1147`. 11 grown models
+  (602738..602748) were all created on HMIEvent when the drawer was first built.
+- `TEXT_BASE=609000`.
+- `DRAWER_ROW_TYPE_ACTION=2`, `DRAWER_SELECTION_MODEL=601227`. Drawer id 600043. Stock view ids:
+  600815 601005..601010 601172 601227 601234 601672 1700231.
+- `POPUP_STATUS=65`, `STATUS_LABEL_MODEL=416`, `STATUS_VISIBLE_CHOICE=1`, `STATUS_MAX_CHARS=24` (25 measured).
+- System-model accessor: `IFrameworkAccess.getHmiServiceApp()` (the activator's `getFramework()`; class
+  `de.audi.tghu.fwhmi.evo.FwHMIEvo`), then `.getLabelModel(416)` / `.getChoiceModel(1)`. For `postEvent`,
+  `AbstractModelBank.getHMIservice().getEventDispatcher()` works.
+
+Notes for Tasks 9–10:
+- The drawer is built once, on HMIEvent, about 13 s after the runtime starts. That is **before plugins load**
+  (30 s), so pre-allocating hidden rows is required, and it works.
+- New rows need:
+  - sorted `setViews` entries for each visibility model, plus the shared selection model mapped to all SDK rows;
+  - no event and no key handler: `MenuItemBuilder` picks `ChoiceModelKeyHandler` and wraps it in a
+    `CloseDrawerKeyHandler`.
+
+  The stock rows' bitmaps were copied from row 1, so every SDK row shows the drive-select icon. The real rows
+  need their own icon (or none).
+- The text updates live through the factory `getText`, so model-bound labels are not needed. No S1d fallback
+  is required.
+- The selection drawer closes itself after a few seconds idle (the `SelectionMenuIdleTimerController`). Any
+  keypanel `rotate` sent after that moves the focus on the underlying Car screen instead. Send
+  rotate+select within ~1 s.
+- None of the gates is no-go, so no fallback branch applies. Tasks 9–10 follow the main path.
