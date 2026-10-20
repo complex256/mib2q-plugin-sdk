@@ -73,6 +73,11 @@ final class UiTestRuntime {
         grants.put(id, perms);
     }
 
+    /** Forces safe mode at the next start. */
+    void safeModeMarker() throws IOException {
+        write(new File(base, "SAFE_MODE"), "");
+    }
+
     SdkRuntime start() throws IOException {
         SerialExecutor.watchdogPeriodMs = 10;
         write(new File(base, "sdk.properties"), "plugin.start.delay.ms=0\nheap.low.bytes=0\nui.publish.min.ms=0\n"

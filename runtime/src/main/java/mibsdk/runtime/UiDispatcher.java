@@ -57,6 +57,11 @@ final class UiDispatcher {
         }
     }
 
+    /** True while the thread is alive. */
+    synchronized boolean isRunning() {
+        return thread != null && thread.isAlive();
+    }
+
     private synchronized boolean isStopped() {
         return stopped;
     }

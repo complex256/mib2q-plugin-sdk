@@ -118,6 +118,9 @@ public final class SdkRuntime {
 
     static volatile EnableHook testEnableHook;
 
+    /** Test hook: runs on the control thread in stop() just before {@code ledger.beginShutdown()}. */
+    static volatile Runnable testBeforeLedgerShutdown;
+
     /** Test hook: simulates an SDK-side failure at the start of the initial plugin load. */
     static volatile Runnable testBeforeLoadAll;
 
@@ -182,6 +185,7 @@ public final class SdkRuntime {
     /** Created in start() once the control timer exists; plugin contexts and disableHost use it. */
     private volatile UiHub uiHub;
     private UiDispatcher uiDispatcher; // guarded by this
+    private SerialExecutor uiPublisher; // builds and publishes UI snapshots; guarded by this
 
     /** Quarantines the most recently enabled plugin; HeapWatch calls it on the control thread. */
     private final HeapWatch.Victim heapVictim = new HeapWatch.Victim() {
@@ -301,11 +305,16 @@ public final class SdkRuntime {
             } else {
                 control = newControlExecutor();
                 timer = new PluginScheduler(control, clock);
-                uiHub = new UiHub(uiTable, log, clock, timer, cfg.uiPublishMinMs());
+                // Its own thread: the control thread blocks for up to hungMs inside onEnable/onDisable.
+                uiPublisher = new SerialExecutor("ui-publish", clock, cfg.slowMs(), cfg.hungMs(), sdkListener("ui"));
+                uiHub = new UiHub(uiTable, log, clock, new PluginScheduler(uiPublisher, clock), cfg.uiPublishMinMs());
                 uiDispatcher = new UiDispatcher(uiTable, uiHub);
                 c = control;
                 t = timer;
             }
+        }
+        if (c != null) {
+            uiHub.publishNow(); // the Plugins row from the start: safe mode, or no plugin UI at all
         }
         if (c == null) {
             log.append("WARN", SOURCE, "no adapter supports this HMI version: the SDK stays off and no plugin loads");
@@ -448,6 +457,23 @@ public final class SdkRuntime {
         }));
     }
 
+    /** Listener for an SDK-internal executor: logs failures, slow and hung tasks; never blocks. */
+    private SerialExecutor.Listener sdkListener(final String what) {
+        return new SerialExecutor.Listener() {
+            public void onFailure(String label, Throwable t) {
+                log.append("ERROR", SOURCE, what + " task " + label + " failed: " + describe(t));
+            }
+
+            public void onSlow(String label, long ms) {
+                log.append("WARN", SOURCE, what + " task " + label + " took " + ms + " ms");
+            }
+
+            public void onHung(String label) {
+                log.append("ERROR", SOURCE, what + " task " + label + " hung for over " + cfg.hungMs() + " ms");
+            }
+        };
+    }
+
     private SerialExecutor newControlExecutor() {
         return new SerialExecutor("runtime", clock, Long.MAX_VALUE, Long.MAX_VALUE, new SerialExecutor.Listener() {
             public void onFailure(String label, Throwable t) {
@@ -526,6 +552,10 @@ public final class SdkRuntime {
         }
         runOnControl(c, "stop", new Runnable() {
             public void run() {
+                Runnable hook = testBeforeLedgerShutdown;
+                if (hook != null) {
+                    hook.run();
+                }
                 ledger.beginShutdown(); // from here PERSISTENT overrides stay in the ledger for the next boot
                 PluginHost[] active;
                 synchronized (SdkRuntime.this) {
@@ -568,15 +598,16 @@ public final class SdkRuntime {
 
     /**
      * First step of stop() and haltForTest(): marks the runtime stopped (from here no plugin is enabled any
-     * more, see loadPlugins/enableUnguarded), stops the UI input dispatcher, cancels the timers and stops the
-     * dev channel. Returns the
-     * control executor, or null if the runtime was not started or is already stopped.
+     * more, see loadPlugins/enableUnguarded), stops the UI input dispatcher and the UI publisher, cancels the
+     * timers and stops the dev channel. Returns the control executor, or null if the runtime was not started or
+     * is already stopped.
      */
     private SerialExecutor beginStop() {
         SerialExecutor c;
         Subscription[] subs;
         DevChannel d;
         UiDispatcher ud;
+        SerialExecutor up;
         synchronized (this) {
             if (!started || stopped) {
                 return null;
@@ -588,9 +619,13 @@ public final class SdkRuntime {
             d = dev;
             dev = null;
             ud = uiDispatcher;
+            up = uiPublisher;
         }
         if (ud != null) {
             ud.stop(); // no input reaches a plugin from here on; down before ledger.beginShutdown()
+        }
+        if (up != null) {
+            up.shutdown(); // no more UI publishes
         }
         for (int i = 0; i < subs.length; i++) {
             subs[i].cancel();
@@ -639,6 +674,15 @@ public final class SdkRuntime {
             out.add(new PluginStatus(h.id, h.version(), h.state, h.reason));
         }
         return out;
+    }
+
+    /** Test hook: true while the UI input thread is alive. */
+    boolean uiDispatcherRunning() {
+        UiDispatcher ud;
+        synchronized (this) {
+            ud = uiDispatcher;
+        }
+        return ud != null && ud.isRunning();
     }
 
     /** True if this boot is in safe mode (SDK on, no plugins); fixed by start(). */
@@ -952,6 +996,7 @@ public final class SdkRuntime {
         h.snapshot = snap;
         h.failures = new FailureTracker(cfg.quarantineFailures(), cfg.quarantineWindowMs(), clock);
         h.registrations = new Registrations();
+        uiHub.registerOwner(h.id); // its UI sorts in enable order, and stray UI from a previous run is dropped
         h.storage = new PluginStorage(new File(cfg.dataDir(), h.id + ".properties"), clock,
                 PluginStorage.DEFAULT_DEBOUNCE_MS, storageQuota);
         h.exec = new SerialExecutor("plugin-" + h.id, clock, cfg.slowMs(), cfg.hungMs(), executorListener(h));

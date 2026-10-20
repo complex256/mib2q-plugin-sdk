@@ -136,10 +136,14 @@ class UiHubTest {
     @Test
     void carRowsKeepLoadOrderAfterPluginsRow() throws Exception {
         UiHub hub = hub(0);
+        hub.registerOwner("zeta"); // enabled first...
+        hub.registerOwner("alpha");
+        hub.addPage("alpha", PageSpec.of("p", "A"), null, executor("plugin-alpha")); // ...but alpha contributes first
+        hub.addCarRow("alpha", "r1", "Alpha", "alpha/p");
+        hub.setStatusItem("alpha", "A");
         hub.addPage("zeta", PageSpec.of("p", "Z"), null, executor("plugin-zeta"));
-        hub.addPage("alpha", PageSpec.of("p", "A"), null, executor("plugin-alpha"));
-        hub.addCarRow("alpha", "r1", "Alpha", "alpha/p"); // alpha's row registered first...
-        hub.addCarRow("zeta", "r1", "Zeta", "zeta/p"); // ...but zeta loaded first
+        hub.addCarRow("zeta", "r1", "Zeta", "zeta/p");
+        hub.setStatusItem("zeta", "Z");
         hub.publishNow();
 
         List<UiRow> rows = table.snapshot().carRows();
@@ -147,15 +151,64 @@ class UiHubTest {
         assertEquals("mibsdk/plugins", rows.get(0).key());
         assertEquals("Plugins", rows.get(0).label());
         assertEquals("mibsdk/plugins", rows.get(0).pageKey());
-        assertEquals("Zeta", rows.get(1).label());
+        assertEquals("Zeta", rows.get(1).label(), "rows follow enable order, not contribution order");
         assertEquals("zeta/p", rows.get(1).pageKey());
         assertEquals("Alpha", rows.get(2).label());
+        assertEquals("Z A", table.snapshot().statusLine(), "status items follow enable order too");
 
         hub.setPluginsRowLabel("Plugins (safe mode)");
         hub.publishNow();
         assertEquals("Plugins (safe mode)", table.snapshot().carRows().get(0).label());
         assertThrows(IllegalArgumentException.class, () -> hub.addCarRow("alpha", "r2", "x", "zeta/p"),
                 "a row may only open a page of its own plugin");
+    }
+
+    @Test
+    void strayContributionAfterRemoveOwnerKeepsTheNotice() throws Exception {
+        UiHub hub = hub(0);
+        SerialExecutor exec = executor("plugin-fruit");
+        hub.registerOwner("fruit");
+        hub.addPage("fruit", PageSpec.of("main", "Fruit"), null, exec);
+        hub.requestOpen("fruit/main");
+        hub.removeOwner("fruit", "Fruit stopped: test");
+
+        hub.addPage("fruit", PageSpec.of("main", "Stray"), null, exec); // a callback still running after disable
+        hub.setStatusItem("fruit", "stray");
+        hub.updatePage("fruit", PageSpec.of("main", "Stray"));
+        hub.publishNow();
+        UiSnapshot s = table.snapshot();
+        assertEquals("Fruit stopped: test", s.pages().get("fruit/main").entries().get(0).label());
+        assertEquals("", s.statusLine());
+        assertTrue(hub.pageKeysOf("fruit").isEmpty());
+
+        hub.registerOwner("fruit"); // enabled again
+        hub.addPage("fruit", PageSpec.of("main", "Again"), null, exec);
+        hub.publishNow();
+        assertEquals("Again", table.snapshot().pages().get("fruit/main").title());
+    }
+
+    @Test
+    void linkToCancelledPageDoesNotOpen() throws Exception {
+        UiHub hub = hub(0);
+        UiImpl ui = ui("fruit", hub);
+        Page target = ui.page(PageSpec.of("target", "T"), null);
+        ui.page(PageSpec.of("main", "Fruit").link("go", "Go", target), null);
+        target.cancel();
+        hub.publishNow();
+        long seq = table.snapshot().openSeq();
+
+        hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "fruit/main", "go", false));
+        hub.publishNow();
+        assertEquals(seq, table.snapshot().openSeq(), "a link to a page that is gone opens nothing");
+    }
+
+    @Test
+    void statusMaxCharsIsClampedToFour() throws Exception {
+        UiHub hub = hub(0);
+        hub.setStatusItem("a", "ABCDEFG");
+        hub.setStatusMaxChars(1);
+        hub.publishNow();
+        assertEquals("A...", table.snapshot().statusLine());
     }
 
     @Test
@@ -388,6 +441,74 @@ class UiHubTest {
         Thread.sleep(300);
         assertEquals(1, r.count("fruit", "action a"));
         assertNotNull(r.table.poll(0), "the input stays in the table: nobody consumes it after stop");
+    }
+
+    @Test
+    void publishesWhileAPluginBlocksTheControlThread() throws Exception {
+        final UiTestRuntime r = runtime();
+        r.plugin("apple", "Apple", UI_PERMS, FULL_UI.replace("fruit", "apple"), null);
+        r.plugin("zslow", "Slow", new String[0], "ctx.log().info(\"blocking\"); Thread.sleep(8000L);", null);
+        Thread starter = new Thread() {
+            public void run() {
+                try {
+                    r.start(); // blocks until the load is done: zslow's onEnable holds the control thread
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        starter.setDaemon(true);
+        starter.start();
+        for (int i = 0; i < 500 && r.rt == null; i++) {
+            Thread.sleep(10);
+        }
+        UiSnapshot on = r.await(s -> s.carRows().size() == 2, "shows apple's row while zslow is enabling");
+        r.table.input(new UiInput(UiInput.ROW_SELECTED, on.carRows().get(1).key(), null, false));
+        UiSnapshot opened = r.await(s -> s.openSeq() > on.openSeq(), "opens apple's page");
+        assertEquals("apple/main", opened.openPageKey());
+        for (PluginStatus st : r.rt.statuses()) {
+            if (st.id().equals("zslow")) {
+                assertTrue(st.state() != PluginState.ENABLED, "zslow's onEnable has not returned yet");
+            }
+        }
+        starter.join(15000);
+    }
+
+    @Test
+    void initialSnapshotAndInputInSafeMode() throws Exception {
+        UiTestRuntime r = runtime();
+        r.plugin("fruit", "Fruit", UI_PERMS, FULL_UI, null);
+        r.safeModeMarker();
+        r.start();
+        assertTrue(r.rt.safeMode());
+        UiSnapshot s = r.table.snapshot();
+        assertEquals(1, s.carRows().size(), "the Plugins row is published at start, with no plugin UI");
+        assertEquals("mibsdk/plugins", s.carRows().get(0).key());
+
+        r.table.input(new UiInput(UiInput.ROW_SELECTED, "mibsdk/plugins", null, false));
+        UiSnapshot opened = r.await(x -> x.openSeq() > s.openSeq(), "takes input in safe mode");
+        assertEquals("mibsdk/plugins", opened.openPageKey());
+    }
+
+    @Test
+    void dispatcherIsDownBeforeLedgerShutdown() throws Exception {
+        final UiTestRuntime r = runtime();
+        r.plugin("fruit", "Fruit", UI_PERMS, FULL_UI, null);
+        r.start();
+        r.await(s -> s.pages().containsKey("fruit/main"), "shows fruit's page");
+        assertTrue(r.rt.uiDispatcherRunning());
+        final Boolean[] running = {null};
+        SdkRuntime.testBeforeLedgerShutdown = new Runnable() {
+            public void run() {
+                running[0] = Boolean.valueOf(r.rt.uiDispatcherRunning());
+            }
+        };
+        try {
+            r.rt.stop();
+        } finally {
+            SdkRuntime.testBeforeLedgerShutdown = null;
+        }
+        assertEquals(Boolean.FALSE, running[0], "the dispatcher was still running at ledger.beginShutdown()");
     }
 
     // ---- publishing ----

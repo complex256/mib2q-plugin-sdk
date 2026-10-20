@@ -31,8 +31,11 @@ import mibsdk.platform.UiText;
  * {@code mibsdk} is reserved for the SDK's pages. Text is cleaned and truncated here ({@link UiText}),
  * once, when a contribution arrives; a snapshot is only assembled from already-clean parts.
  *
- * <p>Order: owners keep the order of their first contribution since their last {@link #removeOwner}, so
- * plugin rows and status items follow plugin load order. Car rows: the Plugins row first.
+ * <p>Order: owners keep the order of {@link #registerOwner} (the runtime calls it as it enables a plugin), so
+ * plugin rows and status items follow enable order whatever the timing of the contributions; an owner
+ * never registered (tests) takes the position of its first contribution. Car rows: the Plugins row first.
+ * After {@link #removeOwner} an owner's contributions are ignored until it is registered again, so a
+ * callback still running after its plugin stopped cannot bring its UI back or wipe the stopped notice.
  *
  * <p>Publishing is coalesced: every change asks for one publish on {@code publishTimer}, at the earliest
  * {@code publishMinMs} (on the {@link Clock}) after the previous one; changes made while a publish is
@@ -90,6 +93,8 @@ final class UiHub {
     private final Map<String, UiPage> notices = new HashMap<String, UiPage>();
     private final Map<String, String> openTitles = new LinkedHashMap<String, String>(); // open key -> last title
     private final Set<String> dropLogged = new HashSet<String>();
+    /** Owners removed and not registered again: their stray contributions are ignored. */
+    private final Set<String> removedOwners = new HashSet<String>();
     private List<UiPage> sdkPages = Collections.<UiPage>emptyList();
     private List<String> indicators = Collections.<String>emptyList();
     private String pluginsRowLabel = DEFAULT_PLUGINS_LABEL;
@@ -130,6 +135,9 @@ final class UiHub {
             throw new IllegalArgumentException("spec is required");
         }
         synchronized (lock) {
+            if (removedOwners.contains(owner)) {
+                return; // a callback still running after its plugin stopped: never resurrect the owner
+            }
             Owner o = owners.get(owner);
             if (o != null && o.pages.containsKey(spec.id())) {
                 throw new IllegalArgumentException("page '" + spec.id() + "' is already registered");
@@ -155,6 +163,9 @@ final class UiHub {
             throw new IllegalArgumentException("spec is required");
         }
         synchronized (lock) {
+            if (removedOwners.contains(owner)) {
+                return;
+            }
             Owner o = owners.get(owner);
             PageRec old = o == null ? null : (PageRec) o.pages.get(spec.id());
             if (old == null) {
@@ -182,6 +193,9 @@ final class UiHub {
         checkOwner(owner);
         String key = owner + "/" + rowKey;
         synchronized (lock) {
+            if (removedOwners.contains(owner)) {
+                return;
+            }
             Owner o = owners.get(owner);
             if (o == null || pageKey == null || !pageKey.startsWith(owner + "/")
                     || !o.pages.containsKey(pageKey.substring(owner.length() + 1))) {
@@ -211,6 +225,9 @@ final class UiHub {
         String clean = UiText.clean(text, StatusItem.MAX_TEXT);
         String value = clean.length() == 0 ? null : clean;
         synchronized (lock) {
+            if (removedOwners.contains(owner)) {
+                return;
+            }
             Owner o = owners.get(owner);
             if (o == null) {
                 if (value == null) {
@@ -229,14 +246,28 @@ final class UiHub {
 
     // ---- runtime ----
 
+    /** The plugin is being enabled: its rows and status item take this position (enable order). */
+    void registerOwner(String owner) {
+        checkOwner(owner);
+        synchronized (lock) {
+            removedOwners.remove(owner);
+            if (!owners.containsKey(owner)) {
+                owners.put(owner, new Owner());
+            }
+        }
+    }
+
     /**
      * Drops everything {@code owner} contributed. With a notice, each of its pages that is open becomes a
      * notice page (one INFO entry); with {@code null} (a reload) open pages simply vanish.
      */
-    void removeOwner(String owner, String stoppedNoticeOrNull) {
+    void removeOwner(String owner, String stoppedNoticeOrNull) { // until registerOwner, its contributions are ignored
         boolean changed;
         synchronized (lock) {
             changed = owners.remove(owner) != null;
+            if (owner != null) {
+                removedOwners.add(owner);
+            }
             if (stoppedNoticeOrNull != null && owner != null) {
                 String prefix = owner + "/";
                 String text = UiText.clean(stoppedNoticeOrNull, PageSpec.MAX_INFO);
@@ -304,7 +335,7 @@ final class UiHub {
 
     void setStatusMaxChars(int max) {
         synchronized (lock) {
-            statusMaxChars = max;
+            statusMaxChars = Math.max(4, max); // room for one char plus "..."
         }
         changed();
     }
@@ -403,7 +434,13 @@ final class UiHub {
         }
         final UiAction action;
         if (kind == UiInput.ENTRY_SELECTED && entry.kind() == UiEntry.LINK) {
-            requestOpen(entry.targetPageKey());
+            boolean live;
+            synchronized (lock) {
+                live = livePage(entry.targetPageKey()) != null;
+            }
+            if (live) { // a target cancelled since: open nothing
+                requestOpen(entry.targetPageKey());
+            }
             return;
         } else if (kind == UiInput.ENTRY_SELECTED && entry.kind() == UiEntry.ITEM) {
             action = new UiAction(rec.pageId, entry.key(), null);
