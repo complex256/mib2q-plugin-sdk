@@ -33,7 +33,9 @@ cmd="${cmd//\/mnt\/persist/$FAKE_UNIT/mnt/persist}"
 cmd="${cmd//\/ramdisk\//$FAKE_UNIT/ramdisk/}"
 cmd="${cmd//\/ifs\//$FAKE_UNIT/ifs/}"
 cmd="${cmd//\/tmp\/mibsdk.log/$FAKE_UNIT/tmp/mibsdk.log}"
-exec sh -c "$cmd"
+# Like OpenSSH, read all of our stdin (it would forward it to the remote command): a caller's `while read` loop loses the rest.
+cat | sh -c "$cmd"
+exit ${PIPESTATUS[1]}
 """
 
 FAKE_NOOP = "#!/bin/sh\nexit 0\n"
@@ -166,7 +168,7 @@ class FakeUnit(object):
         env["FAKE_RO_AFTER_MV"] = kw.get("ro_after_mv", "")
         env["FAKE_REWRITE"] = kw.get("rewrite", "")
         env["FAKE_FAIL_MV_SILENT"] = kw.get("fail_mv_silent", "")
-        return subprocess.run([TOOL] + list(args), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        return subprocess.run([TOOL] + list(args), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               timeout=60)
 
 
@@ -360,11 +362,12 @@ class InstallTest(FakeUnitTestCase):
         for cls in ("de/audi/tghu/car/hmi/Activator.class", "de/audi/atip/model/CarModelBank.class",
                     "de/audi/atip/model/CarModelBank$1.class"):
             u = self.unit(tracer_marker=False)
-            write_jar(os.path.join(u.lsd, "jars/other-mod.jar"), ["a/B.class", cls])
+            write_jar(os.path.join(u.lsd, "jars/aa-clean.jar"), ["a/B.class"])
+            write_jar(os.path.join(u.lsd, "jars/zz-other-mod.jar"), ["a/B.class", cls])
             before = u.bundles()
             r = u.run("install")
             self.assertNotEqual(0, r.returncode)
-            self.assertIn("mibsdk-dev: other-mod.jar defines %s, which the SDK owns; nothing changed" % cls,
+            self.assertIn("mibsdk-dev: zz-other-mod.jar defines %s, which the SDK owns; nothing changed" % cls,
                           r.stderr.decode("utf-8"))
             self.assertEqual(before, u.bundles())
             self.assertFalse(os.path.exists(u.sdk), "nothing changed on the unit")
@@ -386,6 +389,84 @@ class InstallTest(FakeUnitTestCase):
                       r.stderr.decode("utf-8"))
         self.assertFalse(os.path.exists(u.sdk), "nothing changed on the unit")
 
+    def test_guard_checks_every_jar_not_just_the_first(self):
+        u = self.unit(tracer_marker=False)
+        for n in ("a1", "b2", "c3"):
+            write_jar(os.path.join(u.lsd, "jars/%s.jar" % n), ["x/Y.class"])
+        write_jar(os.path.join(u.lsd, "jars/zz-last.jar"), ["de/audi/tghu/car/hmi/Z.class"])
+        r = u.run("install")
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn(b"zz-last.jar defines de/audi/tghu/car/hmi/Z.class", r.stderr)
+
+    def test_guard_only_looks_at_jars(self):
+        u = self.unit(tracer_marker=False)
+        write(os.path.join(u.lsd, "jars/lang_data.zip"), b"not a zip")
+        write(os.path.join(u.lsd, "jars/old.jar.bak"), b"not a zip")
+        self.ok(u.run("install"))
+
+    def test_guard_fails_closed_on_an_unreadable_jar(self):
+        u = self.unit(tracer_marker=False)
+        write(os.path.join(u.lsd, "jars/broken.jar"), b"not a zip")
+        r = u.run("install")
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn(b"broken.jar", r.stderr)
+        self.assertFalse(os.path.exists(u.sdk))
+
+    def test_guard_refuses_a_symlinked_jar(self):
+        u = self.unit(tracer_marker=False)
+        os.symlink(os.path.join(u.lsd, "jars/stock.jar"), os.path.join(u.lsd, "jars/link.jar"))
+        r = u.run("install")
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn(b"link.jar is a symlink", r.stderr)
+        self.assertFalse(os.path.exists(u.sdk))
+
+    def test_guard_refuses_a_jar_name_with_a_space(self):
+        u = self.unit(tracer_marker=False)
+        write_jar(os.path.join(u.lsd, "jars/my mod.jar"), ["x/Y.class"])
+        r = u.run("install")
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn(b"has a space", r.stderr)
+        self.assertFalse(os.path.exists(u.sdk))
+
+    def test_nonstock_hmicar_changes_nothing_at_all(self):
+        for bad in (b"HMICar=x.Y", b"HMICar = de.audi.tghu.car.hmi.Activator",
+                    b"HMICar=de.audi.tghu.car.hmi.Activator ", b"HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator"):
+            u = self.unit(tracer_marker=False)
+            write(u.bundles_path(), u.bundles().replace(b"HMICar=de.audi.tghu.car.hmi.Activator", bad))
+            before = u.bundles()
+            r = u.run("install")
+            self.assertNotEqual(0, r.returncode)
+            self.assertIn(b"HMICar is not stock", r.stderr)
+            self.assertEqual(before, u.bundles())
+            self.assertFalse(os.path.exists(u.sdk), "no backup written: " + bad.decode())
+            self.assertFalse(os.path.exists(os.path.join(u.unit, "app.ro")), "/mnt/app was never remounted")
+            shutil.rmtree(self.tmp)
+            os.makedirs(self.tmp)
+
+    def test_upgrade_refuses_a_foreign_live_hmicar(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        write(u.bundles_path(), u.bundles().replace(b"mibsdk.adapter.hqc.ui.SdkCarActivator", b"other.Act"))
+        before = u.bundles()
+        r = u.run("install")
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn(b"HMICar is not stock", r.stderr)
+        self.assertEqual(before, u.bundles())
+
+    def test_upgrade_with_the_sdk_value_live_is_fine(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        self.ok(u.run("install"))
+
+    def test_refuses_a_backup_that_already_holds_the_sdk_value(self):
+        u = self.unit(tracer_marker=False)
+        self.ok(u.run("install"))
+        bk = os.path.join(u.sdk, "stock/bundles_dsitracer_enabled.properties")
+        write(bk, read(bk).replace(b"HMICar=de.audi.tghu.car.hmi.Activator", b"HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator"))
+        r = u.run("install")
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn(b"HMICar is not stock", r.stderr)
+
     def test_install_points_hmicar_at_the_sdk_keeping_crlf(self):
         u = self.unit(tracer_marker=False)
         self.ok(u.run("install"))
@@ -398,6 +479,7 @@ class InstallTest(FakeUnitTestCase):
         r = u.run("install")
         self.assertNotEqual(0, r.returncode)
         self.assertNotIn(b"mibsdk.adapter.hqc.ui", u.bundles())
+        self.assertFalse(os.path.exists(u.sdk))
 
 
 class UninstallTest(FakeUnitTestCase):
@@ -553,6 +635,18 @@ class StatusTest(FakeUnitTestCase):
         r = self.ok(u.run("status"))
         out = r.stdout.decode("utf-8")
         self.assertEqual("HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\nx STATUS ui=on\n", out)
+
+
+class StatusEdgeTest(FakeUnitTestCase):
+    def test_missing_hmicar_line_and_unreadable_bundles(self):
+        u = self.unit(tracer_marker=False)
+        write(os.path.join(u.unit, "tmp/mibsdk.log"), b"x STATUS ui=on\n")
+        write(u.bundles_path(), b"Bundle.Startup.Autostart = A\r\n")
+        self.assertEqual("HMICar=<missing>\nx STATUS ui=on\n", self.ok(u.run("status")).stdout.decode())
+        os.remove(u.bundles_path())
+        r = self.ok(u.run("status"))
+        self.assertEqual("x STATUS ui=on\n", r.stdout.decode())
+        self.assertIn(b"warning: cannot read", r.stderr)
 
 
 class DataClearTest(FakeUnitTestCase):
@@ -737,6 +831,13 @@ class RemoveTest(FakeUnitTestCase):
         write(plugins, b"hello.off=true\nhello-2.off=true\nother.off=true\n")
         self.ok(self.u.run("remove", "hello"))
         self.assertEqual(b"hello-2.off=true\nother.off=true\n", read(plugins))
+
+    def test_plugins_properties_is_pushed_before_the_reload_marker(self):
+        self.installed("hello")
+        write(os.path.join(self.u.persist, "plugins.properties"), b"hello.off=true\n")
+        r = self.u.run("remove", "hello", fail_mv="hello.reload")
+        self.assertNotEqual(0, r.returncode)
+        self.assertEqual(b"", read(os.path.join(self.u.persist, "plugins.properties")))
 
     def test_leaves_a_plugin_with_a_longer_id_alone(self):
         self.installed("bike")

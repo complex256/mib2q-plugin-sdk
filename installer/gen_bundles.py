@@ -24,7 +24,7 @@ HMICAR_VALUE = b"mibsdk.adapter.hqc.ui.SdkCarActivator"
 
 _CFG_RE = re.compile(rb"^(#+[ \t]*)?" + re.escape(CONFIGURATOR_KEY) + rb"[ \t]*=")
 _AUTO_RE = re.compile(rb"^(" + re.escape(AUTOSTART_KEY) + rb"[ \t]*=[ \t]*)(.*?)$")
-_HMICAR_RE = re.compile(rb"^" + re.escape(HMICAR_KEY) + rb"[ \t]*=[ \t]*(.*?)[ \t]*$")
+_HMICAR_RE = re.compile(rb"^" + re.escape(HMICAR_KEY) + rb"[ \t]*=(.*)$")
 _BUNDLE_RE = re.compile(rb"^" + re.escape(BUNDLE_NAME) + rb"[ \t]*=")
 
 
@@ -63,8 +63,9 @@ def generate(stock, tracer_active):
     if len(hmi) != 1:
         raise SystemExit("gen_bundles: expected exactly one HMICar= line, found %d" % len(hmi))
     i, m = hmi[0]
-    if m.group(1) not in (HMICAR_STOCK, HMICAR_VALUE):  # the SDK's own value: generate() is a fixed point
-        raise SystemExit("gen_bundles: HMICar is not stock (%s); refusing" % m.group(1).decode("latin-1"))
+    # Exact bytes; the SDK's own value is accepted too, so generate() is a fixed point.
+    if m.group(0) not in (HMICAR_KEY + b"=" + HMICAR_STOCK, HMICAR_KEY + b"=" + HMICAR_VALUE):
+        raise SystemExit("gen_bundles: HMICar is not stock (%s); refusing" % m.group(1).decode("latin-1").strip())
     lines[i] = HMICAR_KEY + b"=" + HMICAR_VALUE + _split_eol(lines[i])[1]
 
     if not any(_BUNDLE_RE.match(l) for l in lines):

@@ -26,6 +26,8 @@ SDK_JARS="mibsdk-runtime.jar mibsdk-adapter-hqc.jar mibsdk-rt-retrotranslator.ja
 BOOT_STATE_RESET=$'unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0'   # BootGuard.reset()'s content
 # The SDK's car-HMI activator subclasses these stock classes and inherits whatever copy the JVM finds first, so no other
 # jar may define one (the sole-owner rule; spec 13). Entries are path prefixes inside a jar.
+HMICAR_STOCK="HMICar=de.audi.tghu.car.hmi.Activator"
+HMICAR_SDK="HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator"
 OWNED_PREFIXES=(de/audi/tghu/car/hmi/ de/audi/atip/model/CarModelBank)
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -113,7 +115,8 @@ connect() {
 make_tmp() { TMP="$(mktemp -d "${TMPDIR:-/tmp}/mibsdk-dev.XXXXXX")"; }
 
 # remote_cat <remote path> <local file>: fetch; returns 1 if the remote file cannot be read.
-fetch() { rsh "cat '$1'" >"$2" 2>/dev/null; }
+# stdin is closed: ssh would otherwise swallow the rest of a `while read` loop's input.
+fetch() { rsh "cat '$1'" >"$2" 2>/dev/null </dev/null; }
 
 # is_present <remote path>: status 0 present, 1 absent; dies on any transport or other failure (never "absent" by mistake).
 # Call it directly in an if/&& (not in $(...)), so that die exits the script.
@@ -237,13 +240,21 @@ cmd_install() {
   fi
   check_no_spike_jar "$jarlist"
   check_owned_classes
+  # The bundles file must be stock (or, on an upgrade, ours) before anything is written: gen_bundles refuses a foreign
+  # HMICar= too, but only after the backup would exist.
+  local stock_src="$TMP/current.properties"
+  if is_present "$STOCK/tracer.was"; then
+    fetch "$STOCK/bundles_dsitracer_enabled.properties" "$TMP/stock.properties" || die "stock backup is unreadable"
+    stock_src="$TMP/stock.properties"
+    check_hmicar "$TMP/current.properties" "the installed $BUNDLES" "$HMICAR_STOCK" "$HMICAR_SDK"
+  fi
+  check_hmicar "$stock_src" "the stock bundles file" "$HMICAR_STOCK"
   is_present "$TRACER_JAR" || die "$TRACER_JAR is missing; the SDK chains DSITracer's configurator and needs it; nothing changed"
 
   # 3. Backup (first install only; an existing complete backup is never touched).
   local stock_input tracer
   if is_present "$STOCK/tracer.was"; then
     info "stock backup already present; keeping it"
-    fetch "$STOCK/bundles_dsitracer_enabled.properties" "$TMP/stock.properties" || die "stock backup is unreadable"
     rw_begin
     tracer="$(rsh "cat '$STOCK/tracer.was'")" || die "cannot read stock/tracer.was"
     [ "$tracer" = true ] || [ "$tracer" = false ] || die "stock/tracer.was is corrupt ('$tracer')"
@@ -290,6 +301,22 @@ cmd_install() {
   echo "installed; restart HMI with: mibsdk-dev restart"
 }
 
+# check_hmicar <file> <what> <allowed line>...: dies unless the file has exactly one HMICar= line (any spacing around the
+# =) and it equals one of the allowed lines byte for byte (a trailing CR aside).
+check_hmicar() {
+  local file="$1" what="$2" line n=0 got="" ok=0 a
+  shift 2
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      HMICar[\ $'\t']*=*|HMICar=*) n=$((n + 1)); got="$line" ;;
+    esac
+  done <"$file"
+  for a in "$@"; do [ "$got" = "$a" ] && ok=1; done
+  [ "$n" = 1 ] && [ "$ok" = 1 ] \
+    || die "HMICar is not stock in $what (${got:-no HMICar= line}); refusing; nothing changed"
+}
+
 # check_no_spike_jar <ls of $JARS>: the UI spike also claims the HMICar= entry (spikes/hmi-ui/run.sh).
 check_no_spike_jar() {
   local jar
@@ -307,10 +334,16 @@ check_owned_classes() {
   while read -r -a f; do
     [ "${#f[@]}" -ge 9 ] || continue
     mode="${f[0]}"
-    [ "${mode:0:1}" = "-" ] || continue
-    name="${f[$((${#f[@]} - 1))]}"
+    name="${f[*]:8}"
     size="${f[4]}"
-    case "$name" in mibsdk-*|*.push.tmp) continue ;; esac
+    case "$name" in *.jar|*.jar\ \-\>\ *) ;; *) continue ;; esac   # only jars are on the class path
+    case "$name" in mibsdk-*) continue ;; esac
+    case "${mode:0:1}" in
+      -) ;;
+      l) die "$JARS/${name%% *} is a symlink; the ownership check cannot follow it; nothing changed" ;;
+      *) continue ;;
+    esac
+    case "$name" in *\ *) die "$JARS/$name has a space in its name; the ownership check cannot handle it; nothing changed" ;; esac
     local_jar="$cache/$name.$size"
     if [ ! -f "$local_jar" ]; then
       fetch "$JARS/$name" "$local_jar" || { rm -f "$local_jar"; die "cannot read $JARS/$name; nothing changed"; }
@@ -675,8 +708,8 @@ cmd_remove() {
   rsh "rm -f '$jar'" || die "cannot remove $jar"
   if is_present "$jar"; then die "$jar is still there after removal"; fi
   push_file "$TMP/grants.out" "$SDK/grants.properties"
-  push_file "$TMP/reload" "$SDK/plugins/$id.reload"
   if [ -n "$off_dropped" ]; then push_file "$TMP/plugins.out" "$PERSIST/plugins.properties"; fi
+  push_file "$TMP/reload" "$SDK/plugins/$id.reload"
   rw_end
   echo "removed $id: plugins/$id.jar and its grants line$([ -n "$off_dropped" ] && echo " and its $id.off switch"); reload requested"
 
@@ -787,10 +820,14 @@ cmd_log() {
 
 cmd_status() {
   connect
-  fetch "$BUNDLES" "$TMP/bundles.now" || die "cannot read $BUNDLES"
   local hmicar
-  hmicar="$(grep '^HMICar=' "$TMP/bundles.now" | head -n 1 || true)"
-  echo "${hmicar%$'\r'}"
+  if fetch "$BUNDLES" "$TMP/bundles.now"; then
+    hmicar="$(grep '^HMICar=' "$TMP/bundles.now" | head -n 1 || true)"
+    hmicar="${hmicar%$'\r'}"
+    echo "${hmicar:-HMICar=<missing>}"
+  else
+    info "warning: cannot read $BUNDLES"
+  fi
   fetch "$LOG" "$TMP/log" || die "$LOG not found on $HOST (is the SDK running?)"
   grep ' STATUS ' "$TMP/log" || { echo "no STATUS lines in $LOG yet" >&2; return 0; }
 }
