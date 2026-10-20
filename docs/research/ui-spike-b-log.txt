@@ -1,0 +1,52 @@
+9136 INFO spike.ui bank stock models.length=2738 modelIDs.length=1147 -> first free id 602738 (MODEL_BASE=602738)
+9136 INFO spike.ui activator constructed on fw[HMIThreadPool:2]Dispatcher-Startup
+9136 INFO spike.ui factory: SpikeFactory
+13311 INFO spike.ui createScreen id=600044 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+14330 INFO spike.ui getSelectionDrawers terminal=0 count=1 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+14330 INFO spike.ui drawer id=600043 main=de.esolutions.hmi.widgets.audi.evo.widgets.SelectionMenuController
+14330 INFO spike.ui   child 0 de.esolutions.hmi.widgets.audi.evo.widgets.menu.SelectionMenuIdleTimerController
+14330 INFO spike.ui   row 1 label=601352 text='Audi drive select' event=600050 widgetID=0 model=601227 type=2 visible=true
+14330 INFO spike.ui   row 2 label=603599 text='Charge' event=600290 widgetID=7 model=601227 type=2 visible=true
+14330 INFO spike.ui   row 3 label=603727 text='Range & statistics' event=600312 widgetID=8 model=601227 type=2 visible=true
+14330 INFO spike.ui   row 4 label=605882 text='Statistics' event=600312 widgetID=8 model=601227 type=2 visible=true
+14330 INFO spike.ui   row 5 label=601354 text='Vehicle settings' event=600025 widgetID=1 model=601227 type=2 visible=true
+14330 INFO spike.ui   row 6 label=601355 text='Driver assistance' event=600024 widgetID=2 model=601227 type=2 visible=true
+14330 INFO spike.ui   row 7 label=601356 text='Air conditioning' event=600026 widgetID=3 model=601227 type=2 visible=true
+14330 INFO spike.ui   row 8 label=601357 text='Auxiliary heating' event=600023 widgetID=4 model=601227 type=2 visible=true
+14330 INFO spike.ui   row 9 label=603898 text='Auxiliary air conditioning' event=600301 widgetID=4 model=601227 type=2 visible=true
+14330 INFO spike.ui   row 10 label=603899 text='Auxiliary heating / AC' event=600302 widgetID=4 model=601227 type=2 visible=true
+14330 INFO spike.ui   row 11 label=601359 text='Service & checks' event=600027 widgetID=5 model=601227 type=2 visible=true
+14330 INFO spike.ui   row 12 label=602086 text='Owner's manual' event=600148 widgetID=6 model=601227 type=2 visible=true
+14330 INFO spike.ui   row 13 label=605468 text='Sportanzeige' event=0 widgetID=7 model=601227 type=2 visible=false
+14330 INFO spike.ui   viewIDs: 600815 601005 601006 601007 601008 601009 601010 601172 601227 601234 601672 1700231
+14330 INFO spike.ui added 9 rows; views 12 -> 22
+14330 INFO spike.ui bank created model 602738 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+14330 INFO spike.ui bank created model 602739 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+14330 INFO spike.ui bank created model 602740 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+14330 INFO spike.ui bank created model 602741 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+14330 INFO spike.ui bank created model 602742 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+14330 INFO spike.ui bank created model 602743 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+14330 INFO spike.ui bank created model 602744 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+14330 INFO spike.ui bank created model 602745 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+14330 INFO spike.ui bank created model 602746 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+14330 INFO spike.ui bank created model 602747 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+14330 INFO spike.ui bank created model 602748 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+470627 INFO spike.ui cmd S1c row1 visibility := 0
+487630 INFO spike.ui press slot=2 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747 terminal=0 modelValue=-1
+534636 INFO spike.ui press slot=2 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747 terminal=0 modelValue=-1
+557639 INFO spike.ui cmd resetSelection=true
+566641 INFO spike.ui press slot=2 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747 terminal=0 modelValue=-1
+566641 INFO spike.ui press selection model reset to -1
+568641 INFO spike.ui press slot=2 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747 terminal=0 modelValue=-1
+568641 INFO spike.ui press selection model reset to -1
+581660 INFO spike.ui cmd resetSelection=false
+603665 INFO spike.ui press slot=2 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747 terminal=0 modelValue=-1
+605665 INFO spike.ui press slot=2 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747 terminal=0 modelValue=-1
+647671 INFO spike.ui press slot=2 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747 terminal=0 modelValue=-1
+652671 INFO spike.ui press slot=2 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747 terminal=0 modelValue=-1
+682681 INFO spike.ui press slot=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747 terminal=0 modelValue=-1
+682681 INFO spike.ui page-show S2a from current=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO previous=id=10 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+682681 INFO spike.ui page built id=609500 ownBack=true labelRow=true
+682681 INFO spike.ui page-show S2a showScreen done build+show=7ms now=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO
+682681 INFO spike.ui bank created model 602749 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+682681 INFO spike.ui bank created model 602750 on fw[HMIThreadPool:5]Dispatcher-HMIEvent

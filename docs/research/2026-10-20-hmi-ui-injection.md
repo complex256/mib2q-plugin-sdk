@@ -202,3 +202,31 @@ Notes for Tasks 9–10:
   keypanel `rotate` sent after that moves the focus on the underlying Car screen instead. Send
   rotate+select within ~1 s.
 - None of the gates is no-go, so no fallback branch applies. Tasks 9–10 follow the main path.
+
+### Spike A follow-up checks (run during spike B, 2026-10-19)
+
+Pre-spike state: the unit's `bundles_dsitracer_enabled.properties` differed from the SDK's stock backup only by the
+SDK's own three lines (configurator, `MibSdk` autostart, `MibSdk=` bundle); `HMICar=de.audi.tghu.car.hmi.Activator`,
+no spike jar in `lsd/jars`, no `spike.ui` lines in the log. Spike A left the unit clean. A byte copy of that file was
+taken before spike B and the file was `cmp`-identical to it after the uninstall.
+
+| Check | Result | Evidence |
+|-------|--------|----------|
+| S1c timing | **go, ≤ 1 s.** With the drawer open and focus on SDK row 2, the row-1 visibility model was flipped to 0 by a command file (polled every 100 ms). The row appeared between `SDK page (showScreen)` and `SDK re-press test` without any input. The first frame showing it is 0.73 s after the command file existed (frames are a ~5 fps mirror, so ±0.2 s). | `470627 cmd S1c row1 visibility := 0`. Frames `ui-spike-b-s1c-absent.jpg` → `ui-spike-b-s1c-present.jpg` (0.26 s apart) |
+| Drawer idle behaviour | **The drawer does not auto-close when idle.** Opened with no further input it stayed open ≥ 17 s; after one rotate it stayed open ≥ 87 s. It closes **~8.5–9 s after a row press** (open in the frame at +8.4 s, closed at +9.0 s); after that, input reaches the screen underneath (drive select). Spike A's "falls through after a few idle seconds" was this post-press close. | Frames `ui-spike-b-drawer-idle-14s.jpg`, `ui-spike-b-drawer-idle-87s.jpg`, `ui-spike-b-press-drawer-open-8s.jpg`, `ui-spike-b-press-drawer-closed-9s.jpg` |
+| Re-press | **go, no reset needed.** Pressing the same SDK row again while the drawer is still open fires `itemSelected` again: 2 s apart (`603665`, `605665`) and 5 s apart (`647671`, `652671`), with no selection-model reset. The listener sees `modelValue=-1` every time (`ChoiceModelKeyHandler` calls `itemSelected(widgetID)` without setting the value). The reset-to--1 variant also fires twice (`566641`, `568641`) but changes nothing. One earlier pair "missed" only because the second tap came after the post-press close and went to drive select (left on Dynamic). | `ui-spike-b-log.txt` |
+
+Note for Tasks 9–10 and bench driving: after an SDK row press, a second action in the drawer must come within ~8 s;
+otherwise reopen the drawer first.
+
+### Spike B (Plan 2 Task 2): SDK pages — NOT RUN (bench powered off)
+
+Spike B was stopped by the owner before any gate could be decided. One boot ran with the spike installed.
+
+| # | Result | Evidence |
+|---|--------|----------|
+| S2a | **NOT RUN** (one inconclusive attempt). Pressing SDK row 0 posted a `RunnableEvent` that built the page and called `FwHMI.showScreen(0, 0, new ScreenData(609500, …, prebuiltScreen, …))` on HMIEvent (build + show 7 ms). The screen changed to the page's background, status bar and drawer handle, but the menu, list and title did not render, the knob produced no `page-key`/`page-focus` lines, and BACK was handled by the stock SMM (to the home menu) rather than by the page. Likely cause, not yet verified: a prebuilt `Screen` bypasses `AbstractTerminalContext.getScreenFromCache`, which is where `Screen.setTerminal(hmiTerminal)` is called, so the widgets connected without a terminal and `AbstractScreenWidget.connected` swallowed the exception. The rebuilt spike sets the terminal, copies colour scheme/screen mode and logs connect exceptions; it was pushed but never booted. | `682681 page-show S2a from current=id=600044 … previous=id=10`, `page built id=609500 ownBack=true labelRow=true`, `showScreen done build+show=7ms`; models 602749/602750 created on connect. Frame `ui-spike-b-s2a-attempt1-blank.jpg` |
+| S2b | **NOT RUN.** The hijack row (fires Car event 600023, 'Auxiliary heating', hidden on this unit; the factory returns the page from the next Car `createScreen` within 3 s) was never pressed. | — |
+| S2c | **NOT RUN.** Depends on a rendered page. | — |
+
+`HqcUiIds.PAGE_PATH` is not set; the S2a/S2b gate is open.

@@ -25,3 +25,11 @@ spikes/hmi-ui/run.sh uninstall && installer/mibsdk-dev restart
   the drawer open.
 - `run.sh` copies `installer/mibsdk-dev`'s push conventions instead of sourcing that script, because the script
   runs its `main` when sourced. The stock bundles file uses CRLF line endings, and `run.sh` keeps the CR.
+
+## Spike B (Plan 2, Task 2): SDK pages
+
+Same install/uninstall. Drawer row 0 shows `SpikePage` with `FwHMI.showScreen` (S2a), row 1 fires Car event 600023 and
+`SpikeFactory.createScreen` returns the page for the next Car screen (S2b), row 2 only logs (re-press check). The
+probe sequence no longer runs by itself; `SpikeProbes` polls command files `/tmp/mibsdk-spike-ui.<cmd>` every 100 ms:
+`rerun`, `row1-show`, `row1-hide`, `back-reshow`, `back-event`, `back-stock`, `reset-sel-on`, `reset-sel-off`,
+`nolabel-on`, and `hijack` (the file holds an event id).

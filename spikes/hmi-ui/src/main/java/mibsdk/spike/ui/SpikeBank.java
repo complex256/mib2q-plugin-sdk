@@ -55,7 +55,13 @@ final class SpikeBank extends CarModelBank {
         }
         int id = SpikeIds.MODEL_BASE + (i - base);
         HMIModel m;
-        if (id == SpikeIds.LABEL_MODEL) {
+        if (id == SpikeIds.PAGE_LIST_MODEL) {
+            m = SpikePage.createListModel(id);
+        } else if (id == SpikeIds.PAGE_LABEL_MODEL) {
+            LabelModel l = new LabelModel(id);
+            l.setText("Info: LABEL row on LabelModel " + id);
+            m = l;
+        } else if (id == SpikeIds.LABEL_MODEL) {
             LabelModel l = new LabelModel(id);
             l.setText("m-A");
             m = l;
@@ -66,16 +72,26 @@ final class SpikeBank extends CarModelBank {
                 public void itemSelected(int modelId, int value, int unused, int terminal) {
                     try {
                         SpikeLog.log("press slot=" + value + " thread=" + Thread.currentThread().getName()
-                                + " model=" + modelId + " terminal=" + terminal);
+                                + " model=" + modelId + " terminal=" + terminal + " modelValue="
+                                + ((ChoiceModel) getModel(modelId)).getValue());
+                        if (value == 0) {
+                            SpikePage.postShowDirect();
+                        } else if (value == 1) {
+                            SpikePage.hijack();
+                        }
+                        if (SpikeProbes.resetSelection) {
+                            ((ChoiceModel) getModel(modelId)).setValue(-1);
+                            SpikeLog.log("press selection model reset to -1");
+                        }
                     } catch (Throwable t) {
-                        // never into the HMI thread
+                        SpikeLog.log("press handling FAILED: " + t);
                     }
                 }
             });
             m = c;
         } else {
             ChoiceModel c = new ChoiceModel(id);
-            c.setValue(id == SpikeIds.MODEL_BASE ? 0 : 1);   // row 0 visible, 1..8 hidden
+            c.setValue(id == SpikeIds.MODEL_BASE || id == SpikeIds.MODEL_BASE + 2 ? 0 : 1);   // rows 0, 2 visible
             m = c;
         }
         this.models[i] = m;

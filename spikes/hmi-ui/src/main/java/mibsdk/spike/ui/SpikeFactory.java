@@ -3,6 +3,7 @@ package mibsdk.spike.ui;
 import de.audi.atip.base.IFrameworkAccess;
 import de.audi.atip.hmi.view.HMIView;
 import de.audi.atip.hmi.view.IDrawerController;
+import de.audi.atip.hmi.view.Screen;
 import de.audi.tghu.car.hmi.evohigh.CarScreenFactory;
 import de.esolutions.hmi.widgets.audi.base.AbstractWidget;
 import de.esolutions.hmi.widgets.audi.base.widgets.AbstractWidgetController;
@@ -13,20 +14,47 @@ import java.util.List;
 
 /** CarScreenFactory that logs the Car selection drawer (S1a) and appends 9 SDK ACTION rows to it. */
 final class SpikeFactory extends CarScreenFactory {
-    /** Row texts, served for TEXT_BASE + slot. Written by the probe thread, read on HMIEvent. */
+    /** Texts, served for TEXT_BASE + index. Written by the probe thread, read on HMIEvent. */
     static volatile String[] texts = initialTexts();
+    /** The one instance (spike B builds its pages with it). */
+    static volatile SpikeFactory instance;
 
     SpikeFactory(IFrameworkAccess fw) {
         super(fw);
+        instance = this;
+    }
+
+    /** getFramework() is protected; SpikePage needs it for fonts and FwHMI. */
+    IFrameworkAccess framework() {
+        return getFramework();
     }
 
     private static String[] initialTexts() {
-        String[] t = new String[SpikeIds.ROWS];
-        t[0] = "SDK row 0 A [%1]";
-        for (int i = 1; i < t.length; i++) {
+        String[] t = new String[SpikeIds.TEXTS];
+        t[0] = "SDK page (showScreen)";
+        t[1] = "SDK page (hijack)";
+        t[2] = "SDK re-press test";
+        for (int i = 3; i < SpikeIds.ROWS; i++) {
             t[i] = "SDK row " + i;
         }
+        t[SpikeIds.TEXT_PAGE_TITLE - SpikeIds.TEXT_BASE] = "SDK spike page";
+        t[SpikeIds.TEXT_PAGE_INFO - SpikeIds.TEXT_BASE] = "Info (text id)";
         return t;
+    }
+
+    /** S2b: logs every Car screen creation; while a hijack is armed, the next one is the SDK page. */
+    protected Screen createScreen(int id, int terminal) {
+        try {
+            SpikeLog.log("createScreen id=" + id + " terminal=" + terminal + " thread="
+                    + Thread.currentThread().getName());
+            Screen page = SpikePage.hijackScreen(this, id, terminal);
+            if (page != null) {
+                return page;
+            }
+        } catch (Throwable t) {
+            SpikeLog.log("createScreen spike part FAILED: " + t);
+        }
+        return super.createScreen(id, terminal);
     }
 
     public IDrawerController[] getSelectionDrawers(int terminal) {
@@ -148,7 +176,7 @@ final class SpikeFactory extends CarScreenFactory {
 
     public String getText(int id) {
         int slot = id - SpikeIds.TEXT_BASE;
-        if (slot >= 0 && slot < SpikeIds.ROWS) {
+        if (slot >= 0 && slot < SpikeIds.TEXTS) {
             String[] t = texts;
             return t[slot] == null ? "" : t[slot];
         }
@@ -157,7 +185,7 @@ final class SpikeFactory extends CarScreenFactory {
 
     public String getAltText(int id) {
         int slot = id - SpikeIds.TEXT_BASE;
-        if (slot >= 0 && slot < SpikeIds.ROWS) {
+        if (slot >= 0 && slot < SpikeIds.TEXTS) {
             return getText(id);
         }
         return super.getAltText(id);
