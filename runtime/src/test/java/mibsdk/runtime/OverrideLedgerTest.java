@@ -1675,6 +1675,83 @@ class OverrideLedgerTest {
         assertTrue(fileAtApply.get(0).endsWith("|A\n"), fileAtApply.get(0));
     }
 
+    /**
+     * Final review C1: the override is released while its own NEW write is in flight, and the car reports the
+     * prior (OLD) before NEW lands. That report predates the write: it must not confirm the restore. The restore
+     * is written after NEW and the entry stays until the car reports OLD after it.
+     */
+    @Test
+    void reportOfThePriorDuringTheOverrideWriteDoesNotConfirmTheRestore() throws Exception {
+        RingLog log = new RingLog(100);
+        final OverrideLedger l = ledger(log);
+        final List<String> calls = Collections.synchronizedList(new ArrayList<String>());
+        final java.util.concurrent.CountDownLatch landed = new java.util.concurrent.CountDownLatch(1);
+        OverrideLedger.Applier a = new OverrideLedger.Applier() {
+            public void apply(String key, String value) throws Exception {
+                calls.add(value);
+                if (value.equals("NEW")) {
+                    landed.await(); // the NEW write is in flight; its report is lost
+                }
+            }
+        };
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.UNTIL_IGNITION_OFF, "OLD", "NEW", a);
+        awaitFirst(calls, "NEW");
+        ov.release();
+        l.onObserved("k", "OLD"); // the car's value before NEW landed
+        landed.countDown();
+
+        awaitFirst(calls, "OLD");
+        assertEquals(Arrays.asList("NEW", "OLD"), calls);
+        assertFalse(l.awaitSettled(300), "the restore awaits a report after its write");
+        assertEquals(1, l.active().size());
+        assertTrue(l.active().get(0).restorePending());
+        assertFalse(logContains(log, "restored k=OLD (reported by the car)"), log.snapshot().toString());
+
+        l.onObserved("k", "OLD");
+        awaitActiveSize(l, 0);
+        awaitLedgerEmpty();
+    }
+
+    /**
+     * Final review C1, end to end: the mute is in flight when the ignition goes off and the PDC ECU reports its
+     * old value before the mute lands. The old value must be written back and the override kept until the car
+     * reports it after that write.
+     */
+    @Test
+    void staleReportWhileTheMuteIsInFlightAtIgnitionOffStillRestores() throws Exception {
+        togglePlugin("muter", null); // UNTIL_IGNITION_OFF, rear=false
+        final java.util.concurrent.CountDownLatch inFlight = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch landed = new java.util.concurrent.CountDownLatch(1);
+        PlatformAdapter blocking = new DelegatingAdapter(fake) {
+            @Override
+            void beforeApply(SoundDirections v) throws Exception {
+                if (v.equals(F1R0L0X0)) {
+                    inFlight.countDown();
+                    landed.await();
+                }
+            }
+        };
+        start(null, blocking);
+        fake.ecuSetSoundDirections(F1R1L0X0);
+        fake.ecuReportWrites(false); // the ECU's reports of the SDK's writes are lost
+        fake.setIgnition(true);
+        assertTrue(inFlight.await(5, java.util.concurrent.TimeUnit.SECONDS));
+
+        fake.setIgnition(false);
+        fake.ecuSetSoundDirections(F1R1L0X0); // stale: the ECU reports its value before the mute lands
+        landed.countDown();
+
+        awaitApplied(2, F1R1L0X0);
+        assertEquals(F1R1L0X0, fake.ecuSoundDirections());
+        assertFalse(rt.ledger().awaitSettled(300));
+        assertEquals(1, rt.activeOverrides().size());
+        assertTrue(rt.activeOverrides().get(0).restorePending());
+
+        fake.ecuSetSoundDirections(F1R1L0X0); // the car reports the old value after the restore write
+        awaitNoOverrides();
+        awaitLedgerEmpty();
+    }
+
     // ---- fixtures ----
 
     /** Delegates to a {@link FakePlatform}, with a hook before every ParkingIo.apply. */

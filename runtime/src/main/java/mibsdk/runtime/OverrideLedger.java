@@ -117,7 +117,7 @@ public final class OverrideLedger {
         boolean retryNow; // a changed report asked for an immediate restore write
         // restore confirmation
         int observations; // reports of the key while the entry exists
-        int restoringSince; // observations when the entry became restoring
+        int restoringSince; // observations when the entry became restoring, or when its override write returned after
         String lastReport; // the car's last report of the key, of any age (survives state changes)
         int applyMark; // observations when the override value was last written (or acquired): later reports postdate it
         boolean wrote; // a restore write returned since the entry became restoring
@@ -816,6 +816,10 @@ public final class OverrideLedger {
         synchronized (lock) {
             if (find(e.key) == e) {
                 e.applyMark = e.observations;
+                if (e.restoring) {
+                    // released mid-write: a report of the prior from before now may predate the override
+                    e.restoringSince = e.observations;
+                }
             }
         }
     }
