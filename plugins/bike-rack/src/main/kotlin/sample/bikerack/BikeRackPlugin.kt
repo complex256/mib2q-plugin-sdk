@@ -1,14 +1,20 @@
 package sample.bikerack
 
+import mibsdk.api.Features
 import mibsdk.api.IgnitionChanged
 import mibsdk.api.MibPlugin
 import mibsdk.api.OverrideConflictException
 import mibsdk.api.OverrideScope
+import mibsdk.api.Page
+import mibsdk.api.PageSpec
 import mibsdk.api.ParkingSoundChanged
+import mibsdk.api.Permissions
 import mibsdk.api.PluginContext
 import mibsdk.api.SoundDirections
+import mibsdk.api.StatusItem
 import mibsdk.api.Storage
 import mibsdk.api.Subscription
+import mibsdk.api.UiAction
 import mibsdk.api.VehicleOverride
 
 /**
@@ -24,6 +30,10 @@ import mibsdk.api.VehicleOverride
  *
  * Residual: the disarm reaches disk within the storage debounce (2 s). A power cut inside that window re-mutes
  * on the next boot, where the runtime's override indicator shows it.
+ *
+ * UI: page `rack` (Plugins menu, plus a Car row) with the toggle, and a `RACK` status item while the mute is held.
+ * Toggle presses are debounced [TOGGLE_DEBOUNCE_MS]; the last requested state wins. On takes the re-arm path, off the
+ * ignition-off disarm path but opens no re-arm window. A pending press is dropped at ignition off.
  */
 class BikeRackPlugin : MibPlugin() {
 
@@ -32,17 +42,83 @@ class BikeRackPlugin : MibPlugin() {
     @Volatile private var held: VehicleOverride? = null
     @Volatile private var window: Subscription? = null
     @Volatile private var windowToken: Any? = null
+    @Volatile private var page: Page? = null
+    @Volatile private var statusItem: StatusItem? = null
+    @Volatile private var pendingToggle: Subscription? = null
+    @Volatile private var requestedOn = false
 
     override fun onEnable(ctx: PluginContext) {
         val storage = ctx.storage()
         armed = storage.get(ACTIVE, "false") == "true"
+        val rack = ctx.ui().page(spec()) { a -> onAction(ctx, storage, a) }
+        page = rack
+        // carMenuRow/statusItem throw without the feature or the grant; the page works without either
+        if (ctx.has(Features.SLOT_CAR_MENU) && ctx.granted(Permissions.UI_SLOT_CAR_MENU)) {
+            ctx.ui().carMenuRow("Bike rack", rack)
+        }
+        if (ctx.has(Features.SLOT_STATUS_BAR) && ctx.granted(Permissions.UI_SLOT_STATUS_BAR)) {
+            statusItem = ctx.ui().statusItem(statusText())
+        }
         ctx.events().on(IgnitionChanged::class.java) { e ->
             if (!e.isOn) ignitionOff(ctx, storage) else ignitionOn(ctx, storage)
+            refresh()
         }
         if (armed) muteWhenKnown(ctx)
+        refresh()
+    }
+
+    private fun onAction(ctx: PluginContext, storage: Storage, a: UiAction) {
+        val on = a.requestedOn() ?: return
+        if (a.itemId() != ACTIVE) return
+        ctx.log().info("toggle requested: ${if (on) "on" else "off"}")
+        requestedOn = on
+        pendingToggle?.cancel()
+        pendingToggle = ctx.scheduler().after(TOGGLE_DEBOUNCE_MS) {
+            pendingToggle = null
+            if (requestedOn) arm(ctx, storage) else disarm(ctx, storage)
+            refresh()
+        }
+    }
+
+    /** The re-arm path, from the page. */
+    private fun arm(ctx: PluginContext, storage: Storage) {
+        closeWindow()
+        if (armed) return
+        try {
+            storage.put(ACTIVE, "true")
+        } catch (e: Exception) {
+            ctx.log().warn("could not arm: ${e.message}; staying disarmed")
+            return
+        }
+        armed = true
+        muteWhenKnown(ctx)
+    }
+
+    /** The ignition-off disarm path, from the page: no re-arm window. */
+    private fun disarm(ctx: PluginContext, storage: Storage) {
+        armed = false
+        waiting?.cancel()
+        waiting = null
+        held?.release()
+        held = null
+        closeWindow()
+        try {
+            storage.remove(ACTIVE)
+        } catch (e: Exception) {
+            ctx.log().warn("could not save the disarm: ${e.message}; the rack stays disarmed for this run")
+        }
+    }
+
+    private fun closeWindow() {
+        windowToken = null
+        window?.cancel()
+        window = null
     }
 
     private fun ignitionOff(ctx: PluginContext, storage: Storage) {
+        // a press still in its debounce was made before the drive ended: drop it
+        pendingToggle?.cancel()
+        pendingToggle = null
         if (!armed) return
         armed = false
         waiting?.cancel()
@@ -95,6 +171,7 @@ class BikeRackPlugin : MibPlugin() {
                 waiting?.cancel()
                 waiting = null
                 if (armed) mute(ctx, e.value())
+                refresh()
             }
         }
     }
@@ -108,8 +185,30 @@ class BikeRackPlugin : MibPlugin() {
         }
     }
 
+    private fun spec(): PageSpec {
+        val tones = when {
+            held?.isActive == true -> "muted"
+            waiting != null -> "waiting for parking system"
+            else -> "normal"
+        }
+        return PageSpec.of(PAGE_ID, "Bike rack")
+            .toggle(ACTIVE, "Rack fitted (rear PDC tones off)", armed)
+            .info("Rear tones: $tones")
+            .info("Turns off at ignition off")
+    }
+
+    private fun statusText() = if (held?.isActive == true) "RACK" else null
+
+    /** Every state change ends here. */
+    private fun refresh() {
+        page?.update(spec())
+        statusItem?.set(statusText())
+    }
+
     private companion object {
         const val ACTIVE = "active"
         const val REARM_WINDOW_MS = 5000L
+        const val TOGGLE_DEBOUNCE_MS = 500L
+        const val PAGE_ID = "rack"
     }
 }
