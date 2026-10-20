@@ -460,25 +460,9 @@ public final class SdkRuntime {
 
     /** Disables every plugin (most recently enabled first), stops the adapter. Blocks until done; idempotent. */
     public void stop() {
-        SerialExecutor c;
-        Subscription[] subs;
-        DevChannel d;
-        synchronized (this) {
-            if (!started || stopped) {
-                return;
-            }
-            stopped = true; // from here no plugin is enabled any more (see loadPlugins/enableUnguarded)
-            c = control;
-            subs = (Subscription[]) timers.toArray(new Subscription[timers.size()]);
-            timers.clear();
-            d = dev;
-            dev = null;
-        }
-        for (int i = 0; i < subs.length; i++) {
-            subs[i].cancel();
-        }
-        if (d != null) {
-            d.stop();
+        SerialExecutor c = beginStop();
+        if (c == null) {
+            return;
         }
         runOnControl(c, "stop", new Runnable() {
             public void run() {
@@ -513,12 +497,27 @@ public final class SdkRuntime {
      * drained, the adapter is not stopped and no file is written.
      */
     void haltForTest() {
+        SerialExecutor c = beginStop();
+        if (c == null) {
+            return;
+        }
+        ledger.halt();
+        dispatcher.stop();
+        c.shutdown();
+    }
+
+    /**
+     * First step of stop() and haltForTest(): marks the runtime stopped (from here no plugin is enabled any
+     * more, see loadPlugins/enableUnguarded), cancels the timers and stops the dev channel. Returns the
+     * control executor, or null if the runtime was not started or is already stopped.
+     */
+    private SerialExecutor beginStop() {
         SerialExecutor c;
         Subscription[] subs;
         DevChannel d;
         synchronized (this) {
             if (!started || stopped) {
-                return;
+                return null;
             }
             stopped = true;
             c = control;
@@ -527,15 +526,13 @@ public final class SdkRuntime {
             d = dev;
             dev = null;
         }
-        ledger.halt();
         for (int i = 0; i < subs.length; i++) {
             subs[i].cancel();
         }
         if (d != null) {
             d.stop();
         }
-        dispatcher.stop();
-        c.shutdown();
+        return c;
     }
 
     /** Best effort: the log file holds the last lines even after the dev channel stopped. */
@@ -1093,7 +1090,9 @@ public final class SdkRuntime {
     private void feedLedger(Object event) {
         try {
             if (event instanceof IgnitionChanged) {
-                ledger.ignitionChanged(((IgnitionChanged) event).isOn()); // off restores; on retries pending restores
+                // off restores UNTIL_IGNITION_OFF overrides; on restores those acquired while the ignition was off,
+                // then retries pending restores
+                ledger.ignitionChanged(((IgnitionChanged) event).isOn());
             } else if (event instanceof ParkingSoundChanged && ((ParkingSoundChanged) event).value() != null) {
                 ledger.onObserved(ParkingImpl.KEY, ParkingImpl.encode(((ParkingSoundChanged) event).value()));
             }

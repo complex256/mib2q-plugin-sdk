@@ -616,12 +616,14 @@ public final class OverrideLedger {
      */
     void halt() {
         SerialExecutor w;
-        synchronized (lock) {
-            halted = true;
-            shutdown = true;
-            w = worker;
-            worker = null;
-            timer = null;
+        synchronized (fileLock) { // waits out a write in progress; every later one sees halted
+            synchronized (lock) {
+                halted = true;
+                shutdown = true;
+                w = worker;
+                worker = null;
+                timer = null;
+            }
         }
         if (w != null) {
             w.shutdown();
@@ -1146,7 +1148,7 @@ public final class OverrideLedger {
         StringBuffer b = new StringBuffer();
         synchronized (lock) {
             if (halted) {
-                return false; // the power is gone
+                return false; // the power is gone (halt sets this holding fileLock, which the caller holds)
             }
             List sorted = sortedEntries();
             for (int i = 0; i < sorted.size(); i++) {

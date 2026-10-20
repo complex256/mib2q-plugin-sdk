@@ -1511,6 +1511,77 @@ class OverrideLedgerTest {
         assertEquals(2, a.calls.size(), a.calls.toString());
     }
 
+    /** Fix round 1: a task already on the ledger thread when the power goes cannot write the file afterwards. */
+    @Test
+    void haltStopsTheWriteOfARestoreFinishingOnTheLedgerThread() throws Exception {
+        final OverrideLedger l = ledger(new RingLog(50));
+        final java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch gate = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch returned = new java.util.concurrent.CountDownLatch(1);
+        OverrideLedger.Applier a = new OverrideLedger.Applier() {
+            public void apply(String key, String value) throws Exception {
+                if (value.equals("OLD")) {
+                    entered.countDown();
+                    while (gate.getCount() > 0) { // the platform call ignores the halt's interrupt
+                        try {
+                            gate.await();
+                        } catch (InterruptedException ignored) {
+                            // keep blocking until the test releases it
+                        }
+                    }
+                    returned.countDown();
+                }
+            }
+        };
+        VehicleOverride ov = l.acquire("k", "p", OverrideScope.PERSISTENT, "OLD", "NEW", a);
+        assertTrue(l.awaitSettled(5000)); // NEW applied: the R write is queued ahead of the restore below
+        ov.release();
+        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        awaitLedgerText("k=p|PERSISTENT|OLD|NEW|R\n");
+
+        l.onObserved("k", "OLD"); // overtakes the blocked restore write: it completes when apply() returns
+        l.halt();
+        gate.countDown();
+        assertTrue(returned.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        awaitActiveSize(l, 0); // the restore finished in memory and tried to rewrite the file
+        Thread.sleep(100);
+        assertEquals("k=p|PERSISTENT|OLD|NEW|R\n", text(ledgerFile()), "no write after the halt");
+    }
+
+    /** Fix round 1: a plugin that re-acquires on IgnitionChanged(true) keeps its new override in force. */
+    @Test
+    void reacquireOnIgnitionOnAfterTheRestoreOfAnOverrideAcquiredWhileOffStays() throws Exception {
+        plugin("shift", READ_WRITE, READ_WRITE,
+                "ctx.events().on(IgnitionChanged.class, e -> {\n"
+                + "  try {\n"
+                + "    ov = ctx.vehicle().parking().overrideSoundDirections(e.isOn()\n"
+                + "        ? new SoundDirections(true, true, false, false) : new SoundDirections(true, false, true, true),\n"
+                + "        OverrideScope.UNTIL_IGNITION_OFF);\n"
+                + "    ctx.log().info(\"acquired on=\" + e.isOn());\n"
+                + "  } catch (OverrideConflictException x) { ctx.log().info(\"conflict \" + x.getMessage()); }\n"
+                + "});",
+                "VehicleOverride ov;");
+        start(null);
+        fake.ecuSetSoundDirections(F1R1L1X1);
+        fake.setIgnition(false);
+        awaitApplied(1, F1R0L1X1); // acquired while off
+
+        fake.setIgnition(true); // the ledger restores the off-override first, then the plugin re-acquires
+        awaitLog(rt.log(), "acquired on=true");
+        for (int i = 0; i < 500 && !F1R1L0X0.equals(fake.ecuSoundDirections()); i++) {
+            Thread.sleep(10);
+        }
+        assertTrue(rt.ledger().awaitSettled(5000), rt.activeOverrides().toString());
+        assertEquals(F1R1L0X0, fake.ecuSoundDirections());
+        assertEquals(1, rt.activeOverrides().size());
+        assertFalse(rt.activeOverrides().get(0).restorePending());
+        assertEquals("shift", rt.activeOverrides().get(0).pluginId());
+        assertTrue(text(ledgerFile()).startsWith(KEY + "=shift|UNTIL_IGNITION_OFF|"), text(ledgerFile()));
+        assertTrue(text(ledgerFile()).endsWith("|A\n"), text(ledgerFile()));
+        assertTrue(logContains(rt.log(), "restoring " + KEY + ": acquired while the ignition was off; ignition on"),
+                rt.log().snapshot().toString());
+    }
+
     @Test
     void overrideAppliedAsIgnitionDropsIsRestoredAfterPowerLoss() throws Exception {
         togglePlugin("muter", null); // UNTIL_IGNITION_OFF, rear=false
