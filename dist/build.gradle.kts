@@ -89,5 +89,15 @@ tasks.register("assembleUnit") {
     dependsOn(runtimeJar, adapterJar, retrotranslatorJar, distLinkCheck, unitStamp)
 }
 
+// The stamp must describe the jars on disk. Any task that rewrites a unit jar (assembleUnit, but also check via
+// distLinkCheck, or a jar task run alone) first deletes the stamp and is finalized by unitStamp, which writes it again
+// only if the dist checks pass: build/dist holds a matching stamp or none, never a stale one.
+listOf(runtimeJar, adapterJar, retrotranslatorJar).forEach {
+    it.configure {
+        doFirst { distDir.get().file("mibsdk-unit.stamp").asFile.delete() }
+        finalizedBy(unitStamp)
+    }
+}
+
 tasks.named("assemble") { dependsOn("assembleUnit") }
-tasks.named("check") { dependsOn(distLinkCheck) }
+tasks.named("check") { dependsOn(distLinkCheck, unitStamp) }
