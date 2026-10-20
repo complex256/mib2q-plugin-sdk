@@ -603,5 +603,84 @@ class PushTest(FakeUnitTestCase):
         self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins/hello.jar")))
 
 
+class RemoveTest(FakeUnitTestCase):
+    def setUp(self):
+        super(RemoveTest, self).setUp()
+        self.u = self.unit(tracer_marker=False)
+        self.u.env["MIBSDK_REMOVE_WAIT_S"] = "0"
+        self.ok(self.u.run("install"))
+
+    def jar(self, plugin_id):
+        path = os.path.join(self.tmp, plugin_id + ".jar")
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("plugin.json", '{"id": "%s"}' % plugin_id)
+        stamp(path + ".stamp", "plugin", [path], {"plugin.id": plugin_id, "plugin.unrestricted": "false"})
+        return path
+
+    def installed(self, plugin_id):
+        self.ok(self.u.run("push", self.jar(plugin_id)))
+        self.ok(self.u.run("grant", plugin_id, "vehicle.read"))
+
+    def grants(self):
+        return read(os.path.join(self.u.sdk, "grants.properties")).decode("utf-8")
+
+    def ledger(self, text):
+        write(os.path.join(self.u.persist, "ledger.properties"), text.encode("utf-8"))
+
+    def test_removes_the_jar_and_grant_and_requests_a_reload(self):
+        self.installed("hello")
+        marker = os.path.join(self.u.sdk, "plugins/hello.reload")
+        before = read(marker)
+        r = self.ok(self.u.run("remove", "hello"))
+        self.assertFalse(os.path.exists(os.path.join(self.u.sdk, "plugins/hello.jar")))
+        self.assertNotIn("hello=", self.grants())
+        self.assertNotEqual(before, read(marker))
+        self.assertTrue(read(marker).strip())
+        self.assertTrue(os.path.exists(os.path.join(self.u.unit, "app.ro")))
+        self.assertIn("removed hello", r.stdout.decode("utf-8"))
+        self.assertIn("hello has no overrides in the ledger", r.stdout.decode("utf-8"))
+
+    def test_leaves_a_plugin_with_a_longer_id_alone(self):
+        self.installed("bike")
+        self.installed("bike-rack")
+        write(os.path.join(self.u.persist, "data/bike-rack.properties"), b"x=1\n")
+        self.ledger("a.key=bike|PERSISTENT|F1|F0|R\nb.key=bike-rack|PERSISTENT|F1|F0|A\n")
+        r = self.ok(self.u.run("remove", "bike"))
+        self.assertTrue(os.path.exists(os.path.join(self.u.sdk, "plugins/bike-rack.jar")))
+        self.assertIn("bike-rack=vehicle.read", self.grants())
+        self.assertNotIn("bike=vehicle", self.grants().replace("bike-rack=", ""))
+        self.assertTrue(os.path.exists(os.path.join(self.u.persist, "data/bike-rack.properties")))
+        self.assertIn(b"b.key=bike-rack|", read(os.path.join(self.u.persist, "ledger.properties")))
+        err = r.stderr.decode("utf-8")
+        self.assertIn("a.key=bike|PERSISTENT|F1|F0|R", err)
+        self.assertNotIn("b.key", err)
+
+    def test_keeps_data_unless_purge_data(self):
+        self.installed("hello")
+        self.installed("other")
+        for i in ("hello", "other"):
+            write(os.path.join(self.u.persist, "data/%s.properties" % i), b"x=1\n")
+        self.ok(self.u.run("remove", "hello"))
+        self.assertTrue(os.path.exists(os.path.join(self.u.persist, "data/hello.properties")))
+        r = self.ok(self.u.run("remove", "other", "--purge-data"))
+        self.assertFalse(os.path.exists(os.path.join(self.u.persist, "data/other.properties")))
+        self.assertTrue(os.path.exists(os.path.join(self.u.persist, "data/hello.properties")))
+        self.assertIn("cleared the data of other", r.stdout.decode("utf-8"))
+
+    def test_reports_overrides_still_in_the_ledger(self):
+        self.installed("hello")
+        line = "parking.soundDirections=hello|PERSISTENT|F1R1L1X1|F1R0L1X1|R"
+        self.ledger(line + "\n")
+        r = self.ok(self.u.run("remove", "hello"))
+        err = r.stderr.decode("utf-8")
+        self.assertIn("not restored yet", err)
+        self.assertIn(line, err)
+
+    def test_refuses_an_unknown_plugin(self):
+        r = self.u.run("remove", "ghost")
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn(b"is not installed", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -54,6 +54,9 @@ usage: mibsdk-dev <command> [args] [host]      (host defaults to $DEFAULT_HOST)
   data-clear <id>            remove that plugin's data ($PERSIST/data/<id>.properties); the ledger, boot state
                              and other plugins' data are untouched. The storage cap counts files on disk from the
                              runtime's start, so restart afterwards (mibsdk-dev restart) to free the space
+  remove <id> [--purge-data] remove plugins/<id>.jar and its grants line, request a reload, then wait up to
+                             $MIBSDK_REMOVE_WAIT_S s (default 30) for the ledger to drop its overrides; keeps the
+                             plugin's data unless --purge-data
   safe-mode on|off           create/remove the SAFE_MODE marker (off also resets $PERSIST/boot.state: the unhealthy-boot count
                              and the wrap-boot count that turns DSI service wrapping off after a crash loop)
   log                        print $LOG
@@ -547,6 +550,28 @@ PY
   echo "pushed $id; reload requested"
 }
 
+# GRANTS_PY src dst <id> set <perms> | drop: rewrite grants.properties text. set replaces the plugin's line (or adds
+# it); drop removes it. Only the key exactly equal to <id> matches. Prints "dropped" when a line was removed.
+GRANTS_PY='
+import sys
+src, dst, pid, mode = sys.argv[1:5]
+perms = sys.argv[5] if len(sys.argv) > 5 else ""
+out, done = [], False
+for line in open(src, "rb").read().decode("utf-8").splitlines():
+    key = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else None
+    if key == pid:
+        if mode == "set" and not done:
+            out.append("%s=%s" % (pid, perms))
+            done = True
+        elif mode == "drop":
+            print("dropped")
+        continue
+    out.append(line)
+if mode == "set" and not done:
+    out.append("%s=%s" % (pid, perms))
+open(dst, "wb").write(("\n".join(out) + ("\n" if out else "")).encode("utf-8"))
+'
+
 cmd_grant() {
   [ $# -ge 2 ] || die "usage: mibsdk-dev grant <id> <perm,...> [host]"
   local id="$1" perms="$2"
@@ -558,27 +583,72 @@ cmd_grant() {
   if is_present "$SDK/grants.properties"; then
     fetch "$SDK/grants.properties" "$TMP/grants.in" || die "cannot read grants.properties"
   fi
-  python3 -I - "$TMP/grants.in" "$TMP/grants.out" "$id" "$perms" <<'PY'
-import sys
-src, dst, pid, perms = sys.argv[1:5]
-out, done = [], False
-for line in open(src, "rb").read().decode("utf-8").splitlines():
-    key = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else None
-    if key == pid:
-        if not done:
-            out.append("%s=%s" % (pid, perms))
-            done = True
-        continue
-    out.append(line)
-if not done:
-    out.append("%s=%s" % (pid, perms))
-open(dst, "wb").write(("\n".join(out) + "\n").encode("utf-8"))
-PY
+  python3 -I - "$TMP/grants.in" "$TMP/grants.out" "$id" set "$perms" <<<"$GRANTS_PY" >/dev/null || die "cannot rewrite grants"
   rw_begin
   sweep_push_tmp
   push_file "$TMP/grants.out" "$SDK/grants.properties"
   rw_end
   echo "granted $id: ${perms:-<none>} (picked up on the next plugin load/reload)"
+}
+
+# cmd_remove <id> [--purge-data]: take a plugin off the unit (jar, grants line, reload token), wait for the running
+# SDK to restore its overrides, optionally clear its data.
+cmd_remove() {
+  local id="" purge=0 a
+  for a in "$@"; do
+    case "$a" in --purge-data) purge=1 ;; *) id="$a" ;; esac
+  done
+  [ -n "$id" ] || die "usage: mibsdk-dev remove <id> [--purge-data] [host]"
+  check_id "$id"
+  command -v python3 >/dev/null || die "python3 is required on this machine"
+  connect
+  need_sdk
+  local jar="$SDK/plugins/$id.jar" data="$PERSIST/data/$id.properties" has_jar=0 has_data=0 dropped
+  : >"$TMP/grants.in"
+  if is_present "$SDK/grants.properties"; then
+    fetch "$SDK/grants.properties" "$TMP/grants.in" || die "cannot read grants.properties"
+  fi
+  dropped="$(python3 -I - "$TMP/grants.in" "$TMP/grants.out" "$id" drop <<<"$GRANTS_PY")" || die "cannot rewrite grants"
+  if is_present "$jar"; then has_jar=1; fi
+  if is_present "$data"; then has_data=1; fi
+  [ "$has_jar" = 1 ] || [ "$has_data" = 1 ] || [ -n "$dropped" ] || die "$id is not installed on $HOST"
+  printf '%s-%s-%s\n' "$(date +%s)" "$$" "$RANDOM" >"$TMP/reload"
+  rw_begin
+  sweep_push_tmp
+  rsh "rm -f '$jar'" || die "cannot remove $jar"
+  if is_present "$jar"; then die "$jar is still there after removal"; fi
+  push_file "$TMP/grants.out" "$SDK/grants.properties"
+  push_file "$TMP/reload" "$SDK/plugins/$id.reload"
+  rw_end
+  echo "removed $id: plugins/$id.jar and its grants line; reload requested"
+
+  local wait="${MIBSDK_REMOVE_WAIT_S:-30}" left first=1
+  case "$wait" in ''|*[!0-9]*) wait=30 ;; esac
+  SECONDS=0
+  while :; do
+    : >"$TMP/ledger"
+    if is_present "$LEDGER"; then fetch "$LEDGER" "$TMP/ledger" || die "cannot read $LEDGER"; fi
+    left="$(grep -F -- "=$id|" "$TMP/ledger" || true)"
+    if [ -z "$left" ]; then
+      if [ "$first" = 1 ]; then echo "$id has no overrides in the ledger"; else echo "overrides of $id restored"; fi
+      break
+    fi
+    first=0
+    if [ "$SECONDS" -ge "$wait" ]; then
+      echo "WARNING: these overrides of $id are not restored yet:" >&2
+      echo "$left" >&2
+      echo "they are restored when the SDK next starts (the plugin is no longer installed); check with: mibsdk-dev log" >&2
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$purge" = 1 ]; then
+    rsh "rm -f '$data' '$data.tmp'" || die "cannot remove $data"
+    echo "cleared the data of $id ($data)"
+    echo "Restart the HMI now (mibsdk-dev restart): a running $id may write its data back, and the storage cap"
+    echo "frees the space only from the next runtime start."
+  fi
 }
 
 cmd_safe_mode() {
@@ -650,10 +720,19 @@ main() {
     install|restart|log|status) want=0 ;;
     uninstall) want=-1 ;;
     push|safe-mode|data-clear) want=1 ;;
+    remove) want=1 ;;
     grant) want=2 ;;
     *) usage >&2; die "unknown command '$cmd'" ;;
   esac
   local args=("$@") n=${#args[@]} host_given=0
+  if [ "$cmd" = remove ]; then
+    local a rest=() purge_flag=()
+    for a in "${args[@]+"${args[@]}"}"; do
+      case "$a" in --purge-data) purge_flag=(--purge-data) ;; *) rest+=("$a") ;; esac
+    done
+    args=("${rest[@]+"${rest[@]}"}")
+    n=${#args[@]}
+  fi
   if [ "$cmd" = uninstall ]; then
     local a rest=()
     for a in "${args[@]+"${args[@]}"}"; do
@@ -668,6 +747,7 @@ main() {
   case "$cmd" in
     install) cmd_install ;;
     uninstall) cmd_uninstall "${args[@]+"${args[@]}"}" ;;
+    remove) cmd_remove "${args[@]+"${args[@]}"}" "${purge_flag[@]+"${purge_flag[@]}"}" ;;
     restart) cmd_restart ;;
     push) cmd_push "${args[@]+"${args[@]}"}" ;;
     grant) cmd_grant "${args[@]+"${args[@]}"}" ;;
