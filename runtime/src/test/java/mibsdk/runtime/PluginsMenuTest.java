@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import mibsdk.api.OverrideScope;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiInput;
@@ -51,6 +52,11 @@ class PluginsMenuTest {
             out.close();
         }
         return Grants.load(f);
+    }
+
+    private static List<UiPage> pages(List<PluginStatus> st, Map<String, PluginManifest> m,
+            Map<String, List<String>> keys, SdkState s, Grants g) {
+        return PluginsMenu.pages(st, m, keys, null, Collections.<String>emptySet(), s, g);
     }
 
     private static UiPage page(List<UiPage> pages, String key) {
@@ -92,7 +98,7 @@ class PluginsMenuTest {
         for (String id : new String[] {"a", "b", "c", "d", "e"}) {
             m.put(id, manifest(id, "Name " + id.toUpperCase()));
         }
-        List<UiPage> pages = PluginsMenu.pages(st, m, null, NORMAL, grants(""));
+        List<UiPage> pages = pages(st, m, null, NORMAL, grants(""));
 
         UiPage root = pages.get(0);
         assertEquals("mibsdk/plugins", root.key());
@@ -119,7 +125,7 @@ class PluginsMenuTest {
         assertEquals("v1.2 by Ann", a.entries().get(0).label());
         assertTrue(entry(a, "enabled").on());
         UiPage c = page(pages, "mibsdk/plugin.c");
-        assertFalse(entry(c, "enabled").on(), "a failed plugin can be switched on again");
+        assertTrue(entry(c, "enabled").on(), "the toggle shows the user's choice (on), not the state");
         assertTrue(labels(c, UiEntry.INFO).contains("Stopped: boom"));
         assertTrue(labels(page(pages, "mibsdk/plugin.d"), UiEntry.INFO).contains("Stopped: hung in onEnable"));
         assertEquals("f", page(pages, "mibsdk/plugin.f").title(), "no manifest: the id is the name");
@@ -130,7 +136,7 @@ class PluginsMenuTest {
         List<PluginStatus> st = Collections.singletonList(
                 status("e", PluginState.BLOCKED_PERMISSIONS, "missing permissions: vehicle.read"));
         Map<String, PluginManifest> m = Collections.singletonMap("e", manifest("e", "Eve", "vehicle.read"));
-        UiPage e = page(PluginsMenu.pages(st, m, null, NORMAL, grants("")), "mibsdk/plugin.e");
+        UiPage e = page(pages(st, m, null, NORMAL, grants("")), "mibsdk/plugin.e");
         assertTrue(labels(e, UiEntry.TOGGLE).isEmpty());
         assertTrue(labels(e, UiEntry.INFO).contains("Blocked: missing permissions: vehicle.read"));
         assertTrue(labels(e, UiEntry.INFO).contains("Permissions: none"));
@@ -141,7 +147,7 @@ class PluginsMenuTest {
         List<PluginStatus> st = Collections.singletonList(status("a", PluginState.ENABLED, "enabled"));
         Map<String, PluginManifest> m = Collections.singletonMap("a",
                 manifest("a", "A", "vehicle.read", "vehicle.parking.write", "ui.slot.carmenu"));
-        UiPage a = page(PluginsMenu.pages(st, m, null, NORMAL, grants("a=ui.slot.carmenu,vehicle.read,net\n")),
+        UiPage a = page(pages(st, m, null, NORMAL, grants("a=ui.slot.carmenu,vehicle.read,net\n")),
                 "mibsdk/plugin.a");
         assertTrue(labels(a, UiEntry.INFO).contains("Permissions: vehicle.read, ui.slot.carmenu"));
     }
@@ -152,7 +158,7 @@ class PluginsMenuTest {
                 Arrays.asList(new ActiveOverride("parking.soundDirections", "pdc", OverrideScope.PERSISTENT,
                         "F1R0L1X1", true)));
         List<PluginStatus> st = Collections.singletonList(status("a", PluginState.DISABLED, "x"));
-        List<UiPage> pages = PluginsMenu.pages(st, null, null, safe, grants(""));
+        List<UiPage> pages = pages(st, null, null, safe, grants(""));
         UiPage root = pages.get(0);
         assertEquals(UiEntry.INFO, root.entries().get(0).kind());
         assertEquals("SDK safe mode: plugins are off (unhealthy-boots)", root.entries().get(0).label());
@@ -166,11 +172,11 @@ class PluginsMenuTest {
         assertEquals("Boot guard: inert", info.get(2));
         assertTrue(info.contains("Override: parking.soundDirections=F1R0L1X1 by pdc (PERSISTENT, restoring)"), info.toString());
 
-        List<String> normal = labels(page(PluginsMenu.pages(st, null, null, NORMAL, grants("")), "mibsdk/sdk"),
+        List<String> normal = labels(page(pages(st, null, null, NORMAL, grants("")), "mibsdk/sdk"),
                 UiEntry.INFO);
         assertEquals("Safe mode: off", normal.get(1));
         assertEquals("Boot guard: ok", normal.get(2));
-        assertFalse(labels(page(PluginsMenu.pages(st, null, null, NORMAL, grants("")), "mibsdk/plugin.a"),
+        assertFalse(labels(page(pages(st, null, null, NORMAL, grants("")), "mibsdk/plugin.a"),
                 UiEntry.INFO).contains("Safe mode: changes apply after it ends"));
         for (String s : normal) {
             assertFalse(s.toLowerCase().indexOf("latch") >= 0, "no latch line: under the latch the UI is off");
@@ -180,24 +186,24 @@ class PluginsMenuTest {
     @Test
     void resetItemOnlyForCountBasedSafeMode() throws Exception {
         List<PluginStatus> none = Collections.<PluginStatus>emptyList();
-        UiPage counted = page(PluginsMenu.pages(none, null, null, state(true, "unhealthy-boots", false), grants("")),
+        UiPage counted = page(pages(none, null, null, state(true, "unhealthy-boots", false), grants("")),
                 "mibsdk/sdk");
         UiEntry reset = entry(counted, "reset");
         assertNotNull(reset);
         assertEquals(UiEntry.ITEM, reset.kind());
         assertEquals("Reset boot guard", reset.label());
 
-        UiPage done = page(PluginsMenu.pages(none, null, null, state(true, "unhealthy-boots", true), grants("")),
+        UiPage done = page(pages(none, null, null, state(true, "unhealthy-boots", true), grants("")),
                 "mibsdk/sdk");
         assertNull(entry(done, "reset"));
         assertTrue(labels(done, UiEntry.INFO).contains("Takes effect at the next start"));
 
-        UiPage marker = page(PluginsMenu.pages(none, null, null, state(true, "marker", false), grants("")),
+        UiPage marker = page(pages(none, null, null, state(true, "marker", false), grants("")),
                 "mibsdk/sdk");
         assertNull(entry(marker, "reset"));
         assertTrue(labels(marker, UiEntry.INFO).contains("SAFE_MODE marker set: clear it with mibsdk-dev safe-mode off"));
 
-        UiPage normal = page(PluginsMenu.pages(none, null, null, NORMAL, grants("")), "mibsdk/sdk");
+        UiPage normal = page(pages(none, null, null, NORMAL, grants("")), "mibsdk/sdk");
         assertNull(entry(normal, "reset"));
         assertFalse(labels(normal, UiEntry.INFO).contains("SAFE_MODE marker set: clear it with mibsdk-dev safe-mode off"));
     }
@@ -239,7 +245,7 @@ class PluginsMenuTest {
             m.put(id, manifest(id, "Plugin " + i));
             keys.put(id, Collections.singletonList(id + "/main"));
         }
-        List<UiPage> pages = PluginsMenu.pages(st, m, keys, NORMAL, grants(""));
+        List<UiPage> pages = pages(st, m, keys, NORMAL, grants(""));
         UiPage root = pages.get(0);
         List<String> links = labels(root, UiEntry.LINK);
         assertEquals(10, links.size(), "9 plugins (8 Car row slots) plus SDK");
@@ -257,7 +263,7 @@ class PluginsMenuTest {
         String longName = "N\u0007ame ‮" + "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
         List<PluginStatus> st = Collections.singletonList(status("a", PluginState.FAILED, "r\nr"));
         Map<String, PluginManifest> m = Collections.singletonMap("a", manifest("a", longName));
-        List<UiPage> pages = PluginsMenu.pages(st, m, null, NORMAL, grants(""));
+        List<UiPage> pages = pages(st, m, null, NORMAL, grants(""));
         UiEntry link = pages.get(0).entries().get(0);
         assertEquals(40, link.label().length());
         assertTrue(link.label().startsWith("N ame xxx"), link.label());
@@ -269,12 +275,64 @@ class PluginsMenuTest {
     @Test
     void samePagesComparesContent() throws Exception {
         List<PluginStatus> st = Collections.singletonList(status("a", PluginState.ENABLED, "enabled"));
-        List<UiPage> x = PluginsMenu.pages(st, null, null, NORMAL, grants(""));
-        List<UiPage> y = PluginsMenu.pages(st, null, null, NORMAL, grants(""));
+        List<UiPage> x = pages(st, null, null, NORMAL, grants(""));
+        List<UiPage> y = pages(st, null, null, NORMAL, grants(""));
         assertTrue(PluginsMenu.samePages(x, y));
-        List<UiPage> z = PluginsMenu.pages(Collections.singletonList(status("a", PluginState.DISABLED, "x")), null,
+        List<UiPage> z = pages(Collections.singletonList(status("a", PluginState.DISABLED, "x")), null,
                 null, NORMAL, grants(""));
         assertFalse(PluginsMenu.samePages(x, z));
         assertFalse(PluginsMenu.samePages(x, null));
+    }
+
+    // ---- fix round 1 ----
+
+    @Test
+    void toggleShowsTheUsersRecordedChoice() throws Exception {
+        List<PluginStatus> st = Arrays.asList(status("a", PluginState.FAILED, "boom"),
+                status("b", PluginState.ENABLED, "enabled"), status("c", PluginState.DISABLED, "off in Plugins menu"));
+        Set<String> off = Collections.singleton("c");
+        List<UiPage> pages = PluginsMenu.pages(st, null, null, null, off, NORMAL, grants(""));
+        assertTrue(entry(page(pages, "mibsdk/plugin.a"), "enabled").on(), "failed, but the user left it on");
+        assertTrue(entry(page(pages, "mibsdk/plugin.b"), "enabled").on());
+        assertFalse(entry(page(pages, "mibsdk/plugin.c"), "enabled").on());
+    }
+
+    @Test
+    void blockedOnASwitchedOffDependencyKeepsItsToggle() throws Exception {
+        List<PluginStatus> st = Arrays.asList(status("child", PluginState.BLOCKED_DEPENDENCY, "dependency base is DISABLED"),
+                status("orphan", PluginState.BLOCKED_DEPENDENCY, "missing dependency base"));
+        List<UiPage> pages = pages(st, null, null, NORMAL, grants(""));
+        UiPage child = page(pages, "mibsdk/plugin.child");
+        assertNotNull(entry(child, "enabled"));
+        assertTrue(labels(child, UiEntry.INFO).contains("Blocked: dependency base is DISABLED"));
+        assertNull(entry(page(pages, "mibsdk/plugin.orphan"), "enabled"));
+    }
+
+    @Test
+    void rootOverflowEndsWithMoreEntry() throws Exception {
+        List<PluginStatus> st = new ArrayList<PluginStatus>();
+        for (int i = 0; i < 30; i++) {
+            st.add(status("p" + (i < 10 ? "0" : "") + i, PluginState.ENABLED, "enabled"));
+        }
+        UiPage root = pages(st, null, null, NORMAL, grants("")).get(0);
+        assertEquals(24, root.entries().size());
+        assertEquals(22, labels(root, UiEntry.LINK).size() - 1, "22 plugins and the SDK link");
+        UiEntry more = root.entries().get(22);
+        assertEquals(UiEntry.INFO, more.kind());
+        assertEquals("+8 more", more.label());
+        assertEquals("SDK", root.entries().get(23).label());
+        assertEquals(8, PluginsMenu.rootOverflow(30, NORMAL));
+        assertEquals(0, PluginsMenu.rootOverflow(23, NORMAL), "23 plugins and SDK fit exactly");
+        assertEquals(2, PluginsMenu.rootOverflow(23, state(true, "marker", false)), "the header takes a slot: 21 links + more");
+    }
+
+    @Test
+    void pluginPageLinksUseThePageTitle() throws Exception {
+        List<PluginStatus> st = Collections.singletonList(status("a", PluginState.ENABLED, "enabled"));
+        Map<String, List<String>> keys = Collections.singletonMap("a", Arrays.asList("a/main", "a/cfg"));
+        Map<String, String> titles = Collections.singletonMap("a/main", "Rack status");
+        UiPage a = page(PluginsMenu.pages(st, null, keys, titles, Collections.<String>emptySet(), NORMAL, grants("")),
+                "mibsdk/plugin.a");
+        assertEquals(Arrays.asList("Rack status", "cfg"), labels(a, UiEntry.LINK), "title, else the page id");
     }
 }

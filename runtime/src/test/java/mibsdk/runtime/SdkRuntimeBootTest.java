@@ -275,6 +275,15 @@ class SdkRuntimeBootTest {
     // ---- safe mode ----
 
     /** Carried from Task 11: safe mode replays pending ledger restores and loads no plugins. */
+    /** Safe mode: the plugin is listed (manifest only) but not running. */
+    private void assertNotRunning(String id) {
+        assertEquals(1, rt.statuses().size(), rt.statuses().toString());
+        PluginStatus st = rt.statuses().get(0);
+        assertEquals(id, st.id());
+        assertEquals(PluginState.DISABLED, st.state());
+        assertEquals("safe mode: not loaded", st.reason());
+    }
+
     @Test
     void safeModeMarkerRestoresLedgerAndLoadsNoPlugins() throws Exception {
         plugin("muter");
@@ -298,11 +307,11 @@ class SdkRuntimeBootTest {
             Thread.sleep(10); // the file is rewritten just after the entry leaves memory
         }
         assertEquals(0, ledger.length());
-        assertTrue(rt.statuses().isEmpty(), "no plugin discovered or enabled");
+        assertNotRunning("muter"); // listed for the Plugins menu from plugin.json alone (Task 6 ruling)
         assertEquals(0, count("muter", "hi"));
 
         rt.reload("muter");
-        assertTrue(rt.statuses().isEmpty(), "reload is refused in safe mode");
+        assertNotRunning("muter"); // reload is refused in safe mode
         assertTrue(logContains("reload ignored: safe mode"), rt.log().snapshot().toString());
 
         clock.advance(120000);

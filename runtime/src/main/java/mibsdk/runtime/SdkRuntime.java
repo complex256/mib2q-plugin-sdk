@@ -121,6 +121,7 @@ public final class SdkRuntime {
     /** How often the SDK UI is rebuilt even without a plugin state change (override indicators). */
     static final long UI_POLL_MS = 1000;
     static final String OFF_REASON = "off in Plugins menu";
+    static final String SAFE_MODE_REASON = "safe mode: not loaded";
     static final String PLUGINS_LABEL = "Plugins";
     static final String PLUGINS_LABEL_SAFE = "Plugins (safe mode)";
     /**
@@ -215,6 +216,7 @@ public final class SdkRuntime {
     private List<UiPage> lastSdkPages;
     private List<String> lastIndicators;
     private String lastPluginsLabel;
+    private boolean overflowLogged;
 
     private final Runnable uiRefresh = new Runnable() {
         public void run() {
@@ -382,6 +384,15 @@ public final class SdkRuntime {
         }
         if (safeMode && adapterStarted) {
             ledger.restorePendingOnBoot(platformApplier); // safe mode: no plugin will re-claim anything
+        }
+        if (safeMode) {
+            c.submit("list-plugins", new Runnable() { // the Plugins menu lists them; none is loaded
+                public void run() {
+                    if (!isStopped()) {
+                        listPluginsInSafeMode();
+                    }
+                }
+            });
         }
         log.append("STATUS", SOURCE, "runtime started adapter=" + adapterId + " safeMode=" + safeMode);
         requestUiRefresh(); // safe mode is known now: label, header and SAFE indicator
@@ -885,15 +896,8 @@ public final class SdkRuntime {
         grants = Grants.load(cfg.grantsFile());
         purgeSnapshots(); // stale copies from a previous run
         restoreStaleOverrides();
-        File[] files = cfg.pluginsDir().listFiles();
-        if (files == null) {
-            files = new File[0];
-        }
-        Arrays.sort(files, new Comparator() {
-            public int compare(Object a, Object b) {
-                return ((File) a).getName().compareTo(((File) b).getName());
-            }
-        });
+        toggles.refresh(); // mibsdk-dev may have edited the user's choices since the last read
+        File[] files = pluginJars();
         List pending = new ArrayList(); // PluginHost, DISCOVERED
         for (int i = 0; i < files.length; i++) {
             if (!files[i].getName().endsWith(".jar") || !files[i].isFile()) {
@@ -930,6 +934,43 @@ public final class SdkRuntime {
         restoreOrphanedOverrides();
         purgeSnapshots();
         return true;
+    }
+
+    /** {@code plugins/*.jar} (regular files), sorted by name. */
+    private File[] pluginJars() {
+        File[] files = cfg.pluginsDir().listFiles();
+        if (files == null) {
+            files = new File[0];
+        }
+        List out = new ArrayList();
+        for (int i = 0; i < files.length; i++) {
+            if (files[i].getName().endsWith(".jar") && files[i].isFile()) {
+                out.add(files[i]);
+            }
+        }
+        File[] jars = (File[]) out.toArray(new File[out.size()]);
+        Arrays.sort(jars, new Comparator() {
+            public int compare(Object a, Object b) {
+                return ((File) a).getName().compareTo(((File) b).getName());
+            }
+        });
+        return jars;
+    }
+
+    /**
+     * Safe mode, control thread: lists the installed plugins for the Plugins menu from their plugin.json alone (no
+     * plugin class is loaded, nothing is enabled); each readable one is DISABLED {@value #SAFE_MODE_REASON}.
+     */
+    private void listPluginsInSafeMode() {
+        grants = Grants.load(cfg.grantsFile());
+        toggles.refresh();
+        File[] files = pluginJars();
+        for (int i = 0; i < files.length && !isStopped(); i++) {
+            PluginHost h = discover(files[i]);
+            if (addHost(h, null) && h.state == PluginState.DISCOVERED) {
+                setState(h, PluginState.DISABLED, SAFE_MODE_REASON);
+            }
+        }
     }
 
     /** Topological order of {@code pending}; blocks the ones with a missing, blocked or cyclic dependency. */
@@ -1181,6 +1222,7 @@ public final class SdkRuntime {
             return;
         }
         grants = Grants.load(cfg.grantsFile());
+        toggles.refresh();
         PluginHost old = findHost(id);
         if (old != null) {
             disableHost(old, PluginState.DISABLED, "reloading", true, false); // no notice flash during a reload
@@ -1411,6 +1453,16 @@ public final class SdkRuntime {
      * recorded. Reset: only in count-based safe mode, never under the wrap-loop latch (the UI is off then anyway).
      */
     private void applyMenuAction(PluginsMenu.Action a) {
+        try {
+            applyMenuActionUnguarded(a);
+        } catch (Throwable t) {
+            log.append("ERROR", SOURCE, "Plugins menu action " + a + " failed: " + describe(t));
+        } finally {
+            refreshUi();
+        }
+    }
+
+    private void applyMenuActionUnguarded(PluginsMenu.Action a) {
         if (a.kind == PluginsMenu.Action.Kind.RESET_BOOT_GUARD) {
             if (!safeMode || bootGuard.markerPresent() || bootGuard.wrapLoopLatched()) {
                 log.append("WARN", SOURCE, "boot guard reset ignored: only offered in count-based safe mode");
@@ -1429,6 +1481,7 @@ public final class SdkRuntime {
                 PluginState s = h == null ? null : stateOf(h);
                 if (!off && s != PluginState.ENABLED) {
                     reloadNow(a.id);
+                    enableDependentsOf(a.id);
                 } else if (off && h != null) {
                     if (s == PluginState.ENABLED) {
                         disableHost(h, PluginState.DISABLED, OFF_REASON, true);
@@ -1438,7 +1491,40 @@ public final class SdkRuntime {
                 }
             }
         }
-        refreshUi();
+    }
+
+    /**
+     * Control thread, after {@code id} was switched on: reloads every plugin BLOCKED_DEPENDENCY on it (and not
+     * switched off itself) once {@code id} is ENABLED, then the plugins blocked on those, and so on.
+     */
+    private void enableDependentsOf(String id) {
+        List queue = new ArrayList();
+        Set seen = new HashSet();
+        queue.add(id);
+        seen.add(id);
+        while (!queue.isEmpty() && !isStopped()) {
+            String dep = (String) queue.remove(0);
+            PluginHost d = findHost(dep);
+            if (d == null || stateOf(d) != PluginState.ENABLED) {
+                continue;
+            }
+            PluginHost[] all;
+            synchronized (this) {
+                all = (PluginHost[]) hosts.toArray(new PluginHost[hosts.size()]);
+            }
+            for (int i = 0; i < all.length; i++) {
+                PluginHost h = all[i];
+                PluginManifest m = h.manifest;
+                if (seen.contains(h.id) || stateOf(h) != PluginState.BLOCKED_DEPENDENCY || m == null
+                        || !m.dependencies().contains(dep) || toggles.isOff(h.id)) {
+                    continue;
+                }
+                seen.add(h.id);
+                log.append("INFO", SOURCE, "dependency " + dep + " is back: reloading " + h.id);
+                reloadNow(h.id);
+                queue.add(h.id);
+            }
+        }
     }
 
     /** Queues one {@link #refreshUi} on the control thread; a queued one absorbs this request. */
@@ -1476,13 +1562,27 @@ public final class SdkRuntime {
                 }
             }
             Map<String, List<String>> pageKeys = new HashMap<String, List<String>>();
+            Map<String, String> titles = new HashMap<String, String>();
             for (int i = 0; i < st.size(); i++) {
                 String id = st.get(i).id();
-                pageKeys.put(id, hub.pageKeysOf(id));
+                List<String> keys = hub.pageKeysOf(id);
+                pageKeys.put(id, keys);
+                for (int k = 0; k < keys.size(); k++) {
+                    String title = hub.pageTitle(keys.get(k));
+                    if (title != null) {
+                        titles.put(keys.get(k), title);
+                    }
+                }
             }
             SdkState s = new SdkState(safeMode, safeReason, bootGuard.inert(), resetRequested, adapterId,
                     ledger.active());
-            List<UiPage> pages = PluginsMenu.pages(st, manifests, pageKeys, s, grants);
+            int hidden = PluginsMenu.rootOverflow(st.size(), s);
+            if (hidden > 0 && !overflowLogged) {
+                overflowLogged = true;
+                log.append("WARN", SOURCE, st.size() + " plugins installed: the Plugins page lists the first "
+                        + (st.size() - hidden) + " (+" + hidden + " more)");
+            }
+            List<UiPage> pages = PluginsMenu.pages(st, manifests, pageKeys, titles, toggles.offIds(), s, grants);
             List<String> indicators = StatusLine.indicators(s);
             String label = safeMode ? PLUGINS_LABEL_SAFE : PLUGINS_LABEL;
             if (!PluginsMenu.samePages(pages, lastSdkPages)) {

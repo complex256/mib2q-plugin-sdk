@@ -52,6 +52,12 @@ final class UiTestRuntime {
 
     /** {@code fx.Main} whose onEnable runs {@code onEnableBody}; manifest name {@code name}; all perms granted. */
     void plugin(String id, String name, String[] perms, String onEnableBody, String members) throws IOException {
+        plugin(id, name, perms, onEnableBody, members, new String[0]);
+    }
+
+    /** As above, with dependencies on other plugin ids. */
+    void plugin(String id, String name, String[] perms, String onEnableBody, String members, String[] deps)
+            throws IOException {
         String source = "package fx;\n"
                 + "import mibsdk.api.*;\n"
                 + "public class Main extends MibPlugin {\n"
@@ -67,8 +73,13 @@ final class UiTestRuntime {
             p.append(i > 0 ? "," : "").append('"').append(perms[i]).append('"');
         }
         p.append(']');
+        StringBuilder d = new StringBuilder("[");
+        for (int i = 0; i < deps.length; i++) {
+            d.append(i > 0 ? "," : "").append('"').append(deps[i]).append('"');
+        }
+        d.append(']');
         String json = "{\"id\":\"" + id + "\",\"name\":\"" + name + "\",\"version\":\"1\",\"api\":2,"
-                + "\"main\":\"fx.Main\",\"permissions\":" + p + ",\"dependencies\":[]}";
+                + "\"main\":\"fx.Main\",\"permissions\":" + p + ",\"dependencies\":" + d + "}";
         jars.writeRaw(new File(plugins, id + ".jar"), source, json);
         grants.put(id, perms);
     }
@@ -81,6 +92,11 @@ final class UiTestRuntime {
     /** The writable persistent root (boot.state, plugins.properties). */
     File persist() {
         return roots.persist();
+    }
+
+    /** Writes {@code <persist>/plugins.properties} (the user's on/off choices) before the next start. */
+    void userToggles(String text) throws IOException {
+        write(new File(roots.persist(), "plugins.properties"), text);
     }
 
     /** Writes {@code <persist>/boot.state} before the next start. */

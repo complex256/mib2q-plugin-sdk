@@ -309,4 +309,61 @@ class SdkRuntimeUiTest {
         starter.join(15000);
         awaitStatus("apple", PluginState.DISABLED, "off in Plugins menu");
     }
+
+    /** Fix round 1 ruling: safe mode lists installed plugins (manifest only) with their toggles; none runs. */
+    @Test
+    void safeModeListsInstalledPluginsWithToggles() throws Exception {
+        runtime();
+        r.plugin("rack", "Bike rack", UI_PERMS, "ctx.log().info(\"enabled\");\n" + PAGE_AND_ROW, null);
+        r.safeModeMarker();
+        r.start();
+        UiSnapshot s = r.await(x -> entry(x, "mibsdk/plugin.rack", "enabled") != null, "lists rack with a toggle");
+        assertTrue(entry(s, "mibsdk/plugin.rack", "enabled").on(), "the user's choice: on");
+        assertTrue(hasInfo(s, "mibsdk/plugin.rack", "Safe mode: changes apply after it ends"));
+        assertEquals("Bike rack", entry(s, "mibsdk/plugins", "plugin.rack").label());
+        assertEquals("Off", stateWord(s, "rack"));
+        assertNotNull(status("rack"));
+        assertTrue(status("rack").state() != PluginState.ENABLED, "statuses() reports it not running");
+
+        toggle("rack", false);
+        r.await(x -> !entry(x, "mibsdk/plugin.rack", "enabled").on(), "shows the recorded choice: off");
+        assertTrue(new File(r.persist(), "plugins.properties").isFile());
+        assertEquals(0, r.count("rack", "enabled"), "no plugin class ran in safe mode");
+    }
+
+    /** Fix round 1 ruling: the toggle shows the user's recorded choice, not whether the plugin runs. */
+    @Test
+    void toggleShowsTheUsersChoiceNotTheState() throws Exception {
+        runtime();
+        r.plugin("flaky", "Flaky", new String[0], THROWS_ON_IGNITION, null);
+        r.start();
+        r.awaitState("flaky", PluginState.ENABLED);
+        for (int i = 0; i < 3; i++) {
+            r.fake.setIgnition(i % 2 == 0);
+        }
+        r.awaitState("flaky", PluginState.QUARANTINED);
+        UiSnapshot q = r.await(s -> "Quarantined".equals(stateWord(s, "flaky")), "lists flaky as Quarantined");
+        assertTrue(entry(q, "mibsdk/plugin.flaky", "enabled").on(), "the user never switched it off");
+    }
+
+    /** Fix round 1, Important 2: switching a dependency back on re-enables what was blocked on it. */
+    @Test
+    void dependencyBackOnReenablesDependents() throws Exception {
+        runtime();
+        r.plugin("base", "Base", new String[0], "", null);
+        r.plugin("child", "Child", new String[0], "", null, new String[] {"base"});
+        r.plugin("grand", "Grand", new String[0], "", null, new String[] {"child"});
+        r.userToggles("base.off=true\n");
+        r.start();
+        awaitStatus("base", PluginState.DISABLED, "off in Plugins menu");
+        awaitStatus("child", PluginState.BLOCKED_DEPENDENCY, "dependency base is DISABLED");
+        UiSnapshot s = r.await(x -> entry(x, "mibsdk/plugin.child", "enabled") != null,
+                "a dependent blocked on a switched-off plugin keeps its toggle");
+        assertTrue(entry(s, "mibsdk/plugin.child", "enabled").on());
+
+        toggle("base", true);
+        r.awaitState("base", PluginState.ENABLED);
+        r.awaitState("child", PluginState.ENABLED);
+        r.awaitState("grand", PluginState.ENABLED);
+    }
 }

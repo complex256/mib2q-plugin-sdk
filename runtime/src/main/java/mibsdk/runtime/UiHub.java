@@ -302,6 +302,17 @@ final class UiHub {
         }
     }
 
+    /** The title of the plugin page registered under {@code pageKey}, or null. */
+    String pageTitle(String pageKey) {
+        if (pageKey == null) {
+            return null;
+        }
+        synchronized (lock) {
+            PageRec rec = livePage(pageKey);
+            return rec == null ? null : rec.page.title();
+        }
+    }
+
     /** The SDK's own pages (owner {@code mibsdk}); input on them goes to the SDK handler. */
     void setSdkPages(List<UiPage> pages) {
         List<UiPage> copy = pages == null ? Collections.<UiPage>emptyList()

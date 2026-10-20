@@ -5,9 +5,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * What the SDK pages and the runtime's status-line indicators show about the SDK itself. Immutable; equal
- * snapshots (overrides compared by their {@link ActiveOverride#toString()}, which names every field) mean
- * nothing changed.
+ * What the SDK pages and the runtime's status-line indicators show about the SDK itself. Immutable. The runtime
+ * decides whether to push by comparing what it builds from this (pages, indicators), not the state itself.
  */
 final class SdkState {
 
@@ -39,39 +38,5 @@ final class SdkState {
     /** Count-based safe mode (not forced by the SAFE_MODE marker): the SDK page may offer a boot-guard reset. */
     boolean resetOffered() {
         return safeMode && !REASON_MARKER.equals(safeReason);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (!(o instanceof SdkState)) {
-            return false;
-        }
-        SdkState s = (SdkState) o;
-        if (safeMode != s.safeMode || guardInert != s.guardInert || resetRequested != s.resetRequested
-                || !same(safeReason, s.safeReason) || !same(adapterId, s.adapterId)
-                || overrides.size() != s.overrides.size()) {
-            return false;
-        }
-        for (int i = 0; i < overrides.size(); i++) {
-            if (!overrides.get(i).toString().equals(s.overrides.get(i).toString())) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    @Override
-    public int hashCode() {
-        int h = (safeMode ? 1 : 0) + (guardInert ? 2 : 0) + (resetRequested ? 4 : 0);
-        h = 31 * h + (safeReason == null ? 0 : safeReason.hashCode());
-        h = 31 * h + (adapterId == null ? 0 : adapterId.hashCode());
-        for (int i = 0; i < overrides.size(); i++) {
-            h = 31 * h + overrides.get(i).toString().hashCode();
-        }
-        return h;
-    }
-
-    private static boolean same(String a, String b) {
-        return a == null ? b == null : a.equals(b);
     }
 }

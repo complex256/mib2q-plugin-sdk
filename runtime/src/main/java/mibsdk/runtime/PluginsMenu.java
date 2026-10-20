@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import mibsdk.api.PageSpec;
 import mibsdk.api.SdkInfo;
 import mibsdk.platform.UiEntry;
@@ -55,19 +56,41 @@ final class PluginsMenu {
     /**
      * {@code mibsdk/plugins}, then {@code mibsdk/plugin.<id>} for every plugin in {@code st}, then
      * {@code mibsdk/sdk}. {@code m}: manifests by id (absent for an unreadable plugin.json);
-     * {@code pluginPageKeys}: each plugin's registered page keys; {@code g}: what each plugin was granted.
+     * {@code pluginPageKeys}: each plugin's registered page keys; {@code pageTitles}: their titles by page key (a
+     * link falls back to the page id); {@code offIds}: the plugins the user switched off (the toggles show this
+     * choice, not whether the plugin runs); {@code g}: what each plugin was granted. Any map may be null.
      */
     static List<UiPage> pages(List<PluginStatus> st, Map<String, PluginManifest> m,
-            Map<String, List<String>> pluginPageKeys, SdkState s, Grants g) {
+            Map<String, List<String>> pluginPageKeys, Map<String, String> pageTitles, Set<String> offIds, SdkState s,
+            Grants g) {
         List<UiPage> out = new ArrayList<UiPage>();
         out.add(root(st, m, s));
         for (int i = 0; i < st.size(); i++) {
             PluginStatus p = st.get(i);
             List<String> keys = pluginPageKeys == null ? null : pluginPageKeys.get(p.id());
-            out.add(pluginPage(p, m == null ? null : m.get(p.id()), keys, s, g));
+            boolean off = offIds != null && offIds.contains(p.id());
+            out.add(pluginPage(p, m == null ? null : m.get(p.id()), keys, pageTitles, off, s, g));
         }
         out.add(sdkPage(s));
         return out;
+    }
+
+    /** How many of {@code plugins} the Plugins page cannot list (it then ends with a {@code +N more} INFO). */
+    static int rootOverflow(int plugins, SdkState s) {
+        int room = PageSpec.MAX_ENTRIES - (s.safeMode ? 1 : 0) - 1; // header, SDK link
+        return plugins <= room ? 0 : plugins - (room - 1); // one more slot for "+N more"
+    }
+
+    /**
+     * True if the plugin page has the Enabled toggle: not blocked, or blocked only because a dependency is switched
+     * off ({@code dependency <id> is DISABLED}), so the user can still say what should run once it is back.
+     */
+    static boolean hasToggle(PluginState state, String reason) {
+        if (!isBlocked(state)) {
+            return true;
+        }
+        return state == PluginState.BLOCKED_DEPENDENCY && reason != null && reason.startsWith("dependency ")
+                && reason.endsWith(" is " + PluginState.DISABLED);
     }
 
     /** ENABLE/DISABLE for the Enabled toggle of a plugin page, RESET_BOOT_GUARD for the SDK page's item. */
@@ -137,17 +160,21 @@ final class PluginsMenu {
         if (s.safeMode) {
             e.add(info("SDK safe mode: plugins are off (" + s.safeReason + ")"));
         }
-        int room = PageSpec.MAX_ENTRIES - e.size() - 1; // the SDK link always fits
-        for (int i = 0; i < st.size() && i < room; i++) {
+        int hidden = rootOverflow(st.size(), s);
+        for (int i = 0; i < st.size() - hidden; i++) {
             PluginStatus p = st.get(i);
             e.add(link("plugin." + p.id(), name(p, m == null ? null : m.get(p.id())), stateWord(p.state()),
                     PLUGIN_KEY_PREFIX + p.id()));
+        }
+        if (hidden > 0) {
+            e.add(info("+" + hidden + " more"));
         }
         e.add(link("sdk", "SDK", null, SDK_KEY));
         return page(PLUGINS_KEY, "Plugins", e);
     }
 
-    private static UiPage pluginPage(PluginStatus p, PluginManifest m, List<String> pageKeys, SdkState s, Grants g) {
+    private static UiPage pluginPage(PluginStatus p, PluginManifest m, List<String> pageKeys,
+            Map<String, String> pageTitles, boolean off, SdkState s, Grants g) {
         List<UiEntry> e = new ArrayList<UiEntry>();
         if (m != null) {
             String author = m.author();
@@ -156,8 +183,9 @@ final class PluginsMenu {
         PluginState state = p.state();
         if (isBlocked(state)) {
             e.add(info("Blocked: " + p.reason()));
-        } else {
-            e.add(new UiEntry(UiEntry.TOGGLE, ENABLED_ENTRY, "Enabled", null, state == PluginState.ENABLED, null));
+        }
+        if (hasToggle(state, p.reason())) {
+            e.add(new UiEntry(UiEntry.TOGGLE, ENABLED_ENTRY, "Enabled", null, !off, null));
             if (s.safeMode) {
                 e.add(info("Safe mode: changes apply after it ends"));
             }
@@ -171,8 +199,9 @@ final class PluginsMenu {
         if (pageKeys != null) {
             for (int i = 0; i < pageKeys.size() && e.size() < PageSpec.MAX_ENTRIES; i++) {
                 String key = pageKeys.get(i);
-                String pageId = key.substring(key.indexOf('/') + 1);
-                e.add(link("page." + i, pageId, null, key));
+                String title = pageTitles == null ? null : pageTitles.get(key);
+                String label = title == null || title.trim().length() == 0 ? key.substring(key.indexOf('/') + 1) : title;
+                e.add(link("page." + i, label, null, key));
             }
         }
         return page(PLUGIN_KEY_PREFIX + p.id(), name(p, m), e);

@@ -94,4 +94,18 @@ class UserTogglesTest {
         }
         assertTrue(logged, log.snapshot().toString());
     }
+
+    /** Fix round 1: another writer (mibsdk-dev remove) edits the file mid-run; a toggle must not undo that edit. */
+    @Test
+    void externalEditBetweenLoadAndToggleIsPreserved() throws Exception {
+        File f = new File(tmp, "plugins.properties");
+        write(f, "old.off=true\n".getBytes("ISO-8859-1"));
+        UserToggles t = new UserToggles(f, new RingLog(50));
+        assertTrue(t.isOff("old")); // loaded at plugin load
+        write(f, "new.off=true\n".getBytes("ISO-8859-1")); // mibsdk-dev remove dropped old; something added new
+        assertTrue(t.setOff("tail", true));
+        assertEquals("new.off=true\ntail.off=true\n", read(f));
+        assertFalse(t.isOff("old"));
+        assertTrue(t.isOff("new"));
+    }
 }
