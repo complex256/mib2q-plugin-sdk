@@ -603,7 +603,7 @@ cmd_remove() {
   command -v python3 >/dev/null || die "python3 is required on this machine"
   connect
   need_sdk
-  local jar="$SDK/plugins/$id.jar" data="$PERSIST/data/$id.properties" has_jar=0 has_data=0 dropped
+  local jar="$SDK/plugins/$id.jar" data="$PERSIST/data/$id.properties" has_jar=0 has_data=0 has_marker=0 has_overrides=0 dropped
   : >"$TMP/grants.in"
   if is_present "$SDK/grants.properties"; then
     fetch "$SDK/grants.properties" "$TMP/grants.in" || die "cannot read grants.properties"
@@ -611,7 +611,14 @@ cmd_remove() {
   dropped="$(python3 -I - "$TMP/grants.in" "$TMP/grants.out" "$id" drop <<<"$GRANTS_PY")" || die "cannot rewrite grants"
   if is_present "$jar"; then has_jar=1; fi
   if is_present "$data"; then has_data=1; fi
-  [ "$has_jar" = 1 ] || [ "$has_data" = 1 ] || [ -n "$dropped" ] || die "$id is not installed on $HOST"
+  # A reload marker or ledger lines also count: a run that failed after removing the jar and the grants line (say,
+  # pushing the marker) leaves only those, and its re-run must still request the reload.
+  if is_present "$SDK/plugins/$id.reload"; then has_marker=1; fi
+  : >"$TMP/ledger"
+  if is_present "$LEDGER"; then fetch "$LEDGER" "$TMP/ledger" || die "cannot read $LEDGER"; fi
+  if grep -qF -- "=$id|" "$TMP/ledger"; then has_overrides=1; fi
+  [ "$has_jar" = 1 ] || [ "$has_data" = 1 ] || [ -n "$dropped" ] || [ "$has_marker" = 1 ] || [ "$has_overrides" = 1 ] \
+    || die "$id is not installed on $HOST"
   printf '%s-%s-%s\n' "$(date +%s)" "$$" "$RANDOM" >"$TMP/reload"
   rw_begin
   sweep_push_tmp

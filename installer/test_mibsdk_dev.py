@@ -676,6 +676,29 @@ class RemoveTest(FakeUnitTestCase):
         self.assertIn("not restored yet", err)
         self.assertIn(line, err)
 
+    def test_a_rerun_after_the_reload_request_failed_finishes_the_removal(self):
+        # M2: jar and grants are gone when the marker push fails; the re-run must still request the reload
+        self.installed("hello")
+        marker = os.path.join(self.u.sdk, "plugins/hello.reload")
+        before = read(marker)
+        r = self.u.run("remove", "hello", fail_mv="hello.reload")
+        self.assertNotEqual(0, r.returncode)
+        self.assertFalse(os.path.exists(os.path.join(self.u.sdk, "plugins/hello.jar")))
+        self.assertNotIn("hello=", self.grants())
+        self.assertEqual(before, read(marker))
+
+        r = self.ok(self.u.run("remove", "hello"))
+        self.assertNotEqual(before, read(marker))
+        self.assertIn("removed hello", r.stdout.decode("utf-8"))
+
+    def test_a_plugin_known_only_by_its_ledger_lines_is_removed(self):
+        # M2: no jar, grants line or marker, but the ledger still holds its overrides
+        line = "parking.soundDirections=hello|PERSISTENT|F1R1L1X1|F1R0L1X1|R"
+        self.ledger(line + "\n")
+        r = self.ok(self.u.run("remove", "hello"))
+        self.assertTrue(read(os.path.join(self.u.sdk, "plugins/hello.reload")).strip())
+        self.assertIn(line, r.stderr.decode("utf-8"))
+
     def test_refuses_an_unknown_plugin(self):
         r = self.u.run("remove", "ghost")
         self.assertNotEqual(0, r.returncode)
