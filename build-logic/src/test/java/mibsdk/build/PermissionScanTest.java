@@ -37,6 +37,15 @@ class PermissionScanTest {
     }
 
     @Test
+    void flagsRawSocketConstruction() throws Exception {
+        File classes = Fixtures.compileV48(tmp.resolve("classes"), Map.of("fixture.S",
+                "package fixture; @SuppressWarnings(\"all\") public class S {"
+                        + " public Object open() { return new java.net.Socket(); } }"));
+        assertEquals(List.of("fixture/S.open -> java/net/Socket.<init>"),
+                PermissionScan.run(classes).findings());
+    }
+
+    @Test
     void ignoresSyntheticClassDollarAndKotlinStdlib() throws Exception {
         Path dir = tmp.resolve("classes");
         // javac -target 1.4 emits `static Class class$(String)` wrapping Class.forName for class literals.

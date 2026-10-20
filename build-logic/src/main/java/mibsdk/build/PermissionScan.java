@@ -14,7 +14,7 @@ import org.objectweb.asm.Opcodes;
 
 /**
  * Finds calls that need {@code platform.unrestricted}: reflection, process execution, VM exit, native
- * loading and {@code Thread.stop}. Ignores the {@code class$} helper javac emits for class literals
+ * loading, {@code Thread.stop} and raw sockets (plugins use {@code ctx.net()}). Ignores the {@code class$} helper javac emits for class literals
  * and, when given, the Kotlin stdlib classes shrunk into a plugin (see {@link #run(File, Set)}).
  */
 public final class PermissionScan {
@@ -33,7 +33,10 @@ public final class PermissionScan {
             "java/lang/System.exit",
             "java/lang/System.load",
             "java/lang/System.loadLibrary",
-            "java/lang/Thread.stop");
+            "java/lang/Thread.stop",
+            "java/net/Socket.<init>",
+            "java/net/ServerSocket.<init>",
+            "java/net/URL.openConnection");
 
     /** Outcome of a permission scan. */
     public static final class Result {

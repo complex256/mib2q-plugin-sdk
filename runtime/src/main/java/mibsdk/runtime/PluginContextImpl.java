@@ -100,6 +100,7 @@ final class PluginContextImpl implements PluginContext {
     private final ParkingSource parkingSource;
     private final OverrideLedger ledger;
     private final Ui ui;
+    private final Net net;
     private final Object parkingLock = new Object();
     private Parking parking; // guarded by parkingLock; built once, then kept
 
@@ -191,6 +192,7 @@ final class PluginContextImpl implements PluginContext {
         this.hooks = new HooksImpl(hookTable, bus, id, exec, registrations, features, granted);
         this.parkingSource = parking;
         this.ledger = ledger;
+        this.net = new NetImpl(id, granted);
         this.ui = new UiImpl(id, uiHub, features, granted, exec, registrations);
         this.vehicle = new Vehicle() {
             @Override
@@ -258,7 +260,8 @@ final class PluginContextImpl implements PluginContext {
 
     @Override
     public Net net() {
-        throw new UnsupportedOperationException("not yet wired");
+        requirePermission(Permissions.NETWORK);
+        return net;
     }
 
     @Override
