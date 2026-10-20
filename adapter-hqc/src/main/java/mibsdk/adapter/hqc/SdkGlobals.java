@@ -60,6 +60,12 @@ public final class SdkGlobals {
     /** The SDK drawer rows' visibility models; null until the Car bank created them (first drawer build). */
     public static volatile RowModels uiRowModels;
 
+    /**
+     * Set by the {@code mibsdk-ui} thread once it took the SDK UI down (runtime stopped); cleared when a running
+     * runtime publishes again. While set, a drawer built from scratch starts with the Plugins row hidden.
+     */
+    public static volatile boolean uiDown;
+
     private SdkGlobals() {
     }
 }

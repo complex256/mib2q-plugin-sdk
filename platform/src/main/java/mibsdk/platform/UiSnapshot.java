@@ -22,9 +22,15 @@ public final class UiSnapshot {
     private final Map<String, UiPage> pages;
     private final long openSeq;
     private final String openPageKey;
+    private final boolean down;
 
     public UiSnapshot(long version, List<UiRow> carRows, String statusLine,
                       Map<String, UiPage> pages, long openSeq, String openPageKey) {
+        this(version, carRows, statusLine, pages, openSeq, openPageKey, false);
+    }
+
+    private UiSnapshot(long version, List<UiRow> carRows, String statusLine,
+                       Map<String, UiPage> pages, long openSeq, String openPageKey, boolean down) {
         this.version = version;
         this.carRows = carRows == null
                 ? Collections.<UiRow>emptyList()
@@ -35,6 +41,20 @@ public final class UiSnapshot {
                 : Collections.unmodifiableMap(new HashMap<String, UiPage>(pages));
         this.openSeq = openSeq;
         this.openPageKey = openPageKey;
+        this.down = down;
+    }
+
+    /**
+     * The runtime is stopping: no rows, no status line, no pages, and the adapter takes every piece of SDK UI off
+     * screen (an open SDK page returns to the stock screen it came from, not to the stopped notice).
+     */
+    public static UiSnapshot down(long version) {
+        return new UiSnapshot(version, null, "", null, 0L, null, true);
+    }
+
+    /** True for {@link #down}. */
+    public boolean isDown() {
+        return down;
     }
 
     public long version() {

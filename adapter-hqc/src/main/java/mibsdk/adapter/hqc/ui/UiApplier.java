@@ -1,5 +1,6 @@
 package mibsdk.adapter.hqc.ui;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -17,19 +18,28 @@ import mibsdk.runtime.RingLog;
  * Applies the runtime's UI snapshots to the HMI on the SDK thread {@code mibsdk-ui}: Car drawer slots and row
  * visibility, the status line, and SDK pages (through one coalesced {@link HmiPoster} job).
  *
- * <p>Each pass waits up to {@link #AWAIT_MS} for a newer snapshot, then:
+ * <p>Each pass waits up to {@link #AWAIT_MS} for a newer snapshot, then runs four isolated phases (a failure in one is
+ * logged once per phase and message, and never starves the others):
  * <ul>
- * <li>assigns the Car rows to drawer slots ({@link DrawerSlots}) and swaps {@code SdkGlobals.uiSlots}; row visibility
- * is written through {@code rows} only while {@code SdkGlobals.uiRowModels} exists, and every slot is written again
- * when those models first appear (the drawer is built on HMIEvent, at a time of the HMI's choosing);</li>
- * <li>shows or hides the status line, and re-asserts a non-empty one every {@link #STATUS_REASSERT_MS} on the
- * monotonic clock (stock engineering code also writes model 416);</li>
- * <li>posts one page job when {@code openSeq} or the page content moved past what was last <b>rendered</b>. The job
- * reads the latest snapshot when it runs and records what it rendered; if a job is already pending, the job's
- * after-hook ({@link #wake}) posts again once it is done, so an open request is never lost.</li>
+ * <li>slots: assigns the Car rows to drawer slots ({@link DrawerSlots}) and swaps {@code SdkGlobals.uiSlots};</li>
+ * <li>rows: writes changed row visibility through {@code rows}, only while {@code SdkGlobals.uiRowModels} exists, and
+ * every slot again when those models first appear (the drawer is built on HMIEvent, at a time of the HMI's
+ * choosing);</li>
+ * <li>status: shows or hides the status line, and re-asserts a non-empty one every {@link #STATUS_REASSERT_MS} on the
+ * monotonic clock (stock engineering code also writes model 416). Popup 65 belongs to stock EngineeringApp until the
+ * SDK has shown text on it: it is never hidden before that;</li>
+ * <li>pages: once the drawer exists (so the first screen is up: before it the stock StartupFilter discards posted
+ * jobs), posts one page job when {@code openSeq} or the page content moved past what was last <b>rendered</b>. The job
+ * reads the latest snapshot when it runs; if a job is already pending, the job's after-hook ({@link #wake}) posts
+ * again once it is done, so an open request is never lost.</li>
  * </ul>
- * Writes happen only when a value changed. {@link #stop} ends the thread, which tears the SDK UI down on its way out:
- * every row hidden, the status line hidden, and SDK pages reconciled against an empty snapshot (the stopped notice).
+ * Writes happen only when a value changed.
+ *
+ * <p><b>Down.</b> The runtime publishes {@link UiSnapshot#down} first thing in its stop, and {@link #stop} ends the
+ * thread, which applies the same teardown on its way out: every row hidden (the Plugins row too, and
+ * {@code SdkGlobals.uiDown} so a drawer built later starts without it), a status line the SDK showed hidden, and an open
+ * SDK page closed back to the stock screen it came from. A later snapshot from a running runtime resumes. Only the
+ * newest applier (by construction) may render pages: a late job of a replaced one does nothing.
  */
 public final class UiApplier {
 
@@ -39,7 +49,14 @@ public final class UiApplier {
     static final long STOP_JOIN_MS = 3000;
     private static final String SOURCE = "mibsdk";
     private static final int UNKNOWN = -1;
+    private static final int MAX_LOGGED_FAILURES = 32;
+    private static final String[] PHASES = {"slots", "rows", "status", "pages"};
 
+    /** The newest applier's generation; older appliers' page jobs do nothing. */
+    private static volatile int liveGeneration;
+    private static final Object GENERATION_LOCK = new Object();
+
+    private final int generation;
     private final UiTable table;
     private final RowModels rows;
     private final StatusLineSink status;
@@ -56,21 +73,25 @@ public final class UiApplier {
     // mibsdk-ui thread only.
     private long lastVersion = Long.MIN_VALUE;
     private UiSnapshot current;
+    private boolean freshSnapshot;
     private DrawerAssignment slots = DrawerAssignment.EMPTY;
     private final int[] rowState = new int[HqcUiIds.ROW_SLOTS]; // UNKNOWN, 0 hidden, 1 visible
     private RowModels seenModels;
     private final Set<String> warnedOverflow = new HashSet<String>();
-    private String shownStatus; // null: unknown
+    private final Set<String> loggedFailures = new HashSet<String>();
+    private String shownStatus; // null: the SDK never showed text
     private long statusShownAt;
-    private boolean failureLogged;
 
-    // Written by the page job (HMIEvent; one at a time), read by both threads.
+    // Read by both threads; the page state is written by the page job (HMIEvent; one at a time).
+    private volatile boolean down;
+    private volatile boolean closedRendered;
     private volatile long renderedOpenSeq;
     private volatile Map<String, UiPage> renderedPages;
 
     private volatile boolean stopping;
     private Thread thread; // guarded by this
 
+    /** The newest applier constructed is the live one: only its page jobs render. */
     UiApplier(UiTable t, RowModels rows, StatusLineSink s, PageRenderer pages, HmiPoster p, Clock clock,
               RingLog log) {
         this.table = t;
@@ -82,6 +103,9 @@ public final class UiApplier {
         this.log = log;
         for (int i = 0; i < rowState.length; i++) {
             rowState[i] = UNKNOWN;
+        }
+        synchronized (GENERATION_LOCK) {
+            generation = ++liveGeneration;
         }
     }
 
@@ -99,7 +123,7 @@ public final class UiApplier {
                     a.wake();
                 }
             }
-        });
+        }, clock, HmiPoster.PENDING_DEADLINE_MS);
         RowModels rows = new RowModels() {
             public void setVisible(int slot, boolean visible) {
                 RowModels m = SdkGlobals.uiRowModels;
@@ -169,33 +193,79 @@ public final class UiApplier {
             try {
                 step(AWAIT_MS);
             } catch (Throwable t) {
-                if (!failureLogged) {
-                    failureLogged = true;
-                    log.append("ERROR", SOURCE, "ui applier pass failed (continuing): " + t);
-                }
+                failed("wait", t);
             }
         }
-        try {
-            teardown();
-        } catch (Throwable t) {
-            log.append("ERROR", SOURCE, "ui teardown failed: " + t);
+        if (generation == liveGeneration) { // a newer applier owns the HMI now: leave it alone
+            enterDown();
+            runPhases();
         }
     }
 
-    /** One pass (the thread's body; tests call it directly): wait for a newer snapshot, then apply. */
+    /** One pass (the thread's body; tests call it directly): wait for a newer snapshot, then the four phases. */
     void step(long waitMs) throws InterruptedException {
         UiSnapshot s = table.awaitNewer(lastVersion, waitMs);
         if (s != null) {
             lastVersion = s.version();
             current = s;
-            assignSlots(s);
+            freshSnapshot = true;
+            if (s.isDown()) {
+                enterDown();
+            } else if (down) {
+                down = false;
+                SdkGlobals.uiDown = false;
+            }
         }
         if (current == null) {
             return;
         }
-        applyRows();
-        applyStatus(current.statusLine());
-        postPagesIfNeeded();
+        runPhases();
+    }
+
+    /** Idempotent: the runtime's down snapshot and the thread's exit may both take the UI down. */
+    private void enterDown() {
+        SdkGlobals.uiDown = true;
+        if (down) {
+            return;
+        }
+        down = true;
+        closedRendered = false;
+        current = UiSnapshot.down(lastVersion);
+        freshSnapshot = true;
+    }
+
+    private void runPhases() {
+        for (int p = 0; p < PHASES.length; p++) {
+            try {
+                switch (p) {
+                    case 0:
+                        if (freshSnapshot) {
+                            freshSnapshot = false;
+                            assignSlots(current);
+                        }
+                        break;
+                    case 1:
+                        applyRows();
+                        break;
+                    case 2:
+                        applyStatus(current.statusLine());
+                        break;
+                    default:
+                        postPagesIfNeeded();
+                        break;
+                }
+            } catch (Throwable t) {
+                failed(PHASES[p], t);
+            }
+        }
+    }
+
+    /** Logs each distinct (phase, failure) once; bounded. */
+    private void failed(String phase, Throwable t) {
+        String key = phase + ": " + t;
+        if (loggedFailures.size() < MAX_LOGGED_FAILURES && loggedFailures.add(key)) {
+            log.append("ERROR", SOURCE, "ui " + key + " (continuing)");
+        }
     }
 
     private void assignSlots(UiSnapshot s) {
@@ -235,7 +305,7 @@ public final class UiApplier {
     private void applyStatus(String text) {
         long now = clock.uptimeMs();
         if (text.length() == 0) {
-            if (shownStatus == null || shownStatus.length() > 0) {
+            if (shownStatus != null && shownStatus.length() > 0) { // only ever hide what the SDK showed
                 status.hide();
                 shownStatus = "";
             }
@@ -246,18 +316,19 @@ public final class UiApplier {
         }
     }
 
-    /** Pages as the job should see them: the latest snapshot, or an empty one once stopping (the teardown). */
-    private UiSnapshot pageSource() {
-        return stopping ? UiSnapshot.EMPTY : table.snapshot();
-    }
-
     private void postPagesIfNeeded() {
-        if (needsRender(pageSource())) {
+        if (SdkGlobals.uiRowModels == null) {
+            return; // no drawer yet, so no first screen yet: the StartupFilter would discard the job
+        }
+        if (needsRender(table.snapshot())) {
             poster.post(pageJob); // false: a job is pending; its wake() re-checks when it is done
         }
     }
 
     private boolean needsRender(UiSnapshot s) {
+        if (down) {
+            return !closedRendered;
+        }
         return isOpenRequest(s) || !samePages(s.pages(), renderedPages);
     }
 
@@ -265,28 +336,29 @@ public final class UiApplier {
         return s.openSeq() != renderedOpenSeq && s.openPageKey() != null;
     }
 
-    /** The page job, on HMIEvent: renders the snapshot current now, never the one that triggered the post. */
+    /**
+     * The page job, on HMIEvent: renders the snapshot current now, never the one that triggered the post; once down,
+     * closes SDK pages back to the stock screen. A replaced applier's job does nothing.
+     */
     private void renderPages() {
-        UiSnapshot s = pageSource();
+        if (generation != liveGeneration) {
+            return;
+        }
+        if (down) {
+            closedRendered = true; // recorded first: a throwing renderer is not retried in a loop
+            renderedPages = Collections.<String, UiPage>emptyMap();
+            pages.close();
+            return;
+        }
+        UiSnapshot s = table.snapshot();
         boolean open = isOpenRequest(s);
-        renderedOpenSeq = s.openSeq(); // recorded first: a throwing renderer is not retried in a loop
+        renderedOpenSeq = s.openSeq();
         renderedPages = s.pages();
         if (open) {
             pages.open(s.openPageKey(), s);
         } else {
             pages.refresh(s);
         }
-    }
-
-    private void teardown() {
-        SdkGlobals.uiSlots = DrawerAssignment.EMPTY;
-        slots = DrawerAssignment.EMPTY;
-        applyRows();
-        if (shownStatus != null && shownStatus.length() > 0) {
-            status.hide();
-            shownStatus = "";
-        }
-        postPagesIfNeeded();
     }
 
     /** Same page keys, titles and entries (UiPage has no equals: the runtime rebuilds them every snapshot). */

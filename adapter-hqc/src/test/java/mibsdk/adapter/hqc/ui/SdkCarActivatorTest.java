@@ -49,6 +49,7 @@ class SdkCarActivatorTest {
         SdkGlobals.uiOffReason = null;
         SdkGlobals.uiSlots = DrawerAssignment.EMPTY;
         SdkGlobals.uiRowModels = null;
+        SdkGlobals.uiDown = false;
         while (SdkGlobals.UI.poll(0) != null) {
             // drain
         }
@@ -157,11 +158,13 @@ class SdkCarActivatorTest {
     }
 
     /**
-     * Carried requirement 3: the bank answers the grown id list (stock, then all 10 SDK ids) even once every SDK model
-     * exists, never AbstractModelBank's version sized by the stock model count. getModels() is final and sizes by it.
+     * Carried requirement 3 (fix round 1, Minor 1): the stock answer (CarModelBank returns its {@code modelIDs}, which
+     * the SDK bank grew) already covers the SDK ids once every SDK model exists, so AbstractModelBank's version sized by
+     * the stock model count is never reached. SdkCarModelBank overrides getAllModelIds() only as an explicit pin of that
+     * answer; this test passes with or without the pin. getModels() is final and sizes by getAllModelIds().
      */
     @Test
-    void allModelIdsCoverTheGrownModels() throws Exception {
+    void stockModelIdAnswerCoversTheSdkIds() throws Exception {
         SdkGlobals.uiEnabled = true;
         SdkCarModelBank bank = (SdkCarModelBank) bankOf(new SdkCarActivator());
         int[] before = bank.getAllModelIds();
@@ -174,5 +177,16 @@ class SdkCarActivatorTest {
             assertEquals(HqcUiIds.MODEL_BASE + i, ids[ids.length - HqcUiIds.MODEL_COUNT + i]);
         }
         assertEquals(1147 + HqcUiIds.MODEL_COUNT, ids.length, "CarModelBank's 1147 stock ids, then the SDK's");
+    }
+
+    /** Fix round 1, Minor 3: after the SDK UI was taken down, a drawer built from scratch starts without the Plugins row. */
+    @Test
+    void pluginsRowStartsHiddenOnceTheUiIsDown() throws Exception {
+        SdkGlobals.uiEnabled = true;
+        SdkCarModelBank up = (SdkCarModelBank) bankOf(new SdkCarActivator());
+        assertEquals(0, model(up, HqcUiIds.ROW_VISIBILITY_MODEL_0).getValue(), "visible by default");
+        SdkGlobals.uiDown = true;
+        SdkCarModelBank down = (SdkCarModelBank) bankOf(new SdkCarActivator());
+        assertEquals(1, model(down, HqcUiIds.ROW_VISIBILITY_MODEL_0).getValue(), "hidden once torn down");
     }
 }

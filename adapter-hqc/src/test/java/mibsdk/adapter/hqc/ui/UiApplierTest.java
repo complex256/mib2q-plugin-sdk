@@ -55,6 +55,10 @@ class UiApplierTest {
         public void refresh(UiSnapshot s) {
             writes.add("refresh:" + new java.util.TreeSet<String>(s.pages().keySet()));
         }
+
+        public void close() {
+            writes.add("close");
+        }
     };
 
     @BeforeEach
@@ -62,15 +66,20 @@ class UiApplierTest {
     void reset() {
         SdkGlobals.uiSlots = DrawerAssignment.EMPTY;
         SdkGlobals.uiRowModels = null;
+        SdkGlobals.uiDown = false;
     }
 
     @BeforeEach
     void build() {
         UiApplier[] self = new UiApplier[1];
-        HmiPoster poster = new HmiPoster(sink, () -> self[0].wake());
-        Clock clock = () -> now;
-        applier = new UiApplier(table, rows, status, pages, poster, clock, log);
+        applier = newApplier(self);
         self[0] = applier;
+    }
+
+    private UiApplier newApplier(UiApplier[] self) {
+        Clock clock = () -> now;
+        HmiPoster poster = new HmiPoster(sink, () -> self[0].wake(), clock, HmiPoster.PENDING_DEADLINE_MS);
+        return new UiApplier(table, rows, status, pages, poster, clock, log);
     }
 
     private void publish(String status, List<String> rowKeys, Map<String, UiPage> pageMap, long openSeq,
@@ -172,6 +181,7 @@ class UiApplierTest {
     /** Review Focus 3: an open request published while a job is pending (or running) is never lost. */
     @Test
     void openRequestDuringPendingJobIsNotLost() throws Exception {
+        SdkGlobals.uiRowModels = rows;
         Map<String, UiPage> both = pages("p1", "p2");
         publish("", Collections.singletonList("plugins"), both, 1, "p1");
         applier.step(0);
@@ -204,10 +214,11 @@ class UiApplierTest {
 
     @Test
     void pageContentChangeRefreshesOnce() throws Exception {
+        SdkGlobals.uiRowModels = rows;
         publish("", Collections.singletonList("plugins"), pages("p1"), 0, null);
         applier.step(0);
         sink.runHeld();
-        assertEquals(Arrays.asList("hide", "refresh:[p1]"), drain());
+        assertEquals(withRows(allRows(true), "refresh:[p1]"), drain());
         publish("", Collections.singletonList("plugins"), pages("p1"), 0, null); // equal content, new objects
         applier.step(0);
         assertEquals(0, sink.size());
@@ -239,7 +250,7 @@ class UiApplierTest {
     void rowVisibilityAppliedWhenModelsAppearLate() throws Exception {
         publish("", "plugins", "a", "b");
         applier.step(0);
-        assertEquals(Collections.singletonList("hide"), drain(), "no row writes before the drawer exists");
+        assertEquals(Collections.emptyList(), drain(), "no row writes before the drawer exists; no status ever shown");
         assertEquals("b", SdkGlobals.uiSlots.keyAt(2), "the assignment is published regardless");
 
         SdkGlobals.uiRowModels = rows; // the drawer was built on HMIEvent
@@ -266,7 +277,8 @@ class UiApplierTest {
         List<String> expected = new ArrayList<String>(Arrays.asList("row0=off", "row1=off", "hide"));
         assertEquals(expected, drain(), "visible rows hidden, status hidden");
         assertEquals(1, sink.runHeld(), "a final page job");
-        assertEquals(Collections.singletonList("refresh:[]"), drain(), "pages reconciled against no pages");
+        assertEquals(Collections.singletonList("close"), drain(), "back to the stock screen, not the stopped notice");
+        assertTrue(SdkGlobals.uiDown, "a drawer built from now on starts with the Plugins row hidden");
         applier.stop(); // idempotent
         applier.start(); // ignored after stop
         assertFalse(threadAlive("mibsdk-ui"));
@@ -305,5 +317,137 @@ class UiApplierTest {
         off.put("a", new UiPage("a", "a", Collections.singletonList(new UiEntry(UiEntry.TOGGLE, "t", "T", null, false,
                 null))));
         assertFalse(UiApplier.samePages(on, off));
+    }
+
+    private static List<String> withRows(List<String> rowWrites, String... more) {
+        List<String> l = new ArrayList<String>(rowWrites);
+        l.addAll(Arrays.asList(more));
+        return l;
+    }
+
+    /** Minor 2: popup 65 belongs to stock EngineeringApp until the SDK has shown text on it. */
+    @Test
+    void neverShownStatusIsNeverHidden() throws Exception {
+        publish("", "plugins");
+        applier.step(0);
+        applier.stop(); // not started: no teardown thread, nothing to write
+        assertEquals(Collections.emptyList(), drain());
+    }
+
+    /** Critical 1 (a): before the drawer exists the HMI may not have its first screen; no page job is posted. */
+    @Test
+    void noPageJobBeforeTheDrawerExists() throws Exception {
+        publish("", Collections.singletonList("plugins"), pages("p1"), 1, "p1");
+        applier.step(0);
+        assertEquals(0, sink.size(), "no job while SdkGlobals.uiRowModels is null");
+        SdkGlobals.uiRowModels = rows;
+        applier.step(0);
+        assertEquals(1, sink.size());
+        sink.runHeld();
+        assertTrue(drain().contains("open:p1@1"));
+    }
+
+    /** Critical 1 (b): a job the dispatcher silently dropped is re-posted after the deadline; the open is not lost. */
+    @Test
+    void silentlyDroppedPageJobIsRepostedAfterTheDeadline() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", Collections.singletonList("plugins"), pages("p1"), 1, "p1");
+        applier.step(0);
+        assertEquals(1, sink.size());
+        sink.held.clear(); // StartupFilter discarded it
+        now = HmiPoster.PENDING_DEADLINE_MS - 1;
+        applier.step(0);
+        assertEquals(0, sink.size(), "within the deadline: still waiting");
+        now = HmiPoster.PENDING_DEADLINE_MS;
+        applier.step(0);
+        assertEquals(1, sink.size(), "re-posted");
+        sink.runHeld();
+        assertTrue(drain().contains("open:p1@1"));
+    }
+
+    /** Important 1: one failing phase never starves the others; each distinct failure is logged once. */
+    @Test
+    void failingPhaseDoesNotStarveTheOthers() throws Exception {
+        SdkGlobals.uiRowModels = (slot, visible) -> {
+            throw new IllegalStateException("row model gone");
+        };
+        UiApplier[] self = new UiApplier[1];
+        Clock clock = () -> now;
+        HmiPoster poster = new HmiPoster(sink, () -> self[0].wake(), clock, HmiPoster.PENDING_DEADLINE_MS);
+        RowModels failing = (slot, visible) -> {
+            throw new IllegalStateException("row model gone");
+        };
+        StatusLineSink failingStatus = new StatusLineSink() {
+            public void show(String text) {
+                throw new IllegalStateException("popup gone");
+            }
+
+            public void hide() {
+            }
+        };
+        self[0] = new UiApplier(table, failing, failingStatus, pages, poster, clock, log);
+        publish("S", Arrays.asList("plugins", "a"), pages("p1"), 1, "p1");
+        self[0].step(0);
+        self[0].step(0);
+        assertEquals(1, sink.size(), "pages still posted although rows and status failed");
+        sink.runHeld();
+        assertTrue(drain().contains("open:p1@1"));
+        assertEquals("a", SdkGlobals.uiSlots.keyAt(1), "slots still assigned");
+        int rowErrors = 0;
+        int statusErrors = 0;
+        for (String l : log.snapshot()) {
+            rowErrors += l.contains("ERROR") && l.contains("row model gone") ? 1 : 0;
+            statusErrors += l.contains("ERROR") && l.contains("popup gone") ? 1 : 0;
+        }
+        assertEquals(1, rowErrors, "once per phase and message: " + log.snapshot());
+        assertEquals(1, statusErrors);
+    }
+
+    /**
+     * Important 2: the runtime's down snapshot takes every piece of SDK UI off screen: all rows (the Plugins row too),
+     * a shown status line, and an open page goes back to the stock screen. A running runtime's next snapshot resumes.
+     */
+    @Test
+    void downSnapshotTearsEverythingDownAndARunningRuntimeResumes() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("S", Arrays.asList("plugins", "a"), pages("p1"), 1, "p1");
+        applier.step(0);
+        sink.runHeld();
+        drain();
+
+        table.publish(UiSnapshot.down(++version));
+        applier.step(0);
+        assertEquals(Arrays.asList("row0=off", "row1=off", "hide"), drain());
+        assertSame(DrawerAssignment.EMPTY, SdkGlobals.uiSlots);
+        assertTrue(SdkGlobals.uiDown);
+        assertEquals(1, sink.size());
+        sink.runHeld();
+        assertEquals(Collections.singletonList("close"), drain(), "the stock screen, not the stopped notice");
+        applier.step(0);
+        assertEquals(0, sink.size(), "closed once");
+
+        version = 0; // a restarted runtime counts from 1 again
+        publish("", Arrays.asList("plugins"), null, 0, null);
+        applier.step(0);
+        assertFalse(SdkGlobals.uiDown);
+        assertEquals(Collections.singletonList("row0=on"), drain());
+    }
+
+    /** Important 2: a late job of a replaced applier never touches the new runtime's pages. */
+    @Test
+    void oldAppliersLateJobIsIgnored() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", Collections.singletonList("plugins"), pages("p1"), 1, "p1");
+        applier.step(0);
+        Runnable oldJob = sink.held.remove(0);
+        drain();
+
+        UiApplier[] self = new UiApplier[1];
+        self[0] = newApplier(self); // a restarted runtime's applier
+        oldJob.run();
+        assertEquals(Collections.emptyList(), drain(), "the old applier's job renders nothing");
+        self[0].step(0);
+        sink.runHeld();
+        assertTrue(drain().contains("open:p1@1"), "the new applier renders");
     }
 }

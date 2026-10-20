@@ -217,23 +217,62 @@ class HqcPlatformTest {
         }
     }
 
+    /** IFrameworkAccess → IHMIServiceApp → label/choice models, recording every model write. */
+    private static Object frameworkAccess(List<String> calls) {
+        return hmiProxy(de.audi.atip.base.IFrameworkAccess.class, "fw", calls);
+    }
+
+    private static Object hmiProxy(Class<?> iface, String name, List<String> calls) {
+        return Proxy.newProxyInstance(HqcPlatformTest.class.getClassLoader(), new Class<?>[] {iface}, (px, m, a) -> {
+            switch (m.getName()) {
+                case "getHmiServiceApp":
+                    return hmiProxy(de.audi.atip.hmi.IHMIServiceApp.class, "app", calls);
+                case "getLabelModel":
+                    return hmiProxy(de.audi.atip.hmi.modelaccess.LabelModelApp.class, "label" + a[0], calls);
+                case "getChoiceModel":
+                    return hmiProxy(de.audi.atip.hmi.modelaccess.ChoiceModelApp.class, "choice" + a[0], calls);
+                case "setText":
+                case "setValue":
+                    calls.add(name + "." + m.getName() + "(" + a[0] + ")");
+                    return null;
+                case "hashCode":
+                    return System.identityHashCode(px);
+                case "equals":
+                    return px == a[0];
+                default:
+                    return null;
+            }
+        });
+    }
+
+    /**
+     * With the UI on, the applier starts once the HMI framework service appears, draws the published status line on
+     * popup 65 through the real framework calls (no failure path), and stop takes it down again.
+     */
     @Test
     void uiOnStartsTheApplierOnceTheHmiFrameworkAppearsAndStopEndsIt() throws Exception {
         boolean ui = SdkGlobals.uiEnabled;
+        String marker = marker();
+        List<String> calls = Collections.synchronizedList(new ArrayList<>());
         try {
             SdkGlobals.uiEnabled = true;
+            SdkGlobals.UI.publish(new mibsdk.platform.UiSnapshot(System.nanoTime(), null, "Hello", null, 0, null));
             Ctx c = new Ctx();
             HqcPlatform p = new HqcPlatform(c.context(), () -> 0L);
             p.start(new RecordingHost());
             assertTrue(eventually(2000, () -> c.lookupThreads.contains("mibsdk-wait-IFrameworkAccess")));
             assertFalse(threadAlive("mibsdk-ui"), "not before the framework service exists");
-            c.services.put(HqcPlatform.FRAMEWORK_ACCESS, Proxy.newProxyInstance(getClass().getClassLoader(),
-                    new Class<?>[] {de.audi.atip.base.IFrameworkAccess.class}, (px, m, a) -> null));
-            assertTrue(eventually(3000, () -> threadAlive("mibsdk-ui")));
+            c.services.put(HqcPlatform.FRAMEWORK_ACCESS, frameworkAccess(calls));
+            assertTrue(eventually(3000, () -> calls.contains("choice1.setValue(1)")), "status shown: " + calls);
+            assertEquals(Arrays.asList("label416.setText(Hello)", "choice1.setValue(1)"), new ArrayList<>(calls));
             p.stop();
             assertFalse(threadAlive("mibsdk-ui"), "stop waits for the applier's teardown");
+            assertEquals("choice1.setValue(0)", calls.get(calls.size() - 1), "the status line is taken down");
+            assertEquals(0, countSince(marker, "ERROR"), "no failure path: " + SdkGlobals.LOG.snapshot());
         } finally {
             SdkGlobals.uiEnabled = ui;
+            SdkGlobals.uiDown = false;
+            SdkGlobals.UI.publish(mibsdk.platform.UiSnapshot.EMPTY);
         }
     }
 

@@ -105,6 +105,7 @@ final class UiHub {
     private boolean publishPending;
     private boolean published;
     private long lastPublishAt;
+    private boolean down; // guarded by lock; set once by publishDown
     // ---- publishing ----
     private final Object publishLock = new Object();
     private long version; // guarded by publishLock
@@ -380,11 +381,31 @@ final class UiHub {
         }
     }
 
+    /**
+     * The runtime is stopping: publishes {@link UiSnapshot#down} so the adapter takes every piece of SDK UI off screen
+     * now, before any plugin is disabled, and publishes nothing after it ({@link #publishNow} becomes a no-op).
+     */
+    void publishDown() {
+        synchronized (publishLock) {
+            UiSnapshot s;
+            synchronized (lock) {
+                down = true;
+                publishPending = false;
+                s = UiSnapshot.down(++version);
+            }
+            table.publish(s);
+        }
+        log.append("STATUS", SOURCE, "ui down");
+    }
+
     /** Builds and publishes a snapshot now. The publish timer's task; also a test hook. */
     void publishNow() {
         synchronized (publishLock) {
             UiSnapshot s;
             synchronized (lock) {
+                if (down) {
+                    return; // the runtime is stopping: the down snapshot is the last one
+                }
                 publishPending = false;
                 published = true;
                 lastPublishAt = clock.uptimeMs();

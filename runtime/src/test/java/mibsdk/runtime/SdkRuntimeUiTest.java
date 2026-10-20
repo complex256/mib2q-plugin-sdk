@@ -12,6 +12,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import mibsdk.api.Features;
@@ -365,5 +366,38 @@ class SdkRuntimeUiTest {
         r.awaitState("base", PluginState.ENABLED);
         r.awaitState("child", PluginState.ENABLED);
         r.awaitState("grand", PluginState.ENABLED);
+    }
+
+    /**
+     * Fix round 1, Important 2: no SDK UI outlives the runtime. stop() publishes the down snapshot first, before any
+     * plugin is disabled, and nothing is published after it.
+     */
+    @Test
+    void stopTakesTheUiDownBeforeDisablingPlugins() throws Exception {
+        runtime();
+        r.plugin("rack", "Bike rack", UI_PERMS, PAGE_AND_ROW,
+                "protected void onDisable() { ctx.log().info(\"disabling\"); }");
+        r.start();
+        r.awaitState("rack", PluginState.ENABLED);
+        r.await(s -> s.carRows().size() == 2, "shows the rack row");
+        RingLog log = r.rt.log();
+
+        r.stop();
+        UiSnapshot last = r.table.snapshot();
+        assertTrue(last.isDown(), "the last snapshot is the down one");
+        assertTrue(last.carRows().isEmpty() && last.pages().isEmpty() && last.statusLine().isEmpty());
+        int down = -1;
+        int disabling = -1;
+        List<String> lines = log.snapshot();
+        for (int i = 0; i < lines.size(); i++) {
+            if (down < 0 && lines.get(i).endsWith(" ui down")) {
+                down = i;
+            }
+            if (disabling < 0 && lines.get(i).endsWith(" disabling")) {
+                disabling = i;
+            }
+        }
+        assertTrue(down >= 0 && disabling > down, "ui down before the plugin's onDisable: " + lines);
+        r = null; // already stopped
     }
 }

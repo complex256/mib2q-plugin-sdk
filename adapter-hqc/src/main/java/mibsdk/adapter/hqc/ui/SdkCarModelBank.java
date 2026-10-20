@@ -68,7 +68,9 @@ final class SdkCarModelBank extends CarModelBank {
             } else {
                 int slot = id - HqcUiIds.ROW_VISIBILITY_MODEL_0;
                 DrawerAssignment slots = SdkGlobals.uiSlots;
-                m.setValue(slot == 0 || (slots != null && slots.visibleAt(slot)) ? 0 : 1);
+                // The Plugins row is visible from the start, unless the SDK UI was already taken down.
+                boolean visible = slot == 0 ? !SdkGlobals.uiDown : slots != null && slots.visibleAt(slot);
+                m.setValue(visible ? 0 : 1);
                 rowVisibility[slot] = m;
             }
             this.models[i] = m;

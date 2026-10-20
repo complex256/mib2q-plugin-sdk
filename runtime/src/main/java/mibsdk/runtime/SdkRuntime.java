@@ -614,6 +614,14 @@ public final class SdkRuntime {
         if (c == null) {
             return;
         }
+        UiHub hub = uiHub;
+        if (hub != null) {
+            try {
+                hub.publishDown(); // no SDK UI outlives the runtime: off screen before any plugin is disabled
+            } catch (Throwable t) {
+                log.append("ERROR", SOURCE, "ui down failed: " + describe(t));
+            }
+        }
         runOnControl(c, "stop", new Runnable() {
             public void run() {
                 Runnable hook = testBeforeLedgerShutdown;
