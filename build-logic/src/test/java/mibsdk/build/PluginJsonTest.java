@@ -17,9 +17,13 @@ class PluginJsonTest {
     @TempDir Path dir;
 
     private File manifest(String id, String version, int api) throws IOException {
+        return manifest(id, version, String.valueOf(api));
+    }
+
+    private File manifest(String id, String version, String apiJson) throws IOException {
         File f = dir.resolve("plugin.json").toFile();
         Files.write(f.toPath(), ("{\"id\":\"" + id + "\",\"name\":\"Hello Name\",\"version\":\"" + version
-                + "\",\"author\":\"a\",\"api\":" + api + ",\"main\":\"x.Y\",\"permissions\":[]}")
+                + "\",\"author\":\"a\",\"api\":" + apiJson + ",\"main\":\"x.Y\",\"permissions\":[]}")
                 .getBytes(StandardCharsets.UTF_8));
         return f;
     }
@@ -38,6 +42,20 @@ class PluginJsonTest {
         PluginJson.read(manifest("a" + "b".repeat(39), "1.0.0", 2)); // 40 characters
         PluginJson.read(manifest("hello", "1.0.0", 1));
         PluginJson.read(manifest("hello", "1.2.3-rc.1", 2));
+    }
+
+    @Test
+    void apiMustBeAnIntegralNumberWithoutFractionOrExponent() throws IOException {
+        // the runtime's ManifestParser rejects these; the build must not package what the unit refuses
+        for (String api : new String[] {"2.0", "2e0", "2E0", "1.5", "\"2\"", "true", "null"}) {
+            File f = manifest("hello", "1.0.0", api);
+            String msg = assertThrows(GradleException.class, () -> PluginJson.read(f), api).getMessage();
+            assertTrue(msg.contains("api must be an integer"), api + ": " + msg);
+        }
+        File huge = manifest("hello", "1.0.0", "18446744073709551618"); // 2^64 + 2: must not wrap to 2
+        assertTrue(assertThrows(GradleException.class, () -> PluginJson.read(huge)).getMessage()
+                .contains("unsupported api"));
+        assertEquals(2, PluginJson.read(manifest("hello", "1.0.0", "2")).api);
     }
 
     @Test

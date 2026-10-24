@@ -35,16 +35,21 @@ final class PluginJson {
     static final int MIN_API = 1;
     static final int MAX_API = 2;
 
+    /**
+     * Like the runtime, only an integral JSON number (no fraction, no exponent) is an api level. JsonSlurper gives
+     * BigDecimal for {@code 2.0} or {@code 2e0}, Integer for a value that fits an int and Long beyond; its Long path
+     * silently wraps past 2^63 ({@code 18446744073709551618} reads as 2), so a Long is never trusted as a level.
+     */
     private static int checkApi(File file, Object api) {
-        if (!(api instanceof Number) || ((Number) api).doubleValue() != ((Number) api).longValue()) {
+        if (!(api instanceof Integer || api instanceof Long)) {
             throw new GradleException("mibsdk.plugin: " + file + ": api must be an integer");
         }
-        long v = ((Number) api).longValue();
-        if (v < MIN_API || v > MAX_API) {
-            throw new GradleException("mibsdk.plugin: " + file + ": unsupported api " + v
+        if (api instanceof Long || (Integer) api < MIN_API || (Integer) api > MAX_API) {
+            throw new GradleException("mibsdk.plugin: " + file + ": unsupported api "
+                    + (api instanceof Long ? "(out of range)" : api.toString())
                     + ", this SDK implements api " + MIN_API + ".." + MAX_API);
         }
-        return (int) v;
+        return (Integer) api;
     }
 
     /** Parses and validates the fields the build relies on; fails the build naming the file otherwise. */
