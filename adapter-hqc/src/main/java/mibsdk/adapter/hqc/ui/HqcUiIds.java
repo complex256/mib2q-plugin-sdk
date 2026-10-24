@@ -27,8 +27,15 @@ public final class HqcUiIds {
     public static final int ROW_VISIBILITY_MODEL_0 = MODEL_BASE;
     /** Selection ChoiceModel shared by every SDK row; a row's {@code widgetID} is its slot. */
     public static final int ROW_SELECTION_MODEL = MODEL_BASE + 9;
-    /** Models the SDK bank grows: the 9 visibility models and the selection model. */
-    public static final int MODEL_COUNT = ROW_SLOTS + 1;
+    /** The drawer rows' models: the 9 visibility models and the selection model ({@code MODEL_BASE + 0..9}). */
+    public static final int ROW_MODEL_COUNT = ROW_SLOTS + 1;
+    /**
+     * The SDK page's ListModel (spike B): 3 columns (text, value, row kind; the kind is the id column). Id
+     * {@code MODEL_BASE + 10} stays unused (spike B's row-label model).
+     */
+    public static final int PAGE_LIST_MODEL = MODEL_BASE + 11;
+    /** Model ids the SDK bank reserves: {@code MODEL_BASE .. MODEL_BASE + MODEL_COUNT - 1}. */
+    public static final int MODEL_COUNT = PAGE_LIST_MODEL - MODEL_BASE + 1;
     /** SDK rows' menu-item internal ids, one per slot (as spike A wired them). */
     public static final int ROW_INTERNAL_ID_BASE = 609900;
     /**
@@ -39,6 +46,26 @@ public final class HqcUiIds {
     /** Glass-plate insets of the stock cARSEL rows, as spike A set them on the SDK rows. */
     public static final int ROW_GLASSPLATE_INSET_TOP = 7;
     public static final int ROW_GLASSPLATE_INSET_BOTTOM = 6;
+    /** How SDK pages reach the screen (spike B, S2a go): FwHMI.showScreen with a prebuilt Screen. */
+    public static final int PAGE_PATH_SHOW_SCREEN = 0;
+    /** The alternative (S2b go, not used): a hijacked Car state's screen ({@code createScreen}). */
+    public static final int PAGE_PATH_HIJACK = 1;
+    public static final int PAGE_PATH = PAGE_PATH_SHOW_SCREEN;
+    /** Screen id of every SDK page (Car module, unused by the Car factory). */
+    public static final int PAGE_SCREEN_ID = 609500;
+    /** Factory text id of the page title (outside the drawer rows' {@code TEXT_BASE + 0..8}). */
+    public static final int TEXT_PAGE_TITLE = TEXT_BASE + 20;
+    /** Hard key BACK (KeyEvent code; the page's MenuController consumes its press and release). */
+    public static final int KEY_BACK = 15;
+    /** Menu-item type of a list row (EngineeringScreenBag2's list items). */
+    public static final int LIST_ITEM_TYPE = 16;
+    /** The status-bar stub's model on every stock screen. */
+    public static final int STATUSBAR_STUB_MODEL = 138;
+    /** Title bar bitmaps of the page (as spike B drew them). */
+    public static final int PAGE_TITLE_ICON_BITMAP = 127;
+    public static final int PAGE_TITLE_BAR_BITMAP = 58;
+    /** EarlyApps HMI module: the parking/RVC popups (screens 2100000..) live here. */
+    public static final int EARLY_APPS_MODULE = 21;
     /** Status-line popup: label model 416, visible while system ChoiceModel 1 is 1. */
     public static final int POPUP_STATUS = 65;
     public static final int STATUS_LABEL_MODEL = 416;

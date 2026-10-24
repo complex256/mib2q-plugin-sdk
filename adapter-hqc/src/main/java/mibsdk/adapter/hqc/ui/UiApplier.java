@@ -90,6 +90,9 @@ public final class UiApplier {
     private volatile boolean down;
     private volatile boolean closedRendered;
     private volatile long renderedOpenSeq;
+    /** The newest openSeq the applier saw, and when (monotonic): an open request's age is measured from here. */
+    private volatile long seenOpenSeq = Long.MIN_VALUE;
+    private volatile long seenOpenAt;
     private volatile Map<String, UiPage> renderedPages;
 
     private volatile boolean stopping;
@@ -112,7 +115,8 @@ public final class UiApplier {
     /**
      * The production applier over {@code SdkGlobals}: popup 65 on {@code frameworkAccess} (the
      * {@code de.audi.atip.base.IFrameworkAccess} service), row visibility through {@code SdkGlobals.uiRowModels}, jobs
-     * posted to HMIEvent, no page renderer yet. {@code statusMaxChars}: {@code ui.status.max.chars}. Starts nothing.
+     * posted to HMIEvent, SDK pages as native screens ({@link PageScreens}). {@code statusMaxChars}:
+     * {@code ui.status.max.chars}. Starts nothing.
      */
     public static UiApplier create(Object frameworkAccess, Clock clock, RingLog log, int statusMaxChars) {
         final UiApplier[] self = new UiApplier[1];
@@ -132,7 +136,8 @@ public final class UiApplier {
                 }
             }
         };
-        self[0] = new UiApplier(SdkGlobals.UI, rows, new Popup65StatusLine(frameworkAccess, statusMaxChars), PageRenderer.NONE,
+        PageRenderer pages = PageScreens.create(frameworkAccess, SdkGlobals.UI, poster, log);
+        self[0] = new UiApplier(SdkGlobals.UI, rows, new Popup65StatusLine(frameworkAccess, statusMaxChars), pages,
                 poster, clock, log);
         return self[0];
     }
@@ -232,6 +237,10 @@ public final class UiApplier {
         if (s != null) {
             lastVersion = s.version();
             current = s;
+            if (s.openSeq() != seenOpenSeq) {
+                seenOpenAt = clock.uptimeMs();
+                seenOpenSeq = s.openSeq();
+            }
             freshSnapshot = true;
             if (s.isDown()) {
                 enterDown();
@@ -382,7 +391,9 @@ public final class UiApplier {
         renderedOpenSeq = s.openSeq();
         renderedPages = s.pages();
         if (open) {
-            pages.open(s.openPageKey(), s);
+            // A request this thread has not seen yet was published just now: age 0.
+            long age = s.openSeq() == seenOpenSeq ? clock.uptimeMs() - seenOpenAt : 0;
+            pages.open(s.openPageKey(), s, age);
         } else {
             pages.refresh(s);
         }

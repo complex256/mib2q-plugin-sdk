@@ -168,15 +168,34 @@ class SdkCarActivatorTest {
         SdkGlobals.uiEnabled = true;
         SdkCarModelBank bank = (SdkCarModelBank) bankOf(new SdkCarActivator());
         int[] before = bank.getAllModelIds();
-        for (int i = 0; i < HqcUiIds.MODEL_COUNT; i++) {
+        for (int i = 0; i < HqcUiIds.ROW_MODEL_COUNT; i++) {
             model(bank, HqcUiIds.MODEL_BASE + i);
         }
+        assertNotNull(SdkCarModelBank.pageList());
         int[] ids = bank.getAllModelIds();
         assertEquals(before.length, ids.length);
-        for (int i = 0; i < HqcUiIds.MODEL_COUNT; i++) {
-            assertEquals(HqcUiIds.MODEL_BASE + i, ids[ids.length - HqcUiIds.MODEL_COUNT + i]);
+        int sdk = HqcUiIds.ROW_MODEL_COUNT + 1;
+        for (int i = 0; i < HqcUiIds.ROW_MODEL_COUNT; i++) {
+            assertEquals(HqcUiIds.MODEL_BASE + i, ids[ids.length - sdk + i]);
         }
-        assertEquals(1147 + HqcUiIds.MODEL_COUNT, ids.length, "CarModelBank's 1147 stock ids, then the SDK's");
+        assertEquals(HqcUiIds.PAGE_LIST_MODEL, ids[ids.length - 1], "then the page list");
+        assertEquals(1147 + sdk, ids.length, "CarModelBank's 1147 stock ids, then the SDK's");
+    }
+
+    /** Task 11: the page ListModel (3 columns) exists on demand; the reserved id between it and the rows has none. */
+    @Test
+    void bankGrowsThePageListModel() throws Exception {
+        SdkGlobals.uiEnabled = true;
+        SdkCarModelBank bank = (SdkCarModelBank) bankOf(new SdkCarActivator());
+        de.audi.atip.hmi.model.ListModel list = SdkCarModelBank.pageList();
+        assertNotNull(list);
+        assertSame(list, SdkCarModelBank.pageList(), "created once");
+        assertEquals(3, list.getMaxColumns());
+        int reserved = BASE_INDEX + HqcUiIds.ROW_MODEL_COUNT;
+        bank.createModel(reserved);
+        Field f = de.audi.atip.hmi.model.AbstractModelBank.class.getDeclaredField("models");
+        f.setAccessible(true);
+        assertNull(((Object[]) f.get(bank))[reserved]);
     }
 
     /** Fix round 1, Minor 3: after the SDK UI was taken down, a drawer built from scratch starts without the Plugins row. */

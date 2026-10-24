@@ -135,4 +135,76 @@ class PageStackTest {
         s.push("a2", null, snapWith("a", "a2")); // present target: an ordinary push
         assertEquals(java.util.Arrays.asList("-a", "+a2"), log.ev);
     }
+
+    /** Carried requirement: a throwing listener never breaks navigation, BACK or the stack; each throw is reported. */
+    @Test
+    void throwingListenerNeverBreaksNavigation() {
+        final java.util.List<String> failures = new java.util.ArrayList<String>();
+        final Log log = new Log();
+        PageStack s = new PageStack(new PageStack.Listener() {
+            public void shown(String k) {
+                log.shown(k);
+                throw new IllegalStateException("shown " + k);
+            }
+
+            public void closed(String k) {
+                log.closed(k);
+                throw new IllegalStateException("closed " + k);
+            }
+        }, new PageStack.Failures() {
+            public void listenerFailed(String event, String pageKey, Throwable t) {
+                failures.add(event + " " + pageKey + ": " + t.getMessage());
+            }
+        });
+        Object origin = new Object();
+        s.push("a", origin);
+        s.push("b", null);
+        assertEquals("b", s.top());
+        assertNull(s.back());
+        assertEquals("a", s.top());
+        assertSame(origin, s.back());
+        assertNull(s.top());
+        assertEquals(java.util.Arrays.asList("+a", "-a", "+b", "-b", "+a", "-a"), log.ev, "every event still sent");
+        assertEquals(java.util.Arrays.asList("shown a: shown a", "closed a: closed a", "shown b: shown b",
+                "closed b: closed b", "shown a: shown a", "closed a: closed a"), failures);
+    }
+
+    /** A throwing failure sink is swallowed too: the stack never throws because of its listener. */
+    @Test
+    void throwingFailureSinkIsSwallowed() {
+        PageStack s = new PageStack(new PageStack.Listener() {
+            public void shown(String k) {
+                throw new IllegalStateException();
+            }
+
+            public void closed(String k) {
+                throw new IllegalStateException();
+            }
+        }, new PageStack.Failures() {
+            public void listenerFailed(String event, String pageKey, Throwable t) {
+                throw new IllegalStateException("sink");
+            }
+        });
+        s.push("a", null);
+        s.open("b", null);
+        s.clear();
+        assertNull(s.top());
+    }
+
+    /** clear() empties the stack with one closed(top) and no shown: leaving SDK pages entirely. */
+    @Test
+    void clearClosesTheTopOnly() {
+        Log log = new Log();
+        PageStack s = new PageStack(log);
+        s.push("a", new Object());
+        s.push("b", null);
+        log.ev.clear();
+        s.clear();
+        assertNull(s.top());
+        assertNull(s.back(), "the bottom returnTo went with the stack");
+        assertEquals(java.util.Collections.singletonList("-b"), log.ev);
+        log.ev.clear();
+        s.clear();
+        assertEquals(java.util.Collections.emptyList(), log.ev);
+    }
 }

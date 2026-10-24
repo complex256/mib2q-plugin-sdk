@@ -33,6 +33,7 @@ class UiApplierTest {
     private final RingLog log = new RingLog(200);
     private volatile long now;
     private Runnable onOpen = () -> { };
+    private final List<Long> ages = Collections.synchronizedList(new ArrayList<Long>());
     private UiApplier applier;
     private long version;
 
@@ -47,8 +48,9 @@ class UiApplierTest {
         }
     };
     private final PageRenderer pages = new PageRenderer() {
-        public void open(String pageKey, UiSnapshot s) {
+        public void open(String pageKey, UiSnapshot s, long requestAgeMs) {
             writes.add("open:" + pageKey + "@" + s.openSeq());
+            ages.add(requestAgeMs);
             onOpen.run();
         }
 
@@ -490,5 +492,51 @@ class UiApplierTest {
         self[0].step(0);
         sink.runHeld();
         assertTrue(drain().contains("open:p1@1"), "the new applier renders");
+    }
+
+    /**
+     * Carried requirement (open requests expire): the renderer gets the request's age, measured on the monotonic
+     * clock from when the applier first saw that openSeq, so a request held back (no drawer yet, a dropped job) is
+     * old when its job finally runs, and PageScreens drops it.
+     */
+    @Test
+    void openRequestAgeRunsFromWhenTheApplierSawIt() throws Exception {
+        now = 1000;
+        publish("", Collections.singletonList("plugins"), pages("p1"), 1, "p1");
+        applier.step(0); // seen at 1000; no drawer yet, so no job
+        assertEquals(0, sink.size());
+        now = 1000 + PageScreens.OPEN_TTL_MS + 500;
+        SdkGlobals.uiRowModels = rows;
+        applier.step(0);
+        sink.runHeld();
+        assertTrue(drain().contains("open:p1@1"));
+        assertEquals(Collections.singletonList(PageScreens.OPEN_TTL_MS + 500), ages);
+
+        ages.clear();
+        publish("", Collections.singletonList("plugins"), pages("p1"), 2, "p1"); // a new request
+        applier.step(0);
+        now += 300;
+        sink.runHeld();
+        assertEquals(Collections.singletonList(300L), ages);
+    }
+
+    /** Carried requirement (hand-over): an old applier's close job does nothing once a newer one claimed the HMI. */
+    @Test
+    void oldAppliersLateCloseJobIsIgnored() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", Collections.singletonList("plugins"), pages("p1"), 1, "p1");
+        applier.step(0);
+        sink.runHeld();
+        table.publish(UiSnapshot.down(++version));
+        applier.step(0);
+        assertEquals(1, sink.size(), "the close job is pending");
+        Runnable closeJob = sink.held.remove(0);
+        drain();
+
+        UiApplier[] self = new UiApplier[1];
+        self[0] = newApplier(self);
+        self[0].claimLive();
+        closeJob.run();
+        assertFalse(drain().contains("close"), "the new applier's page stays");
     }
 }

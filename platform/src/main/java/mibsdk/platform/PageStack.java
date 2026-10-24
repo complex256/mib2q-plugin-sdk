@@ -7,7 +7,8 @@ import java.util.List;
  * Navigation stack of SDK page keys. Stock-free; single-threaded (HMIEvent on the unit).
  *
  * <p>Exactly one SDK page is "open" at a time: whenever the visible (top) page changes, the optional
- * {@link Listener} gets {@code closed(previous top)} if any, then {@code shown(new top)} if any.
+ * {@link Listener} gets {@code closed(previous top)} if any, then {@code shown(new top)} if any. A listener that throws
+ * never breaks navigation: each call is caught and reported to the optional {@link Failures}.
  */
 public final class PageStack {
 
@@ -21,8 +22,14 @@ public final class PageStack {
         void closed(String pageKey);
     }
 
+    /** Told about each listener call that threw; the HQC adapter logs it. Its own throws are swallowed. */
+    public interface Failures {
+        void listenerFailed(String event, String pageKey, Throwable t);
+    }
+
     private final List<String> keys = new ArrayList<String>();
     private final Listener listener;
+    private final Failures failures;
     private Object bottomReturnTo;
 
     public PageStack() {
@@ -30,7 +37,12 @@ public final class PageStack {
     }
 
     public PageStack(Listener listener) {
+        this(listener, null);
+    }
+
+    public PageStack(Listener listener, Failures failures) {
         this.listener = listener;
+        this.failures = failures;
     }
 
     /** Pushes a page. {@code returnTo} is kept only when the stack was empty (it belongs to the bottom page). */
@@ -81,6 +93,14 @@ public final class PageStack {
         return r;
     }
 
+    /** Empties the stack (SDK pages were left): {@code closed(top)} only; the bottom page's returnTo is dropped. */
+    public void clear() {
+        String old = top();
+        keys.clear();
+        bottomReturnTo = null;
+        changed(old);
+    }
+
     /** The visible page key, or null when empty. */
     public String top() {
         return keys.isEmpty() ? null : keys.get(keys.size() - 1);
@@ -108,10 +128,28 @@ public final class PageStack {
             return;
         }
         if (old != null) {
-            listener.closed(old);
+            notify(false, old);
         }
         if (now != null) {
-            listener.shown(now);
+            notify(true, now);
+        }
+    }
+
+    private void notify(boolean shown, String key) {
+        try {
+            if (shown) {
+                listener.shown(key);
+            } else {
+                listener.closed(key);
+            }
+        } catch (Throwable t) {
+            if (failures != null) {
+                try {
+                    failures.listenerFailed(shown ? "shown" : "closed", key, t);
+                } catch (Throwable ignored) {
+                    // the stack never throws because of its listener
+                }
+            }
         }
     }
 }

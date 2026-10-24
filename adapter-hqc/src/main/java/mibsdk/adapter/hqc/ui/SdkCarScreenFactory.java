@@ -15,15 +15,25 @@ import mibsdk.adapter.hqc.SdkGlobals;
 /**
  * CarScreenFactory plus the SDK's pre-allocated rows at the end of the Car selection drawer: the Plugins row (slot
  * 0, visible) and {@link HqcUiIds#PLUGIN_ROW_SLOTS} plugin rows shown or hidden by their visibility models. Labels
- * come from {@link #getText} (live, from {@code SdkGlobals.uiSlots}). Every override runs on HMIEvent: it reads only
+ * come from {@link #getText} (live, from {@code SdkGlobals.uiSlots}), and so does the SDK page title
+ * ({@link HqcUiIds#TEXT_PAGE_TITLE}). Every override runs on HMIEvent: it reads only
  * volatile SDK state, builds stock widgets, catches Throwable and falls back to the stock result.
  */
 final class SdkCarScreenFactory extends CarScreenFactory {
+
+    /** The Car factory SDK pages are built with (their ref widgets, fonts and title text); null until built. */
+    static volatile SdkCarScreenFactory current;
 
     private final TextIds texts = new TextIds(HqcUiIds.TEXT_BASE);
 
     SdkCarScreenFactory(IFrameworkAccess fw) {
         super(fw);
+        current = this;
+    }
+
+    /** getFramework() is protected; the page recipe needs it for fonts. */
+    IFrameworkAccess framework() {
+        return getFramework();
     }
 
     public IDrawerController[] getSelectionDrawers(int terminal) {
@@ -136,7 +146,7 @@ final class SdkCarScreenFactory extends CarScreenFactory {
 
     public String getText(int id) {
         try {
-            String s = texts.textFor(id, SdkGlobals.uiSlots);
+            String s = id == HqcUiIds.TEXT_PAGE_TITLE ? PageScreens.title() : texts.textFor(id, SdkGlobals.uiSlots);
             if (s != null) {
                 return s;
             }
@@ -148,7 +158,7 @@ final class SdkCarScreenFactory extends CarScreenFactory {
 
     public String getAltText(int id) {
         try {
-            String s = texts.textFor(id, SdkGlobals.uiSlots);
+            String s = id == HqcUiIds.TEXT_PAGE_TITLE ? PageScreens.title() : texts.textFor(id, SdkGlobals.uiSlots);
             if (s != null) {
                 return s;
             }

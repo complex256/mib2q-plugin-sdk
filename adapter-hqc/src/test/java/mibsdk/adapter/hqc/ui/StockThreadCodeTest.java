@@ -22,12 +22,14 @@ import org.junit.jupiter.api.Test;
 class StockThreadCodeTest {
 
     private static final String[] STOCK_THREAD_FILES = {"SdkCarActivator", "SdkCarModelBank", "SdkCarScreenFactory",
-        "TextIds", "UiInputs", "DrawerAssignment", "HmiPoster", "PageEvents", "PageRenderer"};
+        "TextIds", "UiInputs", "DrawerAssignment", "HmiPoster", "PageEvents", "PageRenderer", "PageScreens",
+        "PageWidgets"};
 
     private static final Pattern FORBIDDEN = Pattern.compile("java\\.io\\.|java\\.nio\\.|java\\.net\\.|\\bnew Thread\\b"
             + "|\\bThread\\.sleep\\b|\\.start\\(\\)|\\.join\\(|\\.wait\\(|\\bnew Timer\\b|System\\.(out|err)"
-            + "|mibsdk\\.api\\.|mibsdk\\.runtime\\.(?!Clock;)|\\bawaitNewer\\b|\\.poll\\(");
+            + "|mibsdk\\.api\\.|mibsdk\\.runtime\\.(?!Clock;|RingLog;)|\\bawaitNewer\\b|\\.poll\\(");
     // mibsdk.runtime.Clock is allowed: HmiPoster reads the monotonic clock (one short monitor), never runtime code.
+    // mibsdk.runtime.RingLog is allowed: the one way stock-thread code may log (PageScreens).
 
     private static String source(String name) throws IOException {
         Path p = Paths.get("src/main/java/mibsdk/adapter/hqc/ui/" + name + ".java");
@@ -61,6 +63,16 @@ class StockThreadCodeTest {
             {"SdkCarScreenFactory", "void install"},
             {"HmiPoster", "void runJob"},
             {"UiApplier", "void wake"},
+            {"PageScreens", "void open"},
+            {"PageScreens", "void refresh"},
+            {"PageScreens", "void close"},
+            {"PageScreens", "void listSelected"},
+            {"PageScreens", "void backPressed"},
+            {"PageScreens", "void screenConnected"},
+            {"PageScreens", "void screenDisconnecting"},
+            {"PageWidgets", "void keyPressed"},
+            {"PageWidgets", "void keyReleased"},
+            {"SdkCarModelBank", "void createPageList"},
         };
         for (String[] o : overrides) {
             String src = source(o[0]);

@@ -2,23 +2,35 @@ package mibsdk.adapter.hqc.ui;
 
 import de.audi.atip.hmi.model.ChoiceModel;
 import de.audi.atip.hmi.model.HMIModel;
+import de.audi.atip.hmi.model.ListListener;
+import de.audi.atip.hmi.model.ListModel;
 import de.audi.atip.hmi.model.listener.DefaultChoiceListener;
 import de.audi.atip.model.CarModelBank;
 import mibsdk.adapter.hqc.SdkGlobals;
 
 /**
- * CarModelBank grown by {@link HqcUiIds#MODEL_COUNT} models at {@link HqcUiIds#MODEL_BASE} (spike A's technique): a
- * visibility ChoiceModel per drawer slot and the selection ChoiceModel shared by the SDK rows.
+ * CarModelBank grown at {@link HqcUiIds#MODEL_BASE} (spike A's technique): a visibility ChoiceModel per drawer slot,
+ * the selection ChoiceModel shared by the SDK rows, and the SDK page's ListModel ({@link HqcUiIds#PAGE_LIST_MODEL}).
  *
  * <p>Built on LSD's startup thread (arrays only: no thread, no I/O). The stock framework creates the models on
  * HMIEvent, through {@link #createModel}, when the drawer is first built; once every row model exists the bank
  * publishes them as {@code SdkGlobals.uiRowModels}. The selection listener only drops the press into
- * {@code SdkGlobals.UI}.
+ * {@code SdkGlobals.UI}; the page list's listener only hands the row to {@link PageScreens#listSelected}.
  */
 final class SdkCarModelBank extends CarModelBank {
 
     /** Index of {@link HqcUiIds#MODEL_BASE} in {@code models[]} (ids are module * 100000 + index). */
     private static final int BASE_INDEX = HqcUiIds.MODEL_BASE - HqcUiIds.CAR_MODULE * 100000;
+    /** Index of the page ListModel; the reserved ids between the row models and it have no model. */
+    private static final int PAGE_LIST_INDEX = BASE_INDEX + HqcUiIds.PAGE_LIST_MODEL - HqcUiIds.MODEL_BASE;
+    /** The SDK model ids the bank serves: the row models, then the page list. */
+    private static final int[] SDK_IDS = sdkIds();
+
+    /** The bank SDK pages write their rows to; null until built. */
+    private static volatile SdkCarModelBank current;
+
+    /** A page holds at most 24 entries (PageSpec); the stopped notice has one. */
+    private static final int PAGE_MAX_ROWS = 24;
 
     /** Visibility models by slot; written under the bank's lock (createModel), published through SdkGlobals. */
     private final ChoiceModel[] rowVisibility = new ChoiceModel[HqcUiIds.ROW_SLOTS];
@@ -31,13 +43,31 @@ final class SdkCarModelBank extends CarModelBank {
         HMIModel[] grown = new HMIModel[BASE_INDEX + HqcUiIds.MODEL_COUNT];
         System.arraycopy(this.models, 0, grown, 0, stockLen);
         int stockIds = this.modelIDs.length;
-        int[] ids = new int[stockIds + HqcUiIds.MODEL_COUNT];
+        int[] ids = new int[stockIds + SDK_IDS.length];
         System.arraycopy(this.modelIDs, 0, ids, 0, stockIds);
-        for (int i = 0; i < HqcUiIds.MODEL_COUNT; i++) {
-            ids[stockIds + i] = HqcUiIds.MODEL_BASE + i;
-        }
+        System.arraycopy(SDK_IDS, 0, ids, stockIds, SDK_IDS.length);
         this.models = grown;
         this.modelIDs = ids;
+        current = this;
+    }
+
+    private static int[] sdkIds() {
+        int[] ids = new int[HqcUiIds.ROW_MODEL_COUNT + 1];
+        for (int i = 0; i < HqcUiIds.ROW_MODEL_COUNT; i++) {
+            ids[i] = HqcUiIds.MODEL_BASE + i;
+        }
+        ids[HqcUiIds.ROW_MODEL_COUNT] = HqcUiIds.PAGE_LIST_MODEL;
+        return ids;
+    }
+
+    /** The SDK page's ListModel (created on first use), or null before the bank exists. HMIEvent. */
+    static ListModel pageList() {
+        SdkCarModelBank b = current;
+        if (b == null) {
+            return null;
+        }
+        b.createModel(PAGE_LIST_INDEX);
+        return (ListModel) b.models[PAGE_LIST_INDEX];
     }
 
     /**
@@ -59,6 +89,13 @@ final class SdkCarModelBank extends CarModelBank {
         if (this.models[i] != null) {
             return;
         }
+        if (i == PAGE_LIST_INDEX) {
+            createPageList();
+            return;
+        }
+        if (i >= BASE_INDEX + HqcUiIds.ROW_MODEL_COUNT) {
+            return; // reserved, no model
+        }
         try {
             int id = HqcUiIds.MODEL_BASE + (i - BASE_INDEX);
             ChoiceModel m = new ChoiceModel(id);
@@ -77,6 +114,19 @@ final class SdkCarModelBank extends CarModelBank {
             publishRowModelsOnceComplete();
         } catch (Throwable t) {
             // the model stays absent: the row it backs is not shown
+        }
+    }
+
+    /** 3 columns: text, value, row kind (the list's id column); rows are written by PageScreens. Never throws. */
+    private void createPageList() {
+        try {
+            ListModel l = new ListModel(HqcUiIds.PAGE_LIST_MODEL);
+            l.setMaxColumns(3);
+            l.setMaxRows(PAGE_MAX_ROWS);
+            l.setListListener(new PageListListener());
+            this.models[PAGE_LIST_INDEX] = l;
+        } catch (Throwable t) {
+            // no list model: pages cannot be drawn (PageScreens logs it)
         }
     }
 
@@ -118,6 +168,23 @@ final class SdkCarModelBank extends CarModelBank {
             } catch (Throwable ignored) {
                 // never propagate into the HMI
             }
+        }
+    }
+
+    /** A page list row was selected (HMIEvent): handed to PageScreens, which only sends input or asks for a job. */
+    private static final class PageListListener implements ListListener {
+        public void itemSelected(int modelId, int row, int x, int terminal) {
+            try {
+                PageScreens.listSelected(row);
+            } catch (Throwable ignored) {
+                // never propagate into the HMI
+            }
+        }
+
+        public void itemFocused(int modelId, int row, int x, int terminal) {
+        }
+
+        public void itemReleased(int modelId, int row, int x, int terminal) {
         }
     }
 }
