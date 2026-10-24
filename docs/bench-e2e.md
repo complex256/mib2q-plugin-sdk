@@ -477,8 +477,9 @@ Run 2026-10-24 on the bench (10.20.0.23, same HMI). mibpkg 0.8.1 from `feat/mibs
 (`ssh -L 18080:127.0.0.1:80`): the web server answers only on the interfaces chosen in its settings, and the bench's
 `mlan0` is not one of them (it closes the connection without a reply, by design).
 
-**Overall: Steps 0–5 pass; Step 6 was cut short. The second HMI restart (after the reinstall) reset the unit,
-and it did not come back after two `keypanel up` tries and a further ~10 min wait (P3-F12).**
+**Overall: pass. Steps 0–6 pass. The second HMI restart (after the reinstall) reset the unit, and it did not come
+back until the user power-cycled it (P3-F12, bench). After that the feat/ui SDK booted cleanly, and Step 6 was
+finished.**
 
 | # | Finding | Status |
 |---|---------|--------|
@@ -487,7 +488,7 @@ and it did not come back after two `keypanel up` tries and a further ~10 min wai
 | P3-F9 | `sdk remove` does not print a `loaded: …` line. The brief expected "loaded: DISABLED plugin jar not found" before the purge. The runtime did log `STATUS hello DISABLED plugin jar not found` before mibpkg printed `cleared the data of hello`, so the order is right; only the CLI echo is missing. | recorded (cosmetic) |
 | P3-F10 | F7 still holds: there is no PDC ECU, so bike-rack's "Rack fitted" stays at `Rear tones: waiting for parking system` and never takes an override. The Step 4 override was a hand-written ledger line (see Step 4), so "overrides of bike-rack restored" could not be exercised. | bench limitation |
 | P3-F11 | After `sdk remove`, the Plugins menu still listed the removed plugin (Crashy) until the menu was rebuilt. `plugins/<id>.reload` markers also stay after a remove and after the uninstall (by design since B1). | recorded |
-| P3-F12 | **The HMI restart after the reinstall did not come back.** `slay -s11 j9` at 12:44 reset the unit as usual (F3). `keypanel up` at 12:56 and 12:59 both said `still unreachable - is it powered and booted?`. Passive pings until 13:10 got no answer, and `keypanel status` showed `mmx: UNREACHABLE`, `daemon: down`, kl15 active. Task 15's restart after the same kind of install came back after one `keypanel up`. At 13:12 the RCC console gave 0 bytes in 15 s even after a CR (it answered earlier the same day) while CAN rx ran at ~190 frames/s, so the unit was powered but neither the RCC nor the MMX answered. The SDK installed is code-identical to the one that booted in Task 15 (only docs changed since), and the RCC is a separate processor no plugin code runs on, so this points at the bench, not the adapter. Needs a power cycle (the HA PDU entity is unavailable). | **open: bench unreachable, BLOCKED** |
+| P3-F12 | **The HMI restart after the reinstall did not come back.** `slay -s11 j9` at 12:44 reset the unit as usual (F3). `keypanel up` at 12:56 and 12:59 both said `still unreachable - is it powered and booted?`. Passive pings until 13:10 got no answer, and `keypanel status` showed `mmx: UNREACHABLE`, `daemon: down`, kl15 active. Task 15's restart after the same kind of install came back after one `keypanel up`. At 13:12 the RCC console gave 0 bytes in 15 s even after a CR (it answered earlier the same day) while CAN rx ran at ~190 frames/s, so the unit was powered but neither the RCC nor the MMX answered. The SDK installed is code-identical to the one that booted in Task 15 (only docs changed since), and the RCC is a separate processor no plugin code runs on, so this points at the bench, not the adapter. Needs a power cycle (the HA PDU entity is unavailable). **Resolved:** the user power-cycled the unit; `keypanel up` at about 13:30 kicked DHCP and it answered again. The feat/ui SDK then came up clean: `STATUS mibsdk runtime started adapter=hqc-nar-g22-c10 safeMode=false`, `bootGuard=armed`, `STATUS mibsdk ui car=sdk`, and `boot.state` `unhealthyBoots=0`, `wrapBoots=0` (`lastShutdownClean=false` from the power cut). The log had no WARN or ERROR, so the SDK was not the cause. | **resolved by a power cycle (bench)** |
 
 ### Step 0: mibpkg 0.8.1 (pass)
 
@@ -567,12 +568,29 @@ and it did not come back after two `keypanel up` tries and a further ~10 min wai
   After `back` dismissed the fuel popup, the stock home screen (`20-home-sdk-uninstalled.jpg`) and the stock Car
   drawer with no Plugins row (`21-car-drawer-sdk-uninstalled.jpg`) were shown.
 
-### Step 6: reinstall (cut short by P3-F12)
+### Step 6: reinstall (pass, after the P3-F12 power cycle)
 
 - `mibsdk-dev install` (feat/ui build; adapter 95805 bytes on the unit = `dist/build/dist`): `installed mibsdk
   0.1.0; reboot the unit (or restart the HMI) to start it`; live `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator`.
-- `mibsdk-dev restart` at 12:44 → the unit did not come back (P3-F12). The plugin installs were not run.
+- `mibsdk-dev restart` at 12:44 → the unit did not come back until the power cycle (P3-F12).
+- After the power cycle, `/tmp/mibpkg status` reported `supervisor 0.8.1 … (running)` and `/mnt/app` was mounted
+  (qnx6). `/tmp/mibpkg sdk status` printed `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator`, `sdk: 0.1.0`,
+  `hmi: … (supported)`, `running: yes`, `reboot needed: no`, `ledger: 0 override(s)`, `runtime started …
+  safeMode=false`, `ui car=sdk`. There was no safe mode and no wrap latch (`wrapBoots=0`, `wrapLoop=false`).
+- `mibsdk-dev install-plugin` with `--approve` installed each package, and each ended with
+  `loaded: ENABLED enabled` (exit 0):
+  - `hello` with `vehicle.read`;
+  - `bike-rack` with `vehicle.read,vehicle.parking.write,ui.slot.carmenu,ui.slot.statusbar`;
+  - `crashy` with no permissions;
+  - `hello-menu` with `ui.slot.carmenu`;
+  - `daemon-status` with `network,ui.slot.statusbar`.
+- `mibpkg list` shows the 5 plugin packages plus `mibpkg 0.8.1` and `mibsdk 0.1.0`. `grants.properties` matches the
+  approvals, and no `mibpkg.rw` holder is left.
+- The Car drawer ends with Plugins, Bike rack and Hello (from hello-menu): `bench-e2e/22-car-drawer-final.jpg`.
+  Plugins lists Hello, Bike Rack, Crashy, Hello Menu, Daemon Status and SDK: `bench-e2e/23-plugins-page-final.jpg`.
 
-**Bench state at the end of this run:** unreachable. Last known state: mibpkg 0.8.1, `mibsdk` 0.1.0 installed
-from `feat/ui` with a restart pending, no plugin packages, `/mnt/persist/mibsdk/data/bike-rack.properties` kept,
-kl15 active.
+**Bench state at the end:**
+- mibpkg 0.8.1 supervises.
+- `mibsdk` 0.1.0 is installed as a package built from `feat/ui`.
+- `hello`, `bike-rack`, `crashy`, `hello-menu` and `daemon-status` are installed as packages and ENABLED.
+- kl15 is active and the unit is on its home screen.
