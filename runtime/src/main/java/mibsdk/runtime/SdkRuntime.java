@@ -98,9 +98,9 @@ import mibsdk.platform.UiTable;
  * the ledger untouched. Once {@link #stop()} is requested no plugin is enabled any more: a delayed or
  * in-flight load bails, and a plugin whose {@code onEnable} was running is disabled again.
  *
- * <p>Features: read in {@code start()}, again before the plugin load, and whenever the adapter calls
- * {@link PlatformHost#featuresChanged()} (a service that arrived late); then on the control thread, logging
- * {@code STATUS mibsdk features=[...]} if the set changed. Plugin contexts share one {@link LiveFeatures}, so
+ * <p>Features: read in {@code start()} (logged as {@code STATUS mibsdk features=[...]}), again before the plugin
+ * load, and whenever the adapter calls {@link PlatformHost#featuresChanged()} (a service that arrived late); then on
+ * the control thread, logging {@code STATUS mibsdk features=[...]} again if the set changed. Plugin contexts share one {@link LiveFeatures}, so
  * running plugins see the change at their next {@code has()}, hook registration or {@code vehicle().parking()}.
  * No API event announces it.
  *
@@ -373,6 +373,7 @@ public final class SdkRuntime {
         try {
             platform.start(platformHost);
             readFeatures();
+            log.append("STATUS", SOURCE, "features=" + sorted(features.snapshot())); // the boot's set; changes log later
             adapterId = platform.id();
             this.adapterId = adapterId;
             adapterStarted = true;

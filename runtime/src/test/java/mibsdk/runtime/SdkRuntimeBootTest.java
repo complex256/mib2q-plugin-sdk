@@ -565,6 +565,18 @@ class SdkRuntimeBootTest {
         assertEquals(1, count("probe", "hook=true"), rt.log().snapshot().toString());
     }
 
+    /** Bench finding (UI Task 19): the boot's feature set was never logged, only later changes. */
+    @Test
+    void initialFeaturesAreLoggedOnceAtStart() throws Exception {
+        FakePlatform fp = new FakePlatform("HMI_TEST",
+                new HashSet<String>(Arrays.asList(Features.IGNITION, Features.UI_PAGES)));
+        runtime("plugin.start.delay.ms=0\nheap.low.bytes=0\n", fp).start();
+        awaitLog("STATUS mibsdk features=[ui.pages, vehicle.ignition]");
+        awaitLog("STATUS mibsdk runtime started");
+        Thread.sleep(100); // the load re-reads the same set: no second line
+        assertEquals(1, count("mibsdk", "features=[ui.pages, vehicle.ignition]"), rt.log().snapshot().toString());
+    }
+
     @Test
     void featuresLearnedAfterTheLoadReachEnabledPlugins() throws Exception {
         jars.write(plugins, "probe", "1", null, null,
