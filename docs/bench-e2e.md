@@ -466,3 +466,113 @@ until it was fixed on the unit.**
 
 **Bench state at the end.** mibpkg 0.8.0 (package `0.8.0+bench.1`) supervises; `mibsdk` 0.1.0 is an installed
 package; `hello`, `bike-rack` and `crashy` are pushed plugins (not packages) and ENABLED; kl15 active; home screen.
+
+## Plan 3, Task 16: approval, F8, web, remove, uninstall
+
+Run 2026-10-24 on the bench (10.20.0.23, same HMI). mibpkg 0.8.1 from `feat/mibsdk-packages` 729bd83
+(`scripts/build.sh`, `scripts/bundle.sh`); `mibsdk-0.1.0.mpk` and the plugin `.mpk` files built from `feat/ui`
+(eca752e, so the adapter carries 760d92f/f3ee91c) with `./gradlew :dist:mibpkgPackage
+:plugins:{hello,bike-rack,crashy,hello-menu,daemon-status}:mibPackage -Pmibsdk.mibpkg=<host mibpkg from 729bd83>`;
+`installer/mibsdk-dev` from the same tree. The web UI was driven over an SSH forward to the unit's loopback
+(`ssh -L 18080:127.0.0.1:80`): the web server answers only on the interfaces chosen in its settings, and the bench's
+`mlan0` is not one of them (it closes the connection without a reply, by design).
+
+**Overall: Steps 0–5 pass; Step 6 was cut short. The second HMI restart (after the reinstall) reset the unit,
+and it did not come back after two `keypanel up` tries and a further ~10 min wait (P3-F12).**
+
+| # | Finding | Status |
+|---|---------|--------|
+| P3-F4 | The web log tail is empty on the unit (seek). | **fixed 729bd83, verified**: the Logs › mibpkg view shows the log (`bench-e2e/11-web-log-view-mibpkg-0.8.1.png`) |
+| P3-F8 | The brief's network label "Open network connections …" is stale: the catalog (`api/permissions.json`) says "Query local services on this unit (loopback only)", and the sheet shows that. | brief wording only |
+| P3-F9 | `sdk remove` does not print a `loaded: …` line. The brief expected "loaded: DISABLED plugin jar not found" before the purge. The runtime did log `STATUS hello DISABLED plugin jar not found` before mibpkg printed `cleared the data of hello`, so the order is right; only the CLI echo is missing. | recorded (cosmetic) |
+| P3-F10 | F7 still holds: there is no PDC ECU, so bike-rack's "Rack fitted" stays at `Rear tones: waiting for parking system` and never takes an override. The Step 4 override was a hand-written ledger line (see Step 4), so "overrides of bike-rack restored" could not be exercised. | bench limitation |
+| P3-F11 | After `sdk remove`, the Plugins menu still listed the removed plugin (Crashy) until the menu was rebuilt. `plugins/<id>.reload` markers also stay after a remove and after the uninstall (by design since B1). | recorded |
+| P3-F12 | **The HMI restart after the reinstall did not come back.** `slay -s11 j9` at 12:44 reset the unit as usual (F3). `keypanel up` at 12:56 and 12:59 both said `still unreachable - is it powered and booted?`. Passive pings until 13:10 got no answer, and `keypanel status` showed `mmx: UNREACHABLE`, `daemon: down`, kl15 active. Task 15's restart after the same kind of install came back after one `keypanel up`. | **open: bench unreachable, BLOCKED** |
+
+### Step 0: mibpkg 0.8.1 (pass)
+
+- `mibpkg-0.8.1.mpk` (1132021 bytes, read back and compared) → `/tmp/mibpkg install-file mibpkg <uid> -`:
+  `updated mibpkg 0.8.0+bench.1 -> 0.8.1; mibpkg restarts itself`. Within 15 s: `supervisor 0.8.1 pid 15622180
+  (running)`, `installed mibpkg 0.8.1 [complex256-mibpkg] (previous 0.8.0+bench.1)`.
+- `GET /api/logs` → `[{"id":"mibpkg",…},{"id":"mibpkg.web",…}]`; `GET /api/logs/mibpkg?bytes=600` returned the
+  log's last lines (P3-F4 fixed). The web UI's Logs view shows them too.
+
+### Step 1: install with approval, taking over a push (pass)
+
+- `mibsdk-dev install-plugin plugins/hello/build/mibsdk/hello-1.0.0.mpk` → exit 3:
+  `Read vehicle state: ignition, gear, parking sensors (vehicle.read)`, `approve with: --approve=vehicle.read`.
+- With `--approve=vehicle.read` → exit 0: `installed hello 1.0.0`, `replaced the pushed hello.jar`,
+  `loaded: ENABLED enabled`. `grants.properties` has `hello=vehicle.read`.
+
+### Step 2: F8 regression (pass)
+
+- `install-plugin bike-rack-1.0.0.mpk --approve=vehicle.read,vehicle.parking.write,ui.slot.carmenu,ui.slot.statusbar`
+  while a second shell ran `/tmp/mibpkg gem-screens` five times. The five runs exited 0, 0, 0, 1, 0, where 1 means
+  busy because the install held the action lock. The install printed `installed bike-rack 1.0.0`,
+  `replaced the pushed bike-rack.jar`, `loaded: ENABLED enabled`.
+- Afterwards `ls /tmp | grep mibpkg.rw` printed nothing, and `/mnt/app` is read-only (`touch /mnt/app/.rwprobe` →
+  `Read-only file system`; QNX `mount` prints no flags). `bike-rack=ui.slot.carmenu,ui.slot.statusbar,vehicle.parking.write,vehicle.read`.
+
+### Step 3: web approval and revoke (pass)
+
+- Uploaded `crashy-1.0.0.mpk` on Install from file: no permissions section and no sheet; Install →
+  `OK: installed crashy 1.0.0`, `replaced the pushed crashy.jar`, `loaded: ENABLED enabled`.
+- Uploaded `daemon-status-1.0.0.mpk`. Install opened the sheet "This plugin asks to:" with "Query local services
+  on this unit (loopback only) `network`" and "Show an item in the status bar `ui.slot.statusbar`" (P3-F8):
+  `bench-e2e/12-web-approval-sheet-daemon-status.png`. Allow and install → `loaded: ENABLED enabled`
+  (`13-web-daemon-status-installed.png`).
+- On daemon-status's package page, unchecking `network` showed "This plugin stops running until every permission it
+  asks for is granted." (`14-web-revoke-network-warning.png`). Save → `granted daemon-status: ui.slot.statusbar`,
+  `loaded: BLOCKED_PERMISSIONS missing permissions: network` (`16-web-daemon-status-blocked.png`). `mibpkg sdk status`
+  printed `plugin daemon-status 1.0.0 grants=ui.slot.statusbar blocked: network`. The HMI's Plugins › Daemon Status page
+  printed `Blocked: missing permissions: network` (`15-plugins-menu-daemon-status-blocked.jpg`).
+- Re-checked and saved → `granted daemon-status: network,ui.slot.statusbar`, `loaded: ENABLED enabled`
+  (`17-web-daemon-status-regranted.png`).
+- A test-only `bike-rack` 1.0.1 that adds `network` was built from a temporary `plugin.json` edit, which was
+  reverted and not committed, and uploaded. The page said "upgrade from 1.0.0", and the sheet listed only `network`
+  (`18-web-update-sheet-only-new-permission.png`). I pressed Cancel, so 1.0.0 stayed installed and the grants were
+  unchanged.
+
+### Step 4: removal (pass, with P3-F9/F10)
+
+- `mibsdk-dev remove crashy`: `removed crashy: plugins/crashy.jar and its grants line; reload requested`,
+  `crashy has no overrides in the ledger`. The data dir kept `bike-rack.properties` and `hello.properties`. The
+  ledger is empty, and the crashy package is gone from `mibpkg list`.
+- `hello-menu` was pushed (`mibsdk-dev push …/hello-menu.jar`, then `grant hello-menu ui.slot.carmenu` →
+  ENABLED). Plugins › Hello Menu › Enabled switched it to `[off]` (`19-plugins-menu-hello-menu-off.jpg`;
+  `plugins.properties`: `hello-menu.off=true`; STATUS `DISABLED off in Plugins menu`). Then
+  `mibsdk-dev remove hello-menu`: `removed hello-menu: plugins/hello-menu.jar and its grants line and its
+  hello-menu.off switch; reload requested`. `plugins.properties` is empty afterwards.
+- `mibsdk-dev remove hello --purge-data` (data had `enables=25`) printed `removed hello: …`, `hello has no overrides
+  in the ledger`, `cleared the data of hello (/mnt/persist/mibsdk/data/hello.properties)` and the restart hint. The
+  runtime logged `STATUS hello DISABLED plugin jar not found` first (P3-F9). `data/` then held only
+  `bike-rack.properties`.
+- Override in force: "Rack fitted" only reached `waiting for parking system` (P3-F10), so I wrote one held entry by
+  hand: `vehicle.parking.rearTones=bike-rack|UNTIL_IGNITION_OFF|on|off|A` in `/mnt/persist/mibsdk/ledger.properties`.
+  `sdk status` then showed `ledger: 1 override(s)`. `mibsdk-dev uninstall` → exit 1,
+  `mibpkg: remove these plugins first: bike-rack, daemon-status`, and mibsdk stayed installed. I emptied the ledger
+  by hand because the runtime never held that entry. Then `mibsdk-dev remove bike-rack` → `bike-rack has no overrides
+  in the ledger`, and `mibsdk-dev remove daemon-status` → the same. `grants.properties` was then empty.
+
+### Step 5: uninstall and restore (pass)
+
+- `mibsdk-dev uninstall`: `removed mibsdk; kept plugin data in /mnt/persist/mibsdk (remove it with: mibpkg remove
+  mibsdk --purge); reboot the unit (or restart the HMI) to finish removing it`.
+- `bundles_dsitracer_enabled.properties` is byte-equal (`cmp`) to the Task 15 Step 1 stock copy: 10171 bytes,
+  `-rwxrwxrwx`, `HMICar=de.audi.tghu.car.hmi.Activator`. `dsitracer_activated` is still present. No `mibsdk-*`
+  jar is in `lsd/jars`. `/mnt/persist/mibsdk` (`boot.state`, `data/`, `ledger.properties`, `plugins.properties`) and
+  `lsd/mibsdk/grants.properties` are kept. No `mibpkg.rw` holder is left.
+- `mibsdk-dev restart` (12:32) → unit reset; one `keypanel up` at 12:43 brought it back. `sdk status`:
+  `HMICar=de.audi.tghu.car.hmi.Activator`, `sdk: not installed`, `running: no`. Keypanel `bridge_connected:true`.
+  After `back` dismissed the fuel popup, the stock home screen (`20-home-sdk-uninstalled.jpg`) and the stock Car
+  drawer with no Plugins row (`21-car-drawer-sdk-uninstalled.jpg`) were shown.
+
+### Step 6: reinstall (cut short by P3-F12)
+
+- `mibsdk-dev install` (feat/ui build; adapter 95805 bytes on the unit = `dist/build/dist`): `installed mibsdk
+  0.1.0; reboot the unit (or restart the HMI) to start it`; live `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator`.
+- `mibsdk-dev restart` at 12:44 → the unit did not come back (P3-F12). The plugin installs were not run.
+
+**Bench state at the end of this run:** unreachable. Last known state: mibpkg 0.8.1, `mibsdk` 0.1.0 installed
+from `feat/ui` with a restart pending, no plugin packages, `/mnt/persist/mibsdk/data/bike-rack.properties` kept,
+kl15 active.
