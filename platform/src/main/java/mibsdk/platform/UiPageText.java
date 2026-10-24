@@ -6,7 +6,10 @@ public final class UiPageText {
     private UiPageText() {
     }
 
-    /** INFO: text; ITEM: "label" or "label: value"; TOGGLE: "[on] label"/"[off] label"; LINK: "label >". */
+    /**
+     * INFO: text; ITEM: "label" or "label: value"; TOGGLE: "[on] label"/"[off] label"; LINK: "label >" or
+     * "label: value >" (the Plugins menu's state words).
+     */
     public static String line(UiEntry e) {
         String label = e.label() == null ? "" : e.label();
         String value = e.value();
@@ -14,7 +17,7 @@ public final class UiPageText {
             case UiEntry.TOGGLE:
                 return (e.on() ? "[on] " : "[off] ") + label;
             case UiEntry.LINK:
-                return label + " >";
+                return (value == null || value.length() == 0 ? label : label + ": " + value) + " >";
             case UiEntry.INFO:
                 return label;
             default:

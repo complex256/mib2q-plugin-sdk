@@ -329,7 +329,10 @@ class SdkRuntimeBootTest {
         assertTrue(logContains("safeMode=true reason=unhealthy-boots n=3"), rt.log().snapshot().toString());
         assertEquals("3", bootState().getProperty("unhealthyBoots"));
         assertEquals("true", bootState().getProperty("lastShutdownClean"), "a safe-mode boot does not count");
-        assertTrue(rt.statuses().isEmpty());
+        // Safe mode lists the plugins (for the Plugins menu) on the control thread, as DISABLED: never loaded.
+        for (PluginStatus st : rt.statuses()) {
+            assertEquals(PluginState.DISABLED, st.state(), rt.statuses().toString());
+        }
 
         clock.advance(60000); // no plugins enabled: safe mode never marks the boot healthy
         Thread.sleep(300);
