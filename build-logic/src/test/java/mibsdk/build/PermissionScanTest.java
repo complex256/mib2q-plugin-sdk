@@ -37,6 +37,57 @@ class PermissionScanTest {
     }
 
     @Test
+    void flagsRawSocketConstruction() throws Exception {
+        File classes = Fixtures.compileV48(tmp.resolve("classes"), Map.of("fixture.S",
+                "package fixture; @SuppressWarnings(\"all\") public class S {"
+                        + " public Object open() { return new java.net.Socket(); } }"));
+        assertEquals(List.of("fixture/S.open -> java/net/Socket.<init>"),
+                PermissionScan.run(classes).findings());
+    }
+
+    @Test
+    void flagsOtherNetworkEntryPoints() throws Exception {
+        File classes = Fixtures.compileV48(tmp.resolve("classes"), Map.of("fixture.N",
+                "package fixture; @SuppressWarnings(\"all\") public class N {"
+                        + " public Object a() throws Exception { return new java.net.ServerSocket(); }"
+                        + " public Object b(java.net.URL u) throws Exception { return u.openConnection(); }"
+                        + " public Object c() throws Exception { return new java.net.DatagramSocket(); }"
+                        + " public Object d(java.net.URL u) throws Exception { return u.openStream(); }"
+                        + " public Object e() throws Exception { return java.net.InetAddress.getByName(\"x\"); }"
+                        + " public Object f(java.net.URLConnection c) throws Exception { c.connect(); return c; }"
+                        + " public Object g() throws Exception { return new java.net.MulticastSocket(); } }"));
+        assertEquals(List.of(
+                "fixture/N.a -> java/net/ServerSocket.<init>",
+                "fixture/N.b -> java/net/URL.openConnection",
+                "fixture/N.c -> java/net/DatagramSocket.<init>",
+                "fixture/N.d -> java/net/URL.openStream",
+                "fixture/N.e -> java/net/InetAddress.getByName",
+                "fixture/N.f -> java/net/URLConnection.connect",
+                "fixture/N.g -> java/net/MulticastSocket.<init>"),
+                PermissionScan.run(classes).findings());
+    }
+
+    @Test
+    void flagsMicroeditionConnectorOnlyWhenReferenced() throws Exception {
+        Path dir = tmp.resolve("classes");
+        ClassWriter cw = new ClassWriter(0);
+        cw.visit(Opcodes.V1_4, Opcodes.ACC_PUBLIC, "fixture/C", null, "java/lang/Object", null);
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "open", "()V", null, null);
+        mv.visitCode();
+        mv.visitLdcInsn("socket://x:1");
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "javax/microedition/io/Connector", "open",
+                "(Ljava/lang/String;)Ljavax/microedition/io/Connection;", false);
+        mv.visitInsn(Opcodes.POP);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(1, 0);
+        mv.visitEnd();
+        cw.visitEnd();
+        write(dir.resolve("fixture/C.class"), cw.toByteArray());
+        assertEquals(List.of("fixture/C.open -> javax/microedition/io/Connector.open"),
+                PermissionScan.run(dir.toFile()).findings());
+    }
+
+    @Test
     void ignoresSyntheticClassDollarAndKotlinStdlib() throws Exception {
         Path dir = tmp.resolve("classes");
         // javac -target 1.4 emits `static Class class$(String)` wrapping Class.forName for class literals.

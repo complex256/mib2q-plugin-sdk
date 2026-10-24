@@ -3,6 +3,7 @@ package mibsdk.adapter.hqc;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -440,6 +441,7 @@ class ChainingConfiguratorTest {
     @Test
     void passThroughBootsAreNotCounted() throws IOException {
         write(new File(base, "SAFE_MODE"), "");
+        sdkProperties("ui.enabled=false\n"); // a safe-mode boot with the UI on is counted (uiEnabled tests)
         init();
         assertFalse(SdkGlobals.wrappingEnabled);
         assertFalse(new File(persist, "boot.state").exists(), "nothing wrapped, nothing counted");
@@ -485,6 +487,146 @@ class ChainingConfiguratorTest {
         init();
         assertTrue(logContains("hookServices=[a.B, c.D]"), SdkGlobals.LOG.snapshot().toString());
         assertEquals("[]", ConfiguratorCore.join(new String[0]));
+    }
+
+    // ---- UI (Plan 2 Task 9): SdkGlobals.uiEnabled ----
+
+    @Test
+    void uiEnabledOnlyOnSupportedHmiWithoutLatch() throws IOException {
+        init();
+        assertTrue(SdkGlobals.uiEnabled);
+        assertNull(SdkGlobals.uiOffReason);
+        assertTrue(logContains("uiEnabled=true"), SdkGlobals.LOG.snapshot().toString());
+
+        writeVersion("HMI_AU_MIB2_HQC_NAR_G22_C10_180804");
+        init();
+        assertFalse(SdkGlobals.uiEnabled);
+        assertEquals("unsupported-hmi", SdkGlobals.uiOffReason);
+
+        versionInfo.delete();
+        init();
+        assertFalse(SdkGlobals.uiEnabled);
+        assertEquals("unsupported-hmi", SdkGlobals.uiOffReason);
+
+        writeVersion(HqcVersion.SUPPORTED);
+        sdkProperties("ui.enabled=false\n");
+        init();
+        assertFalse(SdkGlobals.uiEnabled);
+        assertEquals("ui-disabled", SdkGlobals.uiOffReason);
+        assertTrue(SdkGlobals.wrappingEnabled, "ui.enabled does not touch wrapping");
+
+        sdkProperties("ui.enabled=true\n");
+        init();
+        assertTrue(SdkGlobals.uiEnabled);
+
+        assertDoesNotThrow(() -> new ChainingConfigurator(null, null, null, null).initConfigurator());
+        assertFalse(SdkGlobals.uiEnabled, "no paths: off");
+        assertNotNull(SdkGlobals.uiOffReason);
+    }
+
+    /** Under the wrap-loop latch the whole SDK UI is off: stock drawer only. */
+    @Test
+    void latchTurnsUiOff() throws IOException {
+        sdkProperties("safe.mode.after.unhealthy.boots=2\n");
+        File state = new File(persist, "boot.state");
+        write(state, "unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=2\n");
+        init();
+        assertFalse(SdkGlobals.uiEnabled);
+        assertEquals("wrap-boots", SdkGlobals.uiOffReason);
+        assertFalse(SdkGlobals.wrappingEnabled);
+        assertTrue(text(state).contains("wrapBoots=2\n"), "a latched boot is not counted: " + text(state));
+
+        // Latched in safe mode too (safe mode alone keeps the UI on).
+        write(new File(base, "SAFE_MODE"), "");
+        init();
+        assertFalse(SdkGlobals.uiEnabled);
+        assertEquals("wrap-boots", SdkGlobals.uiOffReason);
+    }
+
+    @Test
+    void uiOnBootCountsOnceTowardWrapLatch() throws IOException {
+        File state = new File(persist, "boot.state");
+        init(); // wrapping and UI
+        assertTrue(SdkGlobals.wrappingEnabled);
+        assertTrue(SdkGlobals.uiEnabled);
+        assertEquals("unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=1\n", text(state), "+1, not +2");
+
+        write(new File(base, "SAFE_MODE"), ""); // wrapping off, UI on
+        init();
+        assertFalse(SdkGlobals.wrappingEnabled);
+        assertTrue(SdkGlobals.uiEnabled);
+        assertTrue(text(state).contains("wrapBoots=2\n"), text(state));
+
+        // Neither: not counted.
+        sdkProperties("ui.enabled=false\n");
+        init();
+        assertFalse(SdkGlobals.wrappingEnabled);
+        assertFalse(SdkGlobals.uiEnabled);
+        assertTrue(text(state).contains("wrapBoots=2\n"), text(state));
+
+        // UI boots alone reach the latch: the next boot runs stock.
+        sdkProperties("");
+        init();
+        assertTrue(text(state).contains("wrapBoots=3\n"), text(state));
+        init();
+        assertFalse(SdkGlobals.uiEnabled);
+        assertEquals("wrap-boots", SdkGlobals.uiOffReason);
+    }
+
+    @Test
+    void uiCountClearsLikeWrapping() throws Exception {
+        write(new File(base, "SAFE_MODE"), ""); // a UI-only boot (no wrapping)
+        File state = new File(persist, "boot.state");
+        init();
+        assertTrue(SdkGlobals.uiEnabled);
+        assertFalse(SdkGlobals.wrappingEnabled);
+        assertTrue(text(state).contains("wrapBoots=1\n"), text(state));
+
+        mibsdk.runtime.BootGuard g = new mibsdk.runtime.BootGuard(state, new File(base, "SAFE_MODE"), 3);
+        java.lang.reflect.Method loading =
+                mibsdk.runtime.BootGuard.class.getDeclaredMethod("markPluginsLoading", boolean.class);
+        loading.setAccessible(true); // package-private: the runtime's call, made here as SdkRuntime makes it
+        loading.invoke(g, Boolean.TRUE);
+        assertTrue(text(state).contains("wrapBoots=0\n"), text(state));
+
+        init();
+        assertTrue(text(state).contains("wrapBoots=1\n"), text(state));
+        new mibsdk.runtime.BootGuard(state, new File(base, "SAFE_MODE"), 3).markHmiHealthy();
+        assertTrue(text(state).contains("wrapBoots=0\n"), text(state));
+    }
+
+    @Test
+    void countFailureTurnsUiOff() throws IOException {
+        write(persist, ""); // the persistent root is unusable: the boot cannot be counted
+        init();
+        assertFalse(SdkGlobals.uiEnabled);
+        assertEquals("count-failed", SdkGlobals.uiOffReason);
+        assertFalse(SdkGlobals.wrappingEnabled);
+        assertEquals("boot-state-unwritable", SdkGlobals.wrapOffReason);
+
+        write(new File(base, "SAFE_MODE"), ""); // UI-only boot: same rule
+        init();
+        assertFalse(SdkGlobals.uiEnabled);
+        assertEquals("count-failed", SdkGlobals.uiOffReason);
+        assertEquals("safe-mode", SdkGlobals.wrapOffReason);
+    }
+
+    /** Safe mode keeps the UI on, so the Plugins menu can say so. */
+    @Test
+    void safeModeKeepsUiOn() throws IOException {
+        write(new File(base, "SAFE_MODE"), "");
+        init();
+        assertFalse(SdkGlobals.wrappingEnabled);
+        assertEquals("safe-mode", SdkGlobals.wrapOffReason);
+        assertTrue(SdkGlobals.uiEnabled);
+        assertNull(SdkGlobals.uiOffReason);
+
+        new File(base, "SAFE_MODE").delete();
+        sdkProperties("safe.mode.after.unhealthy.boots=2\n");
+        write(new File(persist, "boot.state"), "unhealthyBoots=2\nlastShutdownClean=true\nwrapBoots=0\n");
+        init();
+        assertFalse(SdkGlobals.wrappingEnabled);
+        assertTrue(SdkGlobals.uiEnabled, "safe mode by unhealthy boots keeps the UI on too");
     }
 
     private static String text(File f) throws IOException {

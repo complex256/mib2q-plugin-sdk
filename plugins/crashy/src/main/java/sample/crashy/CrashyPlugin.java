@@ -2,7 +2,9 @@ package sample.crashy;
 
 import mibsdk.api.IgnitionChanged;
 import mibsdk.api.MibPlugin;
+import mibsdk.api.PageSpec;
 import mibsdk.api.PluginContext;
+import mibsdk.api.StatusItem;
 
 /**
  * Misbehaves on purpose, to show the SDK contains it. The mode comes from storage key {@code mode}
@@ -13,7 +15,10 @@ import mibsdk.api.PluginContext;
  * <li>{@code hang-on-event}: sleeps forever in the {@link IgnitionChanged} listener;
  * <li>{@code busy-loop}: spins on its own scheduler task;
  * <li>{@code throw-on-timer}: a scheduler task every second that logs {@code tick} and throws;
- * <li>{@code hang-on-timer}: a scheduler task one second after enable that blocks forever.
+ * <li>{@code hang-on-timer}: a scheduler task one second after enable that blocks forever;
+ * <li>{@code ui-throw}: a page ({@code boom}, reached from Plugins › Crashy) whose action listener throws on every
+ * press, and a status item rewritten in a tight loop (a burst of {@value #BURST} sets every {@value #BURST_MS} ms).
+ * Three presses quarantine it: its open page turns into the stopped notice and its status item goes away.
  * </ul>
  * The timer modes need no ignition signal (the bench has none). Any other value: does nothing. The hangs and the
  * spin end only when the SDK interrupts the plugin's thread (it does once it has quarantined the plugin), so a
@@ -21,7 +26,11 @@ import mibsdk.api.PluginContext;
  */
 public class CrashyPlugin extends MibPlugin {
 
+    static final int BURST = 200;
+    static final long BURST_MS = 100;
+
     private static volatile long spins;
+    private long ticks;
 
     @Override
     protected void onEnable(PluginContext ctx) {
@@ -69,8 +78,25 @@ public class CrashyPlugin extends MibPlugin {
                     }
                 });
                 break;
+            case "ui-throw":
+                uiThrow(ctx);
+                break;
             default:
                 ctx.log().info("no crash mode set; idle");
         }
+    }
+
+    private void uiThrow(PluginContext ctx) {
+        PageSpec spec = PageSpec.of("boom", "Crashy").item("boom", "Throw", null)
+                .info("Each press throws; the third quarantines Crashy");
+        ctx.ui().page(spec, action -> {
+            throw new IllegalStateException("crashy: ui-throw " + action.itemId());
+        });
+        final StatusItem item = ctx.ui().statusItem("C0");
+        ctx.scheduler().every(BURST_MS, () -> {
+            for (int i = 0; i < BURST; i++) {
+                item.set("C" + (ticks++ % 1000));
+            }
+        });
     }
 }

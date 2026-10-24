@@ -11,14 +11,17 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import mibsdk.api.Features;
 import mibsdk.api.IgnitionChanged;
+import mibsdk.api.Listener;
 import mibsdk.api.MibPlugin;
 import mibsdk.api.OverrideScope;
 import mibsdk.api.ParkingSoundChanged;
@@ -28,6 +31,9 @@ import mibsdk.platform.HookTable;
 import mibsdk.platform.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
+import mibsdk.platform.UiInput;
+import mibsdk.platform.UiPage;
+import mibsdk.platform.UiTable;
 
 /**
  * Discovers, orders, enables and contains plugins.
@@ -92,11 +98,19 @@ import mibsdk.platform.PlatformHost;
  * the ledger untouched. Once {@link #stop()} is requested no plugin is enabled any more: a delayed or
  * in-flight load bails, and a plugin whose {@code onEnable} was running is disabled again.
  *
- * <p>Features: read in {@code start()}, again before the plugin load, and whenever the adapter calls
- * {@link PlatformHost#featuresChanged()} (a service that arrived late); then on the control thread, logging
- * {@code STATUS mibsdk features=[...]} if the set changed. Plugin contexts share one {@link LiveFeatures}, so
+ * <p>Features: read in {@code start()} (logged as {@code STATUS mibsdk features=[...]}), again before the plugin
+ * load, and whenever the adapter calls {@link PlatformHost#featuresChanged()} (a service that arrived late); then on
+ * the control thread, logging {@code STATUS mibsdk features=[...]} again if the set changed. Plugin contexts share one {@link LiveFeatures}, so
  * running plugins see the change at their next {@code has()}, hook registration or {@code vehicle().parking()}.
  * No API event announces it.
+ *
+ * <p>SDK UI: the runtime owns the Plugins menu, the plugin and SDK pages ({@link PluginsMenu}), the status-line
+ * indicators ({@link StatusLine}) and the Plugins row label. It rebuilds them on the control thread after every
+ * plugin state change, after a menu action, and every {@link #UI_POLL_MS} ms on the {@link Clock} (the ledger
+ * changes on its own thread and has no listener), and pushes to the {@link UiHub} only what differs from the last
+ * push. Input on the SDK pages arrives on the UI dispatcher thread, which only maps it to an action and queues that
+ * on the control thread: it never blocks and never calls plugin code. The user's on/off choices
+ * ({@link UserToggles}) apply at load and reload: a plugin switched off stays DISABLED {@value #OFF_REASON}.
  */
 public final class SdkRuntime {
 
@@ -104,6 +118,12 @@ public final class SdkRuntime {
     private static final String MANIFEST_ENTRY = "plugin.json";
     private static final int MAX_MANIFEST_BYTES = 64 * 1024;
     private static final long WAIT_SLICE_MS = 50;
+    /** How often the SDK UI is rebuilt even without a plugin state change (override indicators). */
+    static final long UI_POLL_MS = 1000;
+    static final String OFF_REASON = "off in Plugins menu";
+    static final String SAFE_MODE_REASON = "safe mode: not loaded";
+    static final String PLUGINS_LABEL = "Plugins";
+    static final String PLUGINS_LABEL_SAFE = "Plugins (safe mode)";
     /**
      * How long stop() waits (real time) for queued restores, and for the car to confirm them, before
      * stopping the adapter: {@link OverrideLedger#CONFIRM_TIMEOUT_MS} + 2 s.
@@ -116,6 +136,9 @@ public final class SdkRuntime {
     }
 
     static volatile EnableHook testEnableHook;
+
+    /** Test hook: runs on the control thread in stop() just before {@code ledger.beginShutdown()}. */
+    static volatile Runnable testBeforeLedgerShutdown;
 
     /** Test hook: simulates an SDK-side failure at the start of the initial plugin load. */
     static volatile Runnable testBeforeLoadAll;
@@ -155,6 +178,7 @@ public final class SdkRuntime {
     private final OverrideLedger ledger;
     private final BootGuard bootGuard;
     private final StorageQuota storageQuota;
+    private final UiTable uiTable;
 
     private final List hosts = new ArrayList(); // PluginHost in discovery order; guarded by this
     private final List enabledOrder = new ArrayList(); // active PluginHost, oldest enable first; guarded by this
@@ -172,11 +196,36 @@ public final class SdkRuntime {
     private volatile boolean healthAtLoad; // set once in start(): the wrap count clears with the plugin-load write
     /** Set once in start(), before the STATUS line: no plugin loads, not even through reload(). */
     private volatile boolean safeMode;
+    /** Why safe mode: {@link SdkState#REASON_MARKER} etc.; null when not in safe mode. Set once in start(). */
+    private volatile String safeReason;
+    private volatile String adapterId = "none";
+    /** The boot guard was reset from the SDK page; takes effect at the next start. */
+    private volatile boolean resetRequested;
+    private final UserToggles toggles;
     /** Set on the control thread once the initial plugin load ran; reload() is deferred until then. */
     private volatile boolean pluginsLoaded;
     private PluginScheduler timer; // posts to the control executor; guarded by this
     private final List timers = new ArrayList(); // Subscription; cancelled by stop(); guarded by this
     private DevChannel dev; // guarded by this
+    /** Created in start() once the control timer exists; plugin contexts and disableHost use it. */
+    private volatile UiHub uiHub;
+    private UiDispatcher uiDispatcher; // guarded by this
+    private SerialExecutor uiPublisher; // builds and publishes UI snapshots; guarded by this
+    private boolean uiRefreshQueued; // guarded by this
+    // ---- the last SDK UI pushed to the hub; control thread only ----
+    private List<UiPage> lastSdkPages;
+    private List<String> lastIndicators;
+    private String lastPluginsLabel;
+    private boolean overflowLogged;
+
+    private final Runnable uiRefresh = new Runnable() {
+        public void run() {
+            synchronized (SdkRuntime.this) {
+                uiRefreshQueued = false;
+            }
+            refreshUi();
+        }
+    };
 
     /** Quarantines the most recently enabled plugin; HeapWatch calls it on the control thread. */
     private final HeapWatch.Victim heapVictim = new HeapWatch.Victim() {
@@ -253,7 +302,14 @@ public final class SdkRuntime {
     };
 
     public SdkRuntime(RuntimeConfig cfg, PlatformAdapter platform, Clock clock, HookTable hooks, RingLog log) {
+        this(cfg, platform, clock, hooks, new UiTable(64), log);
+    }
+
+    /** {@code ui} is where the runtime publishes UI snapshots and takes user input (the adapter's side). */
+    public SdkRuntime(RuntimeConfig cfg, PlatformAdapter platform, Clock clock, HookTable hooks, UiTable ui,
+            RingLog log) {
         this.cfg = cfg;
+        this.uiTable = ui;
         this.platform = platform;
         this.clock = clock;
         this.hooks = hooks;
@@ -267,6 +323,7 @@ public final class SdkRuntime {
         this.bootGuard = new BootGuard(cfg.bootStateFile(), cfg.safeModeMarker(), cfg.safeModeAfterUnhealthyBoots(),
                 log);
         this.storageQuota = new StorageQuota(cfg.dataDir(), cfg.storagePluginMaxBytes(), cfg.storageTotalMaxBytes());
+        this.toggles = new UserToggles(cfg.userTogglesFile(), log);
     }
 
     /**
@@ -289,9 +346,18 @@ public final class SdkRuntime {
             } else {
                 control = newControlExecutor();
                 timer = new PluginScheduler(control, clock);
+                // Its own thread: the control thread blocks for up to hungMs inside onEnable/onDisable.
+                uiPublisher = new SerialExecutor("ui-publish", clock, cfg.slowMs(), cfg.hungMs(), sdkListener("ui"));
+                uiHub = new UiHub(uiTable, log, clock, new PluginScheduler(uiPublisher, clock), cfg.uiPublishMinMs());
+                uiHub.setStatusMaxChars(cfg.uiStatusMaxChars());
+                uiHub.setSdkHandler(sdkInput(control));
+                uiDispatcher = new UiDispatcher(uiTable, uiHub);
                 c = control;
                 t = timer;
             }
+        }
+        if (c != null) {
+            uiHub.publishNow(); // the Plugins row from the start: safe mode, or no plugin UI at all
         }
         if (c == null) {
             log.append("WARN", SOURCE, "no adapter supports this HMI version: the SDK stays off and no plugin loads");
@@ -307,15 +373,37 @@ public final class SdkRuntime {
         try {
             platform.start(platformHost);
             readFeatures();
+            log.append("STATUS", SOURCE, "features=" + sorted(features.snapshot())); // the boot's set; changes log later
             adapterId = platform.id();
+            this.adapterId = adapterId;
             adapterStarted = true;
         } catch (Throwable e) {
             log.append("ERROR", SOURCE, "adapter failed to start, no plugins will load: " + describe(e));
         }
+        if (adapterStarted) {
+            startUiDispatcher(); // also in safe mode: the SDK's own pages take input
+        }
         if (safeMode && adapterStarted) {
             ledger.restorePendingOnBoot(platformApplier); // safe mode: no plugin will re-claim anything
         }
+        if (safeMode) {
+            c.submit("list-plugins", new Runnable() { // the Plugins menu lists them; none is loaded
+                public void run() {
+                    if (!isStopped()) {
+                        listPluginsInSafeMode();
+                    }
+                }
+            });
+        }
         log.append("STATUS", SOURCE, "runtime started adapter=" + adapterId + " safeMode=" + safeMode);
+        requestUiRefresh(); // safe mode is known now: label, header and SAFE indicator
+        schedule(t.every(UI_POLL_MS, new Runnable() {
+            public void run() {
+                if (!isStopped()) {
+                    refreshUi();
+                }
+            }
+        }));
         logHeap();
         healthAtLoad = !safeMode && adapterStarted && cfg.pluginStartDelayMs() >= cfg.healthyAfterMs();
         if (!healthAtLoad) {
@@ -431,6 +519,23 @@ public final class SdkRuntime {
         }));
     }
 
+    /** Listener for an SDK-internal executor: logs failures, slow and hung tasks; never blocks. */
+    private SerialExecutor.Listener sdkListener(final String what) {
+        return new SerialExecutor.Listener() {
+            public void onFailure(String label, Throwable t) {
+                log.append("ERROR", SOURCE, what + " task " + label + " failed: " + describe(t));
+            }
+
+            public void onSlow(String label, long ms) {
+                log.append("WARN", SOURCE, what + " task " + label + " took " + ms + " ms");
+            }
+
+            public void onHung(String label) {
+                log.append("ERROR", SOURCE, what + " task " + label + " hung for over " + cfg.hungMs() + " ms");
+            }
+        };
+    }
+
     private SerialExecutor newControlExecutor() {
         return new SerialExecutor("runtime", clock, Long.MAX_VALUE, Long.MAX_VALUE, new SerialExecutor.Listener() {
             public void onFailure(String label, Throwable t) {
@@ -450,7 +555,9 @@ public final class SdkRuntime {
         try {
             boolean safe = bootGuard.beginBoot();
             int n = bootGuard.unhealthyBoots();
-            if (safe && bootGuard.markerPresent()) {
+            boolean marker = bootGuard.markerPresent();
+            safeReason = !safe ? null : marker ? SdkState.REASON_MARKER : SdkState.REASON_UNHEALTHY_BOOTS;
+            if (safe && marker) {
                 log.append("WARN", SOURCE, "safeMode=true reason=marker (SAFE_MODE present; no plugin loads)");
             }
             if (safe && n >= cfg.safeModeAfterUnhealthyBoots()) {
@@ -464,6 +571,7 @@ public final class SdkRuntime {
             }
             return safe;
         } catch (Throwable e) { // cannot count crashes: do not risk a boot loop
+            safeReason = SdkState.REASON_BOOT_GUARD_ERROR;
             log.append("ERROR", SOURCE, "safeMode=true reason=boot-guard-error: " + describe(e));
             return true;
         }
@@ -478,6 +586,16 @@ public final class SdkRuntime {
             dev = d;
         }
         d.start();
+    }
+
+    private void startUiDispatcher() {
+        UiDispatcher ud;
+        synchronized (this) {
+            ud = stopped ? null : uiDispatcher;
+        }
+        if (ud != null) {
+            ud.start(); // a no-op if beginStop() stopped it meanwhile
+        }
     }
 
     /** Keeps a timer subscription for stop() to cancel (or cancels it at once if already stopping). */
@@ -497,8 +615,20 @@ public final class SdkRuntime {
         if (c == null) {
             return;
         }
+        UiHub hub = uiHub;
+        if (hub != null) {
+            try {
+                hub.publishDown(); // no SDK UI outlives the runtime: off screen before any plugin is disabled
+            } catch (Throwable t) {
+                log.append("ERROR", SOURCE, "ui down failed: " + describe(t));
+            }
+        }
         runOnControl(c, "stop", new Runnable() {
             public void run() {
+                Runnable hook = testBeforeLedgerShutdown;
+                if (hook != null) {
+                    hook.run();
+                }
                 ledger.beginShutdown(); // from here PERSISTENT overrides stay in the ledger for the next boot
                 PluginHost[] active;
                 synchronized (SdkRuntime.this) {
@@ -541,13 +671,16 @@ public final class SdkRuntime {
 
     /**
      * First step of stop() and haltForTest(): marks the runtime stopped (from here no plugin is enabled any
-     * more, see loadPlugins/enableUnguarded), cancels the timers and stops the dev channel. Returns the
-     * control executor, or null if the runtime was not started or is already stopped.
+     * more, see loadPlugins/enableUnguarded), stops the UI input dispatcher and the UI publisher, cancels the
+     * timers and stops the dev channel. Returns the control executor, or null if the runtime was not started or
+     * is already stopped.
      */
     private SerialExecutor beginStop() {
         SerialExecutor c;
         Subscription[] subs;
         DevChannel d;
+        UiDispatcher ud;
+        SerialExecutor up;
         synchronized (this) {
             if (!started || stopped) {
                 return null;
@@ -558,6 +691,14 @@ public final class SdkRuntime {
             timers.clear();
             d = dev;
             dev = null;
+            ud = uiDispatcher;
+            up = uiPublisher;
+        }
+        if (ud != null) {
+            ud.stop(); // no input reaches a plugin from here on; down before ledger.beginShutdown()
+        }
+        if (up != null) {
+            up.shutdown(); // no more UI publishes
         }
         for (int i = 0; i < subs.length; i++) {
             subs[i].cancel();
@@ -606,6 +747,15 @@ public final class SdkRuntime {
             out.add(new PluginStatus(h.id, h.version(), h.state, h.reason));
         }
         return out;
+    }
+
+    /** Test hook: true while the UI input thread is alive. */
+    boolean uiDispatcherRunning() {
+        UiDispatcher ud;
+        synchronized (this) {
+            ud = uiDispatcher;
+        }
+        return ud != null && ud.isRunning();
     }
 
     /** True if this boot is in safe mode (SDK on, no plugins); fixed by start(). */
@@ -755,15 +905,8 @@ public final class SdkRuntime {
         grants = Grants.load(cfg.grantsFile());
         purgeSnapshots(); // stale copies from a previous run
         restoreStaleOverrides();
-        File[] files = cfg.pluginsDir().listFiles();
-        if (files == null) {
-            files = new File[0];
-        }
-        Arrays.sort(files, new Comparator() {
-            public int compare(Object a, Object b) {
-                return ((File) a).getName().compareTo(((File) b).getName());
-            }
-        });
+        toggles.refresh(); // mibsdk-dev may have edited the user's choices since the last read
+        File[] files = pluginJars();
         List pending = new ArrayList(); // PluginHost, DISCOVERED
         for (int i = 0; i < files.length; i++) {
             if (!files[i].getName().endsWith(".jar") || !files[i].isFile()) {
@@ -785,7 +928,11 @@ public final class SdkRuntime {
                 return false;
             }
             try {
-                enableIfDependenciesEnabled(h);
+                if (toggles.isOff(h.id)) {
+                    setState(h, PluginState.DISABLED, OFF_REASON);
+                } else {
+                    enableIfDependenciesEnabled(h);
+                }
             } catch (Throwable t) { // one plugin's SDK-side failure must not stop the others loading
                 abortEnable(h, "runtime error while enabling: " + describe(t));
             }
@@ -796,6 +943,43 @@ public final class SdkRuntime {
         restoreOrphanedOverrides();
         purgeSnapshots();
         return true;
+    }
+
+    /** {@code plugins/*.jar} (regular files), sorted by name. */
+    private File[] pluginJars() {
+        File[] files = cfg.pluginsDir().listFiles();
+        if (files == null) {
+            files = new File[0];
+        }
+        List out = new ArrayList();
+        for (int i = 0; i < files.length; i++) {
+            if (files[i].getName().endsWith(".jar") && files[i].isFile()) {
+                out.add(files[i]);
+            }
+        }
+        File[] jars = (File[]) out.toArray(new File[out.size()]);
+        Arrays.sort(jars, new Comparator() {
+            public int compare(Object a, Object b) {
+                return ((File) a).getName().compareTo(((File) b).getName());
+            }
+        });
+        return jars;
+    }
+
+    /**
+     * Safe mode, control thread: lists the installed plugins for the Plugins menu from their plugin.json alone (no
+     * plugin class is loaded, nothing is enabled); each readable one is DISABLED {@value #SAFE_MODE_REASON}.
+     */
+    private void listPluginsInSafeMode() {
+        grants = Grants.load(cfg.grantsFile());
+        toggles.refresh();
+        File[] files = pluginJars();
+        for (int i = 0; i < files.length && !isStopped(); i++) {
+            PluginHost h = discover(files[i]);
+            if (addHost(h, null) && h.state == PluginState.DISCOVERED) {
+                setState(h, PluginState.DISABLED, SAFE_MODE_REASON);
+            }
+        }
     }
 
     /** Topological order of {@code pending}; blocks the ones with a missing, blocked or cyclic dependency. */
@@ -872,6 +1056,7 @@ public final class SdkRuntime {
             if (h.registrations != null) {
                 h.registrations.cancelAll();
             }
+            uiHub.removeOwner(h.id, null);
             ledger.releaseAllFor(h.id);
             if (h.exec != null) {
                 h.exec.shutdown();
@@ -918,12 +1103,13 @@ public final class SdkRuntime {
         h.snapshot = snap;
         h.failures = new FailureTracker(cfg.quarantineFailures(), cfg.quarantineWindowMs(), clock);
         h.registrations = new Registrations();
+        uiHub.registerOwner(h.id); // its UI sorts in enable order, and stray UI from a previous run is dropped
         h.storage = new PluginStorage(new File(cfg.dataDir(), h.id + ".properties"), clock,
                 PluginStorage.DEFAULT_DEBOUNCE_MS, storageQuota);
         h.exec = new SerialExecutor("plugin-" + h.id, clock, cfg.slowMs(), cfg.hungMs(), executorListener(h));
         h.scheduler = new PluginScheduler(h.exec, clock);
         h.ctx = new PluginContextImpl(h.id, log, h.storage, bus, h.exec, h.scheduler, h.registrations, features,
-                effectivePermissions(m), hooks, parkingSource, ledger);
+                effectivePermissions(m), hooks, parkingSource, ledger, uiHub, clock);
         EnableHook hook = testEnableHook;
         if (hook != null) {
             hook.afterResources(h.id);
@@ -972,6 +1158,15 @@ public final class SdkRuntime {
      * Does nothing if the host is not active (already disabled).
      */
     private void disableHost(final PluginHost h, PluginState state, String reason, boolean runOnDisable) {
+        disableHost(h, state, reason, runOnDisable, true);
+    }
+
+    /**
+     * As above; {@code notice} false (a reload) removes the plugin's UI silently, else an open page of the
+     * plugin turns into the notice {@code "<name> stopped: <reason>"}.
+     */
+    private void disableHost(final PluginHost h, PluginState state, String reason, boolean runOnDisable,
+            boolean notice) {
         synchronized (this) {
             if (!h.active) {
                 return;
@@ -980,6 +1175,7 @@ public final class SdkRuntime {
             enabledOrder.remove(h);
         }
         h.registrations.cancelAll(); // releases the plugin's live overrides
+        uiHub.removeOwner(h.id, notice ? displayName(h) + " stopped: " + reason : null);
         ledger.releaseAllFor(h.id); // and any it owns from a previous run
         h.storage.flushNow();
         final MibPlugin p = h.plugin;
@@ -1009,6 +1205,11 @@ public final class SdkRuntime {
         setState(h, state, reason);
     }
 
+    private static String displayName(PluginHost h) {
+        String name = h.manifest == null ? null : h.manifest.name();
+        return name == null || name.length() == 0 ? h.id : name;
+    }
+
     private void reloadNow(String id) {
         if (isStopped()) {
             return;
@@ -1030,9 +1231,10 @@ public final class SdkRuntime {
             return;
         }
         grants = Grants.load(cfg.grantsFile());
+        toggles.refresh();
         PluginHost old = findHost(id);
         if (old != null) {
-            disableHost(old, PluginState.DISABLED, "reloading", true);
+            disableHost(old, PluginState.DISABLED, "reloading", true, false); // no notice flash during a reload
         }
         File jar = new File(cfg.pluginsDir(), id + ".jar");
         if (!jar.isFile()) {
@@ -1051,6 +1253,8 @@ public final class SdkRuntime {
             List deps = h.manifest.dependencies();
             if (deps.contains(id)) {
                 setState(h, PluginState.BLOCKED_DEPENDENCY, "dependency cycle");
+            } else if (toggles.isOff(id)) {
+                setState(h, PluginState.DISABLED, OFF_REASON);
             } else {
                 enableIfDependenciesEnabled(h);
             }
@@ -1224,6 +1428,189 @@ public final class SdkRuntime {
         }
     }
 
+    // ---- SDK UI ----
+
+    /**
+     * Input on the SDK's pages, on the UI dispatcher thread: maps it to a menu action and queues that on the control
+     * thread. Never blocks (a queue add), never calls plugin code, never throws.
+     */
+    private Listener<UiInput> sdkInput(final SerialExecutor c) {
+        return new Listener<UiInput>() {
+            public void on(UiInput in) {
+                try {
+                    final PluginsMenu.Action a = PluginsMenu.handle(in);
+                    if (a.kind == PluginsMenu.Action.Kind.NONE) {
+                        return;
+                    }
+                    c.submit("ui:" + a, new Runnable() {
+                        public void run() {
+                            if (!isStopped()) {
+                                applyMenuAction(a);
+                            }
+                        }
+                    });
+                } catch (Throwable t) {
+                    log.append("ERROR", SOURCE, "ui input failed: " + describe(t));
+                }
+            }
+        };
+    }
+
+    /**
+     * Control thread. On/off: recorded in {@link UserToggles} first; outside safe mode, on reloads the plugin (also
+     * from FAILED or QUARANTINED) and off disables it (a stopped one is marked off). In safe mode only the choice is
+     * recorded. Reset: only in count-based safe mode, never under the wrap-loop latch (the UI is off then anyway).
+     */
+    private void applyMenuAction(PluginsMenu.Action a) {
+        try {
+            applyMenuActionUnguarded(a);
+        } catch (Throwable t) {
+            log.append("ERROR", SOURCE, "Plugins menu action " + a + " failed: " + describe(t));
+        } finally {
+            refreshUi();
+        }
+    }
+
+    private void applyMenuActionUnguarded(PluginsMenu.Action a) {
+        if (a.kind == PluginsMenu.Action.Kind.RESET_BOOT_GUARD) {
+            if (!safeMode || bootGuard.markerPresent() || bootGuard.wrapLoopLatched()) {
+                log.append("WARN", SOURCE, "boot guard reset ignored: only offered in count-based safe mode");
+            } else {
+                bootGuard.reset();
+                resetRequested = true;
+                log.append("INFO", SOURCE, "boot guard reset from the SDK page: takes effect at the next start");
+            }
+        } else if (a.kind == PluginsMenu.Action.Kind.ENABLE || a.kind == PluginsMenu.Action.Kind.DISABLE) {
+            boolean off = a.kind == PluginsMenu.Action.Kind.DISABLE;
+            toggles.setOff(a.id, off);
+            log.append("INFO", SOURCE, "Plugins menu: " + a.id + (off ? " off" : " on")
+                    + (safeMode ? " (applies after safe mode ends)" : ""));
+            if (!safeMode) {
+                PluginHost h = findHost(a.id);
+                PluginState s = h == null ? null : stateOf(h);
+                if (!off && s != PluginState.ENABLED) {
+                    reloadNow(a.id);
+                    enableDependentsOf(a.id);
+                } else if (off && h != null) {
+                    if (s == PluginState.ENABLED) {
+                        disableHost(h, PluginState.DISABLED, OFF_REASON, true);
+                    } else if (s == PluginState.FAILED || s == PluginState.QUARANTINED) {
+                        setState(h, PluginState.DISABLED, OFF_REASON);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Control thread, after {@code id} was switched on: reloads every plugin BLOCKED_DEPENDENCY on it (and not
+     * switched off itself) once {@code id} is ENABLED, then the plugins blocked on those, and so on.
+     */
+    private void enableDependentsOf(String id) {
+        List queue = new ArrayList();
+        Set seen = new HashSet();
+        queue.add(id);
+        seen.add(id);
+        while (!queue.isEmpty() && !isStopped()) {
+            String dep = (String) queue.remove(0);
+            PluginHost d = findHost(dep);
+            if (d == null || stateOf(d) != PluginState.ENABLED) {
+                continue;
+            }
+            PluginHost[] all;
+            synchronized (this) {
+                all = (PluginHost[]) hosts.toArray(new PluginHost[hosts.size()]);
+            }
+            for (int i = 0; i < all.length; i++) {
+                PluginHost h = all[i];
+                PluginManifest m = h.manifest;
+                if (seen.contains(h.id) || stateOf(h) != PluginState.BLOCKED_DEPENDENCY || m == null
+                        || !m.dependencies().contains(dep) || toggles.isOff(h.id)) {
+                    continue;
+                }
+                seen.add(h.id);
+                log.append("INFO", SOURCE, "dependency " + dep + " is back: reloading " + h.id);
+                reloadNow(h.id);
+                queue.add(h.id);
+            }
+        }
+    }
+
+    /** Queues one {@link #refreshUi} on the control thread; a queued one absorbs this request. */
+    private void requestUiRefresh() {
+        SerialExecutor c;
+        synchronized (this) {
+            if (uiRefreshQueued || control == null || stopped) {
+                return;
+            }
+            uiRefreshQueued = true;
+            c = control;
+        }
+        if (!c.submit("ui-refresh", uiRefresh)) {
+            synchronized (this) {
+                uiRefreshQueued = false;
+            }
+        }
+    }
+
+    /** Control thread: rebuilds the SDK pages, indicators and Plugins row label; pushes only what changed. */
+    private void refreshUi() {
+        UiHub hub = uiHub;
+        if (hub == null || isStopped()) {
+            return;
+        }
+        try {
+            List<PluginStatus> st = statuses();
+            Map<String, PluginManifest> manifests = new HashMap<String, PluginManifest>();
+            synchronized (this) {
+                for (int i = 0; i < hosts.size(); i++) {
+                    PluginHost h = (PluginHost) hosts.get(i);
+                    if (h.manifest != null) {
+                        manifests.put(h.id, h.manifest);
+                    }
+                }
+            }
+            Map<String, List<String>> pageKeys = new HashMap<String, List<String>>();
+            Map<String, String> titles = new HashMap<String, String>();
+            for (int i = 0; i < st.size(); i++) {
+                String id = st.get(i).id();
+                List<String> keys = hub.pageKeysOf(id);
+                pageKeys.put(id, keys);
+                for (int k = 0; k < keys.size(); k++) {
+                    String title = hub.pageTitle(keys.get(k));
+                    if (title != null) {
+                        titles.put(keys.get(k), title);
+                    }
+                }
+            }
+            SdkState s = new SdkState(safeMode, safeReason, bootGuard.inert(), resetRequested, adapterId,
+                    ledger.active());
+            int hidden = PluginsMenu.rootOverflow(st.size(), s);
+            if (hidden > 0 && !overflowLogged) {
+                overflowLogged = true;
+                log.append("WARN", SOURCE, st.size() + " plugins installed: the Plugins page lists the first "
+                        + (st.size() - hidden) + " (+" + hidden + " more)");
+            }
+            List<UiPage> pages = PluginsMenu.pages(st, manifests, pageKeys, titles, toggles.offIds(), s, grants);
+            List<String> indicators = StatusLine.indicators(s);
+            String label = safeMode ? PLUGINS_LABEL_SAFE : PLUGINS_LABEL;
+            if (!PluginsMenu.samePages(pages, lastSdkPages)) {
+                lastSdkPages = pages;
+                hub.setSdkPages(pages);
+            }
+            if (!indicators.equals(lastIndicators)) {
+                lastIndicators = indicators;
+                hub.setIndicators(indicators);
+            }
+            if (!label.equals(lastPluginsLabel)) {
+                lastPluginsLabel = label;
+                hub.setPluginsRowLabel(label);
+            }
+        } catch (Throwable t) {
+            log.append("ERROR", SOURCE, "SDK UI not refreshed: " + describe(t));
+        }
+    }
+
     // ---- executor callbacks (plugin worker / watchdog threads; never block) ----
 
     private SerialExecutor.Listener executorListener(final PluginHost h) {
@@ -1340,6 +1727,7 @@ public final class SdkRuntime {
             hosts.add(h);
         }
         log.append("STATUS", h.id, h.state + " " + h.reason);
+        requestUiRefresh();
         return true;
     }
 
@@ -1349,6 +1737,7 @@ public final class SdkRuntime {
             h.reason = reason;
         }
         log.append("STATUS", h.id, state + " " + reason);
+        requestUiRefresh();
     }
 
     private synchronized PluginState stateOf(PluginHost h) {

@@ -1,6 +1,7 @@
 /build/
 /*/build/
 /plugins/*/build/
+/spikes/*/build/
 .gradle/
 .superpowers/
 *.class

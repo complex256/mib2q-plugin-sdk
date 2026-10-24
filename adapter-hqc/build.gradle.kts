@@ -42,12 +42,25 @@ val hostStockJar = tasks.register<HostStockJarTask>("hostStockJar") {
         "org/dsi/ifc/carparkingsystem/",
         "org/dsi/ifc/global/",
         "org/dsi/ifc/powermanagement/",
-        "de/audi/tghu/dsitrace/"))
+        "de/audi/tghu/dsitrace/",
+        // UI (Car activator, bank, models, drawer widgets): the UI tests construct them on the host.
+        "de/audi/atip/",
+        "de/audi/tghu/car/hmi/",
+        "de/audi/tghu/hmi/",
+        "de/esolutions/hmi/",
+        "de/esolutions/fw/util/commons/"))
     outputJar.set(layout.buildDirectory.file("host-stock/stock-host.jar"))
 }
 
 dependencies {
     testImplementation(files(hostStockJar))
+}
+
+// jxe2jar code has no stack maps (and dead padding after returns), so HotSpot rejects much of it even repaired. The
+// UI tests construct the stock Car activator, bank and models: skip verification of classpath classes in this
+// test JVM only (the car's J9 runs with -noverify anyway; LinkCheck still checks every car artifact).
+tasks.named<Test>("test") {
+    jvmArgs("-XX:+UnlockDiagnosticVMOptions", "-XX:-BytecodeVerificationRemote")
 }
 
 if (!stockPresent) {

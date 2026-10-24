@@ -126,6 +126,55 @@ class DevChannelTest {
         assertEquals(2, count("hello", "hi"));
     }
 
+    private boolean hasLine(String suffix) {
+        for (String line : rt.log().snapshot()) {
+            if (line.endsWith(" INFO mibsdk " + suffix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
+    void reloadLogLineCarriesTheMarkerToken() throws Exception {
+        write(new File(plugins, "hello.reload"), "1700000000-123-456\n");
+        dev.poll();
+        assertTrue(hasLine("dev channel: reload requested for hello token=1700000000-123-456"), rt.log().snapshot().toString());
+    }
+
+    @Test
+    void reloadLogLineOmitsTokenForAnEmptyMarker() throws Exception {
+        write(new File(plugins, "hello.reload"), " \n\t\n");
+        dev.poll();
+        assertTrue(hasLine("dev channel: reload requested for hello"), rt.log().snapshot().toString());
+        assertEquals(0, countContaining("token="));
+    }
+
+    @Test
+    void reloadLogLineSanitisesAHostileToken() throws Exception {
+        File marker = new File(plugins, "hello.reload");
+        FileOutputStream out = new FileOutputStream(marker);
+        try {
+            out.write(new byte[] {'a', ' ', 'b', '\r', 'c', 0, (byte) 0xe9, '\n', 'd', 0x7f, 'e', '\n'});
+        } finally {
+            out.close();
+        }
+        dev.poll();
+        assertTrue(hasLine("dev channel: reload requested for hello token=abcde"), rt.log().snapshot().toString());
+        assertEquals(1, countContaining("reload requested for hello"));
+    }
+
+    @Test
+    void reloadLogLineCapsALongToken() throws Exception {
+        StringBuffer b = new StringBuffer();
+        for (int i = 0; i < 500; i++) {
+            b.append((char) ('a' + i % 26));
+        }
+        write(new File(plugins, "hello.reload"), b.toString());
+        dev.poll();
+        assertTrue(hasLine("dev channel: reload requested for hello token=" + b.substring(0, 64)), rt.log().snapshot().toString());
+    }
+
     @Test
     void rewrittenMarkerTriggersAnotherReload() throws Exception {
         File marker = new File(plugins, "hello.reload");

@@ -17,15 +17,32 @@ below is closed. Plan 4 (car session, carplay-rgi migration) starts with these.
 
 ## Known follow-ups (not gates)
 
-- mibpkg remounts `/mnt/app` read-only after its own writes, at any time. `push_file` re-asserts the mount and
-  retries once, and other installer commands fail loudly. Properly fixing this means coordinating with mibpkg.
+- `/mnt/app` writes go through mibpkg only: its remount holders (`/tmp/mibpkg.rw.<tag>.<pid>`) keep the partition
+  read-write while any mibpkg process writes, and every write is a `put` (verified, then renamed into place).
+  `mibsdk-dev` no longer remounts anything.
+- `mibpkg sdk remove <id>` (`mibsdk-dev remove <id>` on the bench) uninstalls a single plugin, a package or a
+  pushed jar. `mibsdk-dev remove <id>` leaves `plugins/<id>.reload` behind (harmless: the token only matters while
+  a jar of that id exists; a later push writes a fresh one).
+- M7 is also enforced on the unit by mibpkg: it verifies the check stamp of the SDK and of every plugin it installs
+  or receives by push.
 - The `boot.state` wrap count written at boot is only proven indirectly on the bench (`wrapping=true` with no
   `reason=`): the unit is off the network for the first 2–3 minutes after a reset.
 - `mibsdk-dev restart` (`slay -s11 j9`) resets the whole bench unit after 2–3 minutes instead of respawning j9.
-- The wrap-loop latch has no indicator the user can see (Plan 2, UI).
-- M1: plugins that read `has()` only in `onEnable` still miss a late feature (no API event; Plan 2).
+- When every plugin FAILED, the unhealthy-boot count is still reset (the HMI itself did not crash). Only the log
+  wording says so.
+- An I2 refusal should recommend `safe-mode on && restart`.
+- If `pluginStartDelayMs > healthyAfterMs`, there is a gap in the boot counter.
+- The wrap-loop latch has no on-car indicator by design: the SDK UI is off under the latch. Clear it with
+  `mibsdk-dev safe-mode off`.
+- M1: plugins that read `has()` only in `onEnable` still miss a late feature (no API event), e.g. when the parking
+  service registers after the initial load. This can only cause a false negative.
 - bike-rack: a power cut within 2 s of ignition off can keep the rack armed for the next boot (storage debounce).
 - I4 on the car: whether the PDC ECU reports every write, including unchanged values, decides how often the
   `last report` rule is used (F7).
-- `mibsdk-dev remove <id>` leaves `plugins/<id>.reload` behind (harmless: the token only matters while a jar of
-  that id exists; a later push writes a fresh one).
+
+## Car-only UI checks (Plan 4)
+
+The bench has no reverse camera and no PDC ECU (`docs/bench-e2e-ui.md`), so these wait for the car:
+
+- Popup 65 (the SDK status line) never covers the reverse-camera image or the PDC display.
+- `PDC R OFF` shows on the status line while bike-rack's override is held and while it is restoring.

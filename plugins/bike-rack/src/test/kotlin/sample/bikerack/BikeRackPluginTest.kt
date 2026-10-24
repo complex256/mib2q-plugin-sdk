@@ -3,11 +3,14 @@ package sample.bikerack
 import java.io.File
 import java.util.Properties
 import mibsdk.adapter.fake.FakePlatform
+import mibsdk.adapter.fake.FakeUi
 import mibsdk.api.Features
 import mibsdk.api.SoundDirections
 import mibsdk.platform.HookTable
 import mibsdk.platform.ParkingIo
 import mibsdk.platform.PlatformAdapter
+import mibsdk.platform.UiInput
+import mibsdk.platform.UiTable
 import mibsdk.runtime.Clock
 import mibsdk.runtime.PluginState
 import mibsdk.runtime.RingLog
@@ -15,6 +18,7 @@ import mibsdk.runtime.RuntimeConfig
 import mibsdk.runtime.SdkRuntime
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -31,7 +35,10 @@ class BikeRackPluginTest {
         @Volatile var ms = 0L
         override fun uptimeMs() = ms
     }
-    private val fake = FakePlatform("HMI_TEST", setOf(Features.IGNITION, Features.PARKING, Features.HOOK_PARKING))
+    private val fake = FakePlatform("HMI_TEST", setOf(Features.IGNITION, Features.PARKING, Features.HOOK_PARKING,
+        Features.UI_PAGES, Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR))
+    private val table = UiTable(64)
+    private val ui = FakeUi(table)
 
     /** The fake (its ECU starts at F1R1L1X1), except that the ECU's parking value can be hidden until "first read". */
     @Volatile private var ecuKnown = true
@@ -55,13 +62,13 @@ class BikeRackPluginTest {
         File(base, "plugins").mkdirs()
         File(System.getProperty("mibsdk.pluginJar")).copyTo(File(base, "plugins/bike-rack.jar"))
         File(base, "sdk.properties").writeText(
-            "plugin.start.delay.ms=$startDelayMs\nheap.low.bytes=0\nlog.file=${File(tmp, "mibsdk.log").path}\n$extraProps")
-        File(base, "grants.properties").writeText("bike-rack=vehicle.read,vehicle.parking.write\n")
+            "plugin.start.delay.ms=$startDelayMs\nheap.low.bytes=0\nui.publish.min.ms=0\nlog.file=${File(tmp, "mibsdk.log").path}\n$extraProps")
+        File(base, "grants.properties").writeText("bike-rack=vehicle.read,vehicle.parking.write,ui.slot.carmenu,ui.slot.statusbar\n")
         if (active != null) {
             File(FakePlatform.roots(tmp).persist(), "data").mkdirs()
             File(FakePlatform.roots(tmp).persist(), "data/bike-rack.properties").writeText("active=$active\n")
         }
-        rt = SdkRuntime(RuntimeConfig.load(FakePlatform.roots(tmp)), platform, now, HookTable(64), RingLog(500)).also {
+        rt = SdkRuntime(RuntimeConfig.load(FakePlatform.roots(tmp)), platform, now, HookTable(64), table, RingLog(500)).also {
             it.start()
             if (startDelayMs > 0) return@also
             assertEquals(PluginState.ENABLED, it.statuses().single().state(), it.log().snapshot().toString())
@@ -103,6 +110,18 @@ class BikeRackPluginTest {
     fun activeOnEnableMutesRearOnly() {
         start(true)
         awaitApplied(1, f1r0l1x1)
+    }
+
+    @Test
+    fun uiOffStillMutesAndDisarms() {
+        // UI off (wrap-loop latch, ui.enabled=false, count or init failure): no UI features, inert UI handles
+        fake.setFeatures(setOf(Features.IGNITION, Features.PARKING, Features.HOOK_PARKING))
+        start(true)
+        awaitApplied(1, f1r0l1x1)
+        assertFalse(table.snapshot().pages().containsKey("bike-rack/rack"), table.snapshot().pages().keys.toString())
+        fake.setIgnition(false)
+        awaitApplied(2, f1r1l1x1)
+        assertEquals(null, storedActive())
     }
 
     @Test
@@ -245,6 +264,150 @@ class BikeRackPluginTest {
         awaitWindowClosed(1)
         fake.setIgnition(true)
         assertNoMoreThan(4)
+        assertEquals(null, storedActive())
+    }
+
+    // ---- UI (the toggle drives the same arm/disarm paths as above; M6 itself is covered by the cases above) ----
+
+    private val page = "bike-rack/rack"
+
+    private fun await(what: String, done: () -> Boolean) {
+        for (i in 0 until 500) {
+            if (done()) return
+            Thread.sleep(10)
+        }
+        throw AssertionError("never $what: page=${ui.render(page)} status=${ui.statusLine()} " +
+            "applied=${fake.appliedLog()}\n${rt?.log()?.snapshot()}")
+    }
+
+    private fun logCount(text: String) = rt!!.log().snapshot().count { it.toString().contains(text) }
+
+    /** One toggle press as the HMI sends it; returns once the plugin has taken the request (not yet applied). */
+    private fun press(on: Boolean) {
+        val before = logCount("toggle requested")
+        table.input(UiInput(UiInput.TOGGLE_REQUESTED, page, "active", on))
+        await("toggle request taken") { logCount("toggle requested") > before }
+    }
+
+    /** Ends the 500 ms debounce. */
+    private fun settle() {
+        now.ms += 500
+    }
+
+    private fun toggleLine() = ui.render(page).firstOrNull() ?: ""
+    private fun status() = ui.statusLine() ?: ""
+
+    @Test
+    fun toggleOnArmsMutesRearAndShowsStatusItem() {
+        start(null)
+        await("page") { toggleLine() == "[off] Rack fitted (rear PDC tones off)" }
+        assertTrue(ui.carRows().contains("Bike rack"), ui.carRows().toString())
+        press(true)
+        settle()
+        awaitApplied(1, f1r0l1x1)
+        await("RACK status item") { status().contains("RACK") }
+        await("page on") { toggleLine() == "[on] Rack fitted (rear PDC tones off)" }
+        assertTrue(ui.render(page).contains("Rear tones: muted"), ui.render(page).toString())
+        assertTrue(ui.render(page).contains("Turns off at ignition off"), ui.render(page).toString())
+        assertEquals("true", storedActive())
+    }
+
+    @Test
+    fun toggleOffDisarmsRestoresAndHidesItem() {
+        start(true)
+        awaitApplied(1, f1r0l1x1)
+        await("RACK status item") { status().contains("RACK") }
+        press(false)
+        settle()
+        awaitApplied(2, f1r1l1x1)
+        await("RACK hidden") { !status().contains("RACK") }
+        await("page off") { toggleLine() == "[off] Rack fitted (rear PDC tones off)" }
+        assertTrue(ui.render(page).contains("Rear tones: normal"), ui.render(page).toString())
+        assertEquals(null, storedActive())
+    }
+
+    @Test
+    fun toggleOffOpensNoReArmWindow() {
+        start(true)
+        awaitApplied(1, f1r0l1x1)
+        press(false)
+        settle()
+        awaitApplied(2, f1r1l1x1)
+        fake.setIgnition(false)
+        now.ms += 1000
+        fake.setIgnition(true)
+        assertNoMoreThan(2)
+        assertEquals(f1r1l1x1, fake.ecuSoundDirections())
+        assertEquals(null, storedActive())
+    }
+
+    @Test
+    fun doublePressEndsInLastState() {
+        start(null)
+        await("page") { toggleLine().isNotEmpty() }
+        press(true)
+        press(false)
+        press(true)
+        settle()
+        awaitApplied(1, f1r0l1x1)
+        await("page on") { toggleLine() == "[on] Rack fitted (rear PDC tones off)" }
+        now.ms += 1000
+        assertNoMoreThan(1)
+        assertEquals("bike-rack", rt!!.activeOverrides().single().pluginId())
+    }
+
+    @Test
+    fun toggleOnAtStorageCapStaysOff() {
+        // entryBytes("active","true") estimates 12: the put throws
+        start(null, "storage.plugin.max.bytes=11\n")
+        await("page") { toggleLine().isNotEmpty() }
+        press(true)
+        settle()
+        await("arm failure logged") { logCount("could not arm") == 1 }
+        assertNoMoreThan(0)
+        assertTrue(rt!!.activeOverrides().isEmpty())
+        assertEquals("[off] Rack fitted (rear PDC tones off)", toggleLine())
+        assertFalse(status().contains("RACK"), status())
+    }
+
+    @Test
+    fun pageShowsWaitingWithoutParkingValue() {
+        ecuKnown = false
+        start(true)
+        await("waiting line") { ui.render(page).contains("Rear tones: waiting for parking system") }
+        assertEquals("[on] Rack fitted (rear PDC tones off)", toggleLine())
+        assertFalse(status().contains("RACK"), status())
+        ecuKnown = true
+        fake.ecuSetSoundDirections(f1r1l1x1)
+        awaitApplied(1, f1r0l1x1)
+        await("muted line") { ui.render(page).contains("Rear tones: muted") }
+        await("RACK status item") { status().contains("RACK") }
+    }
+
+    @Test
+    fun ignitionOffTurnsPageToggleOff() {
+        start(true)
+        awaitApplied(1, f1r0l1x1)
+        await("page on") { toggleLine() == "[on] Rack fitted (rear PDC tones off)" }
+        fake.setIgnition(false)
+        awaitApplied(2, f1r1l1x1)
+        await("page off") { toggleLine() == "[off] Rack fitted (rear PDC tones off)" }
+        await("RACK hidden") { !status().contains("RACK") }
+        assertTrue(ui.render(page).contains("Rear tones: normal"), ui.render(page).toString())
+    }
+
+    @Test
+    fun pendingOffAtIgnitionOffDisarmsWithoutReArmWindow() {
+        start(true)
+        awaitApplied(1, f1r0l1x1)
+        press(false) // still inside its debounce at ignition off
+        fake.setIgnition(false)
+        awaitApplied(2, f1r1l1x1)
+        now.ms += 1000
+        fake.setIgnition(true)
+        now.ms += 500
+        assertNoMoreThan(2)
+        assertEquals(f1r1l1x1, fake.ecuSoundDirections())
         assertEquals(null, storedActive())
     }
 }

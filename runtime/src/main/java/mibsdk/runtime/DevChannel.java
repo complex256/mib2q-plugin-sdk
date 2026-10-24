@@ -33,6 +33,8 @@ public final class DevChannel {
     private static final String SUFFIX = ".reload";
     /** Leading marker bytes in the signature: mtime may have one-second resolution, a pushed token differs. */
     private static final int SIGNATURE_BYTES = 128;
+    private static final int TOKEN_READ_BYTES = 4096;
+    private static final int TOKEN_MAX = 64;
 
     private final SdkRuntime rt;
     private final File pluginsDir;
@@ -170,7 +172,8 @@ public final class DevChannel {
                 log("WARN", "dev channel: ignored a reload marker whose name is not a plugin id");
                 continue;
             }
-            log("INFO", "dev channel: reload requested for " + id);
+            String token = token(f);
+            log("INFO", "dev channel: reload requested for " + id + (token.length() == 0 ? "" : " token=" + token));
             rt.reload(id); // blocks this worker only
         }
         if (isStopped()) {
@@ -228,6 +231,44 @@ public final class DevChannel {
         b.append(mtime).append(':').append(size).append(':');
         for (int i = 0; i < n; i++) {
             b.append(Integer.toHexString(head[i] & 0xff)).append(',');
+        }
+        return b.toString();
+    }
+
+    /**
+     * The marker's token for the log line: its content as Latin-1, reduced to printable ASCII without spaces (so
+     * trimming and sanitising are the same pass), capped at {@link #TOKEN_MAX}. Empty if unreadable or empty.
+     */
+    static String token(File f) {
+        byte[] buf = new byte[TOKEN_READ_BYTES];
+        int n = 0;
+        InputStream in = null;
+        try {
+            in = new FileInputStream(f);
+            while (n < buf.length) {
+                int r = in.read(buf, n, buf.length - n);
+                if (r < 0) {
+                    break;
+                }
+                n += r;
+            }
+        } catch (IOException e) {
+            // keep what was read
+        } finally {
+            if (in != null) {
+                try {
+                    in.close();
+                } catch (IOException ignored) {
+                    // read-only stream
+                }
+            }
+        }
+        StringBuffer b = new StringBuffer();
+        for (int i = 0; i < n && b.length() < TOKEN_MAX; i++) {
+            int c = buf[i] & 0xff;
+            if (c > 0x20 && c < 0x7f) {
+                b.append((char) c);
+            }
         }
         return b.toString();
     }

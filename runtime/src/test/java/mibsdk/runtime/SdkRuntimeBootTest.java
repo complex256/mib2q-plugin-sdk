@@ -275,6 +275,15 @@ class SdkRuntimeBootTest {
     // ---- safe mode ----
 
     /** Carried from Task 11: safe mode replays pending ledger restores and loads no plugins. */
+    /** Safe mode: the plugin is listed (manifest only) but not running. */
+    private void assertNotRunning(String id) {
+        assertEquals(1, rt.statuses().size(), rt.statuses().toString());
+        PluginStatus st = rt.statuses().get(0);
+        assertEquals(id, st.id());
+        assertEquals(PluginState.DISABLED, st.state());
+        assertEquals("safe mode: not loaded", st.reason());
+    }
+
     @Test
     void safeModeMarkerRestoresLedgerAndLoadsNoPlugins() throws Exception {
         plugin("muter");
@@ -298,11 +307,11 @@ class SdkRuntimeBootTest {
             Thread.sleep(10); // the file is rewritten just after the entry leaves memory
         }
         assertEquals(0, ledger.length());
-        assertTrue(rt.statuses().isEmpty(), "no plugin discovered or enabled");
+        assertNotRunning("muter"); // listed for the Plugins menu from plugin.json alone (Task 6 ruling)
         assertEquals(0, count("muter", "hi"));
 
         rt.reload("muter");
-        assertTrue(rt.statuses().isEmpty(), "reload is refused in safe mode");
+        assertNotRunning("muter"); // reload is refused in safe mode
         assertTrue(logContains("reload ignored: safe mode"), rt.log().snapshot().toString());
 
         clock.advance(120000);
@@ -320,10 +329,14 @@ class SdkRuntimeBootTest {
         assertTrue(logContains("safeMode=true reason=unhealthy-boots n=3"), rt.log().snapshot().toString());
         assertEquals("3", bootState().getProperty("unhealthyBoots"));
         assertEquals("true", bootState().getProperty("lastShutdownClean"), "a safe-mode boot does not count");
-        assertTrue(rt.statuses().isEmpty());
+        // Safe mode lists the plugins (for the Plugins menu) on the control thread, as DISABLED: never loaded.
+        for (PluginStatus st : rt.statuses()) {
+            assertEquals(PluginState.DISABLED, st.state(), rt.statuses().toString());
+        }
 
         clock.advance(60000); // no plugins enabled: safe mode never marks the boot healthy
         Thread.sleep(300);
+        assertEquals(0, enabledLines());
         assertEquals("3", bootState().getProperty("unhealthyBoots"));
 
         fake.setIgnition(true);
@@ -554,6 +567,18 @@ class SdkRuntimeBootTest {
         clock.advance(30000);
         awaitState("probe", PluginState.ENABLED);
         assertEquals(1, count("probe", "hook=true"), rt.log().snapshot().toString());
+    }
+
+    /** Bench finding (UI Task 19): the boot's feature set was never logged, only later changes. */
+    @Test
+    void initialFeaturesAreLoggedOnceAtStart() throws Exception {
+        FakePlatform fp = new FakePlatform("HMI_TEST",
+                new HashSet<String>(Arrays.asList(Features.IGNITION, Features.UI_PAGES)));
+        runtime("plugin.start.delay.ms=0\nheap.low.bytes=0\n", fp).start();
+        awaitLog("STATUS mibsdk features=[ui.pages, vehicle.ignition]");
+        awaitLog("STATUS mibsdk runtime started");
+        Thread.sleep(100); // the load re-reads the same set: no second line
+        assertEquals(1, count("mibsdk", "features=[ui.pages, vehicle.ignition]"), rt.log().snapshot().toString());
     }
 
     @Test

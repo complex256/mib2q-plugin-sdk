@@ -53,10 +53,21 @@ class ManifestParserTest {
     }
 
     @Test
-    void rejectsWrongApi() {
+    void acceptsApi1And2RejectsApi3() throws Exception {
+        assertEquals(1, ManifestParser.parse(manifest("bike-rack", "1", "")).api());
+        assertEquals(2, ManifestParser.parse(manifest("bike-rack", "2", "")).api());
+        for (String bad : new String[] {"3", "0"}) {
+            ManifestException e = assertThrows(ManifestException.class,
+                    () -> ManifestParser.parse(manifest("bike-rack", bad, "")), bad);
+            assertEquals("unsupported api " + bad + ", this SDK implements api 1..2", e.getMessage());
+        }
+    }
+
+    @Test
+    void rejectsReservedIdMibsdk() {
         ManifestException e = assertThrows(ManifestException.class,
-                () -> ManifestParser.parse(manifest("bike-rack", "2", "")));
-        assertTrue(e.getMessage().contains("api"), e.getMessage());
+                () -> ManifestParser.parse(manifest("mibsdk", "1", "")));
+        assertEquals("reserved plugin id 'mibsdk'", e.getMessage());
     }
 
     @Test

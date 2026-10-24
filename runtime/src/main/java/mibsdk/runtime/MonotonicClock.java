@@ -14,7 +14,7 @@ public final class MonotonicClock implements Clock {
 
     private final WallSource wall;
     private final long tickMs;
-    private long uptime;
+    private volatile long uptime; // one writer (tick, under the monitor); read lock-free
     private long lastWall;
     private Thread thread;
 
@@ -27,7 +27,8 @@ public final class MonotonicClock implements Clock {
         this.lastWall = wall.nowMs();
     }
 
-    public synchronized long uptimeMs() {
+    /** Lock-free (a volatile read): HMIEvent reads it and must never wait for the ticker. */
+    public long uptimeMs() {
         return uptime;
     }
 

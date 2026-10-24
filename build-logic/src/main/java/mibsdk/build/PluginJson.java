@@ -11,17 +11,45 @@ import org.gradle.api.GradleException;
 /** The build's view of a plugin's {@code plugin.json}: what packaging and the scans need. */
 final class PluginJson {
     final String id;
+    final String name;
+    final String version;
+    final int api;
     final String main;
     final List<String> permissions;
 
-    private PluginJson(String id, String main, List<String> permissions) {
+    private PluginJson(String id, String name, String version, int api, String main, List<String> permissions) {
         this.id = id;
+        this.name = name;
+        this.version = version;
+        this.api = api;
         this.main = main;
         this.permissions = Collections.unmodifiableList(permissions);
     }
 
     boolean unrestricted() {
         return permissions.contains(Toolchain.PLATFORM_UNRESTRICTED);
+    }
+
+    // Mirrors mibsdk.api.SdkInfo.MIN_API_VERSION / API_VERSION (build-logic cannot depend on :api); the runtime's
+    // ManifestParser enforces the same range and wording.
+    static final int MIN_API = 1;
+    static final int MAX_API = 2;
+
+    /**
+     * Like the runtime, only an integral JSON number (no fraction, no exponent) is an api level. JsonSlurper gives
+     * BigDecimal for {@code 2.0} or {@code 2e0}, Integer for a value that fits an int and Long beyond; its Long path
+     * silently wraps past 2^63 ({@code 18446744073709551618} reads as 2), so a Long is never trusted as a level.
+     */
+    private static int checkApi(File file, Object api) {
+        if (!(api instanceof Integer || api instanceof Long)) {
+            throw new GradleException("mibsdk.plugin: " + file + ": api must be an integer");
+        }
+        if (api instanceof Long || (Integer) api < MIN_API || (Integer) api > MAX_API) {
+            throw new GradleException("mibsdk.plugin: " + file + ": unsupported api "
+                    + (api instanceof Long ? "(out of range)" : api.toString())
+                    + ", this SDK implements api " + MIN_API + ".." + MAX_API);
+        }
+        return (Integer) api;
     }
 
     /** Parses and validates the fields the build relies on; fails the build naming the file otherwise. */
@@ -42,12 +70,21 @@ final class PluginJson {
         Map<?, ?> m = (Map<?, ?>) parsed;
         String id = string(file, m, "id");
         String main = string(file, m, "main");
-        if (!(m.get("api") instanceof Number) || ((Number) m.get("api")).intValue() != 1) {
-            throw new GradleException("mibsdk.plugin: " + file + ": \"api\" must be 1");
-        }
-        if (!id.matches("[a-z0-9][a-z0-9-]{1,40}")) { // same rule as the runtime's ManifestParser
+        String name = string(file, m, "name");
+        String version = string(file, m, "version");
+        int api = checkApi(file, m.get("api"));
+        // Stricter than the runtime's ManifestParser ({1,40}): mibpkg package names are at most 40 characters.
+        if (!id.matches("[a-z0-9][a-z0-9-]{1,39}")) {
             throw new GradleException("mibsdk.plugin: " + file + ": invalid id '" + id
-                    + "': must match [a-z0-9][a-z0-9-]{1,40} (it names plugins/<id>.jar)");
+                    + "': must match [a-z0-9][a-z0-9-]{1,39} (it names plugins/<id>.jar;"
+                    + " mibpkg package names are at most 40 characters)");
+        }
+        if (id.equals("mibsdk")) {
+            throw new GradleException("mibsdk.plugin: " + file + ": id 'mibsdk' is reserved for the SDK package");
+        }
+        if (!version.matches("\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?")) {
+            throw new GradleException("mibsdk.plugin: " + file
+                    + ": \"version\" must be semver like 1.0.0 (mibpkg compares versions)");
         }
         List<String> permissions = new ArrayList<String>();
         Object perms = m.get("permissions");
@@ -59,7 +96,7 @@ final class PluginJson {
                 permissions.add(String.valueOf(p));
             }
         }
-        return new PluginJson(id, main, permissions);
+        return new PluginJson(id, name, version, api, main, permissions);
     }
 
     private static String string(File file, Map<?, ?> m, String key) {

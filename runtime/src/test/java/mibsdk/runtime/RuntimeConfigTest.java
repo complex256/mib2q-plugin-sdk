@@ -2,6 +2,7 @@ package mibsdk.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -48,6 +49,7 @@ class RuntimeConfigTest {
         assertEquals(8388608, c.heapLowBytes());
         assertEquals(3, c.heapLowChecks());
         assertEquals(5000, c.heapCheckMs());
+        assertEquals(100, c.uiPublishMinMs());
     }
 
     @Test
@@ -79,6 +81,7 @@ class RuntimeConfigTest {
                 + "tick.ms=-5\n"
                 + "log.file=/tmp/other.log\n"
                 + "storage.plugin.max.bytes=1000\n"
+                + "ui.publish.min.ms=0\n"
                 + "storage.total.max.bytes=0\n").getBytes(StandardCharsets.ISO_8859_1));
         RuntimeConfig c = RuntimeConfig.load(FakePlatform.roots(tmp));
         assertEquals(1000, c.storagePluginMaxBytes());
@@ -92,5 +95,18 @@ class RuntimeConfigTest {
         assertEquals(1000, c.tickMs(), "out-of-range value falls back to the default");
         assertEquals(new File("/tmp/other.log"), c.logFile());
         assertEquals(5000, c.slowMs(), "absent key keeps its default");
+        assertEquals(0, c.uiPublishMinMs(), "0 publishes every change");
+    }
+
+    @Test
+    void uiEnabledDefaultsOnAndOnlyAnExactFalseTurnsItOff() throws Exception {
+        assertTrue(RuntimeConfig.load(FakePlatform.roots(tmp)).uiEnabled());
+        String[][] cases = {{"false", "false"}, {" FALSE ", "false"}, {"true", "true"}, {"no", "true"}, {"", "true"}};
+        for (String[] c : cases) {
+            Files.write(new File(base, "sdk.properties").toPath(),
+                    ("ui.enabled=" + c[0] + "\n").getBytes(StandardCharsets.ISO_8859_1));
+            assertEquals(Boolean.parseBoolean(c[1]), RuntimeConfig.load(FakePlatform.roots(tmp)).uiEnabled(),
+                    "ui.enabled=" + c[0]);
+        }
     }
 }

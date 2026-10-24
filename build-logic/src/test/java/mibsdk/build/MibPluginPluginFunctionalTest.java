@@ -46,7 +46,7 @@ class MibPluginPluginFunctionalTest {
         repo = new File(System.getProperty("mibsdk.repoRoot")).getCanonicalFile();
         String r = repo.getPath().replace('\\', '/');
         write("settings.gradle.kts", "rootProject.name = \"tk\"\n"
-                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:kt\")\n"
+                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api3\", \"plugins:apifrac\")\n"
                 + "project(\":compat\").projectDir = file(\"" + r + "/compat\")\n"
                 + "project(\":api\").projectDir = file(\"" + r + "/api\")\n"
                 + "project(\":plugins:hello\").projectDir = file(\"" + r + "/plugins/hello\")\n"
@@ -64,6 +64,16 @@ class MibPluginPluginFunctionalTest {
                 + "}\n";
         javaPlugin("refl", "sample.refl.ReflPlugin", reflBody, "[]");
         javaPlugin("unrestricted", "sample.refl.ReflPlugin", reflBody, "[\"platform.unrestricted\"]");
+
+        for (String[] a : new String[][] {{"api2", "2"}, {"api0", "0"}, {"api3", "3"}, {"apifrac", "1.5"}}) {
+            javaPlugin(a[0], "sample.refl.ReflPlugin", "package sample.refl;\n"
+                    + "import mibsdk.api.*;\n"
+                    + "public class ReflPlugin extends MibPlugin {\n"
+                    + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
+                    + "}\n", "[]");
+            write("plugins/" + a[0] + "/src/main/resources/plugin.json",
+                    manifest(a[0], "sample.refl.ReflPlugin", "[]").replace("\"api\":1", "\"api\":" + a[1]));
+        }
 
         write("plugins/kt/build.gradle.kts", "plugins {\n"
                 + "    id(\"org.jetbrains.kotlin.jvm\") version \"2.0.21\"\n"
@@ -90,7 +100,7 @@ class MibPluginPluginFunctionalTest {
     }
 
     private static String manifest(String id, String main, String permissions) {
-        return "{\"id\":\"" + id + "\",\"name\":\"" + id + "\",\"version\":\"1.0\",\"author\":\"complex256\","
+        return "{\"id\":\"" + id + "\",\"name\":\"" + id + "\",\"version\":\"1.0.0\",\"author\":\"complex256\","
                 + "\"api\":1,\"main\":\"" + main + "\",\"permissions\":" + permissions + ",\"dependencies\":[]}\n";
     }
 
@@ -176,6 +186,67 @@ class MibPluginPluginFunctionalTest {
         assertTrue(result.getOutput().contains("sample/refl/ReflPlugin.load -> java/lang/Class.forName"),
                 result.getOutput());
         assertEquals(TaskOutcome.FAILED, result.task(":plugins:refl:permissionScan").getOutcome());
+    }
+
+    @Test
+    void mibPackageBuildsMpk() throws Exception {
+        String mibpkg = System.getProperty("mibsdk.mibpkg", "");
+        org.junit.jupiter.api.Assumptions.assumeTrue(new File(mibpkg).canExecute(), "no host mibpkg: -Pmibsdk.mibpkg");
+        BuildResult result = runner(":plugins:hello:mibPackage", "-Pmibsdk.mibpkg=" + mibpkg).build();
+
+        assertSucceeded(result, ":plugins:hello:mibPluginJar");
+        assertSucceeded(result, ":plugins:hello:mibPackage");
+        File mpk = root.resolve("out/plugins_hello/mibsdk/hello-1.0.0.mpk").toFile();
+        assertTrue(mpk.isFile(), "missing " + mpk);
+        Process tar = new ProcessBuilder("tar", "-tzf", mpk.getPath()).redirectErrorStream(true).start();
+        String listing = new String(tar.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, tar.waitFor(), listing);
+        for (String entry : new String[] {"manifest.toml", "hello.jar", "hello.jar.stamp"}) {
+            assertTrue(listing.lines().anyMatch(l -> l.equals(entry) || l.equals("./" + entry)), entry + " in " + listing);
+        }
+    }
+
+    @Test
+    void mibPackageWithoutAHostMibpkgFailsWithAHint() {
+        BuildResult result = runner(":plugins:hello:mibPackage", "-Pmibsdk.mibpkg=/nonexistent/mibpkg").buildAndFail();
+        assertTrue(result.getOutput().contains("host mibpkg not found: build it (cargo build --release in the mibpkg repo)"
+                + " and pass -Pmibsdk.mibpkg=<path>"), result.getOutput());
+    }
+
+    @Test
+    void mibPackageRerunsWhenTheBinaryChangesAndFailsWhenItIsGone() throws Exception {
+        Path fake = root.resolve("fake-mibpkg.sh");
+        String script = "#!/bin/sh\n: > \"$3/hello-1.0.0.mpk\"\n";
+        Files.write(fake, script.getBytes(StandardCharsets.UTF_8));
+        assertTrue(fake.toFile().setExecutable(true));
+        String prop = "-Pmibsdk.mibpkg=" + fake;
+
+        assertEquals(TaskOutcome.SUCCESS, runner(":plugins:hello:mibPackage", prop).build()
+                .task(":plugins:hello:mibPackage").getOutcome());
+        assertEquals(TaskOutcome.UP_TO_DATE, runner(":plugins:hello:mibPackage", prop).build()
+                .task(":plugins:hello:mibPackage").getOutcome());
+
+        Files.write(fake, (script + "# stricter\n").getBytes(StandardCharsets.UTF_8));
+        assertEquals(TaskOutcome.SUCCESS, runner(":plugins:hello:mibPackage", prop).build()
+                .task(":plugins:hello:mibPackage").getOutcome(), "a changed binary at the same path must rerun");
+
+        Files.delete(fake);
+        BuildResult gone = runner(":plugins:hello:mibPackage", prop).buildAndFail();
+        assertTrue(gone.getOutput().contains("host mibpkg not found"), gone.getOutput());
+    }
+
+    @Test
+    void apiTwoManifestBuilds() throws Exception {
+        assertSucceeded(runner(":plugins:api2:mibPluginJar").build(), ":plugins:api2:mibPluginJar");
+    }
+
+    @Test
+    void apiOutOfRangeOrNonIntegerFailsBuild() {
+        for (String id : new String[] {"api0", "api3", "apifrac"}) {
+            String out = runner(":plugins:" + id + ":mibPluginJar").buildAndFail().getOutput();
+            String want = id.equals("apifrac") ? "api must be an integer" : "unsupported api";
+            assertTrue(out.contains(want), id + ": " + out);
+        }
     }
 
     @Test

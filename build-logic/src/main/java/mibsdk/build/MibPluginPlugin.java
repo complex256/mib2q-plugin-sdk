@@ -19,6 +19,7 @@ import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
+import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.bundling.Jar;
 
@@ -121,6 +122,42 @@ public class MibPluginPlugin implements Plugin<Project> {
             });
         });
         project.getTasks().named("assemble").configure(t -> t.dependsOn(pluginJar));
+
+        // mibPackage: <id>-<version>.mpk from the checked jar and its stamp (mibpkg re-checks the stamp).
+        Provider<Directory> mibsdkDir = project.getLayout().getBuildDirectory().dir("mibsdk");
+        Provider<File> stamp = mibsdkDir.zip(manifest, (d, m) -> new File(d.getAsFile(), m.id + ".jar.stamp"));
+        Provider<Directory> stageDir = project.getLayout().getBuildDirectory().dir("mibpkg-stage");
+        TaskProvider<Sync> stage = project.getTasks().register("mibPackageStage", Sync.class, t -> {
+            t.setDescription("Stages manifest.toml, the plugin jar and its check stamp for mibpkg.");
+            t.from(pluginJar.flatMap(Jar::getArchiveFile));
+            t.from(stamp);
+            t.into(stageDir);
+            t.dependsOn(pluginJar);
+            t.getInputs().property("manifest", manifest.map(MpkStage::pluginManifest));
+            t.doFirst("require stamp", task -> {
+                if (!stamp.get().isFile()) {
+                    throw new GradleException("mibsdk.plugin: " + stamp.get() + " is missing: a check did not run,"
+                            + " so the plugin is not packaged");
+                }
+            });
+            t.doLast("write manifest.toml", task -> {
+                try {
+                    java.nio.file.Files.write(new File(t.getDestinationDir(), "manifest.toml").toPath(),
+                            MpkStage.pluginManifest(PluginJson.read(manifestFile)).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                } catch (java.io.IOException e) {
+                    throw new GradleException("mibsdk.plugin: cannot write manifest.toml: " + e, e);
+                }
+            });
+        });
+        project.getTasks().register("mibPackage", MibpkgBuildTask.class, t -> {
+            t.setGroup("build");
+            t.setDescription("Builds build/mibsdk/<id>-<version>.mpk with the host mibpkg (-Pmibsdk.mibpkg=<path>).");
+            t.dependsOn(pluginJar, stage);
+            t.getStage().set(stageDir);
+            t.getMibpkg().set(Toolchain.mibpkg(project));
+            t.getBinary().set(Toolchain.mibpkgBinary(project));
+            t.getMpk().set(mibsdkDir.zip(manifest, (d, m) -> d.file(m.id + "-" + m.version + ".mpk")));
+        });
 
         project.getPluginManager().withPlugin(KOTLIN_PLUGIN_ID, applied ->
                 configureKotlin(project, main, manifest, backport));

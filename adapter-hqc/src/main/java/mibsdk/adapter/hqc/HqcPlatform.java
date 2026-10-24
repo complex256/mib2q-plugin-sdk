@@ -4,6 +4,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import mibsdk.adapter.hqc.ui.HqcUiIds;
+import mibsdk.adapter.hqc.ui.UiApplier;
 import mibsdk.api.Features;
 import mibsdk.platform.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
@@ -28,17 +30,27 @@ public final class HqcPlatform implements PlatformAdapter {
     /** Fast retry period of the service wait. */
     static final long RETRY_MS = 200;
     private static final int EVENT_QUEUE = 64;
+    /** The OSGi service the UI waits for: the HMI framework (system models; {@code getHmiServiceApp()}). */
+    static final String FRAMEWORK_ACCESS = "de.audi.atip.base.IFrameworkAccess";
 
     private static final Set<String> FEATURES = Collections.unmodifiableSet(new HashSet<String>(
             Arrays.asList(new String[] {Features.PARKING, Features.IGNITION})));
     private static final Set<String> FEATURES_HOOKED = Collections.unmodifiableSet(new HashSet<String>(
             Arrays.asList(new String[] {Features.PARKING, Features.IGNITION, Features.HOOK_PARKING})));
+    private static final Set<String> FEATURES_UI = Collections.unmodifiableSet(new HashSet<String>(
+            Arrays.asList(new String[] {Features.PARKING, Features.IGNITION, Features.SLOT_CAR_MENU, Features.UI_PAGES,
+                Features.SLOT_STATUS_BAR})));
+    private static final Set<String> FEATURES_HOOKED_UI = Collections.unmodifiableSet(new HashSet<String>(
+            Arrays.asList(new String[] {Features.PARKING, Features.IGNITION, Features.HOOK_PARKING,
+                Features.SLOT_CAR_MENU, Features.UI_PAGES, Features.SLOT_STATUS_BAR})));
 
     private final BundleContext ctx;
     private final Clock clock;
+    private final int statusMaxChars;
     private EventPump pump; // guarded by this
     private IgnitionBridge ignition; // guarded by this
     private ServiceWaiter waiter; // guarded by this
+    private UiApplier ui; // guarded by this
     private volatile ParkingBridge parking;
 
     public HqcPlatform(BundleContext ctx) {
@@ -47,8 +59,14 @@ public final class HqcPlatform implements PlatformAdapter {
 
     /** {@code clock} only times the service waits for the log; null is fine. */
     HqcPlatform(BundleContext ctx, Clock clock) {
+        this(ctx, clock, HqcUiIds.STATUS_MAX_CHARS);
+    }
+
+    /** {@code statusMaxChars}: {@code ui.status.max.chars} for the popup-65 status line. */
+    HqcPlatform(BundleContext ctx, Clock clock, int statusMaxChars) {
         this.ctx = ctx;
         this.clock = clock;
+        this.statusMaxChars = statusMaxChars;
     }
 
     public String id() {
@@ -63,14 +81,22 @@ public final class HqcPlatform implements PlatformAdapter {
      * PARKING and IGNITION, plus HOOK_PARKING only if the configurator wrapped the parking service this boot
      * (wrapping enabled and its raw object recorded): otherwise no parking hook point ever fires, and plugins must
      * see {@code has(HOOK_PARKING) == false}. The runtime reads this again before it loads plugins and on every
-     * {@link PlatformHost#featuresChanged()}.
+     * {@link PlatformHost#featuresChanged()}. With {@code SdkGlobals.uiEnabled} (fixed for the boot) also
+     * SLOT_CAR_MENU, UI_PAGES and SLOT_STATUS_BAR.
      */
     public Set<String> features() {
-        return SdkGlobals.wrappingEnabled && RawServices.get(DSICarParkingSystem.class.getName()) != null
-                ? FEATURES_HOOKED : FEATURES;
+        boolean hooked = SdkGlobals.wrappingEnabled && RawServices.get(DSICarParkingSystem.class.getName()) != null;
+        if (SdkGlobals.uiEnabled) {
+            return hooked ? FEATURES_HOOKED_UI : FEATURES_UI;
+        }
+        return hooked ? FEATURES_HOOKED : FEATURES;
     }
 
-    /** Starts the event pump and the service waits; does not block. A second start is ignored. */
+    /**
+     * Starts the event pump and the service waits; does not block. A second start is ignored. With
+     * {@code SdkGlobals.uiEnabled} (never under the wrap-loop latch) it also waits for {@link #FRAMEWORK_ACCESS} and
+     * then starts the {@code mibsdk-ui} applier; otherwise no SDK UI is ever drawn and popup 65 is never touched.
+     */
     public synchronized void start(final PlatformHost host) {
         if (pump != null) {
             return;
@@ -96,24 +122,57 @@ public final class HqcPlatform implements PlatformAdapter {
                 ib.attach(service);
             }
         });
+        if (SdkGlobals.uiEnabled) {
+            if (clock == null) {
+                SdkGlobals.LOG.append("WARN", "mibsdk.hqc", "no clock: the SDK UI applier does not start");
+                return;
+            }
+            final ServiceWaiter mine = w;
+            w.await(FRAMEWORK_ACCESS, RETRY_MS, new ServiceWaiter.Callback() {
+                public void onAvailable(Object service) {
+                    startUi(mine, service);
+                }
+            });
+        }
     }
 
-    /** Ends the waits, unregisters the listeners, stops the pump. Never blocks on the car. Idempotent. */
+    /** On the waiter thread: creates and starts the applier unless this start was already stopped. */
+    private void startUi(ServiceWaiter startedBy, Object frameworkAccess) {
+        synchronized (this) {
+            if (waiter != startedBy) {
+                return; // stopped meanwhile (ServiceWaiter's documented late-delivery residual)
+            }
+            UiApplier a = UiApplier.create(frameworkAccess, clock, SdkGlobals.LOG, statusMaxChars);
+            ui = a;
+            a.start();
+        }
+    }
+
+    /**
+     * Ends the waits, stops the UI applier (waits briefly for its teardown), unregisters the listeners, stops the
+     * pump. Never blocks on the car. Idempotent.
+     */
     public void stop() {
         ServiceWaiter w;
         ParkingBridge pb;
         IgnitionBridge ib;
         EventPump p;
+        UiApplier u;
         synchronized (this) {
             w = waiter;
             pb = parking;
             ib = ignition;
             p = pump;
+            u = ui;
             waiter = null;
             ignition = null;
+            ui = null;
         }
         if (w != null) {
             w.stop();
+        }
+        if (u != null) {
+            u.stop(); // tears down the SDK rows, status line and pages: nothing stale stays on screen
         }
         if (pb != null) {
             pb.detach(); // parking() stays: current() keeps the last value, apply() fails

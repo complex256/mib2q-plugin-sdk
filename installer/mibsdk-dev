@@ -1,29 +1,16 @@
 #!/usr/bin/env bash
-# mibsdk-dev: install and drive the mibsdk plugin SDK on an Audi MHI2Q head unit over SSH (runs on the Mac).
+# mibsdk-dev: drive the mibsdk plugin SDK on an Audi MHI2Q head unit over SSH (runs on the Mac).
 #
-# The unit is a QNX box with ksh and basic tools only (no date, tr, md5sum, cksum; do not rely on sed/awk), so
-# every file is generated here and pushed with `ssh ... "cat > path" < file`. There is no scp.
+# A thin transport over the unit's mibpkg (/tmp/mibpkg, 0.8.0 or later): every change on the unit is a mibpkg verb,
+# and mibpkg owns every /mnt/app write. This tool only uploads files to /tmp (`ssh ... "cat > /tmp/<name>"`, read
+# back and compared: there is no scp) and passes mibpkg's output and exit code through (3: permissions to approve,
+# 2: bad usage, 1: failed or busy). Only log and restart talk to the unit directly.
 # This tool never reads or prints the j9 command line (lsd.sh embeds the VIN and IMSI).
 set -euo pipefail
 
-SUPPORTED_HMI="HMI_AU_MIB2_HQC_NAR_G22_C10_180803"
 DEFAULT_HOST="10.20.0.23"
-HMI_ROOT="/mnt/app/eso/hmi"
-LSD="$HMI_ROOT/lsd"
-SDK="$LSD/mibsdk"
-JARS="$LSD/jars"
-BUNDLES="$LSD/bundles_dsitracer_enabled.properties"
-MARKER="$LSD/dsitracer_activated"
-TRACER_JAR="$LSD/DSITracer.jar"
-STOCK="$SDK/stock"
-# /mnt/app is read-only while the HMI runs, so the runtime keeps its mutable state elsewhere (SdkFiles in adapter-hqc):
-PERSIST="/mnt/persist/mibsdk"     # boot.state, ledger.properties, data/ (qnx6, read-write from boot; no remount)
-RAMDIR="/ramdisk/mibsdk"          # cache/ (jar snapshots)
-LEDGER="$PERSIST/ledger.properties"
-OLD_LEDGER="$SDK/ledger.properties"   # where installs before the move kept it
+MIBPKG="/tmp/mibpkg"
 LOG="/tmp/mibsdk.log"
-SDK_JARS="mibsdk-runtime.jar mibsdk-adapter-hqc.jar mibsdk-rt-retrotranslator.jar"
-BOOT_STATE_RESET=$'unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0'   # BootGuard.reset()'s content
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST="${MIBSDK_DIST:-$HERE/../dist/build/dist}"
@@ -32,687 +19,203 @@ SSH_OPTS=(-o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedKeyTypes=ssh-rsa -o Batc
 
 HOST="$DEFAULT_HOST"
 TMP=""
+SNAP=""
+UPLOADED_ALSO=""
 
 usage() {
   cat <<USAGE
 usage: mibsdk-dev <command> [args] [host]      (host defaults to $DEFAULT_HOST)
 
-  install                    back up the stock files (first install only), push the SDK jars, bundles file and
-                             sdk.properties, create $PERSIST; refuses on an unsupported HMI, carplay-rgi,
-                             missing DSITracer.jar, or a dist without a matching check stamp (build it with
-                             ./gradlew :dist:assembleUnit)
-  uninstall [--purge] [--force]
-                             restore the stock bundles file (and its mode), remove the SDK jars (and the
-                             dsitracer_activated marker if it was absent before); plugin data in $PERSIST
-                             is kept unless --purge, which also removes $SDK and $RAMDIR. Refuses while
-                             ledger.properties lists overrides still in force; --force uninstalls anyway
-  restart                    restart the HMI (slay -s11 j9)
-  push <plugin.jar> [host]   install a plugin jar as plugins/<id>.jar (refuses a jar whose <jar>.stamp is missing or does
-                             not match it: build with ./gradlew :<project>:mibPluginJar) and trigger a reload (writes a fresh token to
-                             plugins/<id>.reload; the runtime reloads once per new token, it never deletes markers)
-  grant <id> <perm,...>      rewrite that plugin's line in grants.properties
-  data-clear <id>            remove that plugin's data ($PERSIST/data/<id>.properties); the ledger, boot state
-                             and other plugins' data are untouched. The storage cap counts files on disk from the
-                             runtime's start, so restart afterwards (mibsdk-dev restart) to free the space
-  remove <id> [--purge-data] remove plugins/<id>.jar and its grants line, request a reload, then wait up to
-                             $MIBSDK_REMOVE_WAIT_S s (default 30) for the ledger to drop its overrides; keeps the
-                             plugin's data unless --purge-data
-  safe-mode on|off           create/remove the SAFE_MODE marker (off also resets $PERSIST/boot.state: the unhealthy-boot count
-                             and the wrap-boot count that turns DSI service wrapping off after a crash loop)
-  log                        print $LOG
-  status                     print the STATUS lines of $LOG
+Every command but log and restart runs a verb of the unit's mibpkg (0.8.0 or later; see the mibpkg README) and
+exits with its status: 3 asks for permissions to be approved (the lines say which, ending in "approve with:").
 
-Environment: MIBSDK_DIST overrides the jar directory (default dist/build/dist).
+  install                    install or update the SDK: uploads the single $DIST/mibsdk-*.mpk (or \$MIBSDK_MPK;
+                             build it with ./gradlew :dist:mibpkgPackage), then: mibpkg install-file mibsdk
+  uninstall [--purge] [--force]
+                             mibpkg remove mibsdk; --purge also deletes plugin data, --force uninstalls while
+                             overrides of vehicle state are still in force
+  install-plugin <file.mpk> [--approve=<perm,...>]
+                             install or update a plugin package (upload, then mibpkg install-file <id>)
+  remove <id> [--purge|--purge-data]
+                             mibpkg sdk remove <id>: a plugin package or a pushed plugin; keeps its data unless --purge
+  push <plugin.jar>          upload the jar and its <jar>.stamp (build with ./gradlew :<project>:mibPluginJar), then
+                             mibpkg sdk push <id>: installs it as plugins/<id>.jar and requests a reload
+  grant <id> <perm,...>      mibpkg sdk grant (an empty list revokes all; a plugin missing a grant does not run)
+  safe-mode on|off           mibpkg sdk safe-mode (off also resets boot.state)
+  boot-state set-wrap <n>    mibpkg sdk boot-state set-wrap <n>
+  data-clear <id>            mibpkg sdk data-clear <id> (restart afterwards to free the storage cap)
+  status                     mibpkg sdk status: the HMICar= line, the SDK, its plugins, the ledger, the STATUS lines
+  log                        print $LOG
+  restart                    restart the HMI (slay -s11 j9)
+
+Environment: MIBSDK_DIST overrides the dist directory (default dist/build/dist); MIBSDK_MPK names the SDK .mpk.
 USAGE
 }
 
 die() { echo "mibsdk-dev: $*" >&2; exit 1; }
+# usage_err: a bad command line, caught on this machine; exits 2 like mibpkg's own usage errors.
+usage_err() { echo "mibsdk-dev: $*" >&2; exit 2; }
 info() { echo "mibsdk-dev: $*" >&2; }
 
-RW=0
 cleanup() {
   local rc=$?
-  # Best effort on every exit path (including die): put /mnt/app back to read-only if we made it writable.
-  if [ "$RW" = 1 ]; then rw_end; fi
   if [ -n "$TMP" ]; then rm -rf "$TMP"; fi
   return $rc
 }
 trap cleanup EXIT
 
-# Inside a write section (RW=1) every remote command first re-asserts /mnt/app read-write: another process (mibpkg's
-# supervisor, on the bench) remounts it read-only after its own writes, at any time. mount -uw is a no-op when it
-# already is read-write.
-rsh() {
-  if [ "$RW" = 1 ]; then
-    ssh "${SSH_OPTS[@]}" "root@$HOST" "mount -uw /mnt/app; $*"
-  else
-    ssh "${SSH_OPTS[@]}" "root@$HOST" "$@"
-  fi
-}
+rsh() { ssh "${SSH_OPTS[@]}" "root@$HOST" "$@"; }
 
 set_host() {
   HOST="$1"
   case "$HOST" in
-    ""|-*|*[!A-Za-z0-9._:-]*) die "invalid host '$HOST'" ;;
+    ""|-*|*[!A-Za-z0-9._:-]*) usage_err "invalid host '$HOST'" ;;
   esac
 }
+
+make_tmp() { [ -n "$TMP" ] || TMP="$(mktemp -d "${TMPDIR:-/tmp}/mibsdk-dev.XXXXXX")"; }
 
 connect() {
-  rsh "echo ok" >/dev/null 2>&1 || die "cannot reach root@$HOST over ssh (is the unit on and is the host right?)"
-  [ -n "$TMP" ] || make_tmp
+  rsh "echo ok" >/dev/null 2>&1 </dev/null || die "cannot reach root@$HOST over ssh (is the unit on and is the host right?)"
 }
 
-make_tmp() { TMP="$(mktemp -d "${TMPDIR:-/tmp}/mibsdk-dev.XXXXXX")"; }
-
-# remote_cat <remote path> <local file>: fetch; returns 1 if the remote file cannot be read.
-fetch() { rsh "cat '$1'" >"$2" 2>/dev/null; }
-
-# is_present <remote path>: status 0 present, 1 absent; dies on any transport or other failure (never "absent" by mistake).
-# Call it directly in an if/&& (not in $(...)), so that die exits the script.
-is_present() {
-  local out
-  out="$(rsh "if [ -e '$1' ]; then echo yes; else echo no; fi")" || die "ssh failed while checking $1"
-  case "$out" in
-    yes) return 0 ;;
-    no) return 1 ;;
-    *) die "unexpected answer '$out' while checking $1" ;;
-  esac
+# need_mibpkg: refuse (before any upload) a unit whose mibpkg lacks the sdk verbs.
+need_mibpkg() {
+  local out rc=0
+  out="$(rsh "$MIBPKG sdk status" 2>&1 >/dev/null </dev/null)" || rc=$?
+  [ "$rc" = 0 ] || status_failed "$rc" "$out"
 }
 
-# /mnt/app is read-only until remounted (mount -uw); every mutating command group runs between rw_begin and rw_end.
-rw_begin() {
-  rsh "mount -uw /mnt/app" || die "cannot remount /mnt/app read-write"
-  RW=1
+# status_failed <rc> <stderr>: die on a failed `mibpkg sdk status`. Only a missing binary (126/127, "not found") or a
+# mibpkg that does not know the verb ("unknown", "usage") is called missing or old; anything else is shown as is.
+status_failed() {
+  local rc="$1" out="$2"
+  [ "$rc" != 255 ] || die "ssh to root@$HOST failed while checking mibpkg${out:+: $out}"
+  if [ "$rc" = 126 ] || [ "$rc" = 127 ] || printf '%s' "$out" | grep -qiE 'not found|no such file|cannot execute|unknown|usage'; then
+    die "mibpkg on $HOST is missing or older than 0.8.0; update it (see the mibpkg README)"
+  fi
+  die "mibpkg sdk status failed on $HOST (exit $rc)${out:+: $out}"
 }
 
-rw_end() {
-  RW=0
-  rsh "sync; mount -ur /mnt/app" >/dev/null 2>&1 \
-    || info "warning: could not remount /mnt/app read-only (files open?); leaving it read-write"
+check_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || usage_err "invalid plugin id '$1'"; }
+
+# run_mibpkg <arg>...: run the unit's mibpkg and exit with its status (its stdout and stderr pass through). Every
+# argument was validated by the caller to the characters [A-Za-z0-9._,=-], so single quotes are enough.
+run_mibpkg() {
+  local cmd="$MIBPKG" a rc=0
+  for a in "$@"; do cmd="$cmd '$a'"; done
+  rsh "$cmd" </dev/null || rc=$?
+  exit "$rc"
 }
 
-# push_file <local> <remote>: write a temp file next to the target (same file system), verify it byte for byte, then
-# rename into place and read the target back. QNX mv exits 0 even when it cannot replace the target (read-only
-# /mnt/app), so the move is judged by its result; one retry covers a read-only remount by another process landing
-# between our remount and the mv. On any failure the temp file is removed (best effort; sweep_push_tmp catches
-# what is left).
-push_file() {
-  local src="$1" dst="$2" tmp="${2%/*}/.push.tmp" try
-  rsh "cat > '$tmp'" <"$src" || push_failed "$tmp" "failed to write $dst"
-  fetch "$tmp" "$TMP/verify" || push_failed "$tmp" "failed to read back $dst"
-  cmp -s "$src" "$TMP/verify" || push_failed "$tmp" "verification of $dst failed; nothing was installed there"
-  for try in 1 2; do
-    if rsh "mv '$tmp' '$dst'; [ ! -e '$tmp' ]" && fetch "$dst" "$TMP/verify" && cmp -s "$src" "$TMP/verify"; then
-      return 0
-    fi
-  done
-  push_failed "$tmp" "failed to move $dst into place"
+# upload <local> <name>: write /tmp/<name> on the unit and compare it byte for byte with the local file; on a
+# mismatch remove it (and $UPLOADED_ALSO, an earlier upload of the same set) and die. mibpkg deletes its uploads once it has read them, so every run uploads afresh.
+upload() {
+  local src="$1" dst="/tmp/$2"
+  make_tmp
+  if rsh "cat > '$dst'" <"$src" && rsh "cat '$dst'" >"$TMP/verify" 2>/dev/null </dev/null && cmp -s "$src" "$TMP/verify"; then
+    return 0
+  fi
+  rsh "rm -f '$dst'${UPLOADED_ALSO:+ '$UPLOADED_ALSO'}" </dev/null >/dev/null 2>&1 || true
+  die "upload of ${src##*/} to $dst failed or did not verify; nothing was installed"
 }
 
-push_failed() {
-  rsh "rm -f '$1'" >/dev/null 2>&1 || true
-  die "$2"
+# snapshot <file>: copy it to $SNAP; what is uploaded is this copy, not the file on disk (a build may rewrite it
+# meanwhile).
+snapshot() {
+  make_tmp
+  SNAP="$TMP/snap.${1##*/}"
+  cp "$1" "$SNAP" || die "cannot read $1"
 }
 
-# sweep_push_tmp: remove push_file temp files an interrupted run left in every directory it writes to. Needs /mnt/app
-# read-write.
-sweep_push_tmp() {
-  rsh "rm -f '$LSD/.push.tmp' '$JARS/.push.tmp' '$SDK/.push.tmp' '$SDK/plugins/.push.tmp' '$STOCK/.push.tmp' \
-       '$PERSIST/.push.tmp'" || die "cannot remove stale .push.tmp files"
-}
+# upload_id: 16 random bytes in lowercase hex (mibpkg's upload id rule).
+upload_id() { od -An -tx1 -N16 /dev/urandom | tr -d ' \n'; }
 
-# perm_octal <ls -l mode string, e.g. -rwxr-xr-x>: prints the permission bits in octal (special bits ignored).
-perm_octal() {
-  local m="$1" out="" i d c
-  [[ "$m" =~ ^.[-r][-w][-xsStT][-r][-w][-xsStT][-r][-w][-xsStT] ]] || return 1
-  for i in 1 4 7; do
-    d=0
-    c="${m:$i:1}"; [ "$c" = r ] && d=$((d + 4))
-    c="${m:$((i + 1)):1}"; [ "$c" = w ] && d=$((d + 2))
-    c="${m:$((i + 2)):1}"; case "$c" in x|s|t) d=$((d + 1)) ;; esac
-    out="$out$d"
-  done
-  echo "$out"
-}
-
-# remote_mode <remote path>: its permission bits in octal, from ls -l (the unit has no stat).
-remote_mode() {
-  local line
-  line="$(rsh "ls -ld '$1'")" || return 1
-  perm_octal "${line%% *}"
-}
-
-check_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid plugin id '$1'"; }
-
-need_sdk() {
-  is_present "$SDK" || die "mibsdk is not installed on $HOST ($SDK missing); run: mibsdk-dev install"
+# install_mpk <name> <file.mpk> [--approve=...]: upload a snapshot of the package and install it as <name>.
+install_mpk() {
+  local name="$1" uid
+  snapshot "$2"
+  shift 2
+  connect
+  need_mibpkg
+  uid="$(upload_id)"
+  upload "$SNAP" "mibpkg.upload.$uid.mpk"
+  run_mibpkg install-file "$name" "$uid" - "$@"
 }
 
 cmd_install() {
-  for j in $SDK_JARS; do
-    [ -f "$DIST/$j" ] || die "$DIST/$j missing; build it with: ./gradlew :dist:assembleUnit"
-  done
-  command -v python3 >/dev/null || die "python3 is required on this machine"
-  # Verify and push one snapshot: the bytes that pass the check are the bytes that reach the unit.
-  local why src="$DIST"
-  make_tmp
-  mkdir "$TMP/dist"
-  for j in $SDK_JARS; do cp "$DIST/$j" "$TMP/dist/$j" || die "cannot read $DIST/$j"; done
-  if [ -f "$DIST/mibsdk-unit.stamp" ]; then cp "$DIST/mibsdk-unit.stamp" "$TMP/dist/" || die "cannot read the stamp"; fi
-  DIST="$TMP/dist"
-  why="$(python3 -I - verify "$DIST/mibsdk-unit.stamp" unit - "$DIST/mibsdk-runtime.jar" "$DIST/mibsdk-adapter-hqc.jar" \
-         "$DIST/mibsdk-rt-retrotranslator.jar" 2>&1 <<<"$STAMP_PY")" \
-    || die "$src is not a checked build ($why); build it with: ./gradlew :dist:assembleUnit; nothing changed"
-  connect
-
-  # 1. Facts from the unit.
-  local ver
-  fetch /ifs/version_info.txt "$TMP/version_info.txt" || die "cannot read /ifs/version_info.txt"
-  ver="$(grep -E '^HMI[[:space:]]*=' "$TMP/version_info.txt" | head -n 1 || true)"
-  ver="${ver#*=}"; ver="${ver//[[:space:]]/}"
-  fetch "$BUNDLES" "$TMP/current.properties" || die "cannot read $BUNDLES"
-  local marker_now=no
-  if is_present "$MARKER"; then marker_now=yes; fi
-
-  # 2. Refusals.
-  [ "$ver" = "$SUPPORTED_HMI" ] || die "unsupported HMI '${ver:-unknown}' (supported: $SUPPORTED_HMI); nothing changed"
-  local jarlist cp_stock
-  jarlist="$(rsh "ls '$JARS'" 2>/dev/null)" || die "cannot list $JARS"
-  if printf '%s\n' "$jarlist" | grep -qi carplay; then
-    die "carplay-rgi is installed (a *carplay* jar is in $JARS); the SDK does not support it; nothing changed"
-  fi
-  # The unit has no find(1); list the tree recursively and match the names here.
-  cp_stock="$(rsh "ls -R '$HMI_ROOT'; echo RC=\$?" 2>/dev/null)" || die "cannot search $HMI_ROOT"
-  printf '%s\n' "$cp_stock" | grep -qx 'RC=0' || die "could not verify the absence of carplay-rgi (ls -R failed); nothing changed"
-  if printf '%s\n' "$cp_stock" | grep -q '\.carplay-stock$'; then
-    die "carplay-rgi is installed (*.carplay-stock files exist); the SDK does not support it; nothing changed"
-  fi
-  is_present "$TRACER_JAR" || die "$TRACER_JAR is missing; the SDK chains DSITracer's configurator and needs it; nothing changed"
-
-  # 3. Backup (first install only; an existing complete backup is never touched).
-  local stock_input tracer
-  if is_present "$STOCK/tracer.was"; then
-    info "stock backup already present; keeping it"
-    fetch "$STOCK/bundles_dsitracer_enabled.properties" "$TMP/stock.properties" || die "stock backup is unreadable"
-    rw_begin
-    tracer="$(rsh "cat '$STOCK/tracer.was'")" || die "cannot read stock/tracer.was"
-    [ "$tracer" = true ] || [ "$tracer" = false ] || die "stock/tracer.was is corrupt ('$tracer')"
+  local mpk found=() f
+  if [ -n "${MIBSDK_MPK:-}" ]; then
+    mpk="$MIBSDK_MPK"
+    [ -f "$mpk" ] || die "MIBSDK_MPK=$mpk is not a file"
   else
-    if grep -q 'mibsdk' "$TMP/current.properties"; then
-      die "$BUNDLES already references mibsdk but no stock backup exists; restore the stock file by hand first"
-    fi
-    tracer=false; [ "$marker_now" = yes ] && tracer=true
-    rw_begin
-    rsh "mkdir -p '$SDK' '$STOCK'" || die "cannot create $STOCK"
-    rsh "rm -f '$STOCK/bundles_dsitracer_enabled.properties'; cp '$BUNDLES' '$STOCK/bundles_dsitracer_enabled.properties'" \
-      || die "backup copy failed"
-    fetch "$STOCK/bundles_dsitracer_enabled.properties" "$TMP/backup.properties" || die "cannot read back the backup"
-    cmp -s "$TMP/current.properties" "$TMP/backup.properties" || die "backup does not match the original; aborting"
-    local mode
-    mode="$(remote_mode "$BUNDLES")" || die "cannot read the mode of $BUNDLES"
-    rsh "echo $mode > '$STOCK/bundles.mode'" || die "cannot record the mode of $BUNDLES"
-    # Written last: its presence means the backup is complete.
-    rsh "echo $tracer > '$STOCK/tracer.was'" || die "cannot record the marker state"
-    cp "$TMP/current.properties" "$TMP/stock.properties"
-    info "stock files backed up to $STOCK (dsitracer_activated existed: $tracer)"
+    for f in "$DIST"/mibsdk-*.mpk; do [ -f "$f" ] && found+=("$f"); done
+    [ "${#found[@]}" = 1 ] \
+      || die "found ${#found[@]} mibsdk-*.mpk in $DIST; build with ./gradlew :dist:mibpkgPackage or set MIBSDK_MPK"
+    mpk="${found[0]}"
   fi
-
-  # 4. Generate, then push: jars first, the bundles file (which activates everything) last.
-  # DSITracer is autostarted and chained only if it was active before the install (spec 5.1: never start it on an
-  # end-user unit). The marker is always created: without it lsd.sh ignores the on-disk bundles file.
-  python3 "$HERE/gen_bundles.py" generate --stock "$TMP/stock.properties" --tracer-active "$tracer" --out "$TMP/bundles.properties"
-  python3 "$HERE/gen_bundles.py" sdkprops --tracer-active "$tracer" --out "$TMP/sdk.properties"
-  rsh "mkdir -p '$SDK/plugins' '$STOCK' '$PERSIST'" || die "cannot create the SDK directories"
-  sweep_push_tmp
-  migrate_state
-  for j in $SDK_JARS; do
-    push_file "$DIST/$j" "$JARS/$j"
-    info "pushed $j"
-  done
-  push_file "$TMP/sdk.properties" "$SDK/sdk.properties"
-  # Only if absent: touching an existing marker would change the stock file's mtime.
-  rsh "[ -e '$MARKER' ] || touch '$MARKER'" || die "cannot create $MARKER"
-  push_file "$TMP/bundles.properties" "$BUNDLES"
-  restore_bundles_mode
-
-  # 5.
-  rw_end
-  echo "installed; restart HMI with: mibsdk-dev restart"
+  install_mpk mibsdk "$mpk"
 }
 
-# migrate_state: installs before the move kept runtime state under $SDK; move what still matters to $PERSIST (never
-# over anything already there) and drop the rest. Needs /mnt/app read-write. Every copy lands under a temp name and is
-# renamed into place, and an old file goes only once its content is safe in $PERSIST, so a failed or interrupted run
-# loses nothing and the next install picks up where it stopped.
-migrate_state() {
-  # data/: file by file; an old file whose plugin already has data in $PERSIST is the older copy and is dropped.
-  rsh "if [ -d '$SDK/data' ]; then
-         mkdir -p '$PERSIST/data' || exit 1;
-         for f in '$SDK/data'/*; do
-           [ -f \"\$f\" ] || continue;
-           b=\"\${f##*/}\";
-           case \"\$b\" in *.tmp) continue ;; esac;
-           [ -e '$PERSIST/data'/\"\$b\" ] && continue;
-           rm -f '$PERSIST/data'/\"\$b.migrate.tmp\";
-           cp \"\$f\" '$PERSIST/data'/\"\$b.migrate.tmp\" || exit 1;
-           mv '$PERSIST/data'/\"\$b.migrate.tmp\" '$PERSIST/data'/\"\$b\" || exit 1;
-           [ -f '$PERSIST/data'/\"\$b\" ] && [ ! -e '$PERSIST/data'/\"\$b.migrate.tmp\" ] || exit 1;
-         done;
-         rm -rf '$SDK/data' || exit 1;
-       fi;
-       rm -f '$PERSIST/data'/*.migrate.tmp" \
-    || die "cannot move the old plugin data from $SDK/data to $PERSIST/data (nothing was lost; run install again)"
-  migrate_ledger
-  rsh "rm -rf '$SDK/cache' '$SDK/boot.state' '$SDK/boot.state.tmp'" \
-    || die "cannot remove the old runtime state from $SDK"
-}
-
-# migrate_ledger: merge the old ledger's entries into $LEDGER (pushed with push_file: verified, then renamed into
-# place) and delete the old one only once every entry is verified in $LEDGER, the same rule uninstall applies. An
-# entry whose key $LEDGER holds with another value is not merged: the old ledger then stays where it is, and
-# uninstall keeps refusing on it.
-migrate_ledger() {
-  local old
-  if is_present "$OLD_LEDGER"; then
-    old="$OLD_LEDGER"
-  elif is_present "$OLD_LEDGER.tmp"; then
-    old="$OLD_LEDGER.tmp"   # the old runtime died between delete and rename: the temp file is the ledger
-  else
-    return 0
-  fi
-  fetch "$old" "$TMP/ledger.old" || die "cannot read $old; nothing migrated"
-  : >"$TMP/ledger.cur"
-  if is_present "$LEDGER"; then
-    fetch "$LEDGER" "$TMP/ledger.cur" || die "cannot read $LEDGER; nothing migrated"
-  fi
-  local rc=0
-  python3 -I - merge "$TMP/ledger.old" "$TMP/ledger.cur" "$TMP/ledger.new" <<<"$LEDGER_PY" || rc=$?
-  [ "$rc" = 0 ] || [ "$rc" = 3 ] || die "cannot merge the old ledger"
-  if ! is_present "$LEDGER" || ! cmp -s "$TMP/ledger.cur" "$TMP/ledger.new"; then
-    push_file "$TMP/ledger.new" "$LEDGER"
-  fi
-  if [ "$rc" = 3 ]; then
-    info "WARNING: kept $old: these overrides conflict with $LEDGER and were not merged:"
-    python3 -I - conflicts "$TMP/ledger.old" "$TMP/ledger.new" <<<"$LEDGER_PY" | sed 's/^/mibsdk-dev:   /' >&2
-    return 0
-  fi
-  fetch "$LEDGER" "$TMP/ledger.check" || die "cannot read back $LEDGER; kept $old"
-  python3 -I - verify "$TMP/ledger.old" "$TMP/ledger.check" <<<"$LEDGER_PY" \
-    || die "$LEDGER lacks entries of $old after the merge; kept $old"
-  rsh "rm -f '$OLD_LEDGER' '$OLD_LEDGER.tmp'" || die "cannot remove $OLD_LEDGER"
-}
-
-# STAMP_PY verify <stamp> <kind> <expected-id-or-"-"> <jar>...: checks a build's check stamp (CheckStamp.java, format 1)
-# against the jars about to be installed. Exit 0 and, for a plugin, print unrestricted=<true|false>; or exit 1 with one
-# line on stderr: missing, format, kind, id <x> != <y>, no hash for <name>, hash mismatch for <name>.
-STAMP_PY='
-import hashlib, os, sys
-def fail(why):
-    sys.stderr.write(why + "\n")
-    sys.exit(1)
-stamp, kind, want_id, jars = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
-try:
-    text = open(stamp, "rb").read().decode("latin-1")
-except (IOError, OSError):
-    fail("missing")
-lines = text.split("\n")
-if lines and lines[-1] == "":
-    lines.pop()
-attrs = {}
-for line in lines:
-    if "=" not in line:
-        fail("format")
-    k, v = line.split("=", 1)
-    if k in attrs:
-        fail("format")
-    attrs[k] = v
-if lines[:1] != ["format=1"] or not attrs.get("checks"):
-    fail("format")
-if attrs.get("kind") != kind:
-    fail("kind")
-if kind == "plugin":
-    if attrs.get("plugin.id") != want_id:
-        fail("id %s != %s" % (attrs.get("plugin.id"), want_id))
-    if attrs.get("plugin.unrestricted") not in ("true", "false"):
-        fail("format")
-for jar in jars:
-    name = os.path.basename(jar)
-    want = attrs.get("sha256." + name)
-    if want is None:
-        fail("no hash for " + name)
-    try:
-        got = hashlib.sha256(open(jar, "rb").read()).hexdigest()
-    except (IOError, OSError):
-        fail("missing")
-    if got != want:
-        fail("hash mismatch for " + name)
-if kind == "plugin":
-    print("unrestricted=" + attrs["plugin.unrestricted"])
-'
-
-# The ledger is OverrideLedger's file: one key=plugin|scope|prior|active|state line per override (state A held, R
-# restoring), no comments; a 4-field line (no state) is from before the state existed and counts as held.
-# merge <old> <cur> <out>: out = cur + the old entries whose key cur lacks; exit 3 if an old key is in cur with
-# another value. conflicts <old> <cur>: prints those old entries. verify <old> <cur>: exit 1 unless every old
-# entry is in cur, unchanged.
-LEDGER_PY='
-import sys
-def entries(path):
-    out = []
-    for line in open(path, "rb").read().decode("latin-1").splitlines():
-        if line.strip():
-            out.append((line.split("=", 1)[0].strip(), line))
-    return out
-mode, old = sys.argv[1], entries(sys.argv[2])
-cur_lines = open(sys.argv[3], "rb").read().decode("latin-1")
-cur = dict(entries(sys.argv[3]))
-conflicts = [l for k, l in old if k in cur and cur[k].strip() != l.strip()]
-if mode == "merge":
-    text = cur_lines if cur_lines.endswith("\n") or not cur_lines else cur_lines + "\n"
-    for k, l in old:
-        if k not in cur:
-            text += l.strip() + "\n"
-            cur[k] = l
-    open(sys.argv[4], "wb").write(text.encode("latin-1"))
-    sys.exit(3 if conflicts else 0)
-if mode == "conflicts":
-    for l in conflicts:
-        print(l.strip())
-    sys.exit(0)
-if mode == "verify":
-    sys.exit(0 if all(k in cur and cur[k].strip() == l.strip() for k, l in old) else 1)
-sys.exit(2)
-'
-
-# restore_bundles_mode: give the bundles file the stock mode recorded at backup (push_file creates a new 0644 file).
-# A backup from an older install has no recorded mode: the stock file is -rwxrwxrwx on every unit seen, so 777.
-STOCK_BUNDLES_MODE=777
-restore_bundles_mode() {
-  local mode
-  if ! is_present "$STOCK/bundles.mode"; then
-    info "no recorded mode for $BUNDLES (backup from an older install); using the stock mode $STOCK_BUNDLES_MODE"
-    rsh "chmod $STOCK_BUNDLES_MODE '$BUNDLES'" || die "cannot set the mode of $BUNDLES"
-    return 0
-  fi
-  mode="$(rsh "cat '$STOCK/bundles.mode'")" || die "cannot read stock/bundles.mode"
-  [[ "$mode" =~ ^[0-7]{3}$ ]] || die "stock/bundles.mode is corrupt ('$mode')"
-  rsh "chmod $mode '$BUNDLES'" || die "cannot set the mode of $BUNDLES"
-}
-
-# check_ledger <force>: refuses (dies) while ledger.properties holds overrides of vehicle state, since only the
-# running SDK can put their prior values back; with force=1 it prints a loud warning instead.
-check_ledger() {
-  local force="$1" f
-  : >"$TMP/ledger.properties"
-  for f in "$LEDGER" "$OLD_LEDGER"; do
-    is_present "$f" || continue
-    fetch "$f" "$TMP/ledger.part" || die "cannot read $f; refusing to uninstall"
-    cat "$TMP/ledger.part" >>"$TMP/ledger.properties"
-  done
-  grep -q '[^[:space:]]' "$TMP/ledger.properties" || return 0
-  if [ "$force" = 1 ]; then
-    info "WARNING: --force: uninstalling while these overrides of vehicle state are still in force:"
-    grep '[^[:space:]]' "$TMP/ledger.properties" | sed 's/^/mibsdk-dev:   /' >&2
-    info "WARNING: nothing will restore their prior values; the car keeps the overridden settings until you"
-    info "WARNING: change them back by hand (format: key=plugin|scope|prior|active|A or R)."
-    return 0
-  fi
-  info "refusing to uninstall: these overrides of vehicle state are still in force (key=plugin|scope|prior|active|A or R):"
-  grep '[^[:space:]]' "$TMP/ledger.properties" | sed 's/^/mibsdk-dev:   /' >&2
-  info "let the SDK put the prior values back first: mibsdk-dev safe-mode on && mibsdk-dev restart"
-  info "(safe mode loads no plugin and restores every override in the ledger; check with: mibsdk-dev log), then run uninstall again."
-  info "after a later reinstall, leave safe mode with: mibsdk-dev safe-mode off"
-  die "to uninstall anyway and leave those settings overridden, add --force"
-}
-
-cmd_uninstall() {
-  local purge=0 force=0 arg
-  for arg in "$@"; do
-    case "$arg" in
-      --purge) purge=1 ;;
-      --force) force=1 ;;
-      *) die "unexpected argument '$arg'" ;;
-    esac
-  done
-  connect
-  need_sdk
-  is_present "$STOCK/tracer.was" || die "no complete stock backup in $STOCK; refusing to guess. Restore $BUNDLES by hand"
-  fetch "$STOCK/bundles_dsitracer_enabled.properties" "$TMP/stock.properties" || die "stock backup is unreadable"
-  local tracer; tracer="$(rsh "cat '$STOCK/tracer.was'")" || die "cannot read stock/tracer.was"
-  [ "$tracer" = true ] || [ "$tracer" = false ] || die "stock/tracer.was is corrupt ('$tracer'); refusing to uninstall. Restore $BUNDLES by hand"
-  check_ledger "$force"
-  rw_begin
-  sweep_push_tmp
-
-  push_file "$TMP/stock.properties" "$BUNDLES"        # first: nothing may reference the jars once they are gone
-  restore_bundles_mode
-  info "restored $BUNDLES"
-  if [ "$tracer" = false ]; then
-    rsh "rm -f '$MARKER'" || die "cannot remove $MARKER"
-    info "removed dsitracer_activated (it was absent before the install)"
-  fi
-  local j
-  for j in $SDK_JARS; do
-    rsh "rm -f '$JARS/$j'" || die "cannot remove $j"
-  done
-  if [ "$purge" = 1 ]; then
-    rsh "rm -rf '$SDK' '$PERSIST' '$RAMDIR'" || die "cannot remove $SDK, $PERSIST and $RAMDIR"
-    info "removed $SDK, $PERSIST (plugin data, boot state, ledger) and $RAMDIR"
-  else
-    info "kept plugin data in $PERSIST (remove it with: mibsdk-dev uninstall --purge)"
-  fi
-  rw_end
-  echo "uninstalled; restart HMI with: mibsdk-dev restart"
-}
-
-cmd_restart() {
-  connect
-  rsh "sync" || info "warning: sync failed"
-  rsh "slay -s11 j9" || true   # the connection may drop with the HMI; slay's own failures print on stderr
-  echo "HMI restart requested (slay -s11 j9)"
+cmd_install_plugin() {
+  local mpk="$1" name
+  shift
+  [ -n "$mpk" ] || usage_err "usage: mibsdk-dev install-plugin <file.mpk> [--approve=<perm,...>] [host]"
+  [ -f "$mpk" ] || die "$mpk is not a file"
+  name="$( (tar -xzOf "$mpk" manifest.toml 2>/dev/null || true) \
+    | awk '/^\[/ { sec = $0; next } sec == "[package]" && /^name[ \t]*=/ { sub(/^[^=]*=[ \t]*"/, ""); sub(/".*$/, ""); print; exit }')"
+  [[ "$name" =~ ^[a-z0-9][a-z0-9-]{1,39}$ ]] || die "cannot read the package name from $mpk (manifest.toml [package] name)"
+  install_mpk "$name" "$mpk" "$@"
 }
 
 cmd_push() {
-  local jar="${1:-}"
-  [ -n "$jar" ] && [ -f "$jar" ] || die "usage: mibsdk-dev push <plugin.jar> [host]"
+  local jar="$1" id
+  [ -n "$jar" ] || usage_err "usage: mibsdk-dev push <plugin.jar> [host]"
+  [ -f "$jar" ] || die "$jar is not a file"
+  [ -f "$jar.stamp" ] \
+    || die "$jar.stamp is missing; only jars built by the mibsdk.plugin convention can be pushed: ./gradlew :<project>:mibPluginJar"
   command -v python3 >/dev/null || die "python3 is required on this machine"
-  # Verify and push one snapshot of the jar and its stamp, not the files on disk (they may change meanwhile).
-  local orig="$jar" id why
-  make_tmp
-  mkdir "$TMP/snap"
-  cp "$jar" "$TMP/snap/${jar##*/}" || die "cannot read $jar"
-  if [ -f "$jar.stamp" ]; then cp "$jar.stamp" "$TMP/snap/${jar##*/}.stamp" || die "cannot read $jar.stamp"; fi
-  jar="$TMP/snap/${jar##*/}"
-  id="$(python3 -I - "$jar" <<'PY'
+  snapshot "$jar"
+  cp "$jar.stamp" "$SNAP.stamp" || die "cannot read $jar.stamp"
+  id="$(python3 -I - "$SNAP" <<'PY'
 import json, sys, zipfile
 try:
     with zipfile.ZipFile(sys.argv[1]) as z:
         print(json.loads(z.read("plugin.json").decode("utf-8"))["id"])
 except Exception as e:
-    sys.exit("cannot read the plugin id from plugin.json: %s" % e)
+    sys.exit("mibsdk-dev: cannot read the plugin id from plugin.json: %s" % e)
 PY
 )" || exit 1
   check_id "$id"
-  why="$(python3 -I - verify "$jar.stamp" plugin "$id" "$jar" 2>&1 <<<"$STAMP_PY")" \
-    || die "$orig has no valid check stamp ($why); only jars built by the mibsdk.plugin convention can be pushed: ./gradlew :<project>:mibPluginJar"
-  if [ "$why" = "unrestricted=true" ]; then
-    info "WARNING: $id declares platform.unrestricted: it may use reflection, exec or exit; the SDK cannot contain it"
-  fi
   connect
-  need_sdk
-  # A fresh token every push: the runtime reloads once per new marker content and never deletes the marker.
-  printf '%s-%s-%s\n' "$(date +%s)" "$$" "$RANDOM" >"$TMP/reload"
-  rw_begin
-  sweep_push_tmp
-  push_file "$jar" "$SDK/plugins/$id.jar"
-  push_file "$TMP/reload" "$SDK/plugins/$id.reload"
-  rw_end
-  echo "pushed $id; reload requested"
-}
-
-# GRANTS_PY src dst <id> set <perms> | drop: rewrite grants.properties text. set replaces the plugin's line (or adds
-# it); drop removes it. Only the key exactly equal to <id> matches. Prints "dropped" when a line was removed.
-GRANTS_PY='
-import sys
-src, dst, pid, mode = sys.argv[1:5]
-perms = sys.argv[5] if len(sys.argv) > 5 else ""
-out, done = [], False
-for line in open(src, "rb").read().decode("utf-8").splitlines():
-    key = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else None
-    if key == pid:
-        if mode == "set" and not done:
-            out.append("%s=%s" % (pid, perms))
-            done = True
-        elif mode == "drop":
-            print("dropped")
-        continue
-    out.append(line)
-if mode == "set" and not done:
-    out.append("%s=%s" % (pid, perms))
-open(dst, "wb").write(("\n".join(out) + ("\n" if out else "")).encode("utf-8"))
-'
-
-cmd_grant() {
-  [ $# -ge 2 ] || die "usage: mibsdk-dev grant <id> <perm,...> [host]"
-  local id="$1" perms="$2"
-  check_id "$id"
-  [[ "$perms" =~ ^[A-Za-z0-9._,-]*$ ]] || die "invalid permission list '$perms'"
-  connect
-  need_sdk
-  : >"$TMP/grants.in"
-  if is_present "$SDK/grants.properties"; then
-    fetch "$SDK/grants.properties" "$TMP/grants.in" || die "cannot read grants.properties"
-  fi
-  python3 -I - "$TMP/grants.in" "$TMP/grants.out" "$id" set "$perms" <<<"$GRANTS_PY" >/dev/null || die "cannot rewrite grants"
-  rw_begin
-  sweep_push_tmp
-  push_file "$TMP/grants.out" "$SDK/grants.properties"
-  rw_end
-  echo "granted $id: ${perms:-<none>} (picked up on the next plugin load/reload)"
-}
-
-# cmd_remove <id> [--purge-data]: take a plugin off the unit (jar, grants line, reload token), wait for the running
-# SDK to restore its overrides, optionally clear its data.
-cmd_remove() {
-  local id="" purge=0 a
-  for a in "$@"; do
-    case "$a" in --purge-data) purge=1 ;; *) id="$a" ;; esac
-  done
-  [ -n "$id" ] || die "usage: mibsdk-dev remove <id> [--purge-data] [host]"
-  check_id "$id"
-  command -v python3 >/dev/null || die "python3 is required on this machine"
-  connect
-  need_sdk
-  local jar="$SDK/plugins/$id.jar" data="$PERSIST/data/$id.properties" has_jar=0 has_data=0 has_marker=0 has_overrides=0 dropped
-  : >"$TMP/grants.in"
-  if is_present "$SDK/grants.properties"; then
-    fetch "$SDK/grants.properties" "$TMP/grants.in" || die "cannot read grants.properties"
-  fi
-  dropped="$(python3 -I - "$TMP/grants.in" "$TMP/grants.out" "$id" drop <<<"$GRANTS_PY")" || die "cannot rewrite grants"
-  if is_present "$jar"; then has_jar=1; fi
-  if is_present "$data"; then has_data=1; fi
-  # A reload marker or ledger lines also count: a run that failed after removing the jar and the grants line (say,
-  # pushing the marker) leaves only those, and its re-run must still request the reload.
-  if is_present "$SDK/plugins/$id.reload"; then has_marker=1; fi
-  : >"$TMP/ledger"
-  if is_present "$LEDGER"; then fetch "$LEDGER" "$TMP/ledger" || die "cannot read $LEDGER"; fi
-  if grep -qF -- "=$id|" "$TMP/ledger"; then has_overrides=1; fi
-  [ "$has_jar" = 1 ] || [ "$has_data" = 1 ] || [ -n "$dropped" ] || [ "$has_marker" = 1 ] || [ "$has_overrides" = 1 ] \
-    || die "$id is not installed on $HOST"
-  printf '%s-%s-%s\n' "$(date +%s)" "$$" "$RANDOM" >"$TMP/reload"
-  rw_begin
-  sweep_push_tmp
-  rsh "rm -f '$jar'" || die "cannot remove $jar"
-  if is_present "$jar"; then die "$jar is still there after removal"; fi
-  push_file "$TMP/grants.out" "$SDK/grants.properties"
-  push_file "$TMP/reload" "$SDK/plugins/$id.reload"
-  rw_end
-  echo "removed $id: plugins/$id.jar and its grants line; reload requested"
-
-  local wait="${MIBSDK_REMOVE_WAIT_S:-30}" left first=1
-  case "$wait" in ''|*[!0-9]*) wait=30 ;; esac
-  SECONDS=0
-  while :; do
-    : >"$TMP/ledger"
-    if is_present "$LEDGER"; then fetch "$LEDGER" "$TMP/ledger" || die "cannot read $LEDGER"; fi
-    left="$(grep -F -- "=$id|" "$TMP/ledger" || true)"
-    if [ -z "$left" ]; then
-      if [ "$first" = 1 ]; then echo "$id has no overrides in the ledger"; else echo "overrides of $id restored"; fi
-      break
-    fi
-    first=0
-    if [ "$SECONDS" -ge "$wait" ]; then
-      echo "WARNING: these overrides of $id are not restored yet:" >&2
-      echo "$left" >&2
-      echo "they are restored when the SDK next starts (the plugin is no longer installed); check with: mibsdk-dev log" >&2
-      break
-    fi
-    sleep 2
-  done
-
-  if [ "$purge" = 1 ]; then
-    rsh "rm -f '$data' '$data.tmp'" || die "cannot remove $data"
-    echo "cleared the data of $id ($data)"
-    echo "Restart the HMI now (mibsdk-dev restart): a running $id may write its data back, and the storage cap"
-    echo "frees the space only from the next runtime start."
-  fi
-}
-
-cmd_safe_mode() {
-  case "${1:-}" in
-    on)
-      connect; need_sdk
-      rw_begin
-      rsh "touch '$SDK/SAFE_MODE'" || die "cannot create SAFE_MODE"
-      rw_end
-      echo "safe mode marker set; it takes effect on the next HMI restart (mibsdk-dev restart)"
-      ;;
-    off)
-      connect; need_sdk
-      printf '%s\n' "$BOOT_STATE_RESET" >"$TMP/boot.state"
-      rw_begin
-      rsh "rm -f '$SDK/SAFE_MODE'" || die "cannot remove SAFE_MODE"
-      rw_end
-      rsh "mkdir -p '$PERSIST'" || die "cannot create $PERSIST"
-      push_file "$TMP/boot.state" "$PERSIST/boot.state"
-      echo "safe mode off: SAFE_MODE removed and boot.state reset (unhealthyBoots=0, wrapBoots=0: plugins load and"
-      echo "DSI services are wrapped again)."
-      echo "It takes effect on the next HMI restart; recommended: mibsdk-dev restart."
-      echo "Note: if the runtime is currently running in normal mode it may rewrite boot.state from cached state;"
-      echo "      restart promptly (or run this with the HMI stopped) so the reset sticks."
-      ;;
-    *) die "usage: mibsdk-dev safe-mode on|off [host]" ;;
-  esac
-}
-
-# cmd_data_clear <id>: plugin data that is corrupt or too large (the storage cap counts it even for a plugin that is
-# gone) otherwise stays until uninstall --purge. $PERSIST is writable at runtime: no remount.
-cmd_data_clear() {
-  local id="${1:-}"
-  [ -n "$id" ] || die "usage: mibsdk-dev data-clear <plugin-id> [host]"
-  check_id "$id"
-  connect
-  local f="$PERSIST/data/$id.properties"
-  if ! is_present "$f" && ! is_present "$f.tmp"; then
-    echo "no data for $id in $PERSIST/data; nothing to clear"
-    return 0
-  fi
-  rsh "rm -f '$f' '$f.tmp'" || die "cannot remove $f"
-  echo "cleared the data of $id ($f)"
-  echo "Restart the HMI now (mibsdk-dev restart): a running $id may write its data back, and the storage cap"
-  echo "frees the space only from the next runtime start."
+  need_mibpkg
+  upload "$SNAP" "mibpkg.push.$id.jar"
+  # A failed stamp upload must not leave the jar behind for a later `sdk push` to pick up.
+  UPLOADED_ALSO="/tmp/mibpkg.push.$id.jar"
+  upload "$SNAP.stamp" "mibpkg.push.$id.jar.stamp"
+  UPLOADED_ALSO=""
+  run_mibpkg sdk push "$id"
 }
 
 cmd_log() {
   connect
-  fetch "$LOG" "$TMP/log" || die "$LOG not found on $HOST (is the SDK running?)"
+  make_tmp
+  rsh "cat '$LOG'" >"$TMP/log" 2>/dev/null </dev/null || die "$LOG not found on $HOST (is the SDK running?)"
   cat "$TMP/log"
 }
 
-cmd_status() {
+cmd_restart() {
   connect
-  fetch "$LOG" "$TMP/log" || die "$LOG not found on $HOST (is the SDK running?)"
-  grep ' STATUS ' "$TMP/log" || { echo "no STATUS lines in $LOG yet" >&2; return 0; }
+  rsh "sync" </dev/null || info "warning: sync failed"
+  rsh "slay -s11 j9" </dev/null || true   # the connection may drop with the HMI; slay's own failures print on stderr
+  echo "HMI restart requested (slay -s11 j9)"
+}
+
+# sdk_verb <verb> <arg>...: a mibpkg sdk verb, after the probe.
+sdk_verb() {
+  connect
+  need_mibpkg
+  run_mibpkg sdk "$@"
 }
 
 main() {
@@ -721,47 +224,67 @@ main() {
     ""|-h|--help|help) usage; [ -n "$cmd" ] && exit 0; exit 2 ;;
   esac
   shift
-  # Positional host is the last argument and is recognised by the per-command arity.
-  local want
+  # Flags may stand anywhere; the positional host is the last argument, recognised by the per-command arity.
+  local want flags=() args=() a
   case "$cmd" in
-    install|restart|log|status) want=0 ;;
-    uninstall) want=-1 ;;
-    push|safe-mode|data-clear) want=1 ;;
-    remove) want=1 ;;
-    grant) want=2 ;;
-    *) usage >&2; die "unknown command '$cmd'" ;;
+    install|restart|log|status|uninstall) want=0 ;;
+    install-plugin|push|safe-mode|data-clear|remove) want=1 ;;
+    boot-state|grant) want=2 ;;
+    *) usage >&2; usage_err "unknown command '$cmd'" ;;
   esac
-  local args=("$@") n=${#args[@]} host_given=0
-  if [ "$cmd" = remove ]; then
-    local a rest=() purge_flag=()
-    for a in "${args[@]+"${args[@]}"}"; do
-      case "$a" in --purge-data) purge_flag=(--purge-data) ;; *) rest+=("$a") ;; esac
-    done
-    args=("${rest[@]+"${rest[@]}"}")
-    n=${#args[@]}
-  fi
-  if [ "$cmd" = uninstall ]; then
-    local a rest=()
-    for a in "${args[@]+"${args[@]}"}"; do
-      case "$a" in --purge|--force) rest+=("$a") ;; *) set_host "$a"; host_given=1 ;; esac
-    done
-    args=("${rest[@]+"${rest[@]}"}")
-  elif [ "$n" -gt "$want" ]; then
-    [ "$n" -eq $((want + 1)) ] || die "too many arguments for '$cmd'"
+  for a in "$@"; do
+    case "$cmd:$a" in
+      uninstall:--purge|uninstall:--force|remove:--purge) flags+=("$a") ;;
+      remove:--purge-data) flags+=(--purge) ;;
+      install-plugin:--approve=*)
+        [[ "${a#--approve=}" =~ ^[A-Za-z0-9._,-]*$ ]] || usage_err "invalid --approve list '${a#--approve=}'"
+        flags+=("$a") ;;
+      *:-*) [ "${#args[@]}" -ge "$want" ] || usage_err "unexpected argument '$a'"; args+=("$a") ;;   # a host: set_host refuses it
+      *) args+=("$a") ;;
+    esac
+  done
+  local n=${#args[@]}
+  if [ "$n" -gt "$want" ]; then
+    [ "$n" -eq $((want + 1)) ] || usage_err "too many arguments for '$cmd'"
     set_host "${args[$want]}"
     unset 'args[$want]'
   fi
+  set -- "${args[@]+"${args[@]}"}"
+  local f=("${flags[@]+"${flags[@]}"}")
   case "$cmd" in
     install) cmd_install ;;
-    uninstall) cmd_uninstall "${args[@]+"${args[@]}"}" ;;
-    remove) cmd_remove "${args[@]+"${args[@]}"}" "${purge_flag[@]+"${purge_flag[@]}"}" ;;
-    restart) cmd_restart ;;
-    push) cmd_push "${args[@]+"${args[@]}"}" ;;
-    grant) cmd_grant "${args[@]+"${args[@]}"}" ;;
-    safe-mode) cmd_safe_mode "${args[@]+"${args[@]}"}" ;;
-    data-clear) cmd_data_clear "${args[@]+"${args[@]}"}" ;;
+    uninstall) connect; need_mibpkg; run_mibpkg remove mibsdk "${f[@]+"${f[@]}"}" ;;
+    install-plugin) cmd_install_plugin "${1:-}" "${f[@]+"${f[@]}"}" ;;
+    push) cmd_push "${1:-}" ;;
+    remove)
+      [ -n "${1:-}" ] || usage_err "usage: mibsdk-dev remove <id> [--purge|--purge-data] [host]"
+      check_id "$1"
+      sdk_verb remove "$1" "${f[@]+"${f[@]}"}" ;;
+    grant)
+      [ $# -eq 2 ] || usage_err "usage: mibsdk-dev grant <id> <perm,...> [host]"
+      check_id "$1"
+      [[ "$2" =~ ^[A-Za-z0-9._,-]*$ ]] || usage_err "invalid permission list '$2'"
+      sdk_verb grant "$1" "$2" ;;
+    safe-mode)
+      case "${1:-}" in on|off) ;; *) usage_err "usage: mibsdk-dev safe-mode on|off [host]" ;; esac
+      sdk_verb safe-mode "$1" ;;
+    boot-state)
+      [ "${1:-}" = set-wrap ] && [[ "${2:-}" =~ ^[0-9]+$ ]] || usage_err "usage: mibsdk-dev boot-state set-wrap <n> [host]"
+      sdk_verb boot-state set-wrap "$2" ;;
+    data-clear)
+      [ -n "${1:-}" ] || usage_err "usage: mibsdk-dev data-clear <plugin-id> [host]"
+      check_id "$1"
+      sdk_verb data-clear "$1" ;;
+    status)
+      # sdk status is the probe itself: it exits 0 whatever it finds, so a failure means no (new enough) mibpkg.
+      connect
+      make_tmp
+      local rc=0
+      rsh "$MIBPKG sdk status" 2>"$TMP/status.err" </dev/null || rc=$?
+      [ "$rc" = 0 ] || status_failed "$rc" "$(cat "$TMP/status.err")"
+      cat "$TMP/status.err" >&2 ;;
     log) cmd_log ;;
-    status) cmd_status ;;
+    restart) cmd_restart ;;
   esac
 }
 

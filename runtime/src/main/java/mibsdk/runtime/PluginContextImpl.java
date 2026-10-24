@@ -8,6 +8,7 @@ import mibsdk.api.HookPoint;
 import mibsdk.api.Hooks;
 import mibsdk.api.Listener;
 import mibsdk.api.Log;
+import mibsdk.api.Net;
 import mibsdk.api.Parking;
 import mibsdk.api.PermissionDeniedException;
 import mibsdk.api.Permissions;
@@ -15,6 +16,7 @@ import mibsdk.api.PluginContext;
 import mibsdk.api.Scheduler;
 import mibsdk.api.Storage;
 import mibsdk.api.Subscription;
+import mibsdk.api.Ui;
 import mibsdk.api.Vehicle;
 import mibsdk.platform.HookTable;
 import mibsdk.platform.ParkingIo;
@@ -97,6 +99,8 @@ final class PluginContextImpl implements PluginContext {
     private final Hooks hooks;
     private final ParkingSource parkingSource;
     private final OverrideLedger ledger;
+    private final Ui ui;
+    private final Net net;
     private final Object parkingLock = new Object();
     private Parking parking; // guarded by parkingLock; built once, then kept
 
@@ -175,7 +179,8 @@ final class PluginContextImpl implements PluginContext {
      */
     PluginContextImpl(String id, RingLog ringLog, PluginStorage storage, EventBus bus, SerialExecutor exec,
             PluginScheduler pluginScheduler, Registrations registrations, LiveFeatures features,
-            Set<String> granted, HookTable hookTable, ParkingSource parking, OverrideLedger ledger) {
+            Set<String> granted, HookTable hookTable, ParkingSource parking, OverrideLedger ledger, UiHub uiHub,
+            Clock clock) {
         this.id = id;
         this.ringLog = ringLog;
         this.storage = storage;
@@ -188,6 +193,8 @@ final class PluginContextImpl implements PluginContext {
         this.hooks = new HooksImpl(hookTable, bus, id, exec, registrations, features, granted);
         this.parkingSource = parking;
         this.ledger = ledger;
+        this.net = new NetImpl(granted, clock);
+        this.ui = new UiImpl(id, uiHub, features, granted, exec, registrations);
         this.vehicle = new Vehicle() {
             @Override
             public Parking parking() {
@@ -245,6 +252,17 @@ final class PluginContextImpl implements PluginContext {
     @Override
     public Scheduler scheduler() {
         return scheduler;
+    }
+
+    @Override
+    public Ui ui() {
+        return ui;
+    }
+
+    @Override
+    public Net net() {
+        requirePermission(Permissions.NETWORK);
+        return net;
     }
 
     @Override
