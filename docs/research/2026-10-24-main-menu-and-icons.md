@@ -411,3 +411,69 @@ Then `run.sh uninstall` cleans the jar and the icons.
 `-back-to-ring.jpg`, `-menu-from-page.jpg`, `-ring-wrench.jpg`, `-ring-relabel.jpg`, `-ring-hidden.jpg`,
 `-drawer-custom-icon.jpg`, `-drawer-icon-next.jpg`, `-popup609600-{home,car,media}.jpg`, `-popup-file-icon.jpg`,
 `-glyphs1.jpg`, `-glyphs2.jpg`, `-logo.jpg` (optional), `-after-uninstall-{ring,drawer}.jpg`.
+
+## 9. Spike C, Boot A results
+
+Date: 2026-10-24. Bench MHI2Q, `HMI_AU_MIB2_HQC_NAR_G22_C10_180803`, mibsdk 0.1.0+bench.1 installed by mibpkg 0.8.1
+(plugins hello, bike-rack, crashy, hello-menu, daemon-status). Boot A = `run.sh install --car-only` (§8.3): only
+`HMICar=` pointed at `mibsdk.spike.ui.SpikeCarActivator`. The live `HMISystem=` line stayed stock and was
+byte-identical before and after the install (`HMISystem=de.audi.tghu.system.hmi.Activator\r`). A byte copy of the
+pre-spike bundles file (10231 bytes, the SDK state) is `/mnt/persist/mibsdk-spike/bundles.before`. `/mnt/app` was
+read-only before and after `run.sh` (a `touch` there fails with "Read-only file system").
+
+The Boot A log is `ui-spike-c-log.txt` (the whole `/tmp/mibsdk.log` of the boot; first number = ms since the runtime
+started). Frames are `ui-spike-c-*.jpg`, plus three zoomed crops (`*-zoom.png`). Steps 0, 12–15 and 17 ran; step 16
+(S3, popup 65 icons) was skipped as planned, because it needs a restart and S1 passed.
+
+**Step 0, the stock MENU ring** (`ui-spike-c-ring-stock-00..09.jpg`, focus moved one stop per frame from Settings,
+counter-clockwise): **10 rows, in add order:** Vehicle, Sound, Radio, Media, Telephone, Navigation, Map, Audi connect,
+Audi smartphone interface, Settings. Info call, CarPlay, Android Auto, CarLife, TPEG and Office are coded off on this
+unit. The ring **does not wrap**: a turn past Settings or past Vehicle does nothing. MENU reopens the ring with the
+focus on the last app. That is the "it starts at the last app" effect the owner remembers; the order itself is the
+add order.
+
+| # | Result | Evidence |
+|---|---|---|
+| I1 | **go.** Drawer row 0 has bitmaps `{609100, 609101}`. `SpikeFactory.getImagePath` serves them as `../mibsdk-spike/icons/<id>.png`, relative to `ImageRoot`, so the files are `/mnt/app/eso/hmi/lsd/mibsdk-spike/icons/`. The custom plug icon (72×72 RGBA, white on transparent) and its faded 72×68 reflection are drawn like a stock icon. The row takes focus. The first request comes from HMIEvent the first time the row scrolls into view, not when the drawer is built. | `578305 getImagePath 609100 -> ../mibsdk-spike/icons/609100.png thread=…HMIEvent`, the same for 609101. Frames `ui-spike-c-drawer-custom-icon.jpg`, `-drawer-custom-icon-focus.jpg` |
+| I2 | **go.** A System-module stock id pair (`{422, 423}`) on a Car drawer row is drawn. The id's module picks the bundle, as §3.1 says. Note: 422 is not a phone; it is the grey Audi-rings "card" icon. | Frame `ui-spike-c-drawer-stock-icon-focus.jpg` (row "SDK page (hijack)", shown with `row1-show`) |
+| I3 | **go, at the next Car screen connect.** `icon-next` sets row 0's bitmaps to `{609102, 609103}` on HMIEvent. The icon does **not** change live, and it does not change when the drawer is closed (BACK) and reopened either. The placeholder entry keeps its `cachedIcons`. After an app switch (Media, then Car), the drawer shows the star, and the log shows the first requests for the new ids. A new id per change works, but the change shows only when the Car screen reconnects. | `670320 cmd icon-next row0=true`, `733338 getImagePath 609102`, `609103`. Frames `ui-spike-c-drawer-icon-next-live.jpg` (plug), `-drawer-icon-next-reopen.jpg` (plug), `-drawer-icon-next.jpg` (star) |
+| S1 | **go.** The Car factory's stub list carries popup 609600. The popup manager collects it at startup (`getPartialPopupStubs … stock=3 + 609600` on `Dispatcher-Startup`), and the factory builds the popup lazily at the first show. `pop-on` (602751 := 1) shows it top right at (514,0,255,24): backdrop, two custom icons (609110 circle, 609111 triangle) and the label "SDK 609600". It shows on Car, Media and the MENU ring and survives the screen changes. `pop-off` hides it. **The id-based icons are tinted with the current app colour** (red in Car, yellow in Media and on the ring after Media), the same way stock icons are. | `747340 cmd popup 609600 visibility 602751 := 1`, `getPartialPopup 609600 built`, `getImagePath 609110`, `609111`. Frames `ui-spike-c-popup609600-car.jpg`, `-media.jpg`, `-home.jpg` |
+| S1 slot | **Popups 609600 and 65 share slot 5 and are exclusive: the newest show wins.** At `pop-on`, the SDK status line (popup 65, "TS ? MQ dn") disappeared and 609600 took its place. A later write to label 416 while 609600 was up showed nothing. Choice 1 was already 1, so there was no new show, and 65 waited in the slot queue. After `pop-off`, popup 65 came back with the new text. | Frames `ui-spike-c-popup609600-home.jpg` (no 65), `-popup609600-over-65.jpg`, `-glyphs1.jpg` (65 back after `pop-off`) |
+| S2 | **go.** The third icon on `ResourceLocatorModel` 602752, set to `HMIResourceLocator("/mnt/app/eso/hmi/lsd/mibsdk-spike/icons/p20.png")`, is drawn. **The file-path icon keeps its own colours** (green ring), while the id icons beside it are tinted. | `782347 cmd pop-file 602752 := …/p20.png`. Frames `ui-spike-c-popup-file-icon.jpg`, `-popup-file-icon-zoom.png` |
+| S4 | **Label 416 falls back to other fonts for missing glyphs.** `glyphs1` `←↑→↓•▪►◀◆◊∞√⌀`: all 13 are drawn with no box. The small ones (`▪ ► ◀`, `⌀`) cannot be told apart reliably at the 512×240 capture. `glyphs2` `●○★▲■□◎※♪☎✓⚠`: **● ○ ★ ▲ ■ □ ◎ ※ ♪ ☎ are drawn** (so a NAR label does fall back to the CJK fonts of §4 (c)), and **✓ and ⚠ are empty boxes**. | `795349 cmd glyphs len=13`, `829354 cmd glyphs len=12`. Frames `ui-spike-c-glyphs1.jpg`, `-glyphs2.jpg`, zoomed `-glyphs1-zoom.png`, `-glyphs2-zoom.png` |
+| S5 | **no-go (not shown).** Provider-logo model 3838 := status 1 plus the `p30.png` path. No logo appeared in the status bar on the MENU ring, Media, the Audi connect note screen or the navigation map. That cell shows only where the online context enables it. `logo-off` reset the model (status 0, ""). | `849357 cmd logo model 3838 := status 1 …`, `900366 … status 0 ''`. Frames `ui-spike-c-logo-{home,media,connect,nav}.jpg` |
+| S3 | skipped (step 16; S1 passed) | — |
+
+Other observations:
+- The SDK runtime kept running under the spike Car activator: plugins enabled, and the SDK status line ("TS ? MQ dn")
+  still wrote popup 65. There is no `ui car=sdk` line, because `SdkCarActivator` is not on the line in this boot.
+- After `glyph-off` (choice 1 := 0), the SDK's own status writer showed popup 65 again within seconds. Anything that
+  shares label 416 with the SDK status line gets overwritten.
+- The only error line in the log is the known `dirSync=unsupported` status line. There is no spike `FAILED` line.
+- Plan nit: §8.1 says the `wrench` probe writes `mapping[10]`, but §8.2 step 4/9 expects the "SDK w11 wrench" row
+  (widgetID 11) to change. The code writes `mapping[11] = {16, 9}` (`SpikeIds.WRENCH_WIDGET_ID`), to match the row.
+
+### What Boot A means for the SDK design
+
+- **Car-drawer row icons: build the API.** A row can carry an icon id that the SDK factory's `getImagePath` maps to a
+  plugin PNG. Proposed rules:
+  - mibpkg unpacks plugin icons into an SDK icon dir under `lsd/` (relative path from `ImageRoot`);
+  - the runtime validates them (PNG, RGBA, at most 72×72, at most 32 KiB) and gives each distinct icon a fresh id from
+    a Car-module range;
+  - the icon is a white-on-transparent 72×72 image plus a 72×68 reflection. The SDK can generate the reflection, so a
+    plugin ships one image.
+
+  Stock ids from any module also work. **Icon changes take effect at the next Car screen connect, not live.** The
+  API should treat a row icon as near-static (set at enable time), or accept that a change shows the next time Car
+  opens.
+- **Status-line icons: popup 609600 is the route.** It needs no new substitution and is registered from the Car
+  bundle. It shows on every screen, and id icons are tinted like stock status icons. File-path icons keep their own
+  colours, so they suit coloured status icons, and id icons suit monochrome ones. The catch is slot 5. 609600 and
+  popup 65 (engineering Mem/CPU, DAB debug, and today's SDK status line) are exclusive, and the newest show wins.
+  Two options:
+  - move the SDK status line entirely to 609600 (icons plus text) and stop writing popup 65;
+  - give 609600 another slot or zpm slot, which the next boot should try if both must show at once.
+
+  The first is simpler and also removes the label-416 sharing.
+- **Glyphs** (zero-risk stopgap): `● ○ ★ ▲ ■ □ ◆ ◊ ♪ ☎ ← ↑ → ↓ • ∞ √` are usable in status text. `✓` and `⚠` are not.
+- **Provider logo (3838)** is not a usable SDK surface.

@@ -1,0 +1,86 @@
+# Spike C, Boot A (run.sh install --car-only), 2026-10-24. Full /tmp/mibsdk.log of the boot; first number = ms since the runtime started.
+0 INFO mibsdk.hqc configurator: hmi=HMI_AU_MIB2_HQC_NAR_G22_C10_180803 safeMode=false wrapLoop=false wrappingEnabled=true uiEnabled=true hookServices=[org.dsi.ifc.carparkingsystem.DSICarParkingSystem]
+0 INFO mibsdk.hqc configurator: chain=de.audi.tghu.dsitrace.TraceConfigurator
+0 INFO mibsdk.hqc activator: hmi=HMI_AU_MIB2_HQC_NAR_G22_C10_180803 adapter=hqc-nar-g22-c10
+0 STATUS mibsdk seam configurator=seen wrapping=true raw.parking=true
+0 INFO mibsdk.hqc wrapped org.dsi.ifc.carparkingsystem.DSICarParkingSystem chain=TraceConfigurator
+0 STATUS mibsdk state persist=/mnt/persist/mibsdk ok ram=/ramdisk/mibsdk ok bootGuard=armed
+0 STATUS mibsdk durability persist=/mnt/persist/mibsdk fileSync=ok dirSync=unsupported (java.io.FileNotFoundException: /mnt/persist/mibsdk at java.io.RandomAccessFile.<init>(Unknown Source)) fsyncMs=0
+1587 INFO mibsdk.hqc org.dsi.ifc.carparkingsystem.DSICarParkingSystem available after 0 ms (1 lookups)
+1587 INFO mibsdk.hqc org.dsi.ifc.powermanagement.DSIPowerManagement available after 0 ms (1 lookups)
+1587 INFO mibsdk.hqc de.audi.atip.base.IFrameworkAccess available after 0 ms (1 lookups)
+1587 STATUS mibsdk features=[hook.parking, slot.carmenu, slot.statusbar, ui.pages, vehicle.ignition, vehicle.parking]
+1587 STATUS mibsdk seam configurator=seen wrapping=true raw.parking=true
+1587 STATUS mibsdk runtime started adapter=hqc-nar-g22-c10 safeMode=false
+1587 STATUS mibsdk heap free=50825716 total=62914560
+1587 INFO mibsdk plugins load in 30000 ms
+8589 INFO spike.ui bank stock models.length=2738 modelIDs.length=1147 -> first free id 602738 (MODEL_BASE=602738)
+8589 INFO spike.ui activator constructed on fw[HMIThreadPool:2]Dispatcher-Startup
+8589 INFO spike.ui factory: SpikeFactory
+8589 INFO spike.ui getPartialPopupStubs terminal=0 stock=3 + 609600 thread=fw[HMIThreadPool:2]Dispatcher-Startup
+8589 INFO spike.ui bank created model 602751 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+12721 INFO spike.ui createScreen id=600044 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13736 INFO spike.ui getSelectionDrawers terminal=0 count=1 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13736 INFO spike.ui drawer id=600043 main=de.esolutions.hmi.widgets.audi.evo.widgets.SelectionMenuController
+13736 INFO spike.ui   child 0 de.esolutions.hmi.widgets.audi.evo.widgets.menu.SelectionMenuIdleTimerController
+13736 INFO spike.ui   row 1 label=601352 text='Audi drive select' event=600050 widgetID=0 model=601227 type=2 visible=true
+13736 INFO spike.ui   row 2 label=603599 text='Charge' event=600290 widgetID=7 model=601227 type=2 visible=true
+13736 INFO spike.ui   row 3 label=603727 text='Range & statistics' event=600312 widgetID=8 model=601227 type=2 visible=true
+13736 INFO spike.ui   row 4 label=605882 text='Statistics' event=600312 widgetID=8 model=601227 type=2 visible=true
+13736 INFO spike.ui   row 5 label=601354 text='Vehicle settings' event=600025 widgetID=1 model=601227 type=2 visible=true
+13736 INFO spike.ui   row 6 label=601355 text='Driver assistance' event=600024 widgetID=2 model=601227 type=2 visible=true
+13736 INFO spike.ui   row 7 label=601356 text='Air conditioning' event=600026 widgetID=3 model=601227 type=2 visible=true
+13736 INFO spike.ui   row 8 label=601357 text='Auxiliary heating' event=600023 widgetID=4 model=601227 type=2 visible=true
+13736 INFO spike.ui   row 9 label=603898 text='Auxiliary air conditioning' event=600301 widgetID=4 model=601227 type=2 visible=true
+13736 INFO spike.ui   row 10 label=603899 text='Auxiliary heating / AC' event=600302 widgetID=4 model=601227 type=2 visible=true
+13736 INFO spike.ui   row 11 label=601359 text='Service & checks' event=600027 widgetID=5 model=601227 type=2 visible=true
+13736 INFO spike.ui   row 12 label=602086 text='Owner's manual' event=600148 widgetID=6 model=601227 type=2 visible=true
+13736 INFO spike.ui   row 13 label=605468 text='Sportanzeige' event=0 widgetID=7 model=601227 type=2 visible=false
+13736 INFO spike.ui   viewIDs: 600815 601005 601006 601007 601008 601009 601010 601172 601227 601234 601672 1700231
+13736 INFO spike.ui added 9 rows; views 12 -> 22
+13736 INFO spike.ui bank created model 602738 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13736 INFO spike.ui bank created model 602739 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13736 INFO spike.ui bank created model 602740 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13736 INFO spike.ui bank created model 602741 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13736 INFO spike.ui bank created model 602742 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13736 INFO spike.ui bank created model 602743 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13736 INFO spike.ui bank created model 602744 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13736 INFO spike.ui bank created model 602745 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13736 INFO spike.ui bank created model 602746 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13736 INFO spike.ui bank created model 602747 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13736 INFO spike.ui bank created model 602748 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+32201 STATUS bike-rack DISCOVERED discovered
+32201 STATUS crashy DISCOVERED discovered
+32201 STATUS daemon-status DISCOVERED discovered
+32201 STATUS hello-menu DISCOVERED discovered
+32201 STATUS hello DISCOVERED discovered
+32201 INFO bike-rack waiting for parking value
+32201 STATUS bike-rack ENABLED enabled
+32201 INFO crashy mode=
+32201 INFO crashy no crash mode set; idle
+32201 STATUS crashy ENABLED enabled
+32201 STATUS daemon-status ENABLED enabled
+32201 STATUS hello-menu ENABLED enabled
+32201 INFO hello hello enabled
+32201 STATUS hello ENABLED enabled
+92226 INFO mibsdk boot healthy: 5 plugin(s) enabled for 60000 ms
+578305 INFO spike.ui getImagePath 609100 -> ../mibsdk-spike/icons/609100.png thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+578305 INFO spike.ui getImagePath 609101 -> ../mibsdk-spike/icons/609101.png thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+630314 INFO spike.ui cmd S1c row1 visibility := 0
+670320 INFO spike.ui cmd icon-next row0=true bitmaps := {609102, 609103}
+733338 INFO spike.ui getImagePath 609102 -> ../mibsdk-spike/icons/609102.png thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+733338 INFO spike.ui getImagePath 609103 -> ../mibsdk-spike/icons/609103.png thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+747340 INFO spike.ui cmd popup 609600 visibility 602751 := 1 model=true
+747340 INFO spike.ui getPartialPopup 609600 built thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+747340 INFO spike.ui bank created model 602752 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+747340 INFO spike.ui bank created model 602753 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+747340 INFO spike.ui getImagePath 609110 -> ../mibsdk-spike/icons/609110.png thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+747340 INFO spike.ui getImagePath 609111 -> ../mibsdk-spike/icons/609111.png thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+782347 INFO spike.ui cmd pop-file 602752 := /mnt/app/eso/hmi/lsd/mibsdk-spike/icons/p20.png
+795349 INFO spike.ui probe T+0 hmi accessor: IFrameworkAccess.getHmiServiceApp() de.audi.tghu.fwhmi.evo.FwHMIEvo
+795349 INFO spike.ui cmd glyphs len=13
+801350 INFO spike.ui cmd popup 609600 visibility 602751 := 0 model=true
+829354 INFO spike.ui cmd glyphs len=12
+844357 INFO spike.ui cmd glyph-off
+849357 INFO spike.ui cmd logo model 3838 := status 1 '/mnt/app/eso/hmi/lsd/mibsdk-spike/icons/p30.png'
+900366 INFO spike.ui cmd logo model 3838 := status 0 ''
