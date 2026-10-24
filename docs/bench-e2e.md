@@ -388,3 +388,81 @@ approve, with an `approve with:` line; 2: bad usage; 1: failed or busy).
 | `status` | `/tmp/mibpkg sdk status`: the `HMICar=` line, the SDK, its plugins, the ledger, then the runtime's STATUS lines |
 | `log` | print `/tmp/mibsdk.log` (no mibpkg needed) |
 | `restart` | `slay -s11 j9` (no mibpkg needed) |
+
+## Plan 3: mibpkg distribution
+
+Run 2026-10-24 on the bench (10.20.0.23, same HMI). mibpkg from `feat/mibsdk-packages` (206f6fc, then the fix
+649ed8d deployed during the run); `mibsdk-0.1.0.mpk` and the plugin `.mpk` files built from a clean detached
+checkout of 13694a1 (`./gradlew :dist:mibpkgPackage :plugins:{hello,bike-rack,crashy}:mibPackage
+-Pmibsdk.mibpkg=<host mibpkg>`); `installer/mibsdk-dev` from the same checkout.
+
+**Overall: pass. mibpkg 0.8.0 adopted the old `mibsdk-dev` install as the `mibsdk` package: the stock backup
+moved into mibpkg byte-identical, `mibsdk/stock/` is gone, and after a restart the runtime came up with
+`boot healthy: 3 plugin(s) enabled` and the SDK's Car-drawer row. One mibpkg bug (P3-F2) blocked the adoption
+until it was fixed on the unit.**
+
+| # | Finding | Status |
+|---|---------|--------|
+| P3-F1 | mibpkg 0.7.0 has no top-level `install-file` (`unknown command "install-file"`); the 0.7 → 0.8 update needs `/tmp/mibpkg gem install-file mibpkg <uid> -`. Every later step uses the 0.8 verb. | recorded |
+| P3-F2 | **`mibsdk-dev install` refused with `cannot list /mnt/app/eso/hmi/lsd/jars/AppDevelopment.jar (not a zip?); nothing changed`.** The jar is a valid zip. On the unit `lseek` from the QNX 6.5 std port fails with `EINVAL` (an on-unit probe: `seek 185611: Err(Os { code: 22 … "Invalid argument" })`, even for small jars), so the owned-classes guard's seek-and-read zip reader could not list any stock jar. | fixed 649ed8d (reads the whole jar, no seek; the refusal now carries the reader's error; 674 host tests) |
+| P3-F3 | A fixed mibpkg with the same version cannot replace the running one: `install-file` says `mibpkg 0.8.0 is already installed`, and a self-update keeps no previous version (`no earlier version of mibpkg is kept`), so a rollback round-trip is impossible. The fixed build went on as `0.8.0+bench.1` (package version only; the binary is 0.8.0 at 649ed8d and reports `supervisor 0.8.0`). | bench-only version tag |
+| P3-F4 | mibpkg's web log tail (`GET /api/logs/<id>`) also seeks (`src/web/api.rs`), so it returns nothing on the unit for the same reason as P3-F2. Not exercised here. | open |
+| P3-F5 | The old install predates the UI: its `sdk.properties` had no `ui.enabled=true` and the live list had the stock `HMICar=` line. The `mibsdk` 0.1.0 package is UI-enabled, so after the adoption the live list differs from the Step 1 copy in exactly the `HMICar=` line (`de.audi.tghu.car.hmi.Activator` → `mibsdk.adapter.hqc.ui.SdkCarActivator`). Expected for this package. | recorded |
+| P3-F6 | Between the adoption and the restart, `mibpkg sdk status` said `running: no` while the old runtime was still running (known deferred minor: `running:` uses the package state, not the log). | recorded |
+| P3-F7 | `mibsdk-dev restart` reset the whole unit again (F3); one `keypanel up` (DHCP kick) brought it back after ~10 min. | recorded |
+
+### Step 1: Baseline (pass)
+
+- `/tmp/mibpkg status`: `supervisor 0.7.0 pid 1654910 (running)`, `mibpkg.web: running`.
+- `lsd/jars/` held the three SDK jars (`mibsdk-adapter-hqc.jar` 45105, `mibsdk-rt-retrotranslator.jar` 308523,
+  `mibsdk-runtime.jar` 165104) and no spike jar. `lsd/mibsdk/` held `grants.properties`
+  (`hello=vehicle.read`, `bike-rack=vehicle.read,vehicle.parking.write`), `sdk.properties`
+  (`chain.configurator=de.audi.tghu.dsitrace.TraceConfigurator`,
+  `hook.services=org.dsi.ifc.carparkingsystem.DSICarParkingSystem`), `plugins/{hello,bike-rack,crashy}.{jar,reload}`
+  and `stock/` (`bundles_dsitracer_enabled.properties` 10171, `tracer.was` = `true`).
+- `/mnt/persist/mibsdk/ledger.properties` empty; no `plugins.properties`.
+- Live bundle list (10224) vs the stock copy: the configurator line, `MibSdk` in `Autostart`, the `MibSdk=` bundle
+  line; `HMICar=de.audi.tghu.car.hmi.Activator` in both (P3-F5). Local copies of both were kept for Step 3.
+
+### Step 2: mibpkg 0.7.0 → 0.8.0 (pass)
+
+- Uploaded `mibpkg-0.8.0.mpk` (1131575 bytes, read back by size) to `/tmp/mibpkg.upload.<uid>.mpk`;
+  `/tmp/mibpkg gem install-file mibpkg <uid> -` (P3-F1): `OK: updated mibpkg 0.7.0 -> 0.8.0; mibpkg restarts itself`.
+- Within 10 s: `supervisor 0.8.0 pid 20553766 (running)`; the 0.7 pid 1654910 was gone (`pidin -p` no such process).
+- `/tmp/mibpkg sdk status`: exit 0; `HMICar=de.audi.tghu.car.hmi.Activator` (P3-F5); `sdk: not installed`;
+  `running: yes`; `plugin bike-rack pushed grants=vehicle.parking.write,vehicle.read`, `plugin crashy pushed grants=`,
+  `plugin hello pushed grants=vehicle.read`; `ledger: 0 override(s)`; the runtime's STATUS lines.
+
+### Step 3: adopt the SDK (pass after P3-F2)
+
+- First `mibsdk-dev install`: refused, nothing changed (P3-F2). After the fix, `0.8.0+bench.1` (P3-F3) was installed
+  the same way: `updated mibpkg 0.8.0 -> 0.8.0+bench.1; mibpkg restarts itself`; the new supervisor was up within
+  15 s and the previous one gone.
+- `mibsdk-dev install`, verbatim:
+  ```
+  checking mibsdk 0.1.0 (uploaded file)
+  unpacking
+  switching mibsdk to 0.1.0
+  starting services
+  installed mibsdk 0.1.0; reboot the unit (or restart the HMI) to start it
+  no recorded mode for /mnt/app/eso/hmi/lsd/bundles_dsitracer_enabled.properties (backup from an older install); using the stock mode 777
+  adopted the mibsdk-dev stock backup from /mnt/app/eso/hmi/lsd/mibsdk/stock
+  ```
+- `mibsdk/stock/` is gone; `mibsdk/` now holds `grants.properties` (unchanged), `permissions.json`, `plugins/`
+  (unchanged) and `sdk.properties` (`ui.enabled=true` added). The three jars were replaced (adapter 93064, runtime
+  227193).
+- The mibpkg backup `state/backups/mnt%app%eso%hmi%lsd%bundles_dsitracer_enabled.properties` is byte-identical to
+  the Step 1 stock copy. The live list (10231, `-rwxrwxrwx`) equals the Step 1 live copy except the `HMICar=` line
+  (P3-F5).
+- `mibsdk-dev restart` → unit reset, one `keypanel up` (P3-F7). Then `mibsdk-dev status`: `sdk: 0.1.0`,
+  `api: 1..2`, `hmi: … (supported)`, `running: yes`, `reboot needed: no`, the three plugins pushed with the same
+  grants, `ledger: 0 override(s)`, `STATUS mibsdk runtime started adapter=hqc-nar-g22-c10 safeMode=false`,
+  `STATUS mibsdk ui car=sdk`, and `STATUS bike-rack|crashy|hello ENABLED enabled`. The log has
+  `91461 INFO mibsdk boot healthy: 3 plugin(s) enabled for 60000 ms` (`mibsdk-dev status` does not print that
+  line). `/mnt/persist/mibsdk/boot.state`: `unhealthyBoots=0`.
+- Keypanel `/status`: `{"bridge_connected":true,…}`. Home: `bench-e2e/08-home-mibpkg-sdk-adopted.jpg` (after `back`
+  dismissed the fuel popup). Car drawer (`car`, `menu_left`): `bench-e2e/09-car-drawer-mibpkg-sdk-adopted.jpg`;
+  scrolled to the end it shows the SDK's `Plugins` row: `bench-e2e/10-car-drawer-plugins-row-mibpkg-sdk-adopted.jpg`.
+
+**Bench state at the end.** mibpkg 0.8.0 (package `0.8.0+bench.1`) supervises; `mibsdk` 0.1.0 is an installed
+package; `hello`, `bike-rack` and `crashy` are pushed plugins (not packages) and ENABLED; kl15 active; home screen.
