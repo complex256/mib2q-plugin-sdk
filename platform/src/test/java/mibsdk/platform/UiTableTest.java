@@ -4,7 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
 import org.junit.jupiter.api.Test;
@@ -47,6 +50,42 @@ class UiTableTest {
         assertSame(s, got[0]);
         assertSame(s, t.awaitNewer(0L, 0L), "already newer: returns at once");
         assertNull(t.awaitNewer(1L, 0L), "no newer version: null on timeout");
+    }
+
+    /** The wall clock as the unit sees it: real time plus a step applied after the first read. */
+    private static final class SteppedWall implements UiTable.Wall {
+        private final long step;
+        private int reads;
+
+        SteppedWall(long step) {
+            this.step = step;
+        }
+
+        public synchronized long nowMs() {
+            return System.currentTimeMillis() + (reads++ == 0 ? 0 : step);
+        }
+    }
+
+    private static final long HOUR = 3600000L;
+
+    @Test
+    void wallClockStepBackDoesNotStallWaits() throws Exception {
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            assertNull(new UiTable(4, new SteppedWall(-HOUR)).poll(300L));
+            assertNull(new UiTable(4, new SteppedWall(-HOUR)).awaitNewer(0L, 300L));
+        }, "a GPS step back stalled the wait");
+    }
+
+    @Test
+    void wallClockStepForwardDoesNotEndWaitsEarly() throws Exception {
+        long t0 = System.currentTimeMillis();
+        assertNull(new UiTable(4, new SteppedWall(HOUR)).poll(300L));
+        long took = System.currentTimeMillis() - t0;
+        assertTrue(took >= 200L, "poll ended after " + took + " ms");
+        t0 = System.currentTimeMillis();
+        assertNull(new UiTable(4, new SteppedWall(HOUR)).awaitNewer(0L, 300L));
+        took = System.currentTimeMillis() - t0;
+        assertTrue(took >= 200L, "awaitNewer ended after " + took + " ms");
     }
 
     @Test

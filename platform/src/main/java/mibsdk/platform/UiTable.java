@@ -21,7 +21,32 @@ public final class UiTable {
     private int size;
     private volatile long dropped;
 
+    /**
+     * Longest single wait. Java 1.4 has no monotonic clock, so a wait is timed in slices of at most this long, each
+     * counted as its wall-clock length clamped to {@code [1, slice]}: a wall-clock step can stretch a wait by at most
+     * one slice and can never end it early or stall it.
+     */
+    static final long SLICE_MS = 100;
+
+    /** A wall-clock source; the unit's may step by decades (it boots at 1970, GPS sets it later). */
+    interface Wall {
+        long nowMs();
+    }
+
+    private static final Wall SYSTEM = new Wall() {
+        public long nowMs() {
+            return System.currentTimeMillis();
+        }
+    };
+
+    private final Wall wall;
+
     public UiTable(int inputCapacity) {
+        this(inputCapacity, SYSTEM);
+    }
+
+    UiTable(int inputCapacity, Wall wall) {
+        this.wall = wall;
         if (inputCapacity < 1) {
             throw new IllegalArgumentException("inputCapacity must be >= 1");
         }
@@ -46,14 +71,13 @@ public final class UiTable {
      * Returns null on timeout.
      */
     public UiInput poll(long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
+        long remaining = timeoutMs;
         synchronized (inputLock) {
             while (size == 0) {
-                long remaining = deadline - System.currentTimeMillis();
-                if (timeoutMs <= 0 || remaining <= 0) {
+                if (remaining <= 0) {
                     return null;
                 }
-                inputLock.wait(remaining);
+                remaining -= waitSlice(inputLock, remaining);
             }
             UiInput in = ring[head];
             ring[head] = null;
@@ -61,6 +85,18 @@ public final class UiTable {
             size--;
             return in;
         }
+    }
+
+    /**
+     * Waits on {@code lock} (held by the caller) for at most {@code min(remaining, SLICE_MS)} and returns the time
+     * to count against the timeout: the wall-clock time that passed, clamped to {@code [1, slice]}.
+     */
+    private long waitSlice(Object lock, long remaining) throws InterruptedException {
+        long slice = remaining < SLICE_MS ? remaining : SLICE_MS;
+        long before = wall.nowMs();
+        lock.wait(slice);
+        long passed = wall.nowMs() - before;
+        return passed < 1 ? 1 : passed > slice ? slice : passed;
     }
 
     /** Inputs discarded because the ring was full. */
@@ -75,14 +111,13 @@ public final class UiTable {
      * a value {@code <= 0} does not wait. Returns null on timeout.
      */
     public UiSnapshot awaitNewer(long version, long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
+        long remaining = timeoutMs;
         synchronized (snapshotLock) {
             while (current.version() == version) {
-                long remaining = deadline - System.currentTimeMillis();
-                if (timeoutMs <= 0 || remaining <= 0) {
+                if (remaining <= 0) {
                     return null;
                 }
-                snapshotLock.wait(remaining);
+                remaining -= waitSlice(snapshotLock, remaining);
             }
             return current;
         }
