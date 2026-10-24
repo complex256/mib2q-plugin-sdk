@@ -11,12 +11,14 @@ import mibsdk.platform.UiText;
  * The status line: the runtime's own indicators (spec section 6.1: the runtime owns them, so a plugin cannot forget
  * one), then the plugins' items. Pure functions.
  *
- * <p>Priority: {@code SAFE} first, then {@code PDC R OFF}, then the other overrides. Indicators never crowd out the
- * plugin items: while there are items, indicators after the first get at most the line minus the items' reserve (the
- * items' joined length plus a space, at most half the line); the rest are dropped (the SDK page lists every
+ * <p>Priority: {@code SAFE} first, then {@code PDC R OFF}, then the other overrides. {@code SAFE} and
+ * {@code PDC R OFF} are safety indicators and must show ({@link #isMustShow}): they are never dropped for plugin items
+ * and never hide each other. The other ({@code OVR ...}) indicators never crowd out the plugin items: while there are
+ * items, all indicators together get at most the line minus the items' reserve (the items' joined length plus a
+ * space, at most half the line), and an {@code OVR} one that would exceed that is dropped (the SDK page lists every
  * override).
  *
- * <p>Fair share: the items share what the indicators leave, max-min fair ({@link #shares}), so no plugin's item
+ * <p>Fair share: the items share what the indicators leave (if nothing is left, no item shows), max-min fair ({@link #shares}), so no plugin's item
  * crowds out another's. The caller passes them in the user's order ({@link #order}) with hidden ones left out.
  */
 final class StatusLine {
@@ -100,9 +102,9 @@ final class StatusLine {
     }
 
     /**
-     * Indicators (the first always; the others while they fit their budget, see the class comment), then the items
-     * in the given order (empty ones skipped), each cut to its fair share (see {@link #shares}), joined by one space
-     * and cleaned to {@code maxChars}.
+     * Indicators (the must-show ones always; the others while they fit their budget, see the class comment), then
+     * the items in the given order (empty ones skipped), each cut to its fair share (see {@link #shares}), joined by
+     * one space and cleaned to {@code maxChars}.
      */
     static String line(List<String> indicators, List<Item> items, int maxChars) {
         List<Item> it = new ArrayList<Item>();
@@ -128,8 +130,8 @@ final class StatusLine {
                     continue;
                 }
                 int len = b.length() + (b.length() > 0 ? 1 : 0) + s.length();
-                if (b.length() > 0 && len > budget) {
-                    break;
+                if (!isMustShow(s) && len > budget) {
+                    continue; // an OVR indicator over budget; a later must-show one still shows
                 }
                 if (b.length() > 0) {
                     b.append(' ');
@@ -259,6 +261,11 @@ final class StatusLine {
             end--;
         }
         return s.substring(0, end);
+    }
+
+    /** {@code SAFE} and {@code PDC R OFF}: shown whatever the items need. */
+    static boolean isMustShow(String indicator) {
+        return SAFE.equals(indicator) || REAR_PDC_OFF.equals(indicator);
     }
 
     private static void addOnce(List<String> list, String s) {

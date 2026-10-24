@@ -114,8 +114,8 @@ class StatusLineTest {
     @Test
     void indicatorsTakeAtMostHalfTheLineAndItemsGetTheRest() {
         assertEquals("SAFE TS up MQ up RACK",
-                StatusLine.compose(Arrays.asList("SAFE", "PDC R OFF", "OVR alpha"),
-                        Arrays.asList("TS up MQ up", "RACK"), 24), "budget 12: only SAFE");
+                StatusLine.compose(Arrays.asList("SAFE", "OVR alpha"),
+                        Arrays.asList("TS up MQ up", "RACK"), 24), "budget 12: no room for OVR alpha");
         assertEquals("SAFE PDC R OFF RACK up",
                 StatusLine.compose(Arrays.asList("SAFE", "PDC R OFF", "OVR alpha"), Arrays.asList("RACK up"), 24),
                 "short items leave the indicators more room");
@@ -134,5 +134,25 @@ class StatusLineTest {
         assertEquals(Arrays.asList("c", "a"), StatusLine.order(Arrays.asList("c", "c", "a"), Arrays.asList("a", "c")),
                 "duplicates in the saved order count once");
         assertEquals(Arrays.asList("a"), StatusLine.order(null, Arrays.asList("a")));
+    }
+
+    // ---- must-show safety indicators ----
+
+    @Test
+    void safeAndRearPdcOffAreNeverDroppedForItems() {
+        assertEquals("SAFE PDC R OFF TS u C801", StatusLine.compose(Arrays.asList("SAFE", "PDC R OFF"),
+                Arrays.asList("TS up MQ up", "C801 boom!!!"), 24), "both show, beyond the half-line budget");
+        assertEquals("PDC R OFF TS u... C80...", StatusLine.compose(Arrays.asList("PDC R OFF"),
+                Arrays.asList("TS up MQ up", "C801 boom!!!"), 24));
+        assertEquals("SAFE PDC R OFF", StatusLine.compose(Arrays.asList("SAFE", "PDC R OFF"), Arrays.asList("RACK"),
+                14), "nothing left: no items");
+    }
+
+    @Test
+    void overrideIndicatorsStayWithinTheBudgetAfterTheMustShowOnes() {
+        assertEquals("SAFE PDC R OFF TS u RACK", StatusLine.compose(Arrays.asList("SAFE", "PDC R OFF", "OVR fan"),
+                Arrays.asList("TS up MQ up", "RACK"), 24), "OVR fan does not fit the budget");
+        assertEquals("SAFE PDC R OFF OVR fan RACK", StatusLine.compose(Arrays.asList("SAFE", "PDC R OFF", "OVR fan"),
+                Arrays.asList("RACK"), 40), "it does when the items are short");
     }
 }
