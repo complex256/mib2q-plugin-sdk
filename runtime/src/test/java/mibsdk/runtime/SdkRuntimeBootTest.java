@@ -336,6 +336,7 @@ class SdkRuntimeBootTest {
 
         clock.advance(60000); // no plugins enabled: safe mode never marks the boot healthy
         Thread.sleep(300);
+        assertEquals(0, enabledLines());
         assertEquals("3", bootState().getProperty("unhealthyBoots"));
 
         fake.setIgnition(true);
