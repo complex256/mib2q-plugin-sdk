@@ -208,7 +208,7 @@ class UiHubTest {
         hub.setStatusItem("a", "ABCDEFG");
         hub.setStatusMaxChars(1);
         hub.publishNow();
-        assertEquals("A...", table.snapshot().statusLine());
+        assertEquals("ABCD", table.snapshot().statusLine(), "a share under 6 is cut hard, without ...");
     }
 
     @Test
@@ -592,7 +592,7 @@ class UiHubTest {
         hub.setStatusMaxChars(8);
         hub.setStatusItem("b", null);
         hub.publishNow();
-        assertEquals("SAFE ...", table.snapshot().statusLine());
+        assertEquals("SAFE A u", table.snapshot().statusLine(), "the item keeps the room SAFE leaves");
         assertNull(table.snapshot().openPageKey());
     }
 }

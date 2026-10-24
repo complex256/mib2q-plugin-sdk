@@ -347,7 +347,7 @@ final class UiHub {
 
     void setStatusMaxChars(int max) {
         synchronized (lock) {
-            statusMaxChars = Math.max(4, max); // room for one char plus "..."
+            statusMaxChars = Math.max(4, max); // room for SAFE, or an item of MIN_ITEM_CHARS
         }
         changed();
     }
