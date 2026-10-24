@@ -115,7 +115,8 @@ final class SpikeFactory extends CarScreenFactory {
             v.setDisableAvailable(false);
             MenuItemController m = new MenuItemController();
             int[] bm = ref.getBitmapIndices();
-            if (bm != null) {
+            // S1f: row 2 gets no bitmaps; does a row without an icon render and take focus?
+            if (bm != null && slot != SpikeIds.ROW_NO_ICON) {
                 m.setBitmaps(bm);
             }
             m.setModelID(SpikeIds.SELECTION_MODEL);

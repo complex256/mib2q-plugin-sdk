@@ -219,14 +219,33 @@ taken before spike B and the file was `cmp`-identical to it after the uninstall.
 Note for Tasks 9–10 and bench driving: after an SDK row press, a second action in the drawer must come within ~8 s;
 otherwise reopen the drawer first.
 
-### Spike B (Plan 2 Task 2): SDK pages — NOT RUN (bench powered off)
+### Spike B (Plan 2 Task 2): SDK pages and row icon
 
-Spike B was stopped by the owner before any gate could be decided. One boot ran with the spike installed.
+Run 1 (2026-10-19) was stopped by the owner after one inconclusive S2a attempt: `showScreen` switched to the page, but
+only the background, status bar and drawer handle rendered (`682681 page-show S2a … previous=id=10`, frame
+`ui-spike-b-s2a-attempt1-blank.jpg`). Cause: a prebuilt `Screen` bypasses `AbstractTerminalContext.getScreenFromCache`,
+which is where `Screen.setTerminal` is called. The fix sets `page.setTerminal(fw.getHMITerminal(0))` and copies the
+current screen's colour scheme and screen mode into the `ScreenData`. Run 1 left the unit clean (`cmp`-identical
+bundles file).
+
+Run 2 (2026-10-24) booted that fixed jar. S1f was added: drawer row 2 has no bitmaps. Every `spike.ui` line of the boot
+is in `ui-spike-b-log.txt` (section "run 2"); the first number on each line is ms since the runtime started.
 
 | # | Result | Evidence |
 |---|--------|----------|
-| S2a | **NOT RUN** (one inconclusive attempt). Pressing SDK row 0 posted a `RunnableEvent` that built the page and called `FwHMI.showScreen(0, 0, new ScreenData(609500, …, prebuiltScreen, …))` on HMIEvent (build + show 7 ms). The screen changed to the page's background, status bar and drawer handle, but the menu, list and title did not render, the knob produced no `page-key`/`page-focus` lines, and BACK was handled by the stock SMM (to the home menu) rather than by the page. Likely cause, not yet verified: a prebuilt `Screen` bypasses `AbstractTerminalContext.getScreenFromCache`, which is where `Screen.setTerminal(hmiTerminal)` is called, so the widgets connected without a terminal and `AbstractScreenWidget.connected` swallowed the exception. The rebuilt spike sets the terminal, copies colour scheme/screen mode and logs connect exceptions; it was pushed but never booted. | `682681 page-show S2a from current=id=600044 … previous=id=10`, `page built id=609500 ownBack=true labelRow=true`, `showScreen done build+show=7ms`; models 602749/602750 created on connect. Frame `ui-spike-b-s2a-attempt1-blank.jpg` |
-| S2b | **NOT RUN.** The hijack row (fires Car event 600023, 'Auxiliary heating', hidden on this unit; the factory returns the page from the next Car `createScreen` within 3 s) was never pressed. | — |
-| S2c | **NOT RUN.** Depends on a rendered page. | — |
+| S2a | **go.** On the first press (row 0, from Car screen 600044), the page connects and renders: title, the LABEL row and 5 list rows. The knob moves the focus frame (LABEL row → list row 0 → row 3 …). An ACTION row press reaches the listener. BACK (key 15, re-show mode) returns to the screen the page came from (Car 600044, drive select still on Dynamic). A second show on the same boot works the same way (build+show 2 ms). The `nolabel-on` variant was not needed. | `1040610 page built id=609500 ownBack=true labelRow=true`, `page-show S2a screenData popups=0 colorScheme=1 screenMode=1`, `showScreen done build+show=8ms`, `page connected id=609500`; `1053620 page-focus row=0`, `1056620 page-focus row=3`; `1100626 page-select row=1`; `1102626 page-key press code=15 ownBack=true`, `page-back mode=reshow current=id=609500 … target=id=600044`. Frames `ui-spike-b-s2a-rendered.jpg`, `-focus-row0.jpg`, `-focus-checkbox1.jpg`, `-checkbox1-toggled-on.jpg`, `-action-selected.jpg`, `-back-to-car.jpg`, `-second-show.jpg` |
+| S2b | **go.** Row 1 fires Car event 600023. The next Car `createScreen` (id 600033) returns the page, and it renders with the Car drawer handle. Knob focus, select and toggle all work. With BACK left to the SMM (`ownBack=false`), it returns to Car 600044 (drive select on Dynamic). Not the chosen path: S2a works, and a hijacked id stays cached as the SDK page until the HMI restarts. That was not checked on screen; see the concerns in the Task 2 report. | `1130630 page-hijack S2b firing event 600023`, `createScreen id=600033 …`, `page-hijack S2b createScreen(600033) -> SDK page`, `1131630 page connected id=600033`; `1146632 page-toggle row=4 value=1`, `1147632 … value=0`, `1149633 page-select row=1`, `1150633 page-key press code=15 ownBack=false`. Frames `ui-spike-b-s2b-drawer-hijack-row.jpg`, `-rendered.jpg`, `-focus-checkbox2.jpg`, `-back-to-car.jpg` |
+| S2c | **go (gate criterion), with one gap.** The list rows render from the `ListModel`. Selection and toggle reach the SDK `ListListener` on HMIEvent, and the toggle writes the model: both checkboxes went 1, then 0, on both pages. **Gap:** the `CheckboxController` cell (column 1) draws nothing. A checked row looks exactly like an unchecked one (`-checkbox1-toggled-on.jpg` vs `-focus-checkbox1.jpg`), so Task 11 must find the stock checkbox cell recipe (bitmaps/renderer setup) or show the state as text in the value column. | `1073622 page-select row=3 …`, `page-toggle row=3 value=1`; `1076623 … value=0`; `1079623 page-toggle row=4 value=1`; `1082624 … value=0` |
+| S1f | **go.** Drawer row 2, which has no bitmaps, renders its text legibly and takes focus (red focus frame). The icon slot draws as an empty dark square, and no other row is affected. `ROW_BITMAP_SOURCE = -1` (none) is acceptable; `1` (copy row 1's) is not needed. | Frame `ui-spike-b-s1f-noicon-focused.jpg` (focus on 'SDK re-press test') |
 
-`HqcUiIds.PAGE_PATH` is not set; the S2a/S2b gate is open.
+Values for Tasks 9–12:
+- `HqcUiIds.PAGE_PATH = SHOW_SCREEN`: build the `Screen` on HMIEvent inside a `RunnableEvent`, `setTerminal(fw.getHMITerminal(0))`, then `FwHMI.showScreen(0, 0, new ScreenData(id, false, false, null, false, screen, cur.getPartialPopups(), null, -1L, -1L, 0, cur.getColorScheme(), cur.getScreenMode(), null))`. The page id used is 609500 (Car module, unused by the Car factory). If HIJACK is ever needed: event 600023 → screen 600033.
+- BACK: the page's `MenuController.keyPressed` consumes key 15 (and its release) and posts a `RunnableEvent` that re-shows the saved `IScreenData` (`showScreen(0, 0, new ScreenData((ScreenData) from))`). Event 600173 was not tried.
+- Widget recipe (as in `SpikePage.build`, modelled on `EngineeringScreenBag2.engModeApplConfigBundles`):
+  - `PageScreen extends ScreenWidgetEVO` with `ScreenRendererHigh`, the stock palettes, `setSmallStageType(3)`, and the factory's ref widgets 0 and 1;
+  - a body `ContainerController` with a `MenuController` (`MenuRendererHigh`, info line, glassplate, focus cursor, scrollbar);
+  - an optional LABEL row (`MenuItemController` type 1, `CompositeRendererHigh`, on a `LabelModel`);
+  - a `ListController` on a 3-column `ListModel` (text, value, kind; `setIdColumn(2)`), rows from a `ListItemFactory`: `MenuItemController` type 16 with a `GridLayout` of `LabelController` (column 0) and, for checkboxes, `CheckboxController` (column 1);
+  - a head `ContainerController` with a `TitleBarWidget` (`LabelController` title from a factory text id), and a `StatusBarStubController` on model 138.
+- Models used: `MODEL_BASE + 11` = 602749 (page `ListModel`), `MODEL_BASE + 12` = 602750 (LABEL row `LabelModel`).
+- Gate: S2a go and S2c go → **Task 11 (native pages) runs; Task 12 (panel fallback) is skipped.** S1f go → `ROW_BITMAP_SOURCE = -1`.

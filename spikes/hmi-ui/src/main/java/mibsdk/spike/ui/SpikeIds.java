@@ -9,6 +9,8 @@ final class SpikeIds {
     /** Model index base: CarModelBank's models[] has 2738 slots (0..2737), so the first free id is 602738. */
     static final int MODEL_BASE = 602738;
     static final int ROWS = 9;
+    /** S1f: drawer row without bitmaps (the re-press row). */
+    static final int ROW_NO_ICON = 2;
     /** MODEL_BASE + slot: row visibility ChoiceModel (0 visible, 1 hidden). */
     static final int SELECTION_MODEL = MODEL_BASE + ROWS;      // shared, widgetID = slot
     static final int LABEL_MODEL = MODEL_BASE + ROWS + 1;      // %1 replacement in row 0's text

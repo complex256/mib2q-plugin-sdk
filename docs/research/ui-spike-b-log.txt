@@ -50,3 +50,95 @@
 682681 INFO spike.ui page-show S2a showScreen done build+show=7ms now=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO
 682681 INFO spike.ui bank created model 602749 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
 682681 INFO spike.ui bank created model 602750 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+
+# Spike B run 2 (2026-10-24): fixed jar + S1f (row 2 without bitmaps). /tmp/mibsdk.log, spike.ui lines
+8028 INFO spike.ui bank stock models.length=2738 modelIDs.length=1147 -> first free id 602738 (MODEL_BASE=602738)
+8028 INFO spike.ui activator constructed on fw[HMIThreadPool:2]Dispatcher-Startup
+8028 INFO spike.ui factory: SpikeFactory
+13218 INFO spike.ui createScreen id=600044 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13218 INFO spike.ui getSelectionDrawers terminal=0 count=1 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13218 INFO spike.ui drawer id=600043 main=de.esolutions.hmi.widgets.audi.evo.widgets.SelectionMenuController
+13218 INFO spike.ui   child 0 de.esolutions.hmi.widgets.audi.evo.widgets.menu.SelectionMenuIdleTimerController
+13218 INFO spike.ui   row 1 label=601352 text='Audi drive select' event=600050 widgetID=0 model=601227 type=2 visible=true
+13218 INFO spike.ui   row 2 label=603599 text='Charge' event=600290 widgetID=7 model=601227 type=2 visible=true
+13218 INFO spike.ui   row 3 label=603727 text='Range & statistics' event=600312 widgetID=8 model=601227 type=2 visible=true
+13218 INFO spike.ui   row 4 label=605882 text='Statistics' event=600312 widgetID=8 model=601227 type=2 visible=true
+13218 INFO spike.ui   row 5 label=601354 text='Vehicle settings' event=600025 widgetID=1 model=601227 type=2 visible=true
+13218 INFO spike.ui   row 6 label=601355 text='Driver assistance' event=600024 widgetID=2 model=601227 type=2 visible=true
+13218 INFO spike.ui   row 7 label=601356 text='Air conditioning' event=600026 widgetID=3 model=601227 type=2 visible=true
+13218 INFO spike.ui   row 8 label=601357 text='Auxiliary heating' event=600023 widgetID=4 model=601227 type=2 visible=true
+13218 INFO spike.ui   row 9 label=603898 text='Auxiliary air conditioning' event=600301 widgetID=4 model=601227 type=2 visible=true
+13218 INFO spike.ui   row 10 label=603899 text='Auxiliary heating / AC' event=600302 widgetID=4 model=601227 type=2 visible=true
+13218 INFO spike.ui   row 11 label=601359 text='Service & checks' event=600027 widgetID=5 model=601227 type=2 visible=true
+13218 INFO spike.ui   row 12 label=602086 text='Owner's manual' event=600148 widgetID=6 model=601227 type=2 visible=true
+13218 INFO spike.ui   row 13 label=605468 text='Sportanzeige' event=0 widgetID=7 model=601227 type=2 visible=false
+13218 INFO spike.ui   viewIDs: 600815 601005 601006 601007 601008 601009 601010 601172 601227 601234 601672 1700231
+13218 INFO spike.ui added 9 rows; views 12 -> 22
+13218 INFO spike.ui bank created model 602738 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13218 INFO spike.ui bank created model 602739 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13218 INFO spike.ui bank created model 602740 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13218 INFO spike.ui bank created model 602741 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13218 INFO spike.ui bank created model 602742 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13218 INFO spike.ui bank created model 602743 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13218 INFO spike.ui bank created model 602744 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13218 INFO spike.ui bank created model 602745 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13218 INFO spike.ui bank created model 602746 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13218 INFO spike.ui bank created model 602747 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+13218 INFO spike.ui bank created model 602748 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1040610 INFO spike.ui press slot=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747 terminal=0 modelValue=-1
+1040610 INFO spike.ui page-show S2a from current=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO previous=id=46 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1040610 INFO spike.ui page built id=609500 ownBack=true labelRow=true
+1040610 INFO spike.ui page-show S2a screenData popups=0 colorScheme=1 screenMode=1
+1040610 INFO spike.ui page-show S2a showScreen done build+show=8ms now=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO
+1040610 INFO spike.ui bank created model 602749 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1040610 INFO spike.ui bank created model 602750 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1040610 INFO spike.ui page connected id=609500
+1053620 INFO spike.ui page-focus row=0
+1056620 INFO spike.ui page-focus row=3
+1073622 INFO spike.ui page-key press code=17 ownBack=true
+1073622 INFO spike.ui page-select row=3 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1073622 INFO spike.ui page-toggle row=3 value=1
+1076623 INFO spike.ui page-key press code=17 ownBack=true
+1076623 INFO spike.ui page-select row=3 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1076623 INFO spike.ui page-toggle row=3 value=0
+1078623 INFO spike.ui page-focus row=4
+1079623 INFO spike.ui page-key press code=17 ownBack=true
+1079623 INFO spike.ui page-select row=4 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1079623 INFO spike.ui page-toggle row=4 value=1
+1082624 INFO spike.ui page-key press code=17 ownBack=true
+1082624 INFO spike.ui page-select row=4 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1082624 INFO spike.ui page-toggle row=4 value=0
+1083624 INFO spike.ui page-focus row=-1
+1084624 INFO spike.ui page-key press code=17 ownBack=true
+1099626 INFO spike.ui page-focus row=1
+1100626 INFO spike.ui page-key press code=17 ownBack=true
+1100626 INFO spike.ui page-select row=1 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1102626 INFO spike.ui page-key press code=15 ownBack=true
+1102626 INFO spike.ui page-back mode=reshow current=id=609500 screen=mibsdk.spike.ui.SpikePage$PageScreen previous=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO target=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO
+1119629 INFO spike.ui cmd S1c row1 visibility := 0
+1130630 INFO spike.ui press slot=1 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747 terminal=0 modelValue=-1
+1130630 INFO spike.ui page-hijack S2b firing event 600023
+1130630 INFO spike.ui createScreen id=600033 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1130630 INFO spike.ui page-hijack S2b createScreen(600033) -> SDK page
+1130630 INFO spike.ui page built id=600033 ownBack=false labelRow=true
+1131630 INFO spike.ui page connected id=600033
+1144632 INFO spike.ui page-focus row=4
+1146632 INFO spike.ui page-key press code=17 ownBack=false
+1146632 INFO spike.ui page-select row=4 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1146632 INFO spike.ui page-toggle row=4 value=1
+1147632 INFO spike.ui page-key press code=17 ownBack=false
+1147632 INFO spike.ui page-select row=4 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1147632 INFO spike.ui page-toggle row=4 value=0
+1148633 INFO spike.ui page-focus row=1
+1149633 INFO spike.ui page-key press code=17 ownBack=false
+1149633 INFO spike.ui page-select row=1 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1150633 INFO spike.ui page-key press code=15 ownBack=false
+1196644 INFO spike.ui press slot=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent model=602747 terminal=0 modelValue=-1
+1196644 INFO spike.ui page-show S2a from current=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO previous=id=600033 screen=mibsdk.spike.ui.SpikePage$PageScreen thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+1196644 INFO spike.ui page built id=609500 ownBack=true labelRow=true
+1196644 INFO spike.ui page-show S2a screenData popups=0 colorScheme=1 screenMode=1
+1196644 INFO spike.ui page-show S2a showScreen done build+show=2ms now=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO
+1196644 INFO spike.ui page connected id=609500
+1199645 INFO spike.ui page-focus row=1
+1200645 INFO spike.ui page-key press code=15 ownBack=true
+1200645 INFO spike.ui page-back mode=reshow current=id=609500 screen=mibsdk.spike.ui.SpikePage$PageScreen previous=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO target=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO

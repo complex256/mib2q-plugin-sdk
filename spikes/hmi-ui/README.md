@@ -29,7 +29,7 @@ spikes/hmi-ui/run.sh uninstall && installer/mibsdk-dev restart
 ## Spike B (Plan 2, Task 2): SDK pages
 
 Same install/uninstall. Drawer row 0 shows `SpikePage` with `FwHMI.showScreen` (S2a), row 1 fires Car event 600023 and
-`SpikeFactory.createScreen` returns the page for the next Car screen (S2b), row 2 only logs (re-press check). The
+`SpikeFactory.createScreen` returns the page for the next Car screen (S2b), row 2 only logs (re-press check) and has no bitmaps (S1f: does a row without an icon render?). The
 probe sequence no longer runs by itself; `SpikeProbes` polls command files `/tmp/mibsdk-spike-ui.<cmd>` every 100 ms:
 `rerun`, `row1-show`, `row1-hide`, `back-reshow`, `back-event`, `back-stock`, `reset-sel-on`, `reset-sel-off`,
 `nolabel-on`, and `hijack` (the file holds an event id).
