@@ -67,6 +67,7 @@ class StockThreadCodeTest {
             {"PageScreens", "void refresh"},
             {"PageScreens", "void close"},
             {"PageScreens", "void listSelected"},
+            {"PageScreens", "void retryClose"},
             {"PageScreens", "void backPressed"},
             {"PageScreens", "void screenConnected"},
             {"PageScreens", "void screenDisconnecting"},

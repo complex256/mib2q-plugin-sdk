@@ -76,6 +76,9 @@ final class PageScreens implements PageRenderer {
         /** Shows the stock screen {@code data} (from {@link #currentData}) again. */
         void showStock(Object data) throws Exception;
 
+        /** Shows stock screen {@code id} (built by its module's factory), keeping the current partial popups. */
+        void showCarScreen(int id) throws Exception;
+
         /** Replaces the page list model's rows. */
         void writeRows(String[] texts, int[] kinds) throws Exception;
     }
@@ -108,17 +111,27 @@ final class PageScreens implements PageRenderer {
         }
     };
 
-    private final Runnable closeJob = new Runnable() {
+    private final Runnable retryJob = new Runnable() {
         public void run() {
-            close();
+            retryClose();
         }
     };
 
     private final List<Nav> navs = new ArrayList<Nav>();
-    /** The runtime is down but the screen could not be changed then (RVC/PDC): retried when the page connects. */
-    private boolean closePending;
+    /** The runtime went down (close ran) and no open came since: this renderer's pages are dead. */
+    private boolean down;
+    /**
+     * The runtime is down but the screen could not be changed then (RVC/PDC). Retried on every applier tick (it reads
+     * {@link #closePending()} from {@code mibsdk-ui}), on any press on the page, and when the page connects again.
+     */
+    private volatile boolean closePending;
     /** The first page job looks for an SDK page a previous applier left on screen. */
     private boolean orphanChecked;
+    /** That orphan could not be sent back yet (RVC/PDC): retried on later jobs and presses; logged once. */
+    private boolean orphanPending;
+    private boolean orphanLogged;
+    /** The last page screen this instance showed or adopted (kept after it left: it may connect again). */
+    private Object lastShown;
     /** The page screen this instance showed and believes on screen; null once left or never shown. */
     private Object shown;
     private String shownKey;
@@ -217,8 +230,10 @@ final class PageScreens implements PageRenderer {
                 return;
             }
             navs.clear(); // the accepted open replaces whatever navigation was asked for before it
+            down = false;
             closePending = false;
             orphanChecked = true;
+            orphanPending = false;
             if (current != HqcUiIds.PAGE_SCREEN_ID) {
                 stockReturn = screens.currentData();
             }
@@ -232,11 +247,14 @@ final class PageScreens implements PageRenderer {
 
     public void refresh(UiSnapshot s) {
         try {
-            if (closePending) {
-                close();
+            if (down) {
+                retryClose();
                 return;
             }
             closeOrphanOnce();
+            if (orphanPending) {
+                retryOrphan();
+            }
             runNav(s);
             String before = stack.top();
             if (before == null || shown == null) {
@@ -256,28 +274,59 @@ final class PageScreens implements PageRenderer {
     }
 
     /**
-     * Runtime down: back to the stock screen the bottom page came from, if an SDK page is on screen. While the screen
-     * may not change (RVC/PDC), the screen is left alone and the return is retried when the page connects again.
+     * Runtime down: back to the stock screen the bottom page came from, if one of this renderer's pages is on screen.
+     * While the screen may not change (RVC/PDC) it is left alone and {@link #closePending()} is set: the applier
+     * retries on its tick, and a press on the page or the page connecting again retries too. A retry never pulls the
+     * user back from another screen: with no page of ours on screen it only clears the flag (a reconnect retries).
      */
     public void close() {
         try {
             navs.clear();
-            boolean onScreen = shown != null || closePending || screens.currentId() == HqcUiIds.PAGE_SCREEN_ID;
+            down = true;
+            boolean onScreen = shown != null || ownPageConnected();
             shown = null;
             stack.clear();
-            closePending = false;
             if (!onScreen) {
+                closePending = false;
                 return;
             }
             if (!changeAllowed()) {
+                if (!closePending) {
+                    log.append("INFO", SOURCE, "ui page close deferred: a popup, parking display or screen change"
+                            + " is under way");
+                }
                 closePending = true;
-                log.append("INFO", SOURCE, "ui page close deferred: a popup, parking display or screen change is"
-                        + " under way");
                 return;
             }
+            closePending = false;
             returnToStock();
         } catch (Throwable t) {
             failed("close", t);
+        }
+    }
+
+    public boolean closePending() {
+        return closePending;
+    }
+
+    /** One of this renderer's page screens is the connected screen. */
+    private boolean ownPageConnected() {
+        if (lastShown != null && screens.isCurrent(lastShown)) {
+            return true;
+        }
+        return live == this && screens.currentId() == HqcUiIds.PAGE_SCREEN_ID;
+    }
+
+    /** In a job: retries a deferred close (runtime down) or orphan close (runtime up). Never throws. */
+    private void retryClose() {
+        try {
+            if (down) {
+                close();
+            } else if (orphanPending) {
+                retryOrphan();
+            }
+        } catch (Throwable t) {
+            failed("retry", t);
         }
     }
 
@@ -298,11 +347,27 @@ final class PageScreens implements PageRenderer {
             prev.shown = null; // its page leaving is not the user leaving
         }
         live = this;
-        if (changeAllowed()) {
-            returnToStock();
-        } else {
-            closePending = true;
+        orphanPending = true;
+        retryOrphan();
+    }
+
+    /** Sends the orphan back to stock if it is still on screen and the screen may change; logs a deferral once. */
+    private void retryOrphan() {
+        if (stack.top() != null || screens.currentId() != HqcUiIds.PAGE_SCREEN_ID) {
+            orphanPending = false; // gone, or one of our own pages is up now
+            return;
         }
+        if (!changeAllowed()) {
+            if (!orphanLogged) {
+                orphanLogged = true;
+                log.append("INFO", SOURCE, "ui page: an SDK page of a previous runtime stays until the screen may"
+                        + " change; close deferred");
+            }
+            return;
+        }
+        orphanPending = false;
+        orphanLogged = false;
+        returnToStock();
     }
 
     // ---- callbacks from the page's widgets (HMIEvent) -----------------------------------------------------------
@@ -320,6 +385,10 @@ final class PageScreens implements PageRenderer {
     }
 
     private void selected(int row) {
+        if (down || orphanPending) {
+            poster.post(retryJob); // a dead page: no input; try to take it off screen
+            return;
+        }
         List<UiEntry> entries = rowEntries;
         String key = shownKey;
         if (key == null || row < 0 || row >= entries.size()) {
@@ -347,6 +416,15 @@ final class PageScreens implements PageRenderer {
     /** BACK on the page (its MenuController consumed the key). Never throws. */
     void backPressed() {
         try {
+            if (down || orphanPending) {
+                poster.post(retryJob);
+                return;
+            }
+            PageScreens l = live;
+            if (shown == null && l != null && l != this) {
+                l.backPressed(); // a page a newer renderer took over (an orphan): the newer one handles it
+                return;
+            }
             requestNav(new Nav(null));
         } catch (Throwable t) {
             // never propagate into the HMI
@@ -359,14 +437,16 @@ final class PageScreens implements PageRenderer {
      */
     void screenConnected(Object screen, String pageKey) {
         try {
-            if (closePending) {
-                poster.post(closeJob); // the runtime is down: retry the return to stock (a pending job retries too)
+            if (down) {
+                poster.post(retryJob); // a dead page came back: take it off screen (a pending job retries too)
                 return;
             }
             if (screen == shown || shown != null) {
                 return; // the one we showed, or an older one on its way out
             }
+            orphanPending = false; // our own page is up: whatever was orphaned is gone
             shown = screen;
+            lastShown = screen;
             shownKey = pageKey;
             live = this;
             stack.open(pageKey, stockReturn);
@@ -402,8 +482,9 @@ final class PageScreens implements PageRenderer {
 
     /** In a job: the navigation asked for since the last one, in order. */
     private void runNav(UiSnapshot s) {
-        if (closePending) {
-            close();
+        if (down || orphanPending) {
+            navs.clear();
+            retryClose();
             return;
         }
         while (!navs.isEmpty()) {
@@ -457,6 +538,7 @@ final class PageScreens implements PageRenderer {
             }
             live = this;
             shown = screen;
+            lastShown = screen;
             shownKey = key;
             shownTitle = t;
             screens.show(screen);
@@ -467,15 +549,17 @@ final class PageScreens implements PageRenderer {
         }
     }
 
+    /** Back to the saved stock screen; without one, to the Car main screen. Behind the screen-change gate. */
     private void returnToStock() {
         Object to = stockReturn;
-        if (to == null) {
-            log.append("WARN", SOURCE, "ui page: no stock screen to return to");
-            return;
-        }
         try {
             if (!changeAllowed()) { // callers check first; this is the last guard before showScreen
                 log.append("INFO", SOURCE, "ui page: stock screen not shown: the screen may not change now");
+                return;
+            }
+            if (to == null) {
+                log.append("WARN", SOURCE, "ui page: no saved stock screen; back to Car " + HqcUiIds.CAR_MAIN_SCREEN);
+                screens.showCarScreen(HqcUiIds.CAR_MAIN_SCREEN);
                 return;
             }
             screens.showStock(to);

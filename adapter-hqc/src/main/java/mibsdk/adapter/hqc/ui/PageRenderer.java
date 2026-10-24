@@ -20,6 +20,12 @@ interface PageRenderer {
      */
     void close();
 
+    /**
+     * A close could not change the screen yet (RVC/PDC): while true, the down applier posts the close again on each
+     * tick. Read on {@code mibsdk-ui}.
+     */
+    boolean closePending();
+
     /** No SDK pages. */
     PageRenderer NONE = new PageRenderer() {
         public void open(String pageKey, UiSnapshot s, long requestAgeMs) {
@@ -29,6 +35,10 @@ interface PageRenderer {
         }
 
         public void close() {
+        }
+
+        public boolean closePending() {
+            return false;
         }
     };
 }

@@ -61,7 +61,12 @@ class UiApplierTest {
         public void close() {
             writes.add("close");
         }
+
+        public boolean closePending() {
+            return closePending;
+        }
     };
+    private volatile boolean closePending;
 
     @BeforeEach
     @AfterEach
@@ -538,5 +543,31 @@ class UiApplierTest {
         self[0].claimLive();
         closeJob.run();
         assertFalse(drain().contains("close"), "the new applier's page stays");
+    }
+
+    /**
+     * Round 2: while the renderer reports a deferred close (RVC/PDC), the down applier posts the close again on each
+     * tick, never from the job's after-hook (no busy loop on HMIEvent), and stops once it is done.
+     */
+    @Test
+    void deferredCloseIsRetriedOncePerTick() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", Collections.singletonList("plugins"), pages("p1"), 1, "p1");
+        applier.step(0);
+        sink.runHeld();
+        table.publish(UiSnapshot.down(++version));
+        closePending = true;
+        applier.step(0);
+        assertEquals(1, sink.size());
+        sink.runHeld(); // close (deferred); its after-hook wakes the applier
+        assertEquals(0, sink.size(), "no retry from the after-hook");
+        drain();
+        applier.step(0);
+        assertEquals(1, sink.size(), "one retry per tick");
+        sink.runHeld();
+        assertEquals(Collections.singletonList("close"), drain());
+        closePending = false;
+        applier.step(0);
+        assertEquals(0, sink.size(), "done");
     }
 }

@@ -1,6 +1,7 @@
 package mibsdk.adapter.hqc.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,6 +12,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import mibsdk.adapter.hqc.SdkGlobals;
 import mibsdk.platform.PageStack;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiInput;
@@ -91,6 +93,12 @@ class PageScreensNavigationTest {
             calls.add("stock " + data);
             current = data;
             currentId = CAR_SCREEN;
+        }
+
+        public void showCarScreen(int id) {
+            calls.add("car " + id);
+            current = "car:" + id;
+            currentId = id;
         }
 
         public void writeRows(String[] texts, int[] kinds) {
@@ -551,5 +559,167 @@ class PageScreensNavigationTest {
         pages.open("o/x", s, PageScreens.OPEN_TTL_MS + 1); // stale: dropped
         runJobs();
         assertTrue(calls().contains("show screen2:a/q"));
+    }
+
+    // ---- fix round 2 --------------------------------------------------------------------------------------------
+
+    /** An applier over this test's fake screens, with its own poster (wake() is the poster's after-hook). */
+    private UiApplier applierOverPages() {
+        UiApplier[] self = new UiApplier[1];
+        HmiPoster p = new HmiPoster(sink, () -> self[0].wake(), () -> now, HmiPoster.PENDING_DEADLINE_MS);
+        PageStack stack = new PageStack(new PageEvents(table), PageScreens.failuresTo(log));
+        pages = new PageScreens(hmi, stack, table, p, log);
+        StatusLineSink noStatus = new StatusLineSink() {
+            public void show(String text) {
+            }
+
+            public void hide() {
+            }
+        };
+        self[0] = new UiApplier(table, (slot, visible) -> { }, noStatus, pages, p, () -> now, log);
+        self[0].claimLive();
+        return self[0];
+    }
+
+    /**
+     * Round 2, Important: the runtime goes down while an OPS partial popup is on the page and the RVC is coming. The
+     * close is deferred; the applier retries it on its tick (not in a busy loop of jobs), and once the popup is gone
+     * the page goes back to the stock screen within one tick.
+     */
+    @Test
+    void deferredCloseIsRetriedOnTheAppliersTick() throws Exception {
+        SdkGlobals.uiRowModels = (slot, visible) -> { };
+        try {
+            UiApplier a = applierOverPages();
+            publish(page("a/p", "Alpha", item("x", "X")));
+            a.step(0);
+            runJobs();
+            assertTrue(calls().contains("show screen1:a/p"));
+            inputs();
+
+            hmi.blocked = true; // OPS partial popup over the page
+            hmi.pendingId = 2100001; // and reverse gear
+            table.publish(UiSnapshot.down(++version));
+            a.step(0);
+            runJobs();
+            assertEquals(Collections.emptyList(), calls(), "deferred: the screen is left alone");
+            assertTrue(pages.closePending());
+            assertEquals(0, sink.size(), "no busy loop: the job's after-hook does not retry");
+            a.step(0);
+            runJobs();
+            assertEquals(Collections.emptyList(), calls(), "still blocked on the next tick");
+
+            hmi.blocked = false; // the partial popup is hidden; the page never reconnected
+            hmi.pendingId = -1;
+            a.step(0); // one tick
+            runJobs();
+            assertEquals(Collections.singletonList("stock " + STOCK), calls());
+            assertFalse(pages.closePending());
+            a.step(0);
+            assertEquals(0, sink.size(), "done: no more jobs");
+        } finally {
+            SdkGlobals.uiRowModels = null;
+            SdkGlobals.uiDown = false;
+            SdkGlobals.uiSlots = DrawerAssignment.EMPTY;
+        }
+    }
+
+    /** Round 2, Important: on a dead page every press retries the close and sends no input. */
+    @Test
+    void pressesOnADeadPageRetryTheCloseAndSendNothing() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", info("i"), item("x", "X"), toggle("t", "T", false)));
+        pages.open("a/p", s, 0);
+        calls();
+        hmi.blocked = true;
+        pages.close();
+        inputs();
+        for (int row = 0; row < 3; row++) {
+            PageScreens.listSelected(row);
+            assertEquals(1, sink.size(), "row " + row + " posts the retry");
+            runJobs();
+        }
+        pages.backPressed();
+        runJobs();
+        assertEquals(Collections.emptyList(), inputs(), "no input for a dead page");
+        assertEquals(Collections.emptyList(), calls());
+        hmi.blocked = false;
+        PageScreens.listSelected(1);
+        runJobs();
+        assertEquals(Collections.singletonList("stock " + STOCK), calls());
+        assertEquals(Collections.emptyList(), inputs());
+    }
+
+    /**
+     * Round 2, Minor: a pending close never pulls the user back from another screen; if the page comes back later,
+     * the close runs then.
+     */
+    @Test
+    void pendingCloseNeverPullsTheUserBack() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("x", "X")));
+        pages.open("a/p", s, 0);
+        Object screen = hmi.current;
+        calls();
+        hmi.blocked = true;
+        pages.close();
+        assertTrue(pages.closePending());
+
+        hmi.blocked = false;
+        hmi.current = "nav";
+        hmi.currentId = 1300014;
+        pages.close(); // the applier's retry
+        assertEquals(Collections.emptyList(), calls(), "the user is on NAV: left alone");
+        assertFalse(pages.closePending());
+
+        hmi.current = screen;
+        hmi.currentId = HqcUiIds.PAGE_SCREEN_ID;
+        pages.screenConnected(screen, "a/p"); // the HMI went back to the dead page
+        runJobs();
+        assertEquals(Collections.singletonList("stock " + STOCK), calls());
+        inputs();
+    }
+
+    /** Round 2, Minor: a deferred orphan close logs once and does not stop the new renderer adopting its pages. */
+    @Test
+    void deferredOrphanCloseLogsOnceAndAdoptionGoesOn() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("x", "X")));
+        pages.open("a/p", s, 0);
+        calls();
+        build(); // the restarted runtime's renderer
+        hmi.blocked = true;
+        pages.refresh(s);
+        pages.refresh(s);
+        pages.refresh(s);
+        int deferred = 0;
+        for (String l : log.snapshot()) {
+            deferred += l.contains("deferred") ? 1 : 0;
+        }
+        assertEquals(1, deferred, log.snapshot().toString());
+        assertEquals(Collections.emptyList(), calls());
+        inputs();
+
+        Object mine = "mine:a/p";
+        pages.screenConnected(mine, "a/p"); // one of the new renderer's own pages connects
+        assertEquals(Collections.singletonList("shown a/p"), inputs(), "adopted");
+
+        hmi.blocked = false;
+        pages.refresh(s);
+        assertFalse(calls().contains("stock " + STOCK), "the adopted page is not closed as an orphan");
+    }
+
+    /** Round 2 (cheap fallback): with no saved stock screen, BACK and close go to the Car screen, behind the gate. */
+    @Test
+    void noSavedStockScreenFallsBackToTheCarScreen() throws Exception {
+        hmi.current = null; // currentData() gives nothing to return to
+        UiSnapshot s = publish(page("a/p", "Alpha", item("x", "X")));
+        pages.open("a/p", s, 0);
+        calls();
+        hmi.pendingId = 2100001;
+        pages.backPressed();
+        runJobs();
+        assertEquals(Collections.emptyList(), calls(), "gated");
+        hmi.pendingId = -1;
+        pages.backPressed();
+        runJobs();
+        assertEquals(Collections.singletonList("car " + HqcUiIds.CAR_MAIN_SCREEN), calls());
     }
 }

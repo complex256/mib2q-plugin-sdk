@@ -149,6 +149,20 @@ final class PageWidgets implements PageScreens.Screens {
                 .getCurrentConnectedScreenData()));
     }
 
+    /**
+     * Fallback when no stock screen was saved: shows {@code id} with no prebuilt screen (the screen manager builds it
+     * through its module's factory), with the current partial popups.
+     */
+    public void showCarScreen(int id) {
+        FwHMI fw = fw();
+        IScreenData cur = fw.getScreenManager(TERMINAL).getCurrentConnectedScreenData();
+        int[] popups = cur == null ? null : copy(cur.getPartialPopups());
+        int scheme = cur == null ? 0 : cur.getColorScheme();
+        int mode = cur == null ? 0 : cur.getScreenMode();
+        fw.showScreen(TERMINAL, 0, new ScreenData(id, false, false, null, false, null, popups, null, -1L, -1L, 0,
+                scheme, mode, null));
+    }
+
     /** A copy of {@code saved} carrying a copy of {@code current}'s partial popups (none without a current screen). */
     static ScreenData returnData(ScreenData saved, IScreenData current) {
         ScreenData d = new ScreenData(saved);

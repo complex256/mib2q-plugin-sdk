@@ -53,6 +53,8 @@ public final class HqcUiIds {
     public static final int PAGE_PATH = PAGE_PATH_SHOW_SCREEN;
     /** Screen id of every SDK page (Car module, unused by the Car factory). */
     public static final int PAGE_SCREEN_ID = 609500;
+    /** The Car main screen (the drawer's): where SDK pages return when no stock screen was saved. */
+    public static final int CAR_MAIN_SCREEN = 600044;
     /** Factory text id of the page title (outside the drawer rows' {@code TEXT_BASE + 0..8}). */
     public static final int TEXT_PAGE_TITLE = TEXT_BASE + 20;
     /** Hard key BACK (KeyEvent code; the page's MenuController consumes its press and release). */

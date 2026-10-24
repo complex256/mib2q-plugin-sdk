@@ -38,7 +38,8 @@ import mibsdk.runtime.RingLog;
  * <p><b>Down.</b> The runtime publishes {@link UiSnapshot#down} first thing in its stop, and {@link #stop} ends the
  * thread, which applies the same teardown on its way out: every row hidden (the Plugins row too, and
  * {@code SdkGlobals.uiDown} so a drawer built later starts without it), a status line the SDK showed hidden, and an open
- * SDK page closed back to the stock screen it came from. A later snapshot from a running runtime resumes. Only the
+ * SDK page closed back to the stock screen it came from. A close the renderer had to defer (RVC/PDC on screen) is
+ * posted again once per pass while the runtime stays down, never from a job's after-hook. A later snapshot from a running runtime resumes. Only the
  * applier started last owns the HMI: a replaced one posts and renders nothing, and its exit teardown touches nothing.
  */
 public final class UiApplier {
@@ -210,7 +211,7 @@ public final class UiApplier {
             return; // replaced: never post again (a stale job would otherwise re-post itself forever)
         }
         try {
-            postPagesIfNeeded();
+            postPagesIfNeeded(false); // never the deferred-close retry: that waits for the next tick
         } catch (Throwable t) {
             // never propagate into the HMI
         }
@@ -285,7 +286,7 @@ public final class UiApplier {
                         applyStatus(current.statusLine());
                         break;
                     default:
-                        postPagesIfNeeded();
+                        postPagesIfNeeded(true);
                         break;
                 }
             } catch (Throwable t) {
@@ -350,21 +351,23 @@ public final class UiApplier {
         }
     }
 
-    private void postPagesIfNeeded() {
+    /** {@code tick}: called from the applier's pass (not the job's after-hook), so a deferred close may be retried. */
+    private void postPagesIfNeeded(boolean tick) {
         if (!isLive() || (stopping && !down)) {
             return; // replaced, or stopping before the teardown took the UI down
         }
         if (SdkGlobals.uiRowModels == null) {
             return; // no drawer yet, so no first screen yet: the StartupFilter would discard the job
         }
-        if (needsRender(table.snapshot())) {
+        if (needsRender(table.snapshot(), tick)) {
             poster.post(pageJob); // false: a job is pending; its wake() re-checks when it is done
         }
     }
 
-    private boolean needsRender(UiSnapshot s) {
+    private boolean needsRender(UiSnapshot s, boolean tick) {
         if (down) {
-            return !closedRendered;
+            // A close deferred by RVC/PDC is retried once per pass (AWAIT_MS), never in a loop of jobs.
+            return !closedRendered || (tick && pages.closePending());
         }
         return isOpenRequest(s) || !samePages(s.pages(), renderedPages);
     }
