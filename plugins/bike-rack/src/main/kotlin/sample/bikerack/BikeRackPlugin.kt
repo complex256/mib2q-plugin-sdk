@@ -1,6 +1,5 @@
 package sample.bikerack
 
-import mibsdk.api.Features
 import mibsdk.api.IgnitionChanged
 import mibsdk.api.MibPlugin
 import mibsdk.api.OverrideConflictException
@@ -8,7 +7,6 @@ import mibsdk.api.OverrideScope
 import mibsdk.api.Page
 import mibsdk.api.PageSpec
 import mibsdk.api.ParkingSoundChanged
-import mibsdk.api.Permissions
 import mibsdk.api.PluginContext
 import mibsdk.api.SoundDirections
 import mibsdk.api.StatusItem
@@ -59,13 +57,10 @@ class BikeRackPlugin : MibPlugin() {
         armed = storage.get(ACTIVE, "false") == "true"
         val rack = ctx.ui().page(spec()) { a -> onAction(ctx, storage, a) }
         page = rack
-        // carMenuRow/statusItem throw without the feature or the grant; the page works without either
-        if (ctx.has(Features.SLOT_CAR_MENU) && ctx.granted(Permissions.UI_SLOT_CAR_MENU)) {
-            ctx.ui().carMenuRow("Bike rack", rack)
-        }
-        if (ctx.has(Features.SLOT_STATUS_BAR) && ctx.granted(Permissions.UI_SLOT_STATUS_BAR)) {
-            statusItem = ctx.ui().statusItem(statusText())
-        }
+        // the manifest declares both slot permissions (all-or-nothing: a running plugin holds them); without a
+        // slot, or with the SDK UI off, these handles are inert and the mute below works the same
+        ctx.ui().carMenuRow("Bike rack", rack)
+        statusItem = ctx.ui().statusItem(statusText())
         ctx.events().on(IgnitionChanged::class.java) { e ->
             if (!e.isOn) ignitionOff(ctx, storage) else ignitionOn(ctx, storage)
             refresh()

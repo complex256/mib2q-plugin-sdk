@@ -1,17 +1,15 @@
 package sample.hellomenu;
 
-import mibsdk.api.Features;
 import mibsdk.api.MibPlugin;
 import mibsdk.api.Page;
 import mibsdk.api.PageSpec;
-import mibsdk.api.Permissions;
 import mibsdk.api.PluginContext;
 import mibsdk.api.Storage;
 import mibsdk.api.UiAction;
 
 /**
- * Sample UI plugin: a fruit list page, reachable from the Plugins menu and, when the unit has the slot and the
- * permission is granted, the Car menu. The last selection is kept in storage ({@code last}) and restored on enable.
+ * Sample UI plugin: a fruit list page, reachable from the Plugins menu and, when the unit has the slot, the Car menu.
+ * The manifest declares {@code ui.slot.carmenu}; permissions are all-or-nothing, so a running plugin holds it. The last selection is kept in storage ({@code last}) and restored on enable.
  */
 public class HelloMenuPlugin extends MibPlugin {
 
@@ -25,12 +23,9 @@ public class HelloMenuPlugin extends MibPlugin {
     @Override
     protected void onEnable(PluginContext ctx) {
         storage = ctx.storage();
-        // Pages need no permission; Features.UI_PAGES is assumed present on every unit that runs api 2.
+        // With the SDK UI off (or no Car slot) these handles are inert: the plugin still runs, nothing is shown.
         page = ctx.ui().page(spec(storage.get("last", null)), this::onAction);
-        // carMenuRow throws PermissionDeniedException without the grant, so the page must not depend on it.
-        if (ctx.has(Features.SLOT_CAR_MENU) && ctx.granted(Permissions.UI_SLOT_CAR_MENU)) {
-            ctx.ui().carMenuRow("Hello", page);
-        }
+        ctx.ui().carMenuRow("Hello", page);
     }
 
     private void onAction(UiAction action) {

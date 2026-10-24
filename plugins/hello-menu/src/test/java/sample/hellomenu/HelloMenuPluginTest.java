@@ -147,6 +147,14 @@ class HelloMenuPluginTest {
         assertTrue(linked, menu.toString());
     }
 
+    /** UI off (wrap-loop latch, ui.enabled=false, count or init failure): inert UI handles, still ENABLED. */
+    @Test
+    void uiOffStillEnables() throws Exception {
+        start(); // start() awaits ENABLED
+        assertFalse(table.snapshot().pages().containsKey(PAGE), table.snapshot().pages().keySet().toString());
+        assertFalse(ui.carRows().contains("Hello"), ui.carRows().toString());
+    }
+
     /** The runtime blocks a plugin whose declared permission is not granted: it never runs, so it adds no Car row. */
     @Test
     void ungrantedCarMenuPermissionBlocksPluginWithoutCarRow() throws Exception {

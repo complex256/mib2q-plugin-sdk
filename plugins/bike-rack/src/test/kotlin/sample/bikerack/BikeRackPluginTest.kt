@@ -113,6 +113,18 @@ class BikeRackPluginTest {
     }
 
     @Test
+    fun uiOffStillMutesAndDisarms() {
+        // UI off (wrap-loop latch, ui.enabled=false, count or init failure): no UI features, inert UI handles
+        fake.setFeatures(setOf(Features.IGNITION, Features.PARKING, Features.HOOK_PARKING))
+        start(true)
+        awaitApplied(1, f1r0l1x1)
+        assertFalse(table.snapshot().pages().containsKey("bike-rack/rack"), table.snapshot().pages().keys.toString())
+        fake.setIgnition(false)
+        awaitApplied(2, f1r1l1x1)
+        assertEquals(null, storedActive())
+    }
+
+    @Test
     fun inactiveDoesNothing() {
         start(false)
         assertNoMoreThan(0)

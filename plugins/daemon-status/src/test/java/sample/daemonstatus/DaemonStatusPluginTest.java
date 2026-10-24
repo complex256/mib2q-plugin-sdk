@@ -195,6 +195,17 @@ class DaemonStatusPluginTest {
         }
     }
 
+    /** UI off (wrap-loop latch, ui.enabled=false, count or init failure): inert UI handles, the plugin still runs. */
+    @Test
+    void uiOffStillEnablesAndPolls() throws Exception {
+        try (FakeDaemon ts = new FakeDaemon(TS); FakeDaemon mq = new FakeDaemon(MQ)) {
+            start(ts.port(), mq.port());
+            await(() -> ts.hits.get() >= 1 && mq.hits.get() >= 1, "first poll");
+            assertTrue(!table.snapshot().pages().containsKey(PAGE), table.snapshot().pages().keySet().toString());
+            assertEquals(PluginState.ENABLED, rt.statuses().get(0).state(), rt.log().snapshot().toString());
+        }
+    }
+
     @Test
     void staleLastPublishIsFlaggedButItemUnchanged() throws Exception {
         String old = MQ.replace("last_publish_age_s=5", "last_publish_age_s=4000");

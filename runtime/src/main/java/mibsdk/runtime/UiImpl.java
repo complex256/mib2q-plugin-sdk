@@ -13,9 +13,15 @@ import mibsdk.api.Ui;
 import mibsdk.api.UiAction;
 
 /**
- * One plugin's {@link Ui}. Each call checks the feature first, at call time ({@link LiveFeatures}), then the
- * permission, then the per-plugin count limit; text is never rejected (the hub cleans and truncates it).
+ * One plugin's {@link Ui}. Each call checks its arguments and the permission, then the per-plugin count limit,
+ * then the feature, at call time ({@link LiveFeatures}); text is never rejected (the hub cleans and truncates it).
  * Every returned {@link Page}, Car row and {@link StatusItem} is tracked in the plugin's {@link Registrations}.
+ *
+ * <p>Inert handles: when the feature is missing (the SDK UI is off this boot: wrap-loop latch, {@code ui.enabled=false},
+ * a count or init failure; or the unit has no such slot) the call still succeeds and returns an inert handle. It
+ * holds its count slot and validates its arguments like a live one, but never reaches the hub, so a plugin's other
+ * work (a parking mute, a poll) keeps running with the UI off. A handle made inert stays inert if the feature appears
+ * later; a Car row for an inert page is inert too.
  *
  * <p>Link targets and a Car row's page are resolved here, on the plugin's own thread: only a live
  * {@link PageHandle} made by this object is accepted; a foreign, cancelled or plugin-made {@link Page} is
@@ -69,22 +75,23 @@ final class UiImpl implements Ui {
 
     @Override
     public Page page(PageSpec spec, Listener<UiAction> onAction) {
-        requireFeature(Features.UI_PAGES);
         if (spec == null) {
             throw new IllegalArgumentException("spec is required");
         }
-        PageHandle h = new PageHandle(this, spec.id());
+        PageHandle h = new PageHandle(this, spec.id(), !features.has(Features.UI_PAGES));
         synchronized (lock) {
             if (closed) {
                 h.cancelled = true;
                 return h;
             }
             reserve(PAGES);
-            try {
-                hub.addPage(pluginId, spec, onAction, exec);
-            } catch (RuntimeException e) {
-                release(PAGES);
-                throw e;
+            if (!h.inert) {
+                try {
+                    hub.addPage(pluginId, spec, onAction, exec);
+                } catch (RuntimeException e) {
+                    release(PAGES);
+                    throw e;
+                }
             }
         }
         registrations.add(h); // closed (plugin stopping): cancelled at once
@@ -93,25 +100,27 @@ final class UiImpl implements Ui {
 
     @Override
     public Subscription carMenuRow(String label, Page opens) {
-        requireFeature(Features.SLOT_CAR_MENU);
         requirePermission(Permissions.UI_SLOT_CAR_MENU);
         RowHandle h;
         synchronized (lock) {
-            h = new RowHandle("row." + (++rowSeq));
             if (closed) { // its page may be one made after close (cancelled): not an error for a stopped plugin
+                h = new RowHandle("row." + (++rowSeq), false);
                 h.cancelled = true;
                 return h;
             }
-            String pageKey = ownPageKey(opens);
-            if (pageKey == null) {
+            PageHandle page = ownLivePage(opens);
+            if (page == null) {
                 throw new IllegalArgumentException("a Car row must open a live page from this plugin's ui().page()");
             }
+            h = new RowHandle("row." + (++rowSeq), page.inert || !features.has(Features.SLOT_CAR_MENU));
             reserve(ROWS);
-            try {
-                hub.addCarRow(pluginId, h.rowKey, label, pageKey);
-            } catch (RuntimeException e) {
-                release(ROWS);
-                throw e;
+            if (!h.inert) {
+                try {
+                    hub.addCarRow(pluginId, h.rowKey, label, pluginId + "/" + page.pageId);
+                } catch (RuntimeException e) {
+                    release(ROWS);
+                    throw e;
+                }
             }
         }
         registrations.add(h);
@@ -120,20 +129,21 @@ final class UiImpl implements Ui {
 
     @Override
     public StatusItem statusItem(String text) {
-        requireFeature(Features.SLOT_STATUS_BAR);
         requirePermission(Permissions.UI_SLOT_STATUS_BAR);
-        StatusHandle h = new StatusHandle();
+        StatusHandle h = new StatusHandle(!features.has(Features.SLOT_STATUS_BAR));
         synchronized (lock) {
             if (closed) {
                 h.cancelled = true;
                 return h;
             }
             reserve(STATUS);
-            try {
-                hub.setStatusItem(pluginId, text);
-            } catch (RuntimeException e) {
-                release(STATUS);
-                throw e;
+            if (!h.inert) {
+                try {
+                    hub.setStatusItem(pluginId, text);
+                } catch (RuntimeException e) {
+                    release(STATUS);
+                    throw e;
+                }
             }
         }
         registrations.add(h);
@@ -182,25 +192,19 @@ final class UiImpl implements Ui {
 
     // ---- checks ----
 
-    private void requireFeature(String feature) {
-        if (!features.has(feature)) {
-            throw new IllegalStateException("feature " + feature + " not available");
-        }
-    }
-
     private void requirePermission(String permission) {
         if (!granted.contains(permission)) {
             throw new PermissionDeniedException(permission);
         }
     }
 
-    /** The key of {@code p} if it is a live page made by this object; null otherwise. Calls nothing on {@code p}. */
-    private String ownPageKey(Page p) {
+    /** {@code p} if it is a live (maybe inert) page made by this object; null otherwise. Calls nothing on {@code p}. */
+    private PageHandle ownLivePage(Page p) {
         if (!(p instanceof PageHandle)) {
             return null;
         }
         PageHandle h = (PageHandle) p;
-        return h.ui == this && !h.cancelled ? pluginId + "/" + h.pageId : null;
+        return h.ui == this && !h.cancelled ? h : null;
     }
 
     // ---- handles ----
@@ -209,12 +213,15 @@ final class UiImpl implements Ui {
     static final class PageHandle implements Page {
         private final UiImpl ui;
         private final String pageId;
+        /** Made without Features.UI_PAGES: never reaches the hub. */
+        final boolean inert;
         private final Object lock = new Object();
         volatile boolean cancelled; // written under lock (or before publication); read without it by the hub
 
-        PageHandle(UiImpl ui, String pageId) {
+        PageHandle(UiImpl ui, String pageId, boolean inert) {
             this.ui = ui;
             this.pageId = pageId;
+            this.inert = inert;
         }
 
         String owner() {
@@ -241,7 +248,7 @@ final class UiImpl implements Ui {
                 throw new IllegalArgumentException("update must keep page id '" + pageId + "'");
             }
             synchronized (lock) {
-                if (!cancelled) {
+                if (!cancelled && !inert) {
                     synchronized (ui.lock) {
                         if (!ui.closed) {
                             ui.hub.updatePage(ui.pluginId, spec);
@@ -253,7 +260,7 @@ final class UiImpl implements Ui {
 
         @Override
         public void open() {
-            if (!cancelled) {
+            if (!cancelled && !inert) {
                 synchronized (ui.lock) {
                     if (!ui.closed) {
                         ui.hub.requestOpen(ui.pluginId + "/" + pageId);
@@ -270,7 +277,7 @@ final class UiImpl implements Ui {
                 }
                 cancelled = true;
                 synchronized (ui.lock) {
-                    if (!ui.closed) { // closed: the runtime removes the owner's pages, maybe already re-registered
+                    if (!ui.closed && !inert) { // closed: the runtime removes the owner's pages, maybe re-registered
                         ui.hub.removePage(ui.pluginId, pageId);
                     }
                 }
@@ -282,11 +289,14 @@ final class UiImpl implements Ui {
 
     private final class RowHandle implements Subscription {
         final String rowKey;
+        /** Made without Features.SLOT_CAR_MENU, or for an inert page: never reaches the hub. */
+        final boolean inert;
         private final Object hlock = new Object();
         boolean cancelled; // guarded by hlock (set before publication for a handle made after close)
 
-        RowHandle(String rowKey) {
+        RowHandle(String rowKey, boolean inert) {
             this.rowKey = rowKey;
+            this.inert = inert;
         }
 
         @Override
@@ -297,7 +307,7 @@ final class UiImpl implements Ui {
                 }
                 cancelled = true;
                 synchronized (lock) {
-                    if (!closed) {
+                    if (!closed && !inert) {
                         hub.removeCarRow(pluginId, rowKey);
                     }
                 }
@@ -308,13 +318,19 @@ final class UiImpl implements Ui {
     }
 
     private final class StatusHandle implements StatusItem {
+        /** Made without Features.SLOT_STATUS_BAR: never reaches the hub. */
+        final boolean inert;
         private final Object hlock = new Object();
         boolean cancelled; // guarded by hlock (set before publication for a handle made after close)
+
+        StatusHandle(boolean inert) {
+            this.inert = inert;
+        }
 
         @Override
         public void set(String text) {
             synchronized (hlock) {
-                if (!cancelled) {
+                if (!cancelled && !inert) {
                     synchronized (lock) {
                         if (!closed) {
                             hub.setStatusItem(pluginId, text);
@@ -332,7 +348,7 @@ final class UiImpl implements Ui {
                 }
                 cancelled = true;
                 synchronized (lock) {
-                    if (!closed) {
+                    if (!closed && !inert) {
                         hub.setStatusItem(pluginId, null);
                     }
                 }

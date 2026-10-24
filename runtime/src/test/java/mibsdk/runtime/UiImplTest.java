@@ -95,10 +95,11 @@ class UiImplTest {
         Set<String> pagesOnly = Collections.singleton(Features.UI_PAGES);
         UiImpl noFeature = ui("a", pagesOnly, ALL_PERMS, new Registrations());
         final Page pa = noFeature.page(PageSpec.of("main", "A"), null);
-        IllegalStateException e = assertThrows(IllegalStateException.class, () -> noFeature.carMenuRow("A", pa));
-        assertEquals("feature slot.carmenu not available", e.getMessage());
-        e = assertThrows(IllegalStateException.class, () -> noFeature.statusItem("x"));
-        assertEquals("feature slot.statusbar not available", e.getMessage());
+        Subscription row = noFeature.carMenuRow("A", pa); // no slot on this unit: an inert row, not an error
+        row.cancel();
+        StatusItem item = noFeature.statusItem("x");
+        item.set("y");
+        item.cancel();
 
         UiImpl noPerm = ui("b", UiTestRuntime.UI_FEATURES, Collections.<String>emptySet(), new Registrations());
         final Page pb = noPerm.page(PageSpec.of("main", "B"), null);
@@ -107,11 +108,46 @@ class UiImplTest {
         d = assertThrows(PermissionDeniedException.class, () -> noPerm.statusItem("x"));
         assertEquals(Permissions.UI_SLOT_STATUS_BAR, d.permission());
 
-        UiImpl noPages = ui("c", Collections.<String>emptySet(), ALL_PERMS, new Registrations());
-        e = assertThrows(IllegalStateException.class, () -> noPages.page(PageSpec.of("main", "C"), null));
-        assertEquals("feature ui.pages not available", e.getMessage());
+        UiSnapshot s = published();
+        assertEquals(1, s.carRows().size(), "nothing was registered by the inert or refused calls");
+        assertTrue(s.statusLine() == null || s.statusLine().length() == 0, s.statusLine());
+    }
 
-        assertEquals(1, published().carRows().size(), "nothing was registered by the refused calls");
+    @Test
+    void uiOffGivesInertHandles() {
+        UiImpl off = ui("c", Collections.<String>emptySet(), ALL_PERMS, new Registrations());
+        assertThrows(IllegalArgumentException.class, () -> off.page(null, null), "a missing spec is still an error");
+        final Page p = off.page(PageSpec.of("main", "C"), null);
+        assertEquals("main", p.id());
+        p.update(PageSpec.of("main", "C2"));
+        p.open();
+        assertThrows(IllegalArgumentException.class, () -> p.update(PageSpec.of("other", "C")), "id change");
+        Subscription row = off.carMenuRow("C", p);
+        StatusItem item = off.statusItem("x");
+        item.set("y");
+        assertThrows(IllegalArgumentException.class, () -> off.carMenuRow("C", null), "a missing page");
+
+        for (int i = 1; i < 8; i++) {
+            off.page(PageSpec.of("p" + i, "P"), null);
+        }
+        assertThrows(IllegalStateException.class, () -> off.page(PageSpec.of("p8", "P"), null),
+                "count limits hold with the UI off too");
+        off.carMenuRow("C2", p);
+        assertThrows(IllegalStateException.class, () -> off.carMenuRow("C3", p), "3rd Car row");
+        assertThrows(IllegalStateException.class, () -> off.statusItem("z"), "2nd status item");
+        row.cancel();
+        item.cancel();
+        p.cancel();
+        p.cancel();
+        assertThrows(IllegalArgumentException.class, () -> off.carMenuRow("C3", p), "a cancelled page");
+        final Page again = off.page(PageSpec.of("main", "again"), null); // a cancelled inert page frees its slot
+        off.carMenuRow("C3", again);
+        off.statusItem("z");
+
+        UiSnapshot s = published();
+        assertEquals(1, s.carRows().size(), "only the Plugins row");
+        assertNull(s.pages().get("c/main"));
+        assertTrue(s.statusLine() == null || s.statusLine().length() == 0, s.statusLine());
     }
 
     @Test
@@ -120,12 +156,12 @@ class UiImplTest {
         rtx.plugin("late", "Late", new String[] {Permissions.UI_SLOT_CAR_MENU}, ""
                 + "final Page p = ctx.ui().page(PageSpec.of(\"main\", \"Late\"), null);\n"
                 + "ctx.events().on(IgnitionChanged.class, e -> {\n"
-                + "  try { ctx.ui().carMenuRow(\"Late\", p); ctx.log().info(\"row ok\"); }\n"
-                + "  catch (IllegalStateException x) { ctx.log().info(\"row refused: \" + x.getMessage()); }\n"
+                + "  ctx.ui().carMenuRow(\"Late\", p);\n"
+                + "  ctx.log().info(\"row added, slot \" + ctx.has(Features.SLOT_CAR_MENU));\n"
                 + "});", null);
         rtx.start();
         rtx.fake.setIgnition(true);
-        rtx.awaitCount("late", "row refused: feature slot.carmenu not available", 1);
+        rtx.awaitCount("late", "row added, slot false", 1); // inert: the slot is not there yet
 
         Set<String> more = new HashSet<String>(rtx.fake.features());
         more.add(Features.SLOT_CAR_MENU);
@@ -134,7 +170,7 @@ class UiImplTest {
             Thread.sleep(10); // the runtime logs STATUS features=[...] once it has re-read them
         }
         rtx.fake.setIgnition(false);
-        rtx.awaitCount("late", "row ok", 1);
+        rtx.awaitCount("late", "row added, slot true", 1);
         UiSnapshot s = rtx.await(x -> x.carRows().size() == 2, "shows the late row");
         assertEquals("late/main", s.carRows().get(1).pageKey());
     }
@@ -309,7 +345,7 @@ class UiImplTest {
         UiSnapshot s = published();
         assertEquals(1, s.carRows().size());
         assertTrue(s.pages().isEmpty());
-        assertEquals("", s.statusLine());
+        assertTrue(s.statusLine() == null || s.statusLine().length() == 0, s.statusLine());
         p.update(PageSpec.of("main", "late")); // a cancelled handle is inert, never throws
         p.open();
         assertTrue(published().pages().isEmpty());

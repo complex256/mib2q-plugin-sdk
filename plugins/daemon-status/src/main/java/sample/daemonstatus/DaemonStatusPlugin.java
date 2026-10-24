@@ -1,12 +1,10 @@
 package sample.daemonstatus;
 
 import java.util.Map;
-import mibsdk.api.Features;
 import mibsdk.api.MibPlugin;
 import mibsdk.api.Net;
 import mibsdk.api.Page;
 import mibsdk.api.PageSpec;
-import mibsdk.api.Permissions;
 import mibsdk.api.Scheduler;
 import mibsdk.api.PluginContext;
 import mibsdk.api.StatusItem;
@@ -42,17 +40,12 @@ public class DaemonStatusPlugin extends MibPlugin {
         Storage storage = ctx.storage();
         tsPort = port(storage.get("ts.port", null), TS_PORT);
         mqPort = port(storage.get("mq.port", null), MQ_PORT);
-        // ctx.net() throws without the grant, so say so on the page instead.
-        if (!ctx.granted(Permissions.NETWORK)) {
-            page = ctx.ui().page(PageSpec.of(PAGE_ID, "Daemons").info("Network permission not granted"), a -> { });
-            return;
-        }
+        // The manifest declares network and ui.slot.statusbar; permissions are all-or-nothing (an ungranted plugin
+        // is BLOCKED and never runs), so both are held here. UI handles are inert while the SDK UI is off.
         net = ctx.net();
         scheduler = ctx.scheduler();
         page = ctx.ui().page(spec(null, null), this::onAction);
-        if (ctx.has(Features.SLOT_STATUS_BAR) && ctx.granted(Permissions.UI_SLOT_STATUS_BAR)) {
-            item = ctx.ui().statusItem(null);
-        }
+        item = ctx.ui().statusItem(null);
         scheduler.after(0, this::refresh);
         scheduler.every(POLL_MS, this::refresh);
     }
@@ -70,9 +63,7 @@ public class DaemonStatusPlugin extends MibPlugin {
         Map<String, String> ts = query(tsPort, "tailscale");
         Map<String, String> mq = query(mqPort, "carmqtt");
         page.update(spec(ts, mq));
-        if (item != null) {
-            item.set("TS " + tsWord(ts) + " MQ " + mqWord(mq));
-        }
+        item.set("TS " + tsWord(ts) + " MQ " + mqWord(mq));
     }
 
     /** The daemon's parsed reply; empty when it is unreachable, silent, another daemon or an unknown version. */
