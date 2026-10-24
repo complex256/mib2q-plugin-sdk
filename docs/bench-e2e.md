@@ -366,6 +366,7 @@ through the chained `TraceConfigurator`.
   ENABLED.
 - `/mnt/app` is read-only, and the HMI is on its home screen.
 - Removing crashy needs a `/mnt/app` write. `mibsdk-dev` has no remove command, so that is left for later.
+  **Closed 2026-10-24:** `mibsdk-dev remove crashy --purge-data` (see "Car-readiness gates" below).
 
 ### `mibsdk-dev` commands (current)
 
@@ -375,6 +376,159 @@ through the chained `TraceConfigurator`.
 | `restart` | `slay -s11 j9` |
 | `push <plugin.jar>` | install `plugins/<id>.jar` and write a fresh reload token |
 | `grant <id> <perm,...>` | rewrite that plugin's line in `grants.properties` |
+| `remove <id> [--purge-data]` | remove `plugins/<id>.jar` and its grants line, request a reload, wait for the ledger to drop the plugin's overrides; `--purge-data` also removes its data |
 | `data-clear <id>` | remove one plugin's `data/<id>.properties` from `/mnt/persist/mibsdk/data` (ledger and boot state untouched); restart afterwards, since the storage cap counts files on disk from the runtime's start and a running plugin may write its data back |
 | `safe-mode on\|off` | set/remove `SAFE_MODE`; `off` also resets `boot.state` |
 | `log` / `status` | print `/tmp/mibsdk.log` / its STATUS lines |
+
+## Car-readiness gates (Plan 4 prerequisites)
+
+Run 2026-10-24 on `feat/car-readiness` at d58554b (Task 12 of the car-readiness plan). Dist jars from
+`./gradlew check :dist:assembleUnit`, plugin jars from `:plugins:<id>:mibPluginJar`. Log lines are verbatim from
+`mibsdk-dev log`/`status`. Gate status: `docs/car-readiness.md`.
+
+**Host gate (pass).** `./gradlew check :dist:assembleUnit :plugins:hello:mibPluginJar :plugins:bike-rack:mibPluginJar
+:plugins:crashy:mibPluginJar` (BUILD SUCCESSFUL) and `python3 -m unittest installer/test_mibsdk_dev.py
+installer/test_gen_bundles.py` (`Ran 52 tests … OK`). `dist/build/dist/mibsdk-unit.stamp` has
+`kind=unit checks=classVersion48,distLinkCheck` and a `sha256.` line for each of the three SDK jars; each
+`plugins/<id>/build/mibsdk/<id>.jar.stamp` has `kind=plugin checks=classVersion48,linkCheck,permissionScan`.
+
+**M7 refusal without a unit (pass).** `plugins/hello/build/libs/hello-car.jar` does not exist, so `hello.jar` was
+copied without its stamp to a temp directory and pushed to an unroutable host (192.0.2.1). It was refused before
+any SSH, rc 1:
+```
+mibsdk-dev: …/nostamp/hello.jar has no valid check stamp (missing); only jars built by the mibsdk.plugin convention can be pushed: ./gradlew :<project>:mibPluginJar
+```
+
+### Step 3: Install and restart (pass)
+
+`installer/mibsdk-dev install` (the stamp check passed) and `installer/mibsdk-dev restart`:
+```
+mibsdk-dev: stock backup already present; keeping it
+mibsdk-dev: pushed mibsdk-runtime.jar
+mibsdk-dev: pushed mibsdk-adapter-hqc.jar
+mibsdk-dev: pushed mibsdk-rt-retrotranslator.jar
+mibsdk-dev: no recorded mode for /mnt/app/eso/hmi/lsd/bundles_dsitracer_enabled.properties (backup from an older install); using the stock mode 777
+installed; restart HMI with: mibsdk-dev restart
+HMI restart requested (slay -s11 j9)
+```
+The unit reset (F3) and was still off the network after about 6 min; one `ssh rpi-bench keypanel up`
+(`no answer - kicking DHCP on mlan0 via RCC`, `mmx : up`) brought it back. `mibsdk-dev status`:
+```
+0 STATUS mibsdk seam configurator=seen wrapping=true raw.parking=false
+1013 STATUS mibsdk state persist=/mnt/persist/mibsdk ok ram=/ramdisk/mibsdk ok bootGuard=armed
+1013 STATUS mibsdk durability persist=/mnt/persist/mibsdk fileSync=ok dirSync=unsupported (java.io.FileNotFoundException: /mnt/persist/mibsdk at java.io.RandomAccessFile.<init>(Unknown Source)) fsyncMs=0
+1013 STATUS mibsdk runtime started adapter=hqc-nar-g22-c10 safeMode=false
+1013 STATUS mibsdk seam configurator=seen wrapping=true raw.parking=true
+31370 STATUS bike-rack ENABLED enabled
+31370 STATUS crashy ENABLED enabled
+31370 STATUS hello ENABLED enabled
+```
+
+### Step 4: Durability facts (fsync gate)
+
+- STATUS line (verbatim):
+  `1013 STATUS mibsdk durability persist=/mnt/persist/mibsdk fileSync=ok dirSync=unsupported (java.io.FileNotFoundException: /mnt/persist/mibsdk at java.io.RandomAccessFile.<init>(Unknown Source)) fsyncMs=0`
+- **File fsync works; directory fsync is not available from J9**: `RandomAccessFile` cannot open a directory on
+  this J9/QNX, so the post-rename directory sync in `DurableFiles` is skipped. The commit that matters is the
+  fsync of the renamed target, which works. `fsyncMs=0`: a 1-byte sync takes under 1 ms.
+- `mount` line: `/net/mmx.mibhigh.net/dev/emmc/uda0.0fc63daf-8483-4772-8e79-3d69d8477de7.17 on /mnt/persist type qnx6`
+  (QNX `mount` prints no options; `/mnt/persist` is read-write from boot, as B1 showed).
+- `ls /mnt/persist/mibsdk`: `boot.state`, `data/`, `ledger.properties` (0 bytes). No `.tmp` and no
+  `.durable-probe`; this held after every step below too.
+- **Power cut (Step 7): not done.** No owner approval for cutting the MMX supply. A KL15 stop is not a power cut.
+  Durability across a power loss therefore relies on qnx6 committing a snapshot on fsync; unproven on the unit.
+
+### Step 5: Push with stamps; remove crashy (pass)
+
+```
+$ installer/mibsdk-dev push plugins/hello/build/mibsdk/hello.jar
+pushed hello; reload requested
+$ installer/mibsdk-dev push plugins/bike-rack/build/mibsdk/bike-rack.jar
+pushed bike-rack; reload requested
+
+653481 INFO mibsdk dev channel: reload requested for hello
+653481 STATUS hello DISABLED reloading
+653481 STATUS hello DISCOVERED discovered
+653481 INFO hello hello enabled
+653481 STATUS hello ENABLED enabled
+667483 INFO mibsdk dev channel: reload requested for bike-rack
+667483 STATUS bike-rack DISABLED reloading
+667483 STATUS bike-rack DISCOVERED discovered
+667483 STATUS bike-rack ENABLED enabled
+```
+`installer/mibsdk-dev remove crashy --purge-data` (rc 0):
+```
+removed crashy: plugins/crashy.jar and its grants line; reload requested
+crashy has no overrides in the ledger
+cleared the data of crashy (/mnt/persist/mibsdk/data/crashy.properties)
+Restart the HMI now (mibsdk-dev restart): a running crashy may write its data back, and the storage cap
+frees the space only from the next runtime start.
+
+705489 INFO mibsdk dev channel: reload requested for crashy
+705489 STATUS crashy DISABLED reloading
+705489 STATUS crashy DISABLED plugin jar not found
+```
+- `grants.properties` afterwards: `hello=vehicle.read`, `bike-rack=vehicle.read,vehicle.parking.write` (no
+  `crashy` line). `data/` holds only `bike-rack.properties` and `hello.properties`.
+- `plugins/` still holds `crashy.reload` (the remove does not delete the token; recorded as a follow-up).
+- `/mnt/app` was read-only afterwards (`touch /mnt/app/x`: `Read-only file system`).
+- This closes the B1 bench-state note "Removing crashy needs a `/mnt/app` write". crashy was pushed back
+  at the end of the run (below) so the bench keeps its three sample plugins.
+
+### Step 6: KL15 off/on (T18 plumbing, M6 on the unit)
+
+bike-rack was armed for this step: `echo active=true > /mnt/persist/mibsdk/data/bike-rack.properties` and a fresh
+stamped push. With no PDC ECU (F7) it never gets a parking value, so it waits, and no override is ever taken:
+```
+739497 INFO bike-rack waiting for parking value
+739497 STATUS bike-rack ENABLED enabled
+```
+
+**KL15 off for longer than the re-arm window (disarm).** `ssh rpi-bench systemctl stop kl15`, 10 s, then:
+```
+757500 INFO hello ignition=false
+762501 INFO bike-rack re-arm window closed
+```
+- `boot.state`: `unhealthyBoots=0` / `lastShutdownClean=true` / `wrapBoots=0` (three lines).
+- `data/bike-rack.properties`: only the `#…` date comment, so `active` was removed (the disarm reached disk).
+- `ledger.properties`: empty (0 bytes); no `.tmp`.
+
+`ssh rpi-bench systemctl start kl15`:
+```
+772526 INFO hello ignition=true
+```
+No `waiting for parking value` followed: the rack stays disarmed after the window. `ledger.properties` stayed
+empty.
+
+**KL15 blip inside the window (re-arm).** Armed again as above, then `systemctl stop kl15`; the unit logged
+`ignition=false` about 8 s after the stop (a 2 s stop was not seen at all, so the bench's KL15-off detection
+takes several seconds), and `systemctl start kl15` followed at once:
+```
+853539 INFO hello ignition=false
+857540 INFO hello ignition=true
+857540 INFO bike-rack waiting for parking value
+```
+`data/bike-rack.properties` had `active=true` again; `ledger.properties` stayed empty.
+
+**Disarm again (end state).** `stop kl15`, 20 s, `start kl15`:
+```
+879544 INFO hello ignition=false
+884545 INFO bike-rack re-arm window closed
+896547 INFO hello ignition=true
+```
+`boot.state` again `lastShutdownClean=true`; `bike-rack.properties` has no `active` key; ledger empty.
+
+Not exercisable here (F7): the mute override itself, its ledger line, the restore at ignition off and its
+confirmation by the car's report (I4). Those stay host-tested until the car session.
+
+### Step 7: Power cut
+
+Skipped: no owner approval for a switchable MMX supply (ruling in the plan ledger). See Step 4.
+
+### Bench state at the end (2026-10-24)
+
+- SDK from `feat/car-readiness` d58554b installed; `/mnt/app` read-only.
+- `crashy` pushed back (`927551 STATUS crashy ENABLED enabled`, `crashy no crash mode set; idle`, no grants line);
+  `hello`, `bike-rack` (disarmed, no `active` key) and `crashy` are ENABLED.
+- `kl15` active on rpi-bench; keypanel `{"bridge_connected":true,…}`.
