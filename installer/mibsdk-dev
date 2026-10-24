@@ -20,6 +20,7 @@ SSH_OPTS=(-o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedKeyTypes=ssh-rsa -o Batc
 HOST="$DEFAULT_HOST"
 TMP=""
 SNAP=""
+UPLOADED_ALSO=""
 
 usage() {
   cat <<USAGE
@@ -52,6 +53,8 @@ USAGE
 }
 
 die() { echo "mibsdk-dev: $*" >&2; exit 1; }
+# usage_err: a bad command line, caught on this machine; exits 2 like mibpkg's own usage errors.
+usage_err() { echo "mibsdk-dev: $*" >&2; exit 2; }
 info() { echo "mibsdk-dev: $*" >&2; }
 
 cleanup() {
@@ -66,7 +69,7 @@ rsh() { ssh "${SSH_OPTS[@]}" "root@$HOST" "$@"; }
 set_host() {
   HOST="$1"
   case "$HOST" in
-    ""|-*|*[!A-Za-z0-9._:-]*) die "invalid host '$HOST'" ;;
+    ""|-*|*[!A-Za-z0-9._:-]*) usage_err "invalid host '$HOST'" ;;
   esac
 }
 
@@ -78,11 +81,23 @@ connect() {
 
 # need_mibpkg: refuse (before any upload) a unit whose mibpkg lacks the sdk verbs.
 need_mibpkg() {
-  rsh "$MIBPKG sdk status" >/dev/null 2>&1 </dev/null \
-    || die "mibpkg on $HOST is missing or older than 0.8.0; update it (see the mibpkg README)"
+  local out rc=0
+  out="$(rsh "$MIBPKG sdk status" 2>&1 >/dev/null </dev/null)" || rc=$?
+  [ "$rc" = 0 ] || status_failed "$rc" "$out"
 }
 
-check_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid plugin id '$1'"; }
+# status_failed <rc> <stderr>: die on a failed `mibpkg sdk status`. Only a missing binary (126/127, "not found") or a
+# mibpkg that does not know the verb ("unknown", "usage") is called missing or old; anything else is shown as is.
+status_failed() {
+  local rc="$1" out="$2"
+  [ "$rc" != 255 ] || die "ssh to root@$HOST failed while checking mibpkg${out:+: $out}"
+  if [ "$rc" = 126 ] || [ "$rc" = 127 ] || printf '%s' "$out" | grep -qiE 'not found|no such file|cannot execute|unknown|usage'; then
+    die "mibpkg on $HOST is missing or older than 0.8.0; update it (see the mibpkg README)"
+  fi
+  die "mibpkg sdk status failed on $HOST (exit $rc)${out:+: $out}"
+}
+
+check_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || usage_err "invalid plugin id '$1'"; }
 
 # run_mibpkg <arg>...: run the unit's mibpkg and exit with its status (its stdout and stderr pass through). Every
 # argument was validated by the caller to the characters [A-Za-z0-9._,=-], so single quotes are enough.
@@ -94,14 +109,14 @@ run_mibpkg() {
 }
 
 # upload <local> <name>: write /tmp/<name> on the unit and compare it byte for byte with the local file; on a
-# mismatch remove it and die. mibpkg deletes its uploads once it has read them, so every run uploads afresh.
+# mismatch remove it (and $UPLOADED_ALSO, an earlier upload of the same set) and die. mibpkg deletes its uploads once it has read them, so every run uploads afresh.
 upload() {
   local src="$1" dst="/tmp/$2"
   make_tmp
   if rsh "cat > '$dst'" <"$src" && rsh "cat '$dst'" >"$TMP/verify" 2>/dev/null </dev/null && cmp -s "$src" "$TMP/verify"; then
     return 0
   fi
-  rsh "rm -f '$dst'" </dev/null >/dev/null 2>&1 || true
+  rsh "rm -f '$dst'${UPLOADED_ALSO:+ '$UPLOADED_ALSO'}" </dev/null >/dev/null 2>&1 || true
   die "upload of ${src##*/} to $dst failed or did not verify; nothing was installed"
 }
 
@@ -145,7 +160,8 @@ cmd_install() {
 cmd_install_plugin() {
   local mpk="$1" name
   shift
-  [ -f "$mpk" ] || die "usage: mibsdk-dev install-plugin <file.mpk> [--approve=<perm,...>] [host]"
+  [ -n "$mpk" ] || usage_err "usage: mibsdk-dev install-plugin <file.mpk> [--approve=<perm,...>] [host]"
+  [ -f "$mpk" ] || die "$mpk is not a file"
   name="$( (tar -xzOf "$mpk" manifest.toml 2>/dev/null || true) \
     | awk '/^\[/ { sec = $0; next } sec == "[package]" && /^name[ \t]*=/ { sub(/^[^=]*=[ \t]*"/, ""); sub(/".*$/, ""); print; exit }')"
   [[ "$name" =~ ^[a-z0-9][a-z0-9-]{1,39}$ ]] || die "cannot read the package name from $mpk (manifest.toml [package] name)"
@@ -154,7 +170,8 @@ cmd_install_plugin() {
 
 cmd_push() {
   local jar="$1" id
-  [ -f "$jar" ] || die "usage: mibsdk-dev push <plugin.jar> [host]"
+  [ -n "$jar" ] || usage_err "usage: mibsdk-dev push <plugin.jar> [host]"
+  [ -f "$jar" ] || die "$jar is not a file"
   [ -f "$jar.stamp" ] \
     || die "$jar.stamp is missing; only jars built by the mibsdk.plugin convention can be pushed: ./gradlew :<project>:mibPluginJar"
   command -v python3 >/dev/null || die "python3 is required on this machine"
@@ -173,7 +190,10 @@ PY
   connect
   need_mibpkg
   upload "$SNAP" "mibpkg.push.$id.jar"
+  # A failed stamp upload must not leave the jar behind for a later `sdk push` to pick up.
+  UPLOADED_ALSO="/tmp/mibpkg.push.$id.jar"
   upload "$SNAP.stamp" "mibpkg.push.$id.jar.stamp"
+  UPLOADED_ALSO=""
   run_mibpkg sdk push "$id"
 }
 
@@ -210,22 +230,22 @@ main() {
     install|restart|log|status|uninstall) want=0 ;;
     install-plugin|push|safe-mode|data-clear|remove) want=1 ;;
     boot-state|grant) want=2 ;;
-    *) usage >&2; die "unknown command '$cmd'" ;;
+    *) usage >&2; usage_err "unknown command '$cmd'" ;;
   esac
   for a in "$@"; do
     case "$cmd:$a" in
       uninstall:--purge|uninstall:--force|remove:--purge) flags+=("$a") ;;
       remove:--purge-data) flags+=(--purge) ;;
       install-plugin:--approve=*)
-        [[ "${a#--approve=}" =~ ^[A-Za-z0-9._,-]*$ ]] || die "invalid --approve list '${a#--approve=}'"
+        [[ "${a#--approve=}" =~ ^[A-Za-z0-9._,-]*$ ]] || usage_err "invalid --approve list '${a#--approve=}'"
         flags+=("$a") ;;
-      *:-*) [ "${#args[@]}" -ge "$want" ] || die "unexpected argument '$a'"; args+=("$a") ;;   # a host: set_host refuses it
+      *:-*) [ "${#args[@]}" -ge "$want" ] || usage_err "unexpected argument '$a'"; args+=("$a") ;;   # a host: set_host refuses it
       *) args+=("$a") ;;
     esac
   done
   local n=${#args[@]}
   if [ "$n" -gt "$want" ]; then
-    [ "$n" -eq $((want + 1)) ] || die "too many arguments for '$cmd'"
+    [ "$n" -eq $((want + 1)) ] || usage_err "too many arguments for '$cmd'"
     set_host "${args[$want]}"
     unset 'args[$want]'
   fi
@@ -237,28 +257,32 @@ main() {
     install-plugin) cmd_install_plugin "${1:-}" "${f[@]+"${f[@]}"}" ;;
     push) cmd_push "${1:-}" ;;
     remove)
-      [ -n "${1:-}" ] || die "usage: mibsdk-dev remove <id> [--purge|--purge-data] [host]"
+      [ -n "${1:-}" ] || usage_err "usage: mibsdk-dev remove <id> [--purge|--purge-data] [host]"
       check_id "$1"
       sdk_verb remove "$1" "${f[@]+"${f[@]}"}" ;;
     grant)
-      [ $# -eq 2 ] || die "usage: mibsdk-dev grant <id> <perm,...> [host]"
+      [ $# -eq 2 ] || usage_err "usage: mibsdk-dev grant <id> <perm,...> [host]"
       check_id "$1"
-      [[ "$2" =~ ^[A-Za-z0-9._,-]*$ ]] || die "invalid permission list '$2'"
+      [[ "$2" =~ ^[A-Za-z0-9._,-]*$ ]] || usage_err "invalid permission list '$2'"
       sdk_verb grant "$1" "$2" ;;
     safe-mode)
-      case "${1:-}" in on|off) ;; *) die "usage: mibsdk-dev safe-mode on|off [host]" ;; esac
+      case "${1:-}" in on|off) ;; *) usage_err "usage: mibsdk-dev safe-mode on|off [host]" ;; esac
       sdk_verb safe-mode "$1" ;;
     boot-state)
-      [ "${1:-}" = set-wrap ] && [[ "${2:-}" =~ ^[0-9A-Za-z]*$ ]] || die "usage: mibsdk-dev boot-state set-wrap <n> [host]"
+      [ "${1:-}" = set-wrap ] && [[ "${2:-}" =~ ^[0-9]+$ ]] || usage_err "usage: mibsdk-dev boot-state set-wrap <n> [host]"
       sdk_verb boot-state set-wrap "$2" ;;
     data-clear)
-      [ -n "${1:-}" ] || die "usage: mibsdk-dev data-clear <plugin-id> [host]"
+      [ -n "${1:-}" ] || usage_err "usage: mibsdk-dev data-clear <plugin-id> [host]"
       check_id "$1"
       sdk_verb data-clear "$1" ;;
     status)
       # sdk status is the probe itself: it exits 0 whatever it finds, so a failure means no (new enough) mibpkg.
       connect
-      rsh "$MIBPKG sdk status" </dev/null || die "mibpkg on $HOST is missing or older than 0.8.0; update it (see the mibpkg README)" ;;
+      make_tmp
+      local rc=0
+      rsh "$MIBPKG sdk status" 2>"$TMP/status.err" </dev/null || rc=$?
+      [ "$rc" = 0 ] || status_failed "$rc" "$(cat "$TMP/status.err")"
+      cat "$TMP/status.err" >&2 ;;
     log) cmd_log ;;
     restart) cmd_restart ;;
   esac

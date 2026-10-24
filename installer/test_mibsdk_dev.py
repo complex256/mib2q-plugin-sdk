@@ -30,9 +30,9 @@ cmd="$*"
 # Test hook: a file that changes on disk once the tool has connected (after it took its snapshot).
 if [ -n "$FAKE_REWRITE" ] && [ "$cmd" = "echo ok" ]; then printf tampered >"$FAKE_REWRITE"; fi
 cmd="${cmd//\/tmp\//$FAKE_UNIT/tmp/}"
-# Test hook: an upload that arrives damaged (a cut link): one extra byte lands on the unit.
+# Test hook: an upload whose target contains $FAKE_CORRUPT_UPLOAD arrives damaged (a cut link): one extra byte lands.
 if [ -n "$FAKE_CORRUPT_UPLOAD" ]; then
-  case "$cmd" in "cat > "*) cmd="{ cat; printf X; } ${cmd#cat }" ;; esac
+  case "$cmd" in "cat > "*"$FAKE_CORRUPT_UPLOAD"*) cmd="{ cat; printf X; } ${cmd#cat }" ;; esac
 fi
 # Like OpenSSH, read all of our stdin (it would forward it to the remote command): a caller's `while read` loop loses the rest.
 cat | sh -c "$cmd"
@@ -40,12 +40,14 @@ exit ${PIPESTATUS[1]}
 """
 
 # The unit's mibpkg: records argv (fields separated by \x1f, one call per line) and exits $FAKE_MIBPKG_RC after
-# printing $FAKE_MIBPKG_OUT; `sdk status` answers with $FAKE_STATUS_OUT and $FAKE_STATUS_RC instead.
+# printing $FAKE_MIBPKG_OUT; `sdk status` answers with $FAKE_STATUS_OUT (stdout), $FAKE_STATUS_ERR (stderr) and
+# $FAKE_STATUS_RC instead.
 FAKE_MIBPKG = r"""#!/bin/sh
 for a in "$@"; do printf '%s\037' "$a"; done >>"$FAKE_UNIT/mibpkg.argv"
 printf '\n' >>"$FAKE_UNIT/mibpkg.argv"
 if [ "$1" = sdk ] && [ "$2" = status ]; then
   [ -z "$FAKE_STATUS_OUT" ] || printf '%s\n' "$FAKE_STATUS_OUT"
+  [ -z "$FAKE_STATUS_ERR" ] || printf '%s\n' "$FAKE_STATUS_ERR" >&2
   exit "${FAKE_STATUS_RC:-0}"
 fi
 [ -z "$FAKE_MIBPKG_OUT" ] || printf '%s\n' "$FAKE_MIBPKG_OUT"
@@ -131,11 +133,12 @@ class FakeUnit(object):
     def run(self, *args, **kw):
         env = dict(self.env)
         env["FAKE_REWRITE"] = kw.get("rewrite", "")
-        env["FAKE_CORRUPT_UPLOAD"] = "1" if kw.get("corrupt") else ""
+        env["FAKE_CORRUPT_UPLOAD"] = kw.get("corrupt", "")
         env["FAKE_MIBPKG_RC"] = str(kw.get("rc", 0))
         env["FAKE_MIBPKG_OUT"] = kw.get("out", "")
         env["FAKE_STATUS_RC"] = str(kw.get("status_rc", 0))
         env["FAKE_STATUS_OUT"] = kw.get("status_out", "")
+        env["FAKE_STATUS_ERR"] = kw.get("status_err", "")
         env.update(kw.get("env", {}))
         return subprocess.run([TOOL] + list(args), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, timeout=60)
@@ -221,7 +224,7 @@ class InstallTest(FakeUnitTestCase):
 
     def test_a_damaged_upload_is_removed_and_nothing_is_installed(self):
         self.sdk_mpk()
-        err = self.failed(self.u.run("install", corrupt=True))
+        err = self.failed(self.u.run("install", corrupt="mibpkg.upload."))
         self.assertIn("upload", err)
         self.assertEqual([], self.u.uploads())
         self.assertEqual([["sdk", "status"]], self.u.calls())
@@ -246,13 +249,22 @@ class ProbeTest(FakeUnitTestCase):
         self.sdk_mpk()
         jar = self.plugin_jar("hello")
         for args in (("install",), ("push", jar), ("grant", "hello", "network"), ("status",)):
-            err = self.failed(self.u.run(*args, status_rc=1))
+            err = self.failed(self.u.run(*args, status_rc=1, status_err='mibpkg: unknown action "sdk"'))
             self.assertIn("mibpkg on 10.20.0.23 is missing or older than 0.8.0; update it (see the mibpkg README)", err)
         self.assertEqual([], self.u.uploads())
         self.assertTrue(all(c == ["sdk", "status"] for c in self.u.calls()))
         os.remove(self.u.mibpkg())
         err = self.failed(self.u.run("install"))
         self.assertIn("is missing or older than 0.8.0", err)
+        self.assertEqual([], self.u.uploads())
+
+    def test_other_sdk_status_failures_are_not_called_an_old_mibpkg(self):
+        self.sdk_mpk()
+        for args in (("install",), ("status",)):
+            err = self.failed(self.u.run(*args, status_rc=1, status_err="mibpkg: reading /tmp/mibpkg.status: I/O error"))
+            self.assertNotIn("older than 0.8.0", err)
+            self.assertIn("mibpkg sdk status failed on 10.20.0.23 (exit 1)", err)
+            self.assertIn("I/O error", err)
         self.assertEqual([], self.u.uploads())
 
     def test_log_and_restart_do_not_probe(self):
@@ -317,6 +329,13 @@ class PushTest(FakeUnitTestCase):
         self.assertEqual(b"tampered", read(jar))
         self.assertEqual(original, read(os.path.join(self.u.tmp, "mibpkg.push.hello.jar")))
 
+    def test_a_failed_stamp_upload_removes_both_push_files(self):
+        jar = self.plugin_jar("hello")
+        err = self.failed(self.u.run("push", jar, corrupt="mibpkg.push.hello.jar.stamp"), 1)
+        self.assertIn("did not verify", err)
+        self.assertEqual([], self.u.uploads())
+        self.assertEqual([["sdk", "status"]], self.u.calls())
+
     def test_push_refuses_a_jar_without_a_plugin_id(self):
         jar = os.path.join(self.tmp, "x.jar")
         with zipfile.ZipFile(jar, "w") as z:
@@ -360,6 +379,25 @@ class SdkVerbTest(FakeUnitTestCase):
         self.failed(self.u.run("boot-state", "set-wrap", "x", rc=2), 2)
         self.failed(self.u.run("grant", "hello", "network", rc=1), 1)
         self.assertIn("invalid permission list", self.failed(self.u.run("grant", "hello", "a b")))
+
+    def test_boot_state_without_a_count_is_a_usage_error(self):
+        for args in (("boot-state", "set-wrap"), ("boot-state", "set-wrap", "x"), ("boot-state",)):
+            err = self.failed(self.u.run(*args), 2)
+            self.assertIn("usage: mibsdk-dev boot-state set-wrap <n>", err)
+            self.assertNotIn("unbound", err)
+        self.assertEqual([], self.u.calls())
+
+    def test_host_side_usage_errors_exit_2_and_failures_exit_1(self):
+        jar = self.plugin_jar("hello", stamped=False)
+        for args in (("frobnicate",), ("remove", "../x"), ("data-clear", "a b"), ("remove", "hello", "--bogus"),
+                     ("uninstall", "--purge-data"), ("grant", "hello", "a b"), ("grant", "hello"),
+                     ("install-plugin", "x.mpk", "--approve=a;b"), ("safe-mode", "maybe"), ("push",),
+                     ("grant", "hello", "network", "h", "extra"), ("safe-mode", "on", "-oProxyCommand=x")):
+            self.failed(self.u.run(*args), 2)
+        self.failed(self.u.run("install"), 1)       # no .mpk: a failure, not a usage error
+        self.failed(self.u.run("push", jar), 1)     # no stamp
+        self.failed(self.u.run("push", os.path.join(self.tmp, "nope.jar")), 1)
+        self.assertEqual([], self.u.calls())
 
     def test_status_is_mibpkg_sdk_status_alone(self):
         write(os.path.join(self.u.tmp, "mibsdk.log"), b"1 STATUS hello ENABLED ok\n")
