@@ -146,4 +146,34 @@ class StatusPrefsTest {
         assertTrue(p.setHidden("bb", true));
         assertEquals("aa.hidden=true\nbb.hidden=true\n", read(f));
     }
+
+    /** Review fix: an unsaved move must not bring back ids another writer (mibpkg remove) dropped from the file. */
+    @Test
+    void unsavedOrderDoesNotResurrectRemovedIds() throws Exception {
+        File dir = new File(tmp, "ro");
+        assertTrue(dir.mkdirs());
+        File f = new File(dir, "statusline.properties");
+        write(f, "order=aa,xx,bb\n");
+        assertTrue(dir.setWritable(false));
+        try {
+            StatusPrefs p = new StatusPrefs(f, new RingLog(50));
+            assertFalse(p.move("bb", -1, Arrays.asList("aa", "bb")), "read-only: not written");
+            assertEquals(Arrays.asList("bb", "xx", "aa"), p.order());
+
+            assertTrue(dir.setWritable(true));
+            write(f, "order=aa,bb\n"); // mibpkg removed xx
+            assertTrue(dir.setWritable(false));
+            p.refresh(Arrays.asList("aa", "bb"));
+            assertEquals(Arrays.asList("bb", "aa"), p.order(), "the unsaved move holds, xx stays gone");
+
+            assertTrue(dir.setWritable(true));
+            write(f, "order=aa,bb,cc\n"); // another writer added cc
+            p.refresh(Arrays.asList("aa", "bb", "cc"));
+            assertEquals(Arrays.asList("bb", "aa", "cc"), p.order(), "ids new in the file follow, in file order");
+            assertTrue(p.setHidden("cc", true), "writable again: everything goes out");
+            assertEquals("order=bb,aa,cc\ncc.hidden=true\n", read(f));
+        } finally {
+            dir.setWritable(true);
+        }
+    }
 }

@@ -24,9 +24,11 @@ import java.util.Set;
  *
  * <p>Same rules as {@link UserToggles}: a missing target is recovered from {@link DurableFiles#tmpFile}; an
  * unreadable or corrupt file reads as empty (every item shown, plugin-id order); invalid ids are skipped; ids of
- * plugins that are not installed are kept. Each change reads, modifies and replaces the file in one step. A change
- * that could not be written is kept in memory on top of the file for this run, and goes out with the next write that
- * succeeds. The control thread is the only caller.
+ * plugins that are not installed are kept. The runtime calls {@link #refresh(Collection)} at load and reload, as
+ * for {@link UserToggles}, since mibpkg may edit the file. Each change reads, modifies and replaces the file in one
+ * step. A change that could not be written is kept in memory on top of the file for this run (hidden flags per id;
+ * an order only for ids still in the file or installed), and goes out with the next write that succeeds. The
+ * control thread is the only caller.
  */
 final class StatusPrefs {
 
@@ -41,6 +43,7 @@ final class StatusPrefs {
     private Set<String> hidden; // as last read plus unsaved; null until read
     private final Map<String, Boolean> unsavedHidden = new HashMap<String, Boolean>(); // write failed
     private List<String> unsavedOrder; // write failed; null if none
+    private Set<String> installed; // plugin ids at the last refresh(installed); null until then
 
     StatusPrefs(File persistFile, RingLog log) {
         this.file = persistFile;
@@ -63,8 +66,17 @@ final class StatusPrefs {
         return id != null && hidden.contains(id);
     }
 
-    /** Re-reads the file. */
+    /** Re-reads the file (another writer may have changed it). */
     synchronized void refresh() {
+        read();
+    }
+
+    /**
+     * Re-reads the file; {@code installedIds} are the plugins installed now. An unsaved order then keeps only the ids
+     * still in the file or installed, so it never brings back an id another writer removed.
+     */
+    synchronized void refresh(Collection<String> installedIds) {
+        installed = installedIds == null ? null : new HashSet<String>(installedIds);
         read();
     }
 
@@ -166,8 +178,20 @@ final class StatusPrefs {
         order = new ArrayList<String>();
         hidden = new HashSet<String>();
         readFile();
-        if (unsavedOrder != null) {
-            order = new ArrayList<String>(unsavedOrder);
+        if (unsavedOrder != null) { // the unsaved order for the ids still known, then the file's new ones
+            List<String> merged = new ArrayList<String>();
+            for (int i = 0; i < unsavedOrder.size(); i++) {
+                String id = unsavedOrder.get(i);
+                if (order.contains(id) || installed == null || installed.contains(id)) {
+                    merged.add(id);
+                }
+            }
+            for (int i = 0; i < order.size(); i++) {
+                if (!merged.contains(order.get(i))) {
+                    merged.add(order.get(i));
+                }
+            }
+            order = merged;
         }
         for (Iterator it = unsavedHidden.entrySet().iterator(); it.hasNext();) {
             Map.Entry e = (Map.Entry) it.next();

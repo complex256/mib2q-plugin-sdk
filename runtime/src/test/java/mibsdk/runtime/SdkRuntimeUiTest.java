@@ -103,6 +103,11 @@ class SdkRuntimeUiTest {
         return null;
     }
 
+    private static String label(UiSnapshot s, String pageKey, String entryKey) {
+        UiEntry e = entry(s, pageKey, entryKey);
+        return e == null ? null : e.label();
+    }
+
     private static boolean hasInfo(UiSnapshot s, String pageKey, String text) {
         UiPage p = s.pages().get(pageKey);
         if (p == null) {
@@ -412,20 +417,21 @@ class SdkRuntimeUiTest {
         r.start();
         r.awaitState("zeta", PluginState.ENABLED);
         r.awaitState("alpha", PluginState.ENABLED);
-        UiSnapshot first = r.await(s -> "AA long text ZZ long...".equals(s.statusLine()),
-                "plugin-id order, fair share: " + r.table.snapshot().statusLine());
-        assertEquals("Status item (1 of 2)", entry(first, "mibsdk/plugin.alpha", "status").label());
+        UiSnapshot first = r.await(s -> "AA long text ZZ long...".equals(s.statusLine())
+                && "Status item (1 of 2)".equals(label(s, "mibsdk/plugin.alpha", "status"))
+                && s.pages().containsKey("mibsdk/plugin.plain"), "plugin-id order, fair share, status rows");
         assertTrue(entry(first, "mibsdk/plugin.alpha", "status").on());
         assertNotNull(entry(first, "mibsdk/plugin.zeta", "status.earlier"));
         assertNull(entry(first, "mibsdk/plugin.plain", "status"), "no item and no permission: no rows");
 
         r.table.input(new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/plugin.zeta", "status.earlier", false));
         r.await(s -> "ZZ long text AA long...".equals(s.statusLine()), "zeta moved earlier");
-        r.await(s -> "Status item (1 of 2)".equals(entry(s, "mibsdk/plugin.zeta", "status").label()),
+        r.await(s -> "Status item (1 of 2)".equals(label(s, "mibsdk/plugin.zeta", "status")),
                 "zeta's page shows its new place");
 
         r.table.input(new UiInput(UiInput.TOGGLE_REQUESTED, "mibsdk/plugin.zeta", "status", false));
-        r.await(s -> "AA long text".equals(s.statusLine()) && !entry(s, "mibsdk/plugin.zeta", "status").on(),
+        r.await(s -> "AA long text".equals(s.statusLine()) && entry(s, "mibsdk/plugin.zeta", "status") != null
+                && !entry(s, "mibsdk/plugin.zeta", "status").on(),
                 "zeta hidden, alpha gets the line");
         assertEquals(PluginState.ENABLED, status("zeta").state(), "hiding the item leaves the plugin alone");
         assertTrue(new File(r.persist(), "statusline.properties").isFile());
@@ -437,5 +443,29 @@ class SdkRuntimeUiTest {
         r.await(s -> "AA long text".equals(s.statusLine()), "still hidden after a restart");
         r.table.input(new UiInput(UiInput.TOGGLE_REQUESTED, "mibsdk/plugin.zeta", "status", true));
         r.await(s -> "ZZ long text AA long...".equals(s.statusLine()), "shown again, in the saved order");
+    }
+
+    /** Review fix: like plugins.properties, statusline.properties is re-read at reload (mibpkg edits it). */
+    @Test
+    void statusPrefsAreReReadAtReload() throws Exception {
+        runtime();
+        String[] status = {Permissions.UI_SLOT_STATUS_BAR};
+        r.plugin("zeta", "Zeta", status, "ctx.ui().statusItem(\"ZZ\");", null);
+        r.plugin("alpha", "Alpha", status, "ctx.ui().statusItem(\"AA\");", null);
+        r.start();
+        r.awaitState("zeta", PluginState.ENABLED);
+        r.awaitState("alpha", PluginState.ENABLED);
+        r.table.input(new UiInput(UiInput.TOGGLE_REQUESTED, "mibsdk/plugin.zeta", "status", false));
+        r.await(s -> "AA".equals(s.statusLine()), "zeta hidden");
+
+        java.io.FileOutputStream out = new java.io.FileOutputStream(new File(r.persist(), "statusline.properties"));
+        try {
+            out.write("order=zeta\n".getBytes("ISO-8859-1")); // another writer showed zeta and moved it first
+        } finally {
+            out.close();
+        }
+        r.rt.reload("alpha");
+        r.awaitState("alpha", PluginState.ENABLED);
+        r.await(s -> "ZZ AA".equals(s.statusLine()), "the file is re-read at reload");
     }
 }

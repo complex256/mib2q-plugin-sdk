@@ -911,6 +911,7 @@ public final class SdkRuntime {
         purgeSnapshots(); // stale copies from a previous run
         restoreStaleOverrides();
         toggles.refresh(); // mibsdk-dev may have edited the user's choices since the last read
+        statusPrefs.refresh(installedIds());
         File[] files = pluginJars();
         List pending = new ArrayList(); // PluginHost, DISCOVERED
         for (int i = 0; i < files.length; i++) {
@@ -978,6 +979,7 @@ public final class SdkRuntime {
     private void listPluginsInSafeMode() {
         grants = Grants.load(cfg.grantsFile());
         toggles.refresh();
+        statusPrefs.refresh(installedIds());
         File[] files = pluginJars();
         for (int i = 0; i < files.length && !isStopped(); i++) {
             PluginHost h = discover(files[i]);
@@ -1237,6 +1239,7 @@ public final class SdkRuntime {
         }
         grants = Grants.load(cfg.grantsFile());
         toggles.refresh();
+        statusPrefs.refresh(installedIds());
         PluginHost old = findHost(id);
         if (old != null) {
             disableHost(old, PluginState.DISABLED, "reloading", true, false); // no notice flash during a reload
@@ -1548,6 +1551,19 @@ public final class SdkRuntime {
                 queue.add(h.id);
             }
         }
+    }
+
+    /** The ids of the plugin jars installed now ({@code <id>.jar}). */
+    private Set<String> installedIds() {
+        Set<String> out = new HashSet<String>();
+        File[] files = pluginJars();
+        for (int i = 0; i < files.length; i++) {
+            String name = files[i].getName();
+            if (name.endsWith(".jar")) {
+                out.add(name.substring(0, name.length() - ".jar".length()));
+            }
+        }
+        return out;
     }
 
     /** Every host's manifest (absent for an unreadable plugin.json), by plugin id. */
