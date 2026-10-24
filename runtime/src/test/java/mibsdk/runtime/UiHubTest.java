@@ -154,7 +154,7 @@ class UiHubTest {
         assertEquals("Zeta", rows.get(1).label(), "rows follow enable order, not contribution order");
         assertEquals("zeta/p", rows.get(1).pageKey());
         assertEquals("Alpha", rows.get(2).label());
-        assertEquals("Z A", table.snapshot().statusLine(), "status items follow enable order too");
+        assertEquals("A Z", table.snapshot().statusLine(), "status items follow plugin-id order, not enable order");
 
         hub.setPluginsRowLabel("Plugins (safe mode)");
         hub.publishNow();
@@ -582,17 +582,47 @@ class UiHubTest {
     }
 
     @Test
-    void statusLineJoinsIndicatorsThenItemsInLoadOrder() throws Exception {
+    void statusLineJoinsIndicatorsThenItemsInPluginIdOrder() throws Exception {
         UiHub hub = hub(0);
         hub.setStatusItem("b", "B up");
         hub.setStatusItem("a", "A up");
         hub.setIndicators(Arrays.asList("SAFE"));
         hub.publishNow();
-        assertEquals("SAFE B up A up", table.snapshot().statusLine());
+        assertEquals("SAFE A up B up", table.snapshot().statusLine());
         hub.setStatusMaxChars(8);
         hub.setStatusItem("b", null);
         hub.publishNow();
         assertEquals("SAFE A u", table.snapshot().statusLine(), "the item keeps the room SAFE leaves");
         assertNull(table.snapshot().openPageKey());
+    }
+
+    @Test
+    void statusPrefsOrderAndHideItemsWithoutTouchingThePlugin() throws Exception {
+        UiHub hub = hub(0);
+        hub.registerOwner("zeta");
+        hub.registerOwner("alpha");
+        hub.registerOwner("mid");
+        hub.setStatusItem("zeta", "Z");
+        hub.setStatusItem("alpha", "A");
+        hub.setStatusItem("mid", "M");
+        hub.publishNow();
+        assertEquals("A M Z", table.snapshot().statusLine());
+        assertEquals(new HashSet<String>(Arrays.asList("alpha", "mid", "zeta")), hub.statusOwners());
+
+        hub.setStatusPrefs(Arrays.asList("zeta", "gone"), Collections.<String>emptySet());
+        hub.publishNow();
+        assertEquals("Z A M", table.snapshot().statusLine(), "saved order first, then plugin-id order");
+
+        hub.setStatusPrefs(Arrays.asList("zeta"), new HashSet<String>(Arrays.asList("alpha")));
+        hub.publishNow();
+        assertEquals("Z M", table.snapshot().statusLine(), "a hidden item is not composed");
+        hub.setStatusItem("alpha", "A2"); // the plugin's own API still works
+        hub.publishNow();
+        assertEquals("Z M", table.snapshot().statusLine());
+        assertTrue(hub.statusOwners().contains("alpha"), "it still has an item");
+
+        hub.setStatusPrefs(null, null);
+        hub.publishNow();
+        assertEquals("A2 M Z", table.snapshot().statusLine(), "shown again with its latest text");
     }
 }

@@ -32,8 +32,10 @@ import mibsdk.platform.UiText;
  * once, when a contribution arrives; a snapshot is only assembled from already-clean parts.
  *
  * <p>Order: owners keep the order of {@link #registerOwner} (the runtime calls it as it enables a plugin), so
- * plugin rows and status items follow enable order whatever the timing of the contributions; an owner
- * never registered (tests) takes the position of its first contribution. Car rows: the Plugins row first.
+ * plugin rows follow enable order whatever the timing of the contributions; an owner never registered (tests)
+ * takes the position of its first contribution. Car rows: the Plugins row first. Status items do not follow
+ * enable order (a reload moves a plugin to the end): they follow the user's saved order, then plugin id
+ * ({@link #setStatusPrefs}), and share the line fairly ({@link StatusLine}).
  * After {@link #removeOwner} an owner's contributions are ignored until it is registered again, so a
  * callback still running after its plugin stopped cannot bring its UI back or wipe the stopped notice.
  *
@@ -99,6 +101,8 @@ final class UiHub {
     private List<String> indicators = Collections.<String>emptyList();
     private String pluginsRowLabel = DEFAULT_PLUGINS_LABEL;
     private int statusMaxChars = DEFAULT_STATUS_MAX_CHARS;
+    private List<String> statusOrder = Collections.<String>emptyList(); // the user's saved order (StatusPrefs)
+    private Set<String> statusHidden = Collections.<String>emptySet(); // owners whose item the user hid
     private Listener<UiInput> sdkHandler;
     private long openSeq;
     private String openPageKey;
@@ -335,6 +339,36 @@ final class UiHub {
             indicators = copy;
         }
         changed();
+    }
+
+    /**
+     * The user's status-line choices ({@link StatusPrefs}): items follow {@code order}, then plugin-id order
+     * ({@link StatusLine#order}); an owner in {@code hidden} keeps its item, but it is not composed. Null is empty.
+     */
+    void setStatusPrefs(List<String> order, Set<String> hidden) {
+        List<String> o = order == null ? Collections.<String>emptyList()
+                : Collections.unmodifiableList(new ArrayList<String>(order));
+        Set<String> h = hidden == null ? Collections.<String>emptySet()
+                : Collections.unmodifiableSet(new HashSet<String>(hidden));
+        synchronized (lock) {
+            statusOrder = o;
+            statusHidden = h;
+        }
+        changed();
+    }
+
+    /** Owners that currently have a status item, hidden or not. */
+    Set<String> statusOwners() {
+        Set<String> out = new HashSet<String>();
+        synchronized (lock) {
+            for (Iterator it = owners.entrySet().iterator(); it.hasNext();) {
+                Map.Entry e = (Map.Entry) it.next();
+                if (((Owner) e.getValue()).status != null) {
+                    out.add((String) e.getKey());
+                }
+            }
+        }
+        return out;
     }
 
     void setPluginsRowLabel(String label) {
@@ -645,9 +679,10 @@ final class UiHub {
             UiPage p = (UiPage) sdkPages.get(i);
             pages.put(p.key(), p);
         }
-        List<String> items = new ArrayList<String>();
-        for (Iterator it = owners.values().iterator(); it.hasNext();) {
-            Owner o = (Owner) it.next();
+        Map<String, String> status = new HashMap<String, String>();
+        for (Iterator e = owners.entrySet().iterator(); e.hasNext();) {
+            Map.Entry entry = (Map.Entry) e.next();
+            Owner o = (Owner) entry.getValue();
             for (Iterator p = o.pages.values().iterator(); p.hasNext();) {
                 UiPage page = ((PageRec) p.next()).page;
                 pages.put(page.key(), page);
@@ -658,11 +693,17 @@ final class UiHub {
                     rows.add(row);
                 }
             }
-            if (o.status != null) {
-                items.add(o.status);
+            if (o.status != null && !statusHidden.contains(entry.getKey())) {
+                status.put((String) entry.getKey(), o.status);
             }
         }
-        return new UiSnapshot(v, rows, StatusLine.compose(indicators, items, statusMaxChars), pages, openSeq,
+        List<String> order = StatusLine.order(statusOrder, status.keySet());
+        List<StatusLine.Item> items = new ArrayList<StatusLine.Item>();
+        for (int i = 0; i < order.size(); i++) {
+            String id = order.get(i);
+            items.add(new StatusLine.Item(id, status.get(id)));
+        }
+        return new UiSnapshot(v, rows, StatusLine.line(indicators, items, statusMaxChars), pages, openSeq,
                 openPageKey);
     }
 
