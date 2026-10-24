@@ -3,12 +3,14 @@ package mibsdk.spike.ui;
 import de.audi.atip.hmi.model.ChoiceModel;
 import de.audi.atip.hmi.model.HMIModel;
 import de.audi.atip.hmi.model.LabelModel;
+import de.audi.atip.hmi.model.ResourceLocatorModel;
 import de.audi.atip.hmi.model.listener.DefaultChoiceListener;
 import de.audi.atip.model.CarModelBank;
 
 /**
  * CarModelBank plus MODEL_COUNT spike models at MODEL_BASE.. (the Tone bank-growing technique): 9 row-visibility
- * ChoiceModels, one shared selection ChoiceModel, one LabelModel for row 0's %1 replacement.
+ * ChoiceModels, one shared selection ChoiceModel, one LabelModel for row 0's %1 replacement, spike B's page models,
+ * and spike C's popup 609600 models (visibility ChoiceModel, file-path ResourceLocatorModel, LabelModel).
  */
 final class SpikeBank extends CarModelBank {
     static volatile SpikeBank instance;
@@ -60,6 +62,16 @@ final class SpikeBank extends CarModelBank {
         } else if (id == SpikeIds.PAGE_LABEL_MODEL) {
             LabelModel l = new LabelModel(id);
             l.setText("Info: LABEL row on LabelModel " + id);
+            m = l;
+        } else if (id == SpikeIds.POPUP_VISIBLE_MODEL) {
+            ChoiceModel c = new ChoiceModel(id);
+            c.setValue(0);                        // popup 609600 hidden until "pop-on"
+            m = c;
+        } else if (id == SpikeIds.POPUP_FILE_MODEL) {
+            m = new ResourceLocatorModel(id);     // empty until "pop-file"
+        } else if (id == SpikeIds.POPUP_LABEL_MODEL) {
+            LabelModel l = new LabelModel(id);
+            l.setText("SDK 609600");
             m = l;
         } else if (id == SpikeIds.LABEL_MODEL) {
             LabelModel l = new LabelModel(id);

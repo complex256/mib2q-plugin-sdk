@@ -3,21 +3,31 @@ package mibsdk.spike.ui;
 import de.audi.atip.base.IFrameworkAccess;
 import de.audi.atip.hmi.view.HMIView;
 import de.audi.atip.hmi.view.IDrawerController;
+import de.audi.atip.hmi.view.IPartialPopupController;
 import de.audi.atip.hmi.view.Screen;
 import de.audi.tghu.car.hmi.evohigh.CarScreenFactory;
 import de.esolutions.hmi.widgets.audi.base.AbstractWidget;
 import de.esolutions.hmi.widgets.audi.base.widgets.AbstractWidgetController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.DrawerController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupStub;
 import de.esolutions.hmi.widgets.audi.evo.widgets.VisibilityProxyWidget;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import java.util.List;
 
-/** CarScreenFactory that logs the Car selection drawer (S1a) and appends 9 SDK ACTION rows to it. */
+/**
+ * CarScreenFactory that logs the Car selection drawer (S1a) and appends 9 SDK ACTION rows to it. Spike C: row 0 has
+ * a custom icon (SDK ids served by getImagePath), row 1 a System stock icon, and the factory registers and builds
+ * the SDK partial popup 609600.
+ */
 final class SpikeFactory extends CarScreenFactory {
     /** Texts, served for TEXT_BASE + index. Written by the probe thread, read on HMIEvent. */
     static volatile String[] texts = initialTexts();
     /** The one instance (spike B builds its pages with it). */
     static volatile SpikeFactory instance;
+    /** Spike C I3: drawer row 0 (custom icon), for the "icon-next" command. Touched on HMIEvent only. */
+    static volatile MenuItemController row0;
+    /** Spike C: image ids already logged by getImagePath (first call per id). */
+    private final java.util.Hashtable loggedImages = new java.util.Hashtable();
 
     SpikeFactory(IFrameworkAccess fw) {
         super(fw);
@@ -115,8 +125,15 @@ final class SpikeFactory extends CarScreenFactory {
             v.setDisableAvailable(false);
             MenuItemController m = new MenuItemController();
             int[] bm = ref.getBitmapIndices();
-            // S1f: row 2 gets no bitmaps; does a row without an icon render and take focus?
-            if (bm != null && slot != SpikeIds.ROW_NO_ICON) {
+            if (slot == 0) {
+                // Spike C I1: a Car-module SDK id pair, served from the spike icons dir by getImagePath.
+                m.setBitmaps(new int[] {SpikeIds.ICON_PLUG, SpikeIds.ICON_PLUG_REFLEX});
+                row0 = m;
+            } else if (slot == 1) {
+                // Spike C I2: a System-module stock pair (phone) on a Car drawer row.
+                m.setBitmaps(new int[] {SpikeIds.SYS_ICON_PHONE, SpikeIds.SYS_ICON_PHONE_REFLEX});
+            } else if (bm != null && slot != SpikeIds.ROW_NO_ICON) {
+                // S1f: row 2 gets no bitmaps; does a row without an icon render and take focus?
                 m.setBitmaps(bm);
             }
             m.setModelID(SpikeIds.SELECTION_MODEL);
@@ -173,6 +190,59 @@ final class SpikeFactory extends CarScreenFactory {
             ((AbstractWidgetController) main).add(rows[slot]);
         }
         SpikeLog.log("added " + SpikeIds.ROWS + " rows; views " + n + " -> " + nids.length);
+    }
+
+    // ---- Spike C: custom images, SDK partial popup ---------------------------------------------------------------
+
+    /** I1/I3: SDK image ids map to PNGs in the spike icons dir, relative to ImageRoot (lsd/images). */
+    public String getImagePath(int id, int terminal) {
+        try {
+            if (id >= SpikeIds.ICON_FIRST && id <= SpikeIds.ICON_LAST) {
+                String p = SpikeIds.ICON_REL_DIR + id + ".png";
+                Integer key = new Integer(id);
+                if (loggedImages.put(key, key) == null) {
+                    SpikeLog.log("getImagePath " + id + " -> " + p + " thread=" + Thread.currentThread().getName());
+                }
+                return p;
+            }
+        } catch (Throwable t) {
+            SpikeLog.log("getImagePath FAILED: " + t);
+        }
+        return super.getImagePath(id, terminal);
+    }
+
+    /** S1: the stock stubs plus one stub for popup 609600 (popup 65's parameters, own visibility model). */
+    public IPartialPopupController[] getPartialPopupStubs(int terminal) {
+        IPartialPopupController[] stock = super.getPartialPopupStubs(terminal);
+        try {
+            int n = stock == null ? 0 : stock.length;
+            IPartialPopupController[] all = new IPartialPopupController[n + 1];
+            if (n > 0) {
+                System.arraycopy(stock, 0, all, 0, n);
+            }
+            all[n] = new PartialPopupStub(SpikeIds.POPUP_SDK, SpikeIds.POPUP_VISIBLE_MODEL, -1, 250, 5, 12, true, 7,
+                    terminal, 2, null, true, true);
+            SpikeLog.log("getPartialPopupStubs terminal=" + terminal + " stock=" + n + " + " + SpikeIds.POPUP_SDK
+                    + " thread=" + Thread.currentThread().getName());
+            return all;
+        } catch (Throwable t) {
+            SpikeLog.log("getPartialPopupStubs spike part FAILED: " + t);
+            return stock;
+        }
+    }
+
+    public IPartialPopupController getPartialPopup(int id, int terminal) {
+        if (id == SpikeIds.POPUP_SDK) {
+            try {
+                IPartialPopupController p = SpikePopup.build(this, terminal);
+                SpikeLog.log("getPartialPopup " + id + " built thread=" + Thread.currentThread().getName());
+                return p;
+            } catch (Throwable t) {
+                SpikeLog.log("getPartialPopup " + id + " FAILED: " + t);
+                return null;
+            }
+        }
+        return super.getPartialPopup(id, terminal);
     }
 
     public String getText(int id) {

@@ -1,21 +1,48 @@
 #!/usr/bin/env bash
-# run.sh install|uninstall|log [host]: put the Plan 2 UI spike (mibsdk-spike-ui.jar) on a unit that already runs the
-# SDK, by pointing the installed bundles file's HMICar= line at mibsdk.spike.ui.SpikeCarActivator.
-# Self-contained (it sources nothing; the push conventions are those of the pre-mibpkg installer/mibsdk-dev):
-# push via `cat >` to a temp file, verify byte for byte, rename; /mnt/app read-write only between rw_begin/rw_end.
-# Never reads or prints the j9 command line.
+# run.sh install [--car-only] | add-system | uninstall | status | log   [host]
+#
+# Puts the UI spike (mibsdk-spike-ui.jar, spikes A/B/C) on a unit that runs the SDK installed by mibpkg, by pointing
+# the bundles file's HMICar= line at mibsdk.spike.ui.SpikeCarActivator and (unless --car-only) its HMISystem= line at
+# mibsdk.spike.ui.SpikeSystemActivator.
+#
+#   install [--car-only]  save a byte copy of the live bundles file to /mnt/persist/mibsdk-spike/bundles.before,
+#                         push the jar and the icons (lsd/mibsdk-spike/icons/), rewrite the line(s)
+#   add-system            spike already installed --car-only: rewrite HMISystem= too; bundles.before is kept
+#                         (it stays the pre-spike copy, so uninstall goes all the way back)
+#   uninstall             write bundles.before back (cmp-verified), remove the jar and the icons dir
+#   status                the two lines, jar/icons/backup presence, /mnt/app mount flags
+#
+# Self-contained (sources nothing): push via `cat >` to a temp file, verify byte for byte, rename. /mnt/app is
+# read-write only between rw_begin/rw_end, and every remote command in that section re-asserts `mount -uw` (F8).
+# Never reads or prints the j9 command line. Do not run mibpkg install/push/grant/remove while the spike is installed.
 set -euo pipefail
 
-HOST="${2:-10.20.0.23}"
+CAR_ONLY=0
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --car-only) CAR_ONLY=1 ;;
+    *) ARGS+=("$a") ;;
+  esac
+done
+CMD="${ARGS[0]:-}"
+HOST="${ARGS[1]:-10.20.0.23}"
+
 LSD="/mnt/app/eso/hmi/lsd"
 BUNDLES="$LSD/bundles_dsitracer_enabled.properties"
-STOCK_BUNDLES="$LSD/mibsdk/stock/bundles_dsitracer_enabled.properties"
+PERSIST="/mnt/persist/mibsdk-spike"
+BACKUP="$PERSIST/bundles.before"
 JAR_NAME="mibsdk-spike-ui.jar"
 JAR_DST="$LSD/jars/$JAR_NAME"
-STOCK_LINE="HMICar=de.audi.tghu.car.hmi.Activator"
-SPIKE_LINE="HMICar=mibsdk.spike.ui.SpikeCarActivator"
+ICONS_DST="$LSD/mibsdk-spike/icons"
+SDK_CAR_LINE="HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator"
+SPIKE_CAR_LINE="HMICar=mibsdk.spike.ui.SpikeCarActivator"
+STOCK_SYS_LINE="HMISystem=de.audi.tghu.system.hmi.Activator"
+SPIKE_SYS_LINE="HMISystem=mibsdk.spike.ui.SpikeSystemActivator"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 JAR_SRC="$HERE/build/libs/$JAR_NAME"
+ICONS_SRC="$HERE/icons"
+ICONS=(609100 609101 609102 609103 609110 609111 609120 p20 p30)
 SSH_OPTS=(-o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedKeyTypes=ssh-rsa -o BatchMode=yes
           -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=3)
 
@@ -41,54 +68,124 @@ push_file() {
     || { rsh "rm -f '$tmp'"; die "failed to move $dst into place"; }
 }
 
-# set_hmicar <from line> <to line>: rewrite exactly one HMICar= line of the installed bundles file (mode kept).
-set_hmicar() {
-  local from="$1" to="$2"
-  fetch "$BUNDLES" "$TMP/cur" || die "cannot read $BUNDLES"
-  # The stock file has CRLF line ends: compare without the CR, keep it on the rewritten line.
-  python3 -I - "$TMP/cur" "$TMP/new" "$from" "$to" <<'PY' || die "HMICar= line of $BUNDLES is not '$from'; refusing"
+# line_of <file> <key>: the single "<key>=" line of a local copy, without CR (empty if absent or not unique).
+line_of() {
+  python3 -I - "$1" "$2" <<'PY'
+import sys
+lines = [l.rstrip(b"\r") for l in open(sys.argv[1], "rb").read().split(b"\n")]
+hits = [l for l in lines if l.startswith(sys.argv[2].encode() + b"=")]
+print(hits[0].decode() if len(hits) == 1 else "")
+PY
+}
+
+# rewrite <in> <out> <from line> <to line>: replace exactly one line (key from <from>), keep its CR.
+rewrite() {
+  python3 -I - "$@" <<'PY'
 import sys
 src, dst, frm, to = sys.argv[1:5]
+key = frm.split("=", 1)[0].encode() + b"="
 lines = open(src, "rb").read().split(b"\n")
-hits = [i for i, l in enumerate(lines) if l.startswith(b"HMICar=")]
+hits = [i for i, l in enumerate(lines) if l.startswith(key)]
 if len(hits) != 1 or lines[hits[0]].rstrip(b"\r") != frm.encode():
     sys.exit(1)
 l = lines[hits[0]]
 lines[hits[0]] = to.encode() + (b"\r" if l.endswith(b"\r") else b"")
 open(dst, "wb").write(b"\n".join(lines))
 PY
+}
+
+check_mode() {
   local mode; mode="$(rsh "ls -ld '$BUNDLES'")"; mode="${mode%% *}"
   [ "$mode" = "-rwxrwxrwx" ] || die "unexpected mode $mode on $BUNDLES"
-  push_file "$TMP/new" "$BUNDLES"
+}
+
+# Inside rw: push a new bundles file and keep mode 777.
+push_bundles() {
+  push_file "$1" "$BUNDLES"
   rsh "chmod 777 '$BUNDLES'" || die "cannot chmod $BUNDLES"
 }
 
-case "${1:-}" in
+case "$CMD" in
   install)
     [ -f "$JAR_SRC" ] || die "$JAR_SRC missing; build: ./gradlew :spikes:hmi-ui:carJar"
-    rsh "[ -e '$STOCK_BUNDLES' ]" || die "the SDK is not installed (no $STOCK_BUNDLES)"
-    fetch "$STOCK_BUNDLES" "$TMP/stock"
-    tr -d '\r' <"$TMP/stock" | grep -qx "$STOCK_LINE" || die "stock backup has no '$STOCK_LINE'"
+    for i in "${ICONS[@]}"; do [ -f "$ICONS_SRC/$i.png" ] || die "$ICONS_SRC/$i.png missing; run make_icons.py"; done
+    fetch "$BUNDLES" "$TMP/cur" || die "cannot read $BUNDLES"
+    [ "$(line_of "$TMP/cur" HMICar)" = "$SDK_CAR_LINE" ] || die "live HMICar= is not '$SDK_CAR_LINE'; refusing"
+    [ "$(line_of "$TMP/cur" HMISystem)" = "$STOCK_SYS_LINE" ] || die "live HMISystem= is not stock; refusing"
+    check_mode
+    # bundles.before: a byte copy of the live file. An existing copy must be identical (a stale one would undo
+    # whatever happened since).
+    if rsh "[ -e '$BACKUP' ]"; then
+      fetch "$BACKUP" "$TMP/backup" && cmp -s "$TMP/cur" "$TMP/backup" \
+        || die "$BACKUP exists and differs from the live file; resolve by hand"
+      echo "bundles.before already present and identical"
+    else
+      rsh "mkdir -p '$PERSIST' && cat > '$BACKUP'" <"$TMP/cur" || die "cannot write $BACKUP"
+      fetch "$BACKUP" "$TMP/backup" && cmp -s "$TMP/cur" "$TMP/backup" || die "verification of $BACKUP failed"
+      echo "saved $BACKUP ($(wc -c <"$TMP/cur" | tr -d ' ') bytes)"
+    fi
+    rewrite "$TMP/cur" "$TMP/new1" "$SDK_CAR_LINE" "$SPIKE_CAR_LINE" || die "HMICar= rewrite failed"
+    if [ "$CAR_ONLY" = 1 ]; then
+      cp "$TMP/new1" "$TMP/new"
+    else
+      rewrite "$TMP/new1" "$TMP/new" "$STOCK_SYS_LINE" "$SPIKE_SYS_LINE" || die "HMISystem= rewrite failed"
+    fi
     rw_begin
-    rsh "rm -f '$LSD/jars/.push.tmp' '$LSD/.push.tmp'"
+    rsh "rm -f '$LSD/jars/.push.tmp' '$LSD/.push.tmp'; mkdir -p '$ICONS_DST'; rm -f '$ICONS_DST/.push.tmp'" \
+      || die "cannot prepare $ICONS_DST"
     push_file "$JAR_SRC" "$JAR_DST"
-    set_hmicar "$STOCK_LINE" "$SPIKE_LINE"
+    for i in "${ICONS[@]}"; do push_file "$ICONS_SRC/$i.png" "$ICONS_DST/$i.png"; done
+    push_bundles "$TMP/new"
     rw_end
+    echo "rewrote: $SDK_CAR_LINE -> $SPIKE_CAR_LINE"
+    if [ "$CAR_ONLY" = 1 ]; then echo "kept:    $STOCK_SYS_LINE (--car-only)"
+    else echo "rewrote: $STOCK_SYS_LINE -> $SPIKE_SYS_LINE"; fi
     echo "spike installed; restart: installer/mibsdk-dev restart"
     ;;
-  uninstall)
-    fetch "$STOCK_BUNDLES" "$TMP/stock" || die "cannot read $STOCK_BUNDLES"
-    line="$(tr -d '\r' <"$TMP/stock" | grep '^HMICar=')"
-    [ "$line" = "$STOCK_LINE" ] || die "unexpected stock HMICar line '$line'"
+  add-system)
+    rsh "[ -e '$BACKUP' ] && [ -e '$JAR_DST' ]" || die "spike not installed (no $BACKUP or $JAR_DST)"
+    fetch "$BUNDLES" "$TMP/cur" || die "cannot read $BUNDLES"
+    [ "$(line_of "$TMP/cur" HMICar)" = "$SPIKE_CAR_LINE" ] || die "live HMICar= is not the spike line; refusing"
+    [ "$(line_of "$TMP/cur" HMISystem)" = "$STOCK_SYS_LINE" ] || die "live HMISystem= is not stock; refusing"
+    fetch "$BACKUP" "$TMP/backup" || die "cannot read $BACKUP"
+    [ "$(line_of "$TMP/backup" HMICar)" = "$SDK_CAR_LINE" ] || die "$BACKUP is not the SDK state; refusing"
+    check_mode
+    rewrite "$TMP/cur" "$TMP/new" "$STOCK_SYS_LINE" "$SPIKE_SYS_LINE" || die "HMISystem= rewrite failed"
     rw_begin
-    set_hmicar "$SPIKE_LINE" "$line"
-    rsh "rm -f '$JAR_DST'" || die "cannot remove $JAR_DST"
+    push_bundles "$TMP/new"
     rw_end
-    echo "spike removed; restart: installer/mibsdk-dev restart"
+    echo "rewrote: $STOCK_SYS_LINE -> $SPIKE_SYS_LINE (bundles.before kept); restart: installer/mibsdk-dev restart"
+    ;;
+  uninstall)
+    fetch "$BACKUP" "$TMP/backup" || die "cannot read $BACKUP"
+    [ "$(line_of "$TMP/backup" HMICar)" = "$SDK_CAR_LINE" ] || die "$BACKUP has no '$SDK_CAR_LINE'; refusing"
+    [ "$(line_of "$TMP/backup" HMISystem)" = "$STOCK_SYS_LINE" ] || die "$BACKUP has a non-stock HMISystem=; refusing"
+    rw_begin
+    push_bundles "$TMP/backup"
+    fetch "$BUNDLES" "$TMP/after" && cmp "$TMP/backup" "$TMP/after" || die "bundles file differs from $BACKUP after restore"
+    rsh "rm -f '$JAR_DST' '$ICONS_DST'/*.png '$ICONS_DST/.push.tmp'; rmdir '$ICONS_DST' '$LSD/mibsdk-spike' 2>/dev/null; true" \
+      || die "cannot remove $JAR_DST / $ICONS_DST"
+    rw_end
+    rsh "[ ! -e '$JAR_DST' ] && [ ! -e '$LSD/mibsdk-spike' ]" || die "jar or icons dir still present"
+    echo "bundles file restored from $BACKUP (cmp identical); jar and icons removed; restart: installer/mibsdk-dev restart"
+    ;;
+  status)
+    fetch "$BUNDLES" "$TMP/cur" || die "cannot read $BUNDLES"
+    echo "live:   $(line_of "$TMP/cur" HMICar)"
+    echo "live:   $(line_of "$TMP/cur" HMISystem)"
+    if rsh "[ -e '$BACKUP' ]"; then
+      fetch "$BACKUP" "$TMP/backup"
+      echo "backup: $BACKUP present, $(wc -c <"$TMP/backup" | tr -d ' ') bytes, $(cmp -s "$TMP/cur" "$TMP/backup" && echo identical to live || echo differs from live)"
+    else
+      echo "backup: none"
+    fi
+    rsh "[ -e '$JAR_DST' ]" && echo "jar:    present" || echo "jar:    absent"
+    rsh "[ -d '$ICONS_DST' ]" && echo "icons:  present" || echo "icons:  absent"
+    echo "mount:  $(rsh "mount" | grep ' on /mnt/app type' || true)"
     ;;
   log)
     fetch /tmp/mibsdk.log "$TMP/log" || die "/tmp/mibsdk.log not found"
     cat "$TMP/log"
     ;;
-  *) echo "usage: run.sh install|uninstall|log [host]" >&2; exit 2 ;;
+  *) echo "usage: run.sh install [--car-only] | add-system | uninstall | status | log  [host]" >&2; exit 2 ;;
 esac

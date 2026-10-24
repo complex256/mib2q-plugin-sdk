@@ -7,16 +7,22 @@ import de.audi.atip.hmi.IHMIServiceApp;
 import de.audi.atip.hmi.event.RunnableEvent;
 import de.audi.atip.hmi.model.ChoiceModel;
 import de.audi.atip.hmi.model.HMIModel;
+import de.audi.atip.hmi.model.HMIResourceLocator;
 import de.audi.atip.hmi.model.LabelModel;
+import de.audi.atip.hmi.model.ResourceLocatorModel;
 import de.audi.atip.hmi.model.AbstractModelBank;
 import de.audi.atip.hmi.modelaccess.ChoiceModelApp;
 import de.audi.atip.hmi.modelaccess.LabelModelApp;
+import de.esolutions.hmi.widgets.audi.evo.widgets.MainWizardController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import java.io.File;
 
 /**
  * Daemon thread "mibsdk-spike-ui": polls command files /tmp/mibsdk-spike-ui.&lt;cmd&gt; every 100 ms (each is deleted
  * when taken). "rerun" runs spike A's probe sequence (S1c, S1d, S3a/b, S3c); spike B adds row1-show/row1-hide,
  * back-reshow/back-event/back-stock, reset-sel-on/off, nolabel-on and hijack (file holds an event id).
+ * Spike C adds pop-on/pop-off, pop-file, icon-next, glyphs1/glyphs2/glyph-off, logo-on/logo-off, and for the
+ * main menu (Boot B) wrench, wz-hide/wz-show and wz-label.
  */
 final class SpikeProbes implements Runnable {
     private static final String RULER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -70,6 +76,7 @@ final class SpikeProbes implements Runnable {
                     SpikePage.noLabelRow = true;
                     SpikeLog.log("cmd noLabelRow=true");
                 }
+                spikeC();
                 File h = cmd("hijack");
                 if (h.exists()) {
                     int ev = readInt(h);
@@ -83,6 +90,162 @@ final class SpikeProbes implements Runnable {
                 SpikeLog.log("probe command FAILED: " + t);
             }
         }
+    }
+
+    // ---- Spike C ------------------------------------------------------------------------------------------------
+
+    /** S4 glyph rulers (font coverage of label 416). */
+    static final String GLYPHS1 = "\u2190\u2191\u2192\u2193\u2022\u25AA\u25BA\u25C0\u25C6\u25CA\u221E\u221A\u2300";
+    static final String GLYPHS2 = "\u25CF\u25CB\u2605\u25B2\u25A0\u25A1\u25CE\u203B\u266A\u260E\u2713\u26A0";
+    /** S4: the glyph text held in label 416 (re-asserted every second, the SDK status writer may share it). */
+    private static volatile String heldGlyphs;
+    private long lastGlyphWrite;
+
+    private void spikeC() {
+        if (take("pop-on")) {
+            popupVisible(1);
+        }
+        if (take("pop-off")) {
+            popupVisible(0);
+        }
+        if (take("pop-file")) {
+            ResourceLocatorModel r = (ResourceLocatorModel) spike(SpikeIds.POPUP_FILE_MODEL);
+            if (r != null) {
+                String path = SpikeIds.ICON_ABS_DIR + "p20.png";
+                r.setResourceLocator(new HMIResourceLocator(path));
+                SpikeLog.log("cmd pop-file 602752 := " + path);
+            }
+        }
+        if (take("icon-next")) {
+            onHmi("icon-next", new Runnable() {
+                public void run() {
+                    MenuItemController r = SpikeFactory.row0;
+                    if (r != null) {
+                        r.setBitmaps(new int[] {SpikeIds.ICON_NEXT, SpikeIds.ICON_NEXT_REFLEX});
+                    }
+                    SpikeLog.log("cmd icon-next row0=" + (r != null) + " bitmaps := {609102, 609103}");
+                }
+            });
+        }
+        if (take("glyphs1")) {
+            glyphs(GLYPHS1);
+        }
+        if (take("glyphs2")) {
+            glyphs(GLYPHS2);
+        }
+        if (take("glyph-off")) {
+            heldGlyphs = null;
+            status("", 0);
+            SpikeLog.log("cmd glyph-off");
+        }
+        String g = heldGlyphs;
+        if (g != null && System.currentTimeMillis() - lastGlyphWrite >= 1000) {
+            lastGlyphWrite = System.currentTimeMillis();
+            status(g, 1);
+        }
+        if (take("logo-on")) {
+            logo(SpikeIds.ICON_ABS_DIR + "p30.png", 1);
+        }
+        if (take("logo-off")) {
+            logo("", 0);
+        }
+        // Boot B (main menu) commands.
+        if (take("wrench")) {
+            onHmi("wrench", new Runnable() {
+                public void run() {
+                    MainWizardController w = SpikeSystemFactory.wizard;
+                    if (w == null) {
+                        SpikeLog.log("cmd wrench: no wizard yet");
+                        return;
+                    }
+                    int[][] map = w.getInitContext().getLayout().getMainWizardIconDecoratorMapping();
+                    int k = SpikeIds.WRENCH_WIDGET_ID;
+                    int[] old = map[k];
+                    map[k] = new int[] {16, 9};
+                    SpikeLog.log("cmd wrench mapping[" + k + "] " + (old == null ? "null" : old[0] + "," + old[1])
+                            + " -> 16,9 (length " + map.length + ")");
+                }
+            });
+        }
+        if (take("wz-hide")) {
+            wizardVisible(false);
+        }
+        if (take("wz-show")) {
+            wizardVisible(true);
+        }
+        if (take("wz-label")) {
+            String[] t = (String[]) SpikeSystemFactory.wizardTexts.clone();
+            t[0] = "SDK w10 relabelled";
+            SpikeSystemFactory.wizardTexts = t;
+            SpikeLog.log("cmd wz-label text[90000]='" + t[0] + "'");
+        }
+    }
+
+    private static HMIModel spike(int id) {
+        SpikeBank bank = SpikeBank.instance;
+        return bank == null ? null : bank.spikeModel(id);
+    }
+
+    private static void popupVisible(int v) {
+        ChoiceModel c = (ChoiceModel) spike(SpikeIds.POPUP_VISIBLE_MODEL);
+        if (c != null) {
+            c.setValue(v);
+        }
+        SpikeLog.log("cmd popup 609600 visibility 602751 := " + v + " model=" + (c != null));
+    }
+
+    private void glyphs(String g) {
+        heldGlyphs = g;
+        lastGlyphWrite = System.currentTimeMillis();
+        status(g, 1);
+        SpikeLog.log("cmd glyphs len=" + g.length());
+    }
+
+    private IHMIServiceApp cachedHmi;
+
+    private IHMIServiceApp hmiC() {
+        if (cachedHmi == null) {
+            cachedHmi = hmi(System.currentTimeMillis());
+        }
+        return cachedHmi;
+    }
+
+    private void status(String text, int visible) {
+        IHMIServiceApp hmi = hmiC();
+        hmi.getLabelModel(SpikeIds.STATUS_LABEL_MODEL).setText(text);
+        hmi.getChoiceModel(SpikeIds.STATUS_VISIBLE_CHOICE).setValue(visible);
+    }
+
+    private void logo(String path, int st) {
+        IHMIServiceApp hmi = hmiC();
+        hmi.getResourceLocatorModel(SpikeIds.SYS_PROVIDER_LOGO_MODEL).setResourceLocator(-1, path, st);
+        SpikeLog.log("cmd logo model 3838 := status " + st + " '" + path + "'");
+    }
+
+    private static void wizardVisible(final boolean v) {
+        onHmi("wz-visible", new Runnable() {
+            public void run() {
+                MenuItemController[] rows = SpikeSystemFactory.wizardRows;
+                if (rows != null) {
+                    rows[0].setVisible(v);
+                }
+                SpikeLog.log("cmd wz-" + (v ? "show" : "hide") + " rows=" + (rows != null));
+            }
+        });
+    }
+
+    /** Widget work goes to HMIEvent; a throwing runnable only logs. */
+    private static void onHmi(final String what, final Runnable r) {
+        HMIService svc = AbstractModelBank.getHMIservice();
+        svc.getEventDispatcher().postEvent(new RunnableEvent(false, new Runnable() {
+            public void run() {
+                try {
+                    r.run();
+                } catch (Throwable t) {
+                    SpikeLog.log("cmd " + what + " FAILED on HMIEvent: " + t);
+                }
+            }
+        }));
     }
 
     /** Spike B: set by the "reset-sel-on" command; the drawer press listener then resets the selection model to -1. */
