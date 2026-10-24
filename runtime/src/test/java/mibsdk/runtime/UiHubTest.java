@@ -203,12 +203,16 @@ class UiHubTest {
     }
 
     @Test
-    void statusMaxCharsIsClampedToFour() throws Exception {
+    void statusMaxCharsIsClampedToFitTheMustShowIndicators() throws Exception {
         UiHub hub = hub(0);
-        hub.setStatusItem("a", "ABCDEFG");
+        hub.setStatusItem("a", "ABCDEFGHIJKLMNOP");
+        hub.setIndicators(Arrays.asList("SAFE", "PDC R OFF"));
         hub.setStatusMaxChars(1);
         hub.publishNow();
-        assertEquals("ABCD", table.snapshot().statusLine(), "a share under 6 is cut hard, without ...");
+        assertEquals("SAFE PDC R OFF", table.snapshot().statusLine(), "never cut, at the smallest line");
+        hub.setIndicators(null);
+        hub.publishNow();
+        assertEquals("ABCDEFGHI...", table.snapshot().statusLine(), "clamped to 14, not 1");
     }
 
     @Test
@@ -589,10 +593,11 @@ class UiHubTest {
         hub.setIndicators(Arrays.asList("SAFE"));
         hub.publishNow();
         assertEquals("SAFE A up B up", table.snapshot().statusLine());
-        hub.setStatusMaxChars(8);
+        hub.setStatusMaxChars(14);
         hub.setStatusItem("b", null);
+        hub.setStatusItem("a", "A up and away");
         hub.publishNow();
-        assertEquals("SAFE A u", table.snapshot().statusLine(), "the item keeps the room SAFE leaves");
+        assertEquals("SAFE A up a...", table.snapshot().statusLine(), "the item keeps the room SAFE leaves");
         assertNull(table.snapshot().openPageKey());
     }
 

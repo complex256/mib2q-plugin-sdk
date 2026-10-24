@@ -106,9 +106,13 @@ class StatusLineTest {
                 Arrays.asList("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"), 24),
                 "an item shorter than the minimum needs only its own length");
         assertEquals("SAFE ABC...", StatusLine.compose(Arrays.asList("SAFE"),
-                Arrays.asList("ABCDEFG", "HIJKLMN"), 11), "one is always kept");
+                Arrays.asList("ABCDEFG", "HIJKLMN"), 11), "the first one is kept");
         assertEquals("SAFE A u", StatusLine.compose(Arrays.asList("SAFE"), Arrays.asList("A up"), 8),
-                "even below the minimum width");
+                "at the minimum width");
+        assertEquals("SAFE", StatusLine.compose(Arrays.asList("SAFE"), Arrays.asList("A up"), 7),
+                "never narrower than the minimum: no item instead");
+        assertEquals("SAFE A", StatusLine.compose(Arrays.asList("SAFE"), Arrays.asList("A"), 6),
+                "an item shorter than the minimum needs only its length");
     }
 
     @Test

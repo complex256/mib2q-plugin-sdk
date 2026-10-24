@@ -27,11 +27,12 @@ public interface Ui {
     /**
      * One short status-line item; set(null|"") hides it. Needs ui.slot.statusbar; inert without SLOT_STATUS_BAR.
      *
-     * <p>The line is shared: the runtime's own indicators come first and take at most half of it while there are
-     * items, and the items share the rest fairly, so no plugin's item can crowd out another's. An item shorter than
+     * <p>The line is shared: the runtime's own indicators come first. The safety ones ({@code SAFE},
+     * {@code PDC R OFF}) always show; the others give way to plugin items. The items share what is left fairly, so no
+     * plugin's item can crowd out another's. An item shorter than
      * an equal share is shown whole; a longer one may be cut to its share (with {@code ...} when the share is wide
      * enough), so put the most important text first. Items follow the user's order, then plugin id; when even three
-     * characters each do not fit, the last items in that order are left out. The user may hide this plugin's item or
+     * characters each do not fit, the last items in that order are left out (all of them if none fits). The user may hide this plugin's item or
      * move it earlier or later from its page in the Plugins menu. None of that is visible to the plugin:
      * {@link StatusItem#set} keeps working and never fails because the item is hidden or cut.
      */

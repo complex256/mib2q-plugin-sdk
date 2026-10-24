@@ -92,7 +92,7 @@ public final class RuntimeConfig {
         this.storagePluginMaxBytes = longValue(p, "storage.plugin.max.bytes", 262144, 1);
         this.storageTotalMaxBytes = longValue(p, "storage.total.max.bytes", 1048576, 1);
         this.uiPublishMinMs = longValue(p, "ui.publish.min.ms", 100, 0);
-        this.uiStatusMaxChars = (int) longValue(p, "ui.status.max.chars", 24, 4);
+        this.uiStatusMaxChars = (int) longValue(p, "ui.status.max.chars", 24, StatusLine.MIN_LINE_CHARS);
         this.uiEnabled = !"false".equalsIgnoreCase(trimmed(p, "ui.enabled"));
     }
 
@@ -242,7 +242,7 @@ public final class RuntimeConfig {
         return uiPublishMinMs;
     }
 
-    /** Status-line length in characters ({@code ui.status.max.chars}, at least 4). */
+    /** Status-line length in characters ({@code ui.status.max.chars}, at least {@code "SAFE PDC R OFF"}, 14). */
     public int uiStatusMaxChars() {
         return uiStatusMaxChars;
     }

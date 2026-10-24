@@ -381,7 +381,7 @@ final class UiHub {
 
     void setStatusMaxChars(int max) {
         synchronized (lock) {
-            statusMaxChars = Math.max(4, max); // room for SAFE, or an item of MIN_ITEM_CHARS
+            statusMaxChars = Math.max(StatusLine.MIN_LINE_CHARS, max); // SAFE PDC R OFF is never cut
         }
         changed();
     }

@@ -26,6 +26,8 @@ final class StatusLine {
     static final String SAFE = "SAFE";
     static final String REAR_PDC_OFF = "PDC R OFF";
     static final String OVERRIDE_PREFIX = "OVR ";
+    /** The shortest line: the must-show indicators together are never cut. */
+    static final int MIN_LINE_CHARS = (SAFE + " " + REAR_PDC_OFF).length();
     /** Parking keys of any other kind show as {@code OVR PDC}. */
     static final String PARKING_PREFIX = "parking.";
     /** Other keys show their last dot-separated segment, cut to this many characters. */
@@ -163,14 +165,14 @@ final class StatusLine {
 
     /**
      * Max-min fair ("water-filling") widths for {@code items} in {@code room} characters, one space between items.
-     * First, while more than one item is left and they cannot all get {@link #MIN_ITEM_CHARS} (or their own length,
-     * if shorter), the last one is dropped (the result is shorter than {@code items}). Then an item no longer than
+     * First, while the items left cannot all get {@link #MIN_ITEM_CHARS} (or their own length, if shorter), the last
+     * one is dropped (the result is shorter than {@code items}; empty if not even the first fits). Then an item no longer than
      * an equal share of the text room keeps its full length and the rest is shared again among the longer ones; each
      * of those gets the final equal share, the odd characters going to the earliest ones.
      */
     static int[] shares(List<Item> items, int room) {
         int n = items.size();
-        while (n > 1) {
+        while (n > 0) {
             int need = n - 1;
             for (int i = 0; i < n; i++) {
                 need += Math.min(items.get(i).width(), MIN_ITEM_CHARS);
