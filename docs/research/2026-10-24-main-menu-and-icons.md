@@ -477,3 +477,34 @@ Other observations:
   The first is simpler and also removes the label-416 sharing.
 - **Glyphs** (zero-risk stopgap): `● ○ ★ ▲ ■ □ ◆ ◊ ♪ ☎ ← ↑ → ↓ • ∞ √` are usable in status text. `✓` and `⚠` are not.
 - **Provider logo (3838)** is not a usable SDK surface.
+
+## 10. Spike C, Boot B results: BLOCKED, the unit did not come back
+
+Date: 2026-10-24. Boot B = Boot A plus `run.sh add-system` (live lines `HMICar=mibsdk.spike.ui.SpikeCarActivator`,
+`HMISystem=mibsdk.spike.ui.SpikeSystemActivator`). Before the restart, the jar was replaced with `push-jar` (commit
+`0ad96fc`, which adds the `pop-slot` and `glyphs3` probes) and `cmp`-verified on the unit. `/mnt/app` was read-only.
+`bundles.before` was the pre-spike SDK copy.
+
+- 16:23:44 (host time): `installer/mibsdk-dev restart` (`slay -s11 j9`). SSH stayed up for about 65 s, then dropped.
+  That is the normal unit reset.
+- 16:27: `keypanel up` (try 1): "no answer - kicking DHCP … still unreachable".
+- 16:27–16:33: SSH polled every 10 s, with no answer.
+- 16:35: `keypanel up` (try 2): the same. `keypanel status`: `kl15 active`, `mmx UNREACHABLE`, daemon down, and ping
+  100 % loss.
+
+The bench rule (two failed `keypanel up` tries) says stop, so the run stopped there. **No Boot B check ran.** C0–C5,
+wrench, relabel/hide, the stock rows and the slot test are all **not run**. The §8.4 emergency revert needs SSH, so it
+could not be applied. For comparison, Boot A's reset also needed a DHCP kick and came back after about 8 min. This
+unit was still unreachable 12 min after the slay.
+
+It is not known whether the unreachable unit is caused by the `HMISystem=` spike. A blank or crashing HMI alone
+should not take the unit's network down, and the Boot A reset already took unusually long. A unit that stays off the
+network after a reset is what §2.3 calls the worst case, though, so the owner should treat it as possibly caused by
+the spike.
+
+Recovery (owner):
+1. Power-cycle the unit if it does not answer.
+2. As soon as SSH answers, run the §8.4 revert from `/mnt/persist/mibsdk-spike/bundles.before` (10231 bytes, md5
+   `d9c74323f707fb44e73f9c4b286d7589`, the SDK state).
+3. Run `slay -s11 j9`.
+4. Run `spikes/hmi-ui/run.sh uninstall` to remove the jar and icons and to re-check the bundles file with `cmp`.
