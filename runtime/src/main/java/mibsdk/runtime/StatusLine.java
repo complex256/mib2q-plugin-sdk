@@ -26,6 +26,11 @@ final class StatusLine {
     static final String SAFE = "SAFE";
     static final String REAR_PDC_OFF = "PDC R OFF";
     static final String OVERRIDE_PREFIX = "OVR ";
+    /**
+     * The longest line: what popup 65 fits (spike S3b). A longer line would be cut by the popup with {@code ...},
+     * which defeats the fair share.
+     */
+    static final int MAX_LINE_CHARS = 24;
     /** The shortest line: the must-show indicators together are never cut. */
     static final int MIN_LINE_CHARS = (SAFE + " " + REAR_PDC_OFF).length();
     /** Parking keys of any other kind show as {@code OVR PDC}. */

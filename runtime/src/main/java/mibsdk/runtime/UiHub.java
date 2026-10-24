@@ -58,7 +58,7 @@ final class UiHub {
     static final String SDK_OWNER = "mibsdk";
     static final String PLUGINS_KEY = "mibsdk/plugins";
     static final String DEFAULT_PLUGINS_LABEL = "Plugins";
-    static final int DEFAULT_STATUS_MAX_CHARS = 24;
+    static final int DEFAULT_STATUS_MAX_CHARS = StatusLine.MAX_LINE_CHARS;
     private static final String SOURCE = "mibsdk";
     /** Bounds the per-page bookkeeping fed by adapter input (page keys on screen, drop-logged keys). */
     private static final int MAX_TRACKED_KEYS = 32;

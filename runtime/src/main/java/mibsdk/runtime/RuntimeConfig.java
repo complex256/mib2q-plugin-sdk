@@ -33,7 +33,7 @@ import mibsdk.platform.SdkRoots;
  * storage.plugin.max.bytes         262144   one plugin's data file (estimated size); a put beyond fails
  * storage.total.max.bytes         1048576   every plugin's data file together (the persist partition is shared)
  * ui.publish.min.ms                   100   minimum interval between two published UI snapshots
- * ui.status.max.chars                  24   status-line length (indicators, then plugin items)
+ * ui.status.max.chars                  24   status-line length (indicators, then plugin items), 14..24
  * ui.enabled                         true   SDK HMI UI (Car drawer rows, pages, status line); only "false" turns it off
  * </pre>
  * Files: read-only at runtime, under {@link SdkRoots#install()}: sdk.properties, grants.properties, SAFE_MODE,
@@ -92,7 +92,8 @@ public final class RuntimeConfig {
         this.storagePluginMaxBytes = longValue(p, "storage.plugin.max.bytes", 262144, 1);
         this.storageTotalMaxBytes = longValue(p, "storage.total.max.bytes", 1048576, 1);
         this.uiPublishMinMs = longValue(p, "ui.publish.min.ms", 100, 0);
-        this.uiStatusMaxChars = (int) longValue(p, "ui.status.max.chars", 24, StatusLine.MIN_LINE_CHARS);
+        this.uiStatusMaxChars = (int) longValue(p, "ui.status.max.chars", StatusLine.MAX_LINE_CHARS,
+                StatusLine.MIN_LINE_CHARS, StatusLine.MAX_LINE_CHARS);
         this.uiEnabled = !"false".equalsIgnoreCase(trimmed(p, "ui.enabled"));
     }
 
@@ -242,7 +243,10 @@ public final class RuntimeConfig {
         return uiPublishMinMs;
     }
 
-    /** Status-line length in characters ({@code ui.status.max.chars}, at least {@code "SAFE PDC R OFF"}, 14). */
+    /**
+     * Status-line length in characters ({@code ui.status.max.chars}): from the length of {@code "SAFE PDC R OFF"} (14)
+     * to what popup 65 fits (24, also the default); a value outside that reads as the default.
+     */
     public int uiStatusMaxChars() {
         return uiStatusMaxChars;
     }
@@ -266,13 +270,18 @@ public final class RuntimeConfig {
 
     /** The value if it parses and is in [min, Integer.MAX_VALUE]; otherwise {@code def}. */
     private static long longValue(Properties p, String key, long def, long min) {
+        return longValue(p, key, def, min, Integer.MAX_VALUE);
+    }
+
+    /** {@code key} as a number in {@code min..max}, else {@code def}. */
+    private static long longValue(Properties p, String key, long def, long min, long max) {
         String v = trimmed(p, key);
         if (v == null) {
             return def;
         }
         try {
             long n = Long.parseLong(v);
-            return n < min || n > Integer.MAX_VALUE ? def : n;
+            return n < min || n > max ? def : n;
         } catch (NumberFormatException e) {
             return def;
         }
