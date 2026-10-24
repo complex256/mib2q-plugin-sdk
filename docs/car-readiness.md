@@ -31,6 +31,14 @@ below is closed. Plan 4 (car session, carplay-rgi migration) starts with these.
   wording says so.
 - An I2 refusal should recommend `safe-mode on && restart`.
 - If `pluginStartDelayMs > healthyAfterMs`, there is a gap in the boot counter.
-- The wrap-loop latch has no indicator the user can see (Plan 2, UI).
+- The wrap-loop latch has no on-car indicator by design: the SDK UI is off under the latch. Clear it with
+  `mibsdk-dev safe-mode off`.
 - M1: plugin features are not refreshed if the parking service registers after the initial load. This can only
   cause a false negative.
+
+## Car-only UI checks (Plan 4)
+
+The bench has no reverse camera and no PDC ECU (`docs/bench-e2e-ui.md`), so these wait for the car:
+
+- Popup 65 (the SDK status line) never covers the reverse-camera image or the PDC display.
+- `PDC R OFF` shows on the status line while bike-rack's override is held and while it is restoring.
