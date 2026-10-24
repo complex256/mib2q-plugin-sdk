@@ -1,10 +1,10 @@
 {
   "id": "crashy",
   "name": "Crashy",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "complex256",
-  "api": 1,
+  "api": 2,
   "main": "sample.crashy.CrashyPlugin",
-  "permissions": [],
+  "permissions": ["ui.slot.statusbar"],
   "dependencies": []
 }

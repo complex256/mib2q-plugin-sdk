@@ -544,6 +544,7 @@ class SdkRuntimeLifecycleTest {
         writeFile(new File(roots.persist(), "data/crashy.properties"), "mode=" + crashyMode + "\n");
         grants.clear();
         grants.put("hello", new String[] {"vehicle.read"});
+        grants.put("crashy", new String[] {"ui.slot.statusbar"}); // its manifest declares it (api 2, mode ui-throw)
     }
 
     @Test
