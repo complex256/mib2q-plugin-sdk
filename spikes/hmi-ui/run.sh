@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run.sh install|uninstall|log [host]: put the Plan 2 UI spike (mibsdk-spike-ui.jar) on a unit that already runs the
 # SDK, by pointing the installed bundles file's HMICar= line at mibsdk.spike.ui.SpikeCarActivator.
-# Same conventions as installer/mibsdk-dev (copied here, not sourced: that script runs its main when sourced):
+# Self-contained (it sources nothing; the push conventions are those of the pre-mibpkg installer/mibsdk-dev):
 # push via `cat >` to a temp file, verify byte for byte, rename; /mnt/app read-write only between rw_begin/rw_end.
 # Never reads or prints the j9 command line.
 set -euo pipefail

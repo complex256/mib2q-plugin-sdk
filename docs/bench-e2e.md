@@ -369,12 +369,22 @@ through the chained `TraceConfigurator`.
 
 ### `mibsdk-dev` commands (current)
 
-| Command | What it does |
-|---------|--------------|
-| `install` / `uninstall [--purge] [--force]` | install the SDK; uninstall keeps `/mnt/persist/mibsdk` unless `--purge` |
-| `restart` | `slay -s11 j9` |
-| `push <plugin.jar>` | install `plugins/<id>.jar` and write a fresh reload token |
-| `grant <id> <perm,...>` | rewrite that plugin's line in `grants.properties` |
-| `data-clear <id>` | remove one plugin's `data/<id>.properties` from `/mnt/persist/mibsdk/data` (ledger and boot state untouched); restart afterwards, since the storage cap counts files on disk from the runtime's start and a running plugin may write its data back |
-| `safe-mode on\|off` | set/remove `SAFE_MODE`; `off` also resets `boot.state` |
-| `log` / `status` | print `/tmp/mibsdk.log` / its STATUS lines |
+`mibsdk-dev` is a thin SSH transport over the unit's mibpkg (0.8.0 or later; every command but `log` and `restart`
+first checks `/tmp/mibpkg sdk status` and refuses an older or missing mibpkg). It uploads to `/tmp` only and never
+remounts anything: mibpkg owns every `/mnt/app` write. mibpkg's exit code passes through (3: permissions to
+approve, with an `approve with:` line; 2: bad usage; 1: failed or busy).
+
+| Command | What it does on the unit |
+|---------|--------------------------|
+| `install` | upload the single `dist/build/dist/mibsdk-*.mpk` (or `$MIBSDK_MPK`; build it with `./gradlew :dist:mibpkgPackage`) to `/tmp/mibpkg.upload.<uid>.mpk`, then `/tmp/mibpkg install-file mibsdk <uid> -` |
+| `uninstall [--purge] [--force]` | `/tmp/mibpkg remove mibsdk [--purge] [--force]`; keeps `/mnt/persist/mibsdk` unless `--purge` |
+| `install-plugin <file.mpk> [--approve=<perm,...>]` | upload, then `/tmp/mibpkg install-file <id> <uid> - [--approve=…]` (the id is the `.mpk`'s `[package].name`) |
+| `remove <id> [--purge\|--purge-data]` | `/tmp/mibpkg sdk remove <id> [--purge]` (plugin packages and pushed jars); keeps the plugin's data unless `--purge` |
+| `push <plugin.jar>` | upload a snapshot of the jar and its `<jar>.stamp` (refused without the stamp) to `/tmp/mibpkg.push.<id>.jar{,.stamp}`, then `/tmp/mibpkg sdk push <id>` |
+| `grant <id> <perm,...>` | `/tmp/mibpkg sdk grant <id> <perm,...>` (an empty list revokes all; a plugin missing a grant does not run) |
+| `safe-mode on\|off` | `/tmp/mibpkg sdk safe-mode on\|off`; `off` also resets `boot.state` |
+| `boot-state set-wrap <n>` | `/tmp/mibpkg sdk boot-state set-wrap <n>` |
+| `data-clear <id>` | `/tmp/mibpkg sdk data-clear <id>`; restart afterwards, since the storage cap counts files on disk from the runtime's start and a running plugin may write its data back |
+| `status` | `/tmp/mibpkg sdk status`: the `HMICar=` line, the SDK, its plugins, the ledger, then the runtime's STATUS lines |
+| `log` | print `/tmp/mibsdk.log` (no mibpkg needed) |
+| `restart` | `slay -s11 j9` (no mibpkg needed) |

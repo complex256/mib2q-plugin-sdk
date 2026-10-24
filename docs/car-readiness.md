@@ -17,9 +17,13 @@ below is closed. Plan 4 (car session, carplay-rgi migration) starts with these.
 
 ## Known follow-ups (not gates)
 
-- `mibsdk-dev remove <id>`: there is no command to uninstall a single plugin.
-- mibpkg remounts `/mnt/app` read-only after its own writes, at any time. `push_file` re-asserts the mount and
-  retries once, and other installer commands fail loudly. Properly fixing this means coordinating with mibpkg.
+- `mibpkg sdk remove <id>` (`mibsdk-dev remove <id>` on the bench) uninstalls a single plugin, a package or a
+  pushed jar.
+- `/mnt/app` writes go through mibpkg only: its remount holders (`/tmp/mibpkg.rw.<tag>.<pid>`) keep the partition
+  read-write while any mibpkg process writes, and every write is a `put` (verified, then renamed into place).
+  `mibsdk-dev` no longer remounts anything.
+- M7 is now enforced on the unit by mibpkg (it verifies the check stamp of the SDK and of every plugin it
+  installs or receives by push); the gate stays open until that is proven on the bench.
 - The `boot.state` wrap count written at boot is only proven indirectly on the bench (`wrapping=true` with no
   `reason=`): the unit is off the network for the first 2–3 minutes after a reset.
 - `mibsdk-dev restart` (`slay -s11 j9`) resets the whole bench unit after 2–3 minutes instead of respawning j9.

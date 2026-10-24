@@ -176,13 +176,14 @@ reports a **feature set** (e.g. `slot.statusbar`, `hook.dsi.carparkingsystem`), 
   force-release them.
 - Plugins live outside `lsd/jars/`, so they never enter the boot classpath. The directory is the
   builder's call; it must be on a writable, persistent partition that mibpkg manages.
-- **On-unit paths** (decided after the bench run: `/mnt/app` is read-only while the HMI runs, and mibpkg and
-  `mibsdk-dev` remount it read-write only around their own writes). The runtime never names these paths: they
+- **On-unit paths** (decided after the bench run: `/mnt/app` is read-only while the HMI runs, and mibpkg owns
+  `/mnt/app` writes: it remounts it read-write only around its own writes; `mibsdk-dev` is a transport over
+  mibpkg and never remounts). The runtime never names these paths: they
   come from the platform side (`SdkRoots`, supplied by adapter-hqc's `SdkFiles`; tests use temp dirs).
 
   | Root | Path | Writable at runtime | Holds |
   |------|------|---------------------|-------|
-  | install | `/mnt/app/eso/hmi/lsd/mibsdk/` | no (installer only, after `mount -uw`) | `sdk.properties`, `grants.properties`, `SAFE_MODE`, `plugins/<id>.jar`, `plugins/<id>.reload`, `stock/` |
+  | install | `/mnt/app/eso/hmi/lsd/mibsdk/` | no (mibpkg only, under its remount) | `sdk.properties`, `grants.properties`, `SAFE_MODE`, `permissions.json`, `plugins/<id>.jar`, `plugins/<id>.reload`, legacy `stock/` |
   | persist | `/mnt/persist/mibsdk/` | yes (qnx6, from boot) | `boot.state`, `ledger.properties`, `data/<id>.properties` |
   | ram | `/ramdisk/mibsdk/` | yes (lost at power-off) | `cache/<id>-<n>.jar` |
   | SDK jars | `/mnt/app/eso/hmi/lsd/jars/` | no | `mibsdk-runtime.jar`, `mibsdk-adapter-hqc.jar`, `mibsdk-rt-retrotranslator.jar` |
@@ -192,13 +193,13 @@ reports a **feature set** (e.g. `slot.statusbar`, `hook.dsi.carparkingsystem`), 
     capped (default 256 KiB per plugin, 1 MiB in total; `storage.*.max.bytes` in `sdk.properties`). A plugin
     write past the cap fails; it never fills the partition.
   - The runtime never deletes a reload marker. It reloads once per new or changed marker, tracking the ones
-    it consumed in memory; markers present at start count as consumed. `mibsdk-dev push` writes a fresh token.
+    it consumed in memory; markers present at start count as consumed. `mibpkg sdk push` (behind `mibsdk-dev push`) writes a fresh token.
   - The configurator reads and writes `boot.state` in the persistent root on the LSD thread at init, with no
     remount and no exec.
   - A root the runtime cannot write is reported (`STATUS mibsdk state persist=… UNWRITABLE … bootGuard=inert`);
     an inert boot guard never reports a healthy boot.
   - Uninstall keeps `/mnt/persist/mibsdk/` (plugin data) unless `--purge`.
-    `mibsdk-dev data-clear <id>` removes one plugin's `data/<id>.properties` (ledger and boot state untouched).
+    `mibpkg sdk data-clear <id>` (`mibsdk-dev data-clear <id>`) removes one plugin's `data/<id>.properties` (ledger and boot state untouched).
 
 ## 6. Containment (G4)
 
@@ -251,6 +252,11 @@ about.
   you revoke grants by editing that file; a revoked capability disables the features that need it.
   mibpkg re-reads the file rather than keeping its own copy, so no live control channel is needed.
   [my call]
+- **Revocation** (implemented by Plan 3) is mibpkg's: its web grants editor and `mibpkg sdk grant <id> <perm,...>`
+  (`mibsdk-dev grant` on the bench) rewrite the plugin's line. Runtime enforcement is all-or-nothing today: a
+  plugin whose declared permissions are not all granted is `BLOCKED_PERMISSIONS` and does not run, so revoking
+  one permission blocks the plugin. Optional permissions (a manifest list the runtime tolerates ungranted) are a
+  follow-up.
 - **Enforcement is at the API:** a plugin only receives the service handles it was granted.
 - **Two guards beyond the API:**
   - the filtered class loader (§5.3);
@@ -350,6 +356,10 @@ mibpkg (`~/complex-projects/mibpkg`) gains a **declarative plugin package type**
 The SDK runtime itself is also a mibpkg package. It needs a reboot because it changes `lsd/jars` and
 the bundle list, and it must back up and restore any stock file it edits, the same pattern as
 carplay-rgi's `.carplay-stock`.
+
+Implemented by Plan 3 (`docs/superpowers/plans/2026-10-20-mibpkg-distribution.md`): a plugin is a mibpkg package
+with a `[plugin]` table and the SDK is the `mibsdk` package with an `[sdk]` table; mibpkg checks, installs, asks
+for approval and removes both, and `mibsdk-dev` is a thin transport over its verbs.
 
 ## 11. Acceptance: reference plugins
 

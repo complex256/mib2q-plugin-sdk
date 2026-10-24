@@ -1,86 +1,67 @@
-"""Drives installer/mibsdk-dev against a fake unit: a directory tree standing in for the head unit's file system,
-reached through a fake `ssh` on PATH that runs each remote command locally with the unit's absolute paths
-rewritten into that tree. Nothing ever touches a real device."""
+"""Drives installer/mibsdk-dev against a fake unit: a directory tree standing in for the head unit's /tmp, reached
+through a fake `ssh` on PATH that runs each remote command locally with /tmp rewritten into that tree. A fake
+/tmp/mibpkg records its argv; mibsdk-dev is only a transport, so these tests check what it uploads and which mibpkg
+verbs it calls (mibpkg's own tests cover what those verbs do on the unit). Nothing ever touches a real device."""
 import os
+import re
 import shutil
 import stat
 import subprocess
-import hashlib
+import tarfile
 import tempfile
 import unittest
+import io
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOL = os.path.join(HERE, "mibsdk-dev")
-STOCK = os.path.join(HERE, "testdata", "bundles_dsitracer_enabled.properties")
-HMI = "HMI_AU_MIB2_HQC_NAR_G22_C10_180803"
-SDK_JARS = ["mibsdk-runtime.jar", "mibsdk-adapter-hqc.jar", "mibsdk-rt-retrotranslator.jar"]
+SEP = "\x1f"
 
 FAKE_SSH = r"""#!/usr/bin/env bash
-# Fake ssh for the fake unit: drops the options and the user@host, runs the command locally under $FAKE_UNIT.
+# Fake ssh for the fake unit: drops the options, records the host, runs the command locally under $FAKE_UNIT.
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) shift 2 ;;
-    *@*) shift; break ;;
+    *@*) printf '%s\n' "${1#*@}" >>"$FAKE_UNIT/ssh.hosts"; shift; break ;;
     *) shift ;;
   esac
 done
 cmd="$*"
-# Test hook: a file that changes on disk once the tool has connected (after it verified its input).
+# Test hook: a file that changes on disk once the tool has connected (after it took its snapshot).
 if [ -n "$FAKE_REWRITE" ] && [ "$cmd" = "echo ok" ]; then printf tampered >"$FAKE_REWRITE"; fi
-cmd="${cmd//\/mnt\/app/$FAKE_UNIT/mnt/app}"
-cmd="${cmd//\/mnt\/persist/$FAKE_UNIT/mnt/persist}"
-cmd="${cmd//\/ramdisk\//$FAKE_UNIT/ramdisk/}"
-cmd="${cmd//\/ifs\//$FAKE_UNIT/ifs/}"
-cmd="${cmd//\/tmp\/mibsdk.log/$FAKE_UNIT/tmp/mibsdk.log}"
+cmd="${cmd//\/tmp\//$FAKE_UNIT/tmp/}"
+# Test hook: an upload that arrives damaged (a cut link): one extra byte lands on the unit.
+if [ -n "$FAKE_CORRUPT_UPLOAD" ]; then
+  case "$cmd" in "cat > "*) cmd="{ cat; printf X; } ${cmd#cat }" ;; esac
+fi
 # Like OpenSSH, read all of our stdin (it would forward it to the remote command): a caller's `while read` loop loses the rest.
 cat | sh -c "$cmd"
 exit ${PIPESTATUS[1]}
 """
 
+# The unit's mibpkg: records argv (fields separated by \x1f, one call per line) and exits $FAKE_MIBPKG_RC after
+# printing $FAKE_MIBPKG_OUT; `sdk status` answers with $FAKE_STATUS_OUT and $FAKE_STATUS_RC instead.
+FAKE_MIBPKG = r"""#!/bin/sh
+for a in "$@"; do printf '%s\037' "$a"; done >>"$FAKE_UNIT/mibpkg.argv"
+printf '\n' >>"$FAKE_UNIT/mibpkg.argv"
+if [ "$1" = sdk ] && [ "$2" = status ]; then
+  [ -z "$FAKE_STATUS_OUT" ] || printf '%s\n' "$FAKE_STATUS_OUT"
+  exit "${FAKE_STATUS_RC:-0}"
+fi
+[ -z "$FAKE_MIBPKG_OUT" ] || printf '%s\n' "$FAKE_MIBPKG_OUT"
+exit "${FAKE_MIBPKG_RC:-0}"
+"""
+
 FAKE_NOOP = "#!/bin/sh\nexit 0\n"
 
-# mv that fails when an argument contains $FAKE_FAIL_MV: a write cut short (full or unmounted partition, lost link);
-# $FAKE_FAIL_MV_SILENT fails the same way but exits 0.
-# Like QNX's mv (seen on the bench), it exits 0 when it cannot replace a target on a read-only /mnt/app. With
-# $FAKE_RO_AFTER_MV, another process (mibpkg's supervisor on the bench) puts /mnt/app back to read-only right after a
-# move whose arguments contain it.
-FAKE_MV = r"""#!/bin/sh
-if [ -n "$FAKE_FAIL_MV" ]; then
-  for a in "$@"; do
-    case "$a" in *"$FAKE_FAIL_MV"*) echo "mv: injected failure" >&2; exit 1 ;; esac
-  done
-fi
-if [ -n "$FAKE_FAIL_MV_SILENT" ]; then
-  for a in "$@"; do
-    case "$a" in *"$FAKE_FAIL_MV_SILENT"*) echo "mv: injected failure (status 0, like QNX)" >&2; exit 0 ;; esac
-  done
-fi
-for a in "$@"; do last="$a"; done
-case "$last" in
-  "$FAKE_UNIT"/mnt/app/*)
-    if [ -e "$FAKE_UNIT/app.ro" ]; then echo "mv: Can't unlink file $last : Read-only file system" >&2; exit 0; fi ;;
-esac
-/bin/mv "$@" || exit $?
-if [ -n "$FAKE_RO_AFTER_MV" ]; then
-  for a in "$@"; do
-    case "$a" in *"$FAKE_RO_AFTER_MV"*) touch "$FAKE_UNIT/app.ro" ;; esac
-  done
-fi
-exit 0
-"""
+PLUGIN_MANIFEST = """[package]
+name = "%s"
+version = "1.0.0"
+description = "a plugin"
 
-# mount: only tracks whether /mnt/app is read-only (the fake mv honours it).
-FAKE_MOUNT = r"""#!/bin/sh
-case "$1" in
-  -uw) rm -f "$FAKE_UNIT/app.ro" ;;
-  -ur) touch "$FAKE_UNIT/app.ro" ;;
-esac
-exit 0
+[plugin]
+api = 2
 """
-
-# The MHI2Q has no find(1) (found on the bench: "sh: find: cannot execute"); shadow the host's so the tool cannot use it.
-FAKE_NO_FIND = "#!/bin/sh\necho 'sh: find: cannot execute - No such file or directory' >&2\nexit 126\n"
 
 
 def read(path):
@@ -94,814 +75,302 @@ def write(path, data):
         f.write(data)
 
 
-def stamp(path, kind, jars, attrs=None):
-    """Writes a check stamp in the format of build-logic's CheckStamp (version 1)."""
-    lines = ["format=1", "kind=" + kind, "checks=classVersion48,linkCheck,permissionScan"]
-    lines += ["%s=%s" % (k, v) for k, v in sorted((attrs or {}).items())]
-    for jar in sorted(jars, key=os.path.basename):
-        lines.append("sha256.%s=%s" % (os.path.basename(jar), hashlib.sha256(read(jar)).hexdigest()))
-    write(path, ("\n".join(lines) + "\n").encode("latin-1"))
-
-
-def write_jar(path, names):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with zipfile.ZipFile(path, "w") as z:
-        for n in names:
-            z.writestr(n, b"x")
-
-
 def executable(path, text):
     write(path, text.encode("utf-8"))
     os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+def mpk(path, name, extra=b""):
+    """A gzip'd tar with manifest.toml first, like mibpkg build's output."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with tarfile.open(path, "w:gz") as t:
+        for n, data in (("manifest.toml", (PLUGIN_MANIFEST % name).encode("utf-8")), (name + ".jar", b"jar" + extra)):
+            info = tarfile.TarInfo(n)
+            info.size = len(data)
+            t.addfile(info, io.BytesIO(data))
+    return path
+
+
 class FakeUnit(object):
-    def __init__(self, root, tracer_marker):
+    def __init__(self, root):
         self.root = root
         self.unit = os.path.join(root, "unit")
-        self.lsd = os.path.join(self.unit, "mnt/app/eso/hmi/lsd")
-        self.sdk = os.path.join(self.lsd, "mibsdk")
-        # Runtime-mutable state lives off /mnt/app (read-only while the HMI runs).
-        self.persist = os.path.join(self.unit, "mnt/persist/mibsdk")
-        self.ram = os.path.join(self.unit, "ramdisk/mibsdk")
-        os.makedirs(os.path.join(self.unit, "mnt/persist"), exist_ok=True)  # the partition itself always exists
+        self.tmp = os.path.join(self.unit, "tmp")
+        os.makedirs(self.tmp)
         bindir = os.path.join(root, "bin")
         executable(os.path.join(bindir, "ssh"), FAKE_SSH)
-        executable(os.path.join(bindir, "mount"), FAKE_MOUNT)
         executable(os.path.join(bindir, "slay"), FAKE_NOOP)
-        executable(os.path.join(bindir, "find"), FAKE_NO_FIND)
-        executable(os.path.join(bindir, "mv"), FAKE_MV)
+        executable(os.path.join(bindir, "sync"), FAKE_NOOP)
+        executable(self.mibpkg(), FAKE_MIBPKG)
         self.dist = os.path.join(root, "dist")
-        for j in SDK_JARS:
-            write(os.path.join(self.dist, j), ("jar " + j).encode("ascii"))
-        stamp(os.path.join(self.dist, "mibsdk-unit.stamp"), "unit", [os.path.join(self.dist, j) for j in SDK_JARS])
-        write(os.path.join(self.unit, "ifs/version_info.txt"), ("HMI = %s\n" % HMI).encode("ascii"))
-        write(os.path.join(self.lsd, "bundles_dsitracer_enabled.properties"), read(STOCK))
-        write(os.path.join(self.lsd, "DSITracer.jar"), b"tracer")
-        write_jar(os.path.join(self.lsd, "jars/stock.jar"), ["de/audi/other/Thing.class"])
-        os.makedirs(os.path.join(self.unit, "tmp"), exist_ok=True)
-        if tracer_marker:
-            write(self.marker(), b"")
+        os.makedirs(self.dist)
         self.env = dict(os.environ)
         self.env["PATH"] = bindir + os.pathsep + self.env.get("PATH", "")
         self.env["FAKE_UNIT"] = self.unit
         self.env["MIBSDK_DIST"] = self.dist
         self.env["TMPDIR"] = root
+        self.env.pop("MIBSDK_MPK", None)
 
-    def marker(self):
-        return os.path.join(self.lsd, "dsitracer_activated")
+    def mibpkg(self):
+        return os.path.join(self.tmp, "mibpkg")
 
-    def bundles_path(self):
-        return os.path.join(self.lsd, "bundles_dsitracer_enabled.properties")
+    def calls(self):
+        """mibpkg's argv lists, in call order."""
+        path = os.path.join(self.unit, "mibpkg.argv")
+        if not os.path.exists(path):
+            return []
+        return [line.split(SEP)[:-1] for line in read(path).decode("utf-8").splitlines()]
 
-    def bundles(self):
-        return read(self.bundles_path())
+    def uploads(self):
+        return sorted(n for n in os.listdir(self.tmp) if n.startswith("mibpkg.") and n != "mibpkg")
 
-    def autostart(self):
-        lines = [l for l in self.bundles().splitlines() if l.startswith(b"Bundle.Startup.Autostart")]
-        assert len(lines) == 1, lines
-        return lines[0]
+    def hosts(self):
+        path = os.path.join(self.unit, "ssh.hosts")
+        return set(read(path).decode().split()) if os.path.exists(path) else set()
 
     def run(self, *args, **kw):
         env = dict(self.env)
-        env["FAKE_FAIL_MV"] = kw.get("fail_mv", "")
-        env["FAKE_RO_AFTER_MV"] = kw.get("ro_after_mv", "")
         env["FAKE_REWRITE"] = kw.get("rewrite", "")
-        env["FAKE_FAIL_MV_SILENT"] = kw.get("fail_mv_silent", "")
-        return subprocess.run([TOOL] + list(args), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              timeout=60)
+        env["FAKE_CORRUPT_UPLOAD"] = "1" if kw.get("corrupt") else ""
+        env["FAKE_MIBPKG_RC"] = str(kw.get("rc", 0))
+        env["FAKE_MIBPKG_OUT"] = kw.get("out", "")
+        env["FAKE_STATUS_RC"] = str(kw.get("status_rc", 0))
+        env["FAKE_STATUS_OUT"] = kw.get("status_out", "")
+        env.update(kw.get("env", {}))
+        return subprocess.run([TOOL] + list(args), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, timeout=60)
 
 
 class FakeUnitTestCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="mibsdk-dev-test.")
+        self.u = FakeUnit(self.tmp)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
-
-    def unit(self, tracer_marker):
-        return FakeUnit(self.tmp, tracer_marker)
 
     def ok(self, result):
         self.assertEqual(0, result.returncode, result.stderr.decode("utf-8", "replace"))
         return result
 
+    def failed(self, result, rc=None):
+        if rc is None:
+            self.assertNotEqual(0, result.returncode, result.stdout)
+        else:
+            self.assertEqual(rc, result.returncode, result.stderr.decode("utf-8", "replace"))
+        return result.stderr.decode("utf-8", "replace")
+
+    def sdk_mpk(self, version="0.1.0"):
+        return mpk(os.path.join(self.u.dist, "mibsdk-%s.mpk" % version), "mibsdk", version.encode())
+
+    def plugin_jar(self, plugin_id, stamped=True):
+        path = os.path.join(self.tmp, "plugins", plugin_id + ".jar")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("plugin.json", '{"id": "%s"}' % plugin_id)
+        if stamped:
+            write(path + ".stamp", b"format=1\nkind=plugin\nplugin.id=" + plugin_id.encode() + b"\n")
+        return path
+
+    def upload_id(self, call):
+        """The upload id of an install-file call, checked against mibpkg's rule (32 lowercase hex)."""
+        self.assertEqual("install-file", call[0])
+        self.assertRegex(call[2], r"^[0-9a-f]{32}$")
+        return call[2]
+
 
 class InstallTest(FakeUnitTestCase):
-    def test_refuses_a_dist_without_a_stamp(self):
-        u = self.unit(tracer_marker=False)
-        os.remove(os.path.join(u.dist, "mibsdk-unit.stamp"))
-        r = u.run("install")
-        self.assertNotEqual(0, r.returncode)
-        err = r.stderr.decode("utf-8")
-        self.assertIn("not a checked build (missing)", err)
-        self.assertIn(":dist:assembleUnit", err)
-        self.assertNotIn(b"MibSdk", u.autostart())
-        self.assertFalse(os.path.exists(u.sdk), "nothing changed on the unit")
+    def test_install_uploads_the_single_mpk_and_calls_install_file(self):
+        src = self.sdk_mpk()
+        self.ok(self.u.run("install"))
+        calls = self.u.calls()
+        self.assertEqual(["sdk", "status"], calls[0], "probe first")
+        uid = self.upload_id(calls[1])
+        self.assertEqual(["install-file", "mibsdk", uid, "-"], calls[1])
+        self.assertEqual(2, len(calls))
+        self.assertEqual(read(src), read(os.path.join(self.u.tmp, "mibpkg.upload.%s.mpk" % uid)))
+
+    def test_install_refuses_zero_or_two_mpks(self):
+        err = self.failed(self.u.run("install"))
+        self.assertIn("found 0 mibsdk-*.mpk in %s; build with ./gradlew :dist:mibpkgPackage or set MIBSDK_MPK"
+                      % self.u.dist, err)
+        self.sdk_mpk("0.1.0")
+        self.sdk_mpk("0.2.0")
+        err = self.failed(self.u.run("install"))
+        self.assertIn("found 2 mibsdk-*.mpk in %s" % self.u.dist, err)
+        self.assertEqual([], self.u.uploads())
+        self.assertEqual([], [c for c in self.u.calls() if c[0] != "sdk"], "nothing installed")
+
+    def test_install_uses_MIBSDK_MPK(self):
+        self.sdk_mpk("0.1.0")
+        self.sdk_mpk("0.2.0")
+        chosen = mpk(os.path.join(self.tmp, "elsewhere", "mibsdk-9.9.9.mpk"), "mibsdk", b"chosen")
+        self.ok(self.u.run("install", env={"MIBSDK_MPK": chosen}))
+        uid = self.upload_id(self.u.calls()[1])
+        self.assertEqual(read(chosen), read(os.path.join(self.u.tmp, "mibpkg.upload.%s.mpk" % uid)))
+        err = self.failed(self.u.run("install", env={"MIBSDK_MPK": os.path.join(self.tmp, "missing.mpk")}))
+        self.assertIn("missing.mpk", err)
 
     def test_pushes_the_bytes_it_verified_not_a_jar_rewritten_afterwards(self):
-        u = self.unit(tracer_marker=False)
-        jar = os.path.join(u.dist, "mibsdk-runtime.jar")
-        original = read(jar)
-        self.ok(u.run("install", rewrite=jar))
-        self.assertEqual(original, read(os.path.join(u.lsd, "jars/mibsdk-runtime.jar")))
+        src = self.sdk_mpk()
+        original = read(src)
+        self.ok(self.u.run("install", rewrite=src))
+        self.assertEqual(b"tampered", read(src))
+        uid = self.upload_id(self.u.calls()[1])
+        self.assertEqual(original, read(os.path.join(self.u.tmp, "mibpkg.upload.%s.mpk" % uid)))
 
-    def test_refuses_a_jar_that_does_not_match_its_stamp(self):
-        u = self.unit(tracer_marker=False)
-        write(os.path.join(u.dist, "mibsdk-runtime.jar"), b"rebuilt without the checks")
-        r = u.run("install")
-        self.assertNotEqual(0, r.returncode)
-        err = r.stderr.decode("utf-8")
-        self.assertIn("hash mismatch for mibsdk-runtime.jar", err)
-        self.assertIn(":dist:assembleUnit", err)
-        self.assertNotIn(b"MibSdk", u.autostart())
-        self.assertFalse(os.path.exists(u.sdk), "nothing changed on the unit")
+    def test_a_damaged_upload_is_removed_and_nothing_is_installed(self):
+        self.sdk_mpk()
+        err = self.failed(self.u.run("install", corrupt=True))
+        self.assertIn("upload", err)
+        self.assertEqual([], self.u.uploads())
+        self.assertEqual([["sdk", "status"]], self.u.calls())
 
-    def test_tracer_off_unit_does_not_get_dsitracer_autostarted(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        self.assertEqual(b"Bundle.Startup.Autostart = MibSdk,FwUtilServices,Profiling,Tracing,ATIPImpl", u.autostart())
-        props = read(os.path.join(u.sdk, "sdk.properties"))
-        self.assertNotIn(b"chain.configurator", props)
-        self.assertEqual(b"false\n", read(os.path.join(u.sdk, "stock/tracer.was")))
-        self.assertTrue(os.path.exists(u.marker()), "lsd.sh reads the on-disk bundles file only with the marker")
+    def test_each_install_uploads_afresh_under_a_new_id(self):
+        self.sdk_mpk()
+        self.ok(self.u.run("install"))
+        self.ok(self.u.run("install"))
+        ids = [c[2] for c in self.u.calls() if c[0] == "install-file"]
+        self.assertEqual(2, len(ids))
+        self.assertNotEqual(ids[0], ids[1])
 
-    def test_tracer_on_unit_keeps_dsitracer_chained(self):
-        u = self.unit(tracer_marker=True)
-        self.ok(u.run("install"))
-        self.assertEqual(b"Bundle.Startup.Autostart = DSITracer,MibSdk,FwUtilServices,Profiling,Tracing,ATIPImpl",
-                         u.autostart())
-        props = read(os.path.join(u.sdk, "sdk.properties"))
-        self.assertIn(b"chain.configurator=de.audi.tghu.dsitrace.TraceConfigurator\n", props)
-
-    def test_reinstall_uses_the_recorded_stock_state(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        self.ok(u.run("install"))  # the marker exists now, but tracer.was says it did not before the first install
-        self.assertNotIn(b"DSITracer", u.autostart())
-        self.assertNotIn(b"chain.configurator", read(os.path.join(u.sdk, "sdk.properties")))
+    def test_install_file_failure_passes_its_exit_code_and_output_through(self):
+        self.sdk_mpk()
+        r = self.u.run("install", rc=1, out="mibpkg: unsupported HMI")
+        self.failed(r, 1)
+        self.assertIn(b"mibpkg: unsupported HMI", r.stdout)
 
 
-    def test_creates_the_persistent_root_and_no_runtime_state_on_app(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        self.assertTrue(os.path.isdir(u.persist))
-        self.assertTrue(os.path.isdir(os.path.join(u.sdk, "plugins")))
-        for name in ("cache", "data", "boot.state", "ledger.properties"):
-            self.assertFalse(os.path.exists(os.path.join(u.sdk, name)), name)
+class ProbeTest(FakeUnitTestCase):
+    def test_old_or_missing_mibpkg_is_refused_before_any_upload(self):
+        self.sdk_mpk()
+        jar = self.plugin_jar("hello")
+        for args in (("install",), ("push", jar), ("grant", "hello", "network"), ("status",)):
+            err = self.failed(self.u.run(*args, status_rc=1))
+            self.assertIn("mibpkg on 10.20.0.23 is missing or older than 0.8.0; update it (see the mibpkg README)", err)
+        self.assertEqual([], self.u.uploads())
+        self.assertTrue(all(c == ["sdk", "status"] for c in self.u.calls()))
+        os.remove(self.u.mibpkg())
+        err = self.failed(self.u.run("install"))
+        self.assertIn("is missing or older than 0.8.0", err)
+        self.assertEqual([], self.u.uploads())
 
-    def test_reinstall_moves_state_left_on_app_by_an_older_install(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        write(os.path.join(u.sdk, "data/bike-rack.properties"), b"active=false\n")
-        write(os.path.join(u.sdk, "ledger.properties"), b"")
-        write(os.path.join(u.sdk, "boot.state"), b"unhealthyBoots=1\n")
-        write(os.path.join(u.sdk, "cache/hello-1.jar"), b"jar")
-        self.ok(u.run("install"))
-        self.assertEqual(b"active=false\n", read(os.path.join(u.persist, "data/bike-rack.properties")))
-        self.assertTrue(os.path.exists(os.path.join(u.persist, "ledger.properties")))
-        for name in ("cache", "data", "boot.state", "ledger.properties"):
-            self.assertFalse(os.path.exists(os.path.join(u.sdk, name)), name)
+    def test_log_and_restart_do_not_probe(self):
+        write(os.path.join(self.u.tmp, "mibsdk.log"), b"1 STATUS hello ENABLED ok\n")
+        r = self.ok(self.u.run("log"))
+        self.assertEqual(b"1 STATUS hello ENABLED ok\n", r.stdout)
+        self.ok(self.u.run("restart"))
+        self.assertEqual([], self.u.calls())
 
-    def test_reinstall_never_overwrites_persistent_state(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        write(os.path.join(u.persist, "data/p.properties"), b"new\n")
-        write(os.path.join(u.sdk, "data/p.properties"), b"old\n")
-        self.ok(u.run("install"))
-        self.assertEqual(b"new\n", read(os.path.join(u.persist, "data/p.properties")))
-
-    ENTRY = b"parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A\n"
-    OTHER = b"parking.soundLevel=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A\n"
-
-    def old_ledger(self, u):
-        return os.path.join(u.sdk, "ledger.properties")
-
-    def new_ledger(self, u):
-        return os.path.join(u.persist, "ledger.properties")
-
-    def test_old_ledger_entries_are_merged_into_an_existing_ledger(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        write(self.new_ledger(u), self.OTHER)
-        write(self.old_ledger(u), self.ENTRY)
-        self.ok(u.run("install"))
-        self.assertEqual(self.OTHER + self.ENTRY, read(self.new_ledger(u)))
-        self.assertFalse(os.path.exists(self.old_ledger(u)), "merged and verified: the old ledger goes")
-
-    def test_old_ledger_entry_that_conflicts_is_kept_where_it_is(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        newer = b"parking.soundDirections=bike-rack|PERSISTENT|F0R0L0X0|F1R1L1X1|A\n"
-        write(self.new_ledger(u), newer)
-        write(self.old_ledger(u), self.ENTRY)
-        r = self.ok(u.run("install"))
-        self.assertIn("parking.soundDirections", r.stderr.decode("utf-8"))
-        self.assertEqual(newer, read(self.new_ledger(u)))
-        self.assertEqual(self.ENTRY, read(self.old_ledger(u)), "not merged: never deleted")
-
-    def test_failed_ledger_copy_loses_nothing_and_a_rerun_migrates_it(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        write(self.old_ledger(u), self.ENTRY)
-        r = u.run("install", fail_mv="persist/mibsdk/.push.tmp")
-        self.assertNotEqual(0, r.returncode)
-        self.assertEqual(self.ENTRY, read(self.old_ledger(u)))
-        self.assertFalse(os.path.exists(self.new_ledger(u)))
-        self.assertFalse(os.path.exists(os.path.join(u.persist, ".push.tmp")), "no temp file left behind")
-        self.ok(u.run("install"))
-        self.assertEqual(self.ENTRY, read(self.new_ledger(u)))
-        self.assertFalse(os.path.exists(self.old_ledger(u)))
-
-    def test_failed_data_copy_loses_nothing_and_a_rerun_migrates_it(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        write(os.path.join(u.sdk, "data/a.properties"), b"a=1\n")
-        write(os.path.join(u.sdk, "data/b.properties"), b"b=2\n")
-        r = u.run("install", fail_mv="b.properties.migrate.tmp")
-        self.assertNotEqual(0, r.returncode)
-        self.assertEqual(b"a=1\n", read(os.path.join(u.sdk, "data/a.properties")))
-        self.assertEqual(b"b=2\n", read(os.path.join(u.sdk, "data/b.properties")))
-        self.assertFalse(os.path.exists(os.path.join(u.persist, "data/b.properties")), "never a partial file")
-        self.ok(u.run("install"))
-        self.assertEqual(b"a=1\n", read(os.path.join(u.persist, "data/a.properties")))
-        self.assertEqual(b"b=2\n", read(os.path.join(u.persist, "data/b.properties")))
-        self.assertEqual([], sorted(n for n in os.listdir(os.path.join(u.persist, "data")) if n.endswith(".tmp")))
-        self.assertFalse(os.path.exists(os.path.join(u.sdk, "data")))
-
-    def test_data_move_that_fails_with_status_0_keeps_the_old_data(self):
-        """QNX mv exits 0 when it fails: the old data/ goes only once each file is really in place."""
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        write(os.path.join(u.sdk, "data/b.properties"), b"b=2\n")
-        r = u.run("install", fail_mv_silent="b.properties.migrate.tmp")
-        self.assertNotEqual(0, r.returncode)
-        self.assertEqual(b"b=2\n", read(os.path.join(u.sdk, "data/b.properties")))
-        self.ok(u.run("install"))
-        self.assertEqual(b"b=2\n", read(os.path.join(u.persist, "data/b.properties")))
-        self.assertFalse(os.path.exists(os.path.join(u.sdk, "data")))
-
-    def test_install_sweeps_stale_push_temp_files(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        for d in (u.lsd, os.path.join(u.lsd, "jars"), u.sdk, os.path.join(u.sdk, "plugins"), u.persist):
-            write(os.path.join(d, ".push.tmp"), b"partial")
-        self.ok(u.run("install"))
-        for d in (u.lsd, os.path.join(u.lsd, "jars"), u.sdk, os.path.join(u.sdk, "plugins"), u.persist):
-            self.assertFalse(os.path.exists(os.path.join(d, ".push.tmp")), d)
-
-    def test_refuses_when_carplay_stock_files_exist_anywhere_under_hmi(self):
-        u = self.unit(tracer_marker=False)
-        write(os.path.join(u.unit, "mnt/app/eso/hmi/lsd/kzbs/deep/foo.kzb.carplay-stock"), b"x")
-        r = u.run("install")
-        self.assertNotEqual(0, r.returncode)
-        self.assertIn(b"carplay-rgi is installed", r.stderr)
-        self.assertFalse(os.path.exists(u.sdk), "nothing may change on a refused install")
-
-    def test_refuses_jar_defining_owned_class(self):
-        for cls in ("de/audi/tghu/car/hmi/Activator.class", "de/audi/atip/model/CarModelBank.class",
-                    "de/audi/atip/model/CarModelBank$1.class"):
-            u = self.unit(tracer_marker=False)
-            write_jar(os.path.join(u.lsd, "jars/aa-clean.jar"), ["a/B.class"])
-            write_jar(os.path.join(u.lsd, "jars/zz-other-mod.jar"), ["a/B.class", cls])
-            before = u.bundles()
-            r = u.run("install")
-            self.assertNotEqual(0, r.returncode)
-            self.assertIn("mibsdk-dev: zz-other-mod.jar defines %s, which the SDK owns; nothing changed" % cls,
-                          r.stderr.decode("utf-8"))
-            self.assertEqual(before, u.bundles())
-            self.assertFalse(os.path.exists(u.sdk), "nothing changed on the unit")
-            shutil.rmtree(self.tmp)
-            os.makedirs(self.tmp)
-
-    def test_ignores_sdk_jars_in_ownership_guard(self):
-        u = self.unit(tracer_marker=False)
-        write_jar(os.path.join(u.lsd, "jars/mibsdk-adapter-hqc.jar"), ["de/audi/tghu/car/hmi/Activator.class"])
-        write_jar(os.path.join(u.lsd, "jars/other-mod.jar"), ["de/audi/tghu/car/hmiextra/X.class", "a/B.txt"])
-        self.ok(u.run("install"))
-
-    def test_refuses_while_spike_jar_present(self):
-        u = self.unit(tracer_marker=False)
-        write_jar(os.path.join(u.lsd, "jars/mibsdk-spike-ui.jar"), ["mibsdk/spike/ui/SpikeCarActivator.class"])
-        r = u.run("install")
-        self.assertNotEqual(0, r.returncode)
-        self.assertIn("mibsdk-dev: spike jar mibsdk-spike-ui.jar is installed; run spikes/hmi-ui/run.sh uninstall first",
-                      r.stderr.decode("utf-8"))
-        self.assertFalse(os.path.exists(u.sdk), "nothing changed on the unit")
-
-    def test_guard_checks_every_jar_not_just_the_first(self):
-        u = self.unit(tracer_marker=False)
-        for n in ("a1", "b2", "c3"):
-            write_jar(os.path.join(u.lsd, "jars/%s.jar" % n), ["x/Y.class"])
-        write_jar(os.path.join(u.lsd, "jars/zz-last.jar"), ["de/audi/tghu/car/hmi/Z.class"])
-        r = u.run("install")
-        self.assertNotEqual(0, r.returncode)
-        self.assertIn(b"zz-last.jar defines de/audi/tghu/car/hmi/Z.class", r.stderr)
-
-    def test_guard_only_looks_at_jars(self):
-        u = self.unit(tracer_marker=False)
-        write(os.path.join(u.lsd, "jars/lang_data.zip"), b"not a zip")
-        write(os.path.join(u.lsd, "jars/old.jar.bak"), b"not a zip")
-        self.ok(u.run("install"))
-
-    def test_guard_fails_closed_on_an_unreadable_jar(self):
-        u = self.unit(tracer_marker=False)
-        write(os.path.join(u.lsd, "jars/broken.jar"), b"not a zip")
-        r = u.run("install")
-        self.assertNotEqual(0, r.returncode)
-        self.assertIn(b"broken.jar", r.stderr)
-        self.assertFalse(os.path.exists(u.sdk))
-
-    def test_guard_refuses_a_symlinked_jar(self):
-        u = self.unit(tracer_marker=False)
-        os.symlink(os.path.join(u.lsd, "jars/stock.jar"), os.path.join(u.lsd, "jars/link.jar"))
-        r = u.run("install")
-        self.assertNotEqual(0, r.returncode)
-        self.assertIn(b"link.jar is a symlink", r.stderr)
-        self.assertFalse(os.path.exists(u.sdk))
-
-    def test_guard_refuses_a_jar_name_with_a_space(self):
-        u = self.unit(tracer_marker=False)
-        write_jar(os.path.join(u.lsd, "jars/my mod.jar"), ["x/Y.class"])
-        r = u.run("install")
-        self.assertNotEqual(0, r.returncode)
-        self.assertIn(b"has a space", r.stderr)
-        self.assertFalse(os.path.exists(u.sdk))
-
-    def test_nonstock_hmicar_changes_nothing_at_all(self):
-        for bad in (b"HMICar=x.Y", b"HMICar = de.audi.tghu.car.hmi.Activator",
-                    b"HMICar=de.audi.tghu.car.hmi.Activator ", b"HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator"):
-            u = self.unit(tracer_marker=False)
-            write(u.bundles_path(), u.bundles().replace(b"HMICar=de.audi.tghu.car.hmi.Activator", bad))
-            before = u.bundles()
-            r = u.run("install")
-            self.assertNotEqual(0, r.returncode)
-            self.assertIn(b"HMICar is not stock", r.stderr)
-            self.assertEqual(before, u.bundles())
-            self.assertFalse(os.path.exists(u.sdk), "no backup written: " + bad.decode())
-            self.assertFalse(os.path.exists(os.path.join(u.unit, "app.ro")), "/mnt/app was never remounted")
-            shutil.rmtree(self.tmp)
-            os.makedirs(self.tmp)
-
-    def test_upgrade_refuses_a_foreign_live_hmicar(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        write(u.bundles_path(), u.bundles().replace(b"mibsdk.adapter.hqc.ui.SdkCarActivator", b"other.Act"))
-        before = u.bundles()
-        r = u.run("install")
-        self.assertNotEqual(0, r.returncode)
-        self.assertIn(b"HMICar is not stock", r.stderr)
-        self.assertEqual(before, u.bundles())
-
-    def test_upgrade_with_the_sdk_value_live_is_fine(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        self.ok(u.run("install"))
-
-    def test_refuses_a_backup_that_already_holds_the_sdk_value(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        bk = os.path.join(u.sdk, "stock/bundles_dsitracer_enabled.properties")
-        write(bk, read(bk).replace(b"HMICar=de.audi.tghu.car.hmi.Activator", b"HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator"))
-        r = u.run("install")
-        self.assertNotEqual(0, r.returncode)
-        self.assertIn(b"HMICar is not stock", r.stderr)
-
-    def test_install_points_hmicar_at_the_sdk_keeping_crlf(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        self.assertIn(b"HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\r\n", u.bundles())
-        self.assertIn(b"ui.enabled=true\n", read(os.path.join(u.sdk, "sdk.properties")))
-
-    def test_refuses_a_nonstock_hmicar_line(self):
-        u = self.unit(tracer_marker=False)
-        write(u.bundles_path(), u.bundles().replace(b"HMICar=de.audi.tghu.car.hmi.Activator", b"HMICar=x.Y"))
-        r = u.run("install")
-        self.assertNotEqual(0, r.returncode)
-        self.assertNotIn(b"mibsdk.adapter.hqc.ui", u.bundles())
-        self.assertFalse(os.path.exists(u.sdk))
+    def test_host_is_the_last_positional_argument(self):
+        self.ok(self.u.run("grant", "hello", "network", "10.1.2.3"))
+        self.assertEqual({"10.1.2.3"}, self.u.hosts())
+        self.assertIn("too many arguments", self.failed(self.u.run("grant", "hello", "network", "h", "extra")))
+        self.assertIn("invalid host", self.failed(self.u.run("safe-mode", "on", "-oProxyCommand=x")))
 
 
-class UninstallTest(FakeUnitTestCase):
-    ENTRY = b"parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A\n"
+class InstallPluginTest(FakeUnitTestCase):
+    def test_install_plugin_passes_approve_and_exit_3_through(self):
+        src = mpk(os.path.join(self.tmp, "out", "hello-menu-1.0.0.mpk"), "hello-menu")
+        r = self.u.run("install-plugin", src, rc=3, out="network  Internet access\napprove with: --approve=network")
+        self.failed(r, 3)
+        self.assertIn(b"approve with: --approve=network", r.stdout)
+        uid = self.upload_id(self.u.calls()[1])
+        self.assertEqual(["install-file", "hello-menu", uid, "-"], self.u.calls()[1])
+        self.assertEqual(read(src), read(os.path.join(self.u.tmp, "mibpkg.upload.%s.mpk" % uid)))
 
-    def installed(self, ledger):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        if ledger is not None:
-            write(os.path.join(u.persist, "ledger.properties"), ledger)
-        return u
+        self.ok(self.u.run("install-plugin", src, "--approve=network,ui.slot.carmenu"))
+        last = self.u.calls()[-1]
+        self.assertEqual(["install-file", "hello-menu", self.upload_id(last), "-", "--approve=network,ui.slot.carmenu"],
+                         last)
+        self.ok(self.u.run("install-plugin", src, "--approve="))
+        self.assertEqual("--approve=", self.u.calls()[-1][-1], "an empty list approves nothing, explicitly")
 
-    def assert_still_installed(self, u):
-        self.assertIn(b"MibSdk", u.autostart())
-        for j in SDK_JARS:
-            self.assertTrue(os.path.exists(os.path.join(u.lsd, "jars", j)), j)
-        self.assertTrue(os.path.isdir(u.sdk))
-
-    def test_refuses_while_an_override_is_in_force(self):
-        for args in (["uninstall"], ["uninstall", "--purge"]):
-            u = self.installed(self.ENTRY)
-            r = u.run(*args)
-            err = r.stderr.decode("utf-8")
-            self.assertNotEqual(0, r.returncode, args)
-            self.assertIn("parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A", err)
-            self.assertIn("mibsdk-dev safe-mode on && mibsdk-dev restart", err)
-            self.assertIn("safe-mode off", err)
-            self.assertIn("mibsdk-dev log", err)
-            self.assertIn("--force", err)
-            self.assert_still_installed(u)
-            shutil.rmtree(self.tmp)
-            os.makedirs(self.tmp)
-
-    def test_refusal_shows_a_pending_restore_line(self):
-        line = "parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|R"
-        u = self.installed((line + "\n").encode("ascii"))
-        r = u.run("uninstall")
-        self.assertNotEqual(0, r.returncode)
-        self.assertIn(line, r.stderr.decode("utf-8"))
-        self.assert_still_installed(u)
-
-    def test_force_uninstalls_with_a_loud_warning(self):
-        u = self.installed(self.ENTRY)
-        r = self.ok(u.run("uninstall", "--force", "--purge"))
-        err = r.stderr.decode("utf-8")
-        self.assertIn("WARNING", err)
-        self.assertIn("parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A", err)
-        self.assertNotIn(b"MibSdk", u.autostart())
-        self.assertFalse(os.path.exists(u.sdk))
-        self.assertFalse(os.path.exists(u.persist), "--purge removes the plugin data too")
-
-    def test_refuses_on_an_override_left_in_the_old_ledger_location(self):
-        u = self.installed(None)
-        write(os.path.join(u.sdk, "ledger.properties"), self.ENTRY)  # an install from before the move
-        r = u.run("uninstall")
-        self.assertNotEqual(0, r.returncode)
-        self.assertIn("parking.soundDirections=bike-rack|PERSISTENT|F1R1L1X1|F0R0L0X0|A", r.stderr.decode("utf-8"))
-
-    def test_default_uninstall_keeps_plugin_data_purge_removes_it(self):
-        u = self.installed(None)
-        write(os.path.join(u.persist, "data/bike-rack.properties"), b"active=false\n")
-        write(os.path.join(u.ram, "cache/hello-1.jar"), b"jar")
-        self.ok(u.run("uninstall"))
-        self.assertEqual(b"active=false\n", read(os.path.join(u.persist, "data/bike-rack.properties")))
-        self.ok(u.run("install"))
-        self.ok(u.run("uninstall", "--purge"))
-        self.assertFalse(os.path.exists(u.persist))
-        self.assertFalse(os.path.exists(u.ram))
-        self.assertFalse(os.path.exists(u.sdk))
-        self.assertTrue(os.path.isdir(os.path.join(u.unit, "mnt/persist")), "only our directory goes")
-
-    def test_uninstall_restores_the_bundles_file_mode_and_leaves_the_marker_alone(self):
-        """F4: the stock bundles file is -rwxrwxrwx; push_file creates a new 0644 file, and touch bumped the marker."""
-        u = self.unit(tracer_marker=True)
-        os.chmod(u.bundles_path(), 0o777)
-        os.utime(u.marker(), (1000000000, 1000000000))
-        self.ok(u.run("install"))
-        self.assertEqual(0o777, stat.S_IMODE(os.stat(u.bundles_path()).st_mode), "install keeps the mode too")
-        self.ok(u.run("uninstall"))
-        self.assertEqual(read(STOCK), u.bundles())
-        self.assertEqual(0o777, stat.S_IMODE(os.stat(u.bundles_path()).st_mode))
-        self.assertEqual(1000000000, int(os.stat(u.marker()).st_mtime), "the marker existed: never touched")
-
-    def test_uninstall_restores_hmicar_byte_identical(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        self.assertNotEqual(read(STOCK), u.bundles())
-        self.ok(u.run("uninstall"))
-        self.assertEqual(read(STOCK), u.bundles())
-        self.assertIn(b"HMICar=de.audi.tghu.car.hmi.Activator\r\n", u.bundles())
-
-    def test_backup_without_a_recorded_mode_restores_the_stock_mode_0777(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        os.remove(os.path.join(u.sdk, "stock/bundles.mode"))  # a backup from an install before the mode was kept
-        os.chmod(u.bundles_path(), 0o644)
-        self.ok(u.run("uninstall"))
-        self.assertEqual(0o777, stat.S_IMODE(os.stat(u.bundles_path()).st_mode))
-
-    def test_empty_or_missing_ledger_uninstalls(self):
-        for ledger in (None, b"", b"\n"):
-            u = self.installed(ledger)
-            r = self.ok(u.run("uninstall"))
-            self.assertNotIn("WARNING", r.stderr.decode("utf-8"))
-            self.assertNotIn(b"MibSdk", u.autostart())
-            self.assertFalse(os.path.exists(u.marker()), "it was absent before the install")
-            shutil.rmtree(self.tmp)
-            os.makedirs(self.tmp)
-
-
-class SafeModeTest(FakeUnitTestCase):
-    def test_off_writes_boot_guard_reset_content(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        write(os.path.join(u.sdk, "SAFE_MODE"), b"")
-        write(os.path.join(u.persist, "boot.state"), b"unhealthyBoots=3\nlastShutdownClean=false\nwrapBoots=3\n")
-        self.ok(u.run("safe-mode", "off"))
-        self.assertFalse(os.path.exists(os.path.join(u.sdk, "SAFE_MODE")))
-        # Must equal BootGuard.reset()'s file (BootGuardTest.resetLeavesSafeMode).
-        self.assertEqual(b"unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=0\n",
-                         read(os.path.join(u.persist, "boot.state")))
-        self.assertFalse(os.path.exists(os.path.join(u.sdk, "boot.state")))
-
-
-class BootStateTest(FakeUnitTestCase):
-    def test_set_wrap_keeps_other_keys(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        write(os.path.join(u.persist, "boot.state"), b"unhealthyBoots=2\nlastShutdownClean=false\nwrapBoots=0\nextra=1\n")
-        self.ok(u.run("boot-state", "set-wrap", "3"))
-        self.assertEqual(b"unhealthyBoots=2\nlastShutdownClean=false\nwrapBoots=3\nextra=1\n",
-                         read(os.path.join(u.persist, "boot.state")))
-
-    def test_set_wrap_without_a_file_uses_the_reset_keys(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        self.ok(u.run("boot-state", "set-wrap", "2"))
-        self.assertEqual(b"unhealthyBoots=0\nlastShutdownClean=true\nwrapBoots=2\n",
-                         read(os.path.join(u.persist, "boot.state")))
-
-    def test_set_wrap_rejects_a_bad_count(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        self.assertNotEqual(0, u.run("boot-state", "set-wrap", "x").returncode)
-        self.assertNotEqual(0, u.run("boot-state", "set-wrap").returncode)
-
-
-class StatusTest(FakeUnitTestCase):
-    def test_prints_the_installed_hmicar_line(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        write(os.path.join(u.unit, "tmp/mibsdk.log"), b"x STATUS ui=on\n")
-        r = self.ok(u.run("status"))
-        out = r.stdout.decode("utf-8")
-        self.assertEqual("HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\nx STATUS ui=on\n", out)
-
-
-class StatusEdgeTest(FakeUnitTestCase):
-    def test_missing_hmicar_line_and_unreadable_bundles(self):
-        u = self.unit(tracer_marker=False)
-        write(os.path.join(u.unit, "tmp/mibsdk.log"), b"x STATUS ui=on\n")
-        write(u.bundles_path(), b"Bundle.Startup.Autostart = A\r\n")
-        self.assertEqual("HMICar=<missing>\nx STATUS ui=on\n", self.ok(u.run("status")).stdout.decode())
-        os.remove(u.bundles_path())
-        r = self.ok(u.run("status"))
-        self.assertEqual("x STATUS ui=on\n", r.stdout.decode())
-        self.assertIn(b"warning: cannot read", r.stderr)
-
-
-class DataClearTest(FakeUnitTestCase):
-    def test_removes_only_that_plugins_data(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        data = os.path.join(u.persist, "data")
-        write(os.path.join(data, "hello.properties"), b"x=1\n")
-        write(os.path.join(data, "hello.properties.tmp"), b"x=")
-        write(os.path.join(data, "hello2.properties"), b"y=1\n")
-        write(os.path.join(u.persist, "ledger.properties"), b"k=hello|PERSISTENT|a|b|A\n")
-        write(os.path.join(u.persist, "boot.state"), b"unhealthyBoots=1\n")
-        r = self.ok(u.run("data-clear", "hello"))
-        self.assertIn("hello", r.stdout.decode("utf-8"))
-        self.assertEqual(["hello2.properties"], sorted(os.listdir(data)))
-        self.assertEqual(b"k=hello|PERSISTENT|a|b|A\n", read(os.path.join(u.persist, "ledger.properties")))
-        self.assertEqual(b"unhealthyBoots=1\n", read(os.path.join(u.persist, "boot.state")))
-        self.ok(u.run("data-clear", "hello"))  # nothing left: still fine
-
-    def test_rejects_a_bad_id(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        write(os.path.join(u.persist, "data/x.properties"), b"x=1\n")
-        for bad in ("../x", "*", ""):
-            r = u.run("data-clear", bad)
-            self.assertNotEqual(0, r.returncode, bad)
-        self.assertTrue(os.path.exists(os.path.join(u.persist, "data/x.properties")))
+    def test_install_plugin_refuses_a_file_without_a_package_name(self):
+        bad = os.path.join(self.tmp, "bad.mpk")
+        write(bad, b"not a tar")
+        self.assertIn("cannot read the package name", self.failed(self.u.run("install-plugin", bad)))
+        self.assertIn("invalid --approve", self.failed(self.u.run("install-plugin", bad, "--approve=a;b")))
+        self.assertEqual([], self.u.uploads())
 
 
 class PushTest(FakeUnitTestCase):
-    def plugin_jar(self, plugin_id, content="", unrestricted="false", stamped=True, stamp_id=None):
-        path = os.path.join(self.tmp, plugin_id + ".jar")
-        with zipfile.ZipFile(path, "w") as z:
-            z.writestr("plugin.json", '{"id": "%s"}' % plugin_id)
-            if content:
-                z.writestr("content.txt", content)
-        if stamped:
-            stamp(path + ".stamp", "plugin", [path],
-                  {"plugin.id": stamp_id or plugin_id, "plugin.unrestricted": unrestricted})
-        return path
-
-    def assert_refused(self, u, r, plugin_id, reason):
-        self.assertNotEqual(0, r.returncode)
-        err = r.stderr.decode("utf-8")
-        self.assertIn("has no valid check stamp (%s)" % reason, err)
+    def test_push_requires_stamp_beside_jar(self):
+        jar = self.plugin_jar("hello", stamped=False)
+        err = self.failed(self.u.run("push", jar))
+        self.assertIn(jar + ".stamp", err)
         self.assertIn(":mibPluginJar", err)
-        self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins", plugin_id + ".jar")))
+        self.assertEqual([], self.u.uploads())
+        self.assertEqual([], self.u.calls(), "refused before connecting")
+
+    def test_push_uploads_jar_and_stamp_and_calls_sdk_push(self):
+        jar = self.plugin_jar("hello")
+        self.ok(self.u.run("push", jar))
+        self.assertEqual([["sdk", "status"], ["sdk", "push", "hello"]], self.u.calls())
+        self.assertEqual(read(jar), read(os.path.join(self.u.tmp, "mibpkg.push.hello.jar")))
+        self.assertEqual(read(jar + ".stamp"), read(os.path.join(self.u.tmp, "mibpkg.push.hello.jar.stamp")))
 
     def test_pushes_the_bytes_it_verified_not_a_jar_rewritten_afterwards(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
         jar = self.plugin_jar("hello")
         original = read(jar)
-        self.ok(u.run("push", jar, rewrite=jar))
-        self.assertEqual(original, read(os.path.join(u.sdk, "plugins/hello.jar")))
+        self.ok(self.u.run("push", jar, rewrite=jar))
+        self.assertEqual(b"tampered", read(jar))
+        self.assertEqual(original, read(os.path.join(self.u.tmp, "mibpkg.push.hello.jar")))
 
-    def test_refuses_a_stamp_with_a_duplicate_key_or_no_checks(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        jar = self.plugin_jar("hello")
-        good = read(jar + ".stamp")
-        for bad in (good + b"plugin.id=hello\n", good.replace(b"checks=classVersion48,linkCheck,permissionScan", b"checks=")):
-            write(jar + ".stamp", bad)
-            self.assert_refused(u, u.run("push", jar), "hello", "format")
-
-    def test_refuses_a_jar_without_a_stamp(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        self.assert_refused(u, u.run("push", self.plugin_jar("hello", stamped=False)), "hello", "missing")
-
-    def test_refuses_a_stamp_for_another_id(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        r = u.run("push", self.plugin_jar("hello", stamp_id="other"))
-        self.assert_refused(u, r, "hello", "id other != hello")
-
-    def test_refuses_a_stale_stamp(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        jar = self.plugin_jar("hello")
-        self.plugin_jar("hello", content="rebuilt after stamping", stamped=False)
-        self.assert_refused(u, u.run("push", jar), "hello", "hash mismatch for hello.jar")
-
-    def test_warns_loudly_for_an_unrestricted_plugin(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        r = self.ok(u.run("push", self.plugin_jar("hello", unrestricted="true")))
-        self.assertIn("WARNING: hello declares platform.unrestricted", r.stderr.decode("utf-8"))
-        self.assertTrue(os.path.exists(os.path.join(u.sdk, "plugins/hello.jar")))
-
-    def test_a_restricted_plugin_gets_no_warning(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        r = self.ok(u.run("push", self.plugin_jar("hello")))
-        self.assertNotIn("unrestricted", r.stderr.decode("utf-8"))
-
-    def test_each_push_writes_a_fresh_reload_marker(self):
-        """The runtime never deletes markers (read-only /mnt/app); it reloads when a marker's content changes."""
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        jar = self.plugin_jar("hello")
-        marker = os.path.join(u.sdk, "plugins/hello.reload")
-        self.ok(u.run("push", jar))
-        self.assertEqual(read(jar), read(os.path.join(u.sdk, "plugins/hello.jar")))
-        first = read(marker)
-        self.ok(u.run("push", jar))
-        self.assertNotEqual(first, read(marker))
-        self.assertTrue(read(marker).strip(), "a non-empty token")
-
-    def test_a_failed_push_leaves_no_temp_file(self):
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        jar = self.plugin_jar("hello")
-        r = u.run("push", jar, fail_mv="plugins/hello.jar")
-        self.assertNotEqual(0, r.returncode)
-        self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins/.push.tmp")))
-        self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins/hello.jar")))
-
-    def test_push_survives_another_process_remounting_app_read_only(self):
-        """Bench: mibpkg's supervisor put /mnt/app back to read-only between the jar and the marker of one push."""
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        jar = self.plugin_jar("hello")
-        self.ok(u.run("push", jar, ro_after_mv="plugins/hello.jar"))
-        self.assertEqual(read(jar), read(os.path.join(u.sdk, "plugins/hello.jar")))
-        self.assertTrue(read(os.path.join(u.sdk, "plugins/hello.reload")).strip())
-        self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins/.push.tmp")))
-
-    def test_a_move_that_fails_with_status_0_fails_the_push(self):
-        """QNX mv exits 0 when it cannot replace the target; push must judge the result, not the status."""
-        u = self.unit(tracer_marker=False)
-        self.ok(u.run("install"))
-        jar = self.plugin_jar("hello")
-        write(os.path.join(u.unit, "app.ro"), b"")
-        executable(os.path.join(u.root, "bin", "mount"), FAKE_NOOP)  # /mnt/app stays read-only whatever we do
-        r = u.run("push", jar)
-        self.assertNotEqual(0, r.returncode)
-        self.assertIn(b"failed to move", r.stderr)
-        self.assertFalse(os.path.exists(os.path.join(u.sdk, "plugins/hello.jar")))
+    def test_push_refuses_a_jar_without_a_plugin_id(self):
+        jar = os.path.join(self.tmp, "x.jar")
+        with zipfile.ZipFile(jar, "w") as z:
+            z.writestr("plugin.json", '{"id": "bad id"}')
+        write(jar + ".stamp", b"format=1\n")
+        self.assertIn("invalid plugin id", self.failed(self.u.run("push", jar)))
+        self.assertEqual([], self.u.uploads())
 
 
-class RemoveTest(FakeUnitTestCase):
-    def setUp(self):
-        super(RemoveTest, self).setUp()
-        self.u = self.unit(tracer_marker=False)
-        self.u.env["MIBSDK_REMOVE_WAIT_S"] = "0"
-        self.ok(self.u.run("install"))
-
-    def jar(self, plugin_id):
-        path = os.path.join(self.tmp, plugin_id + ".jar")
-        with zipfile.ZipFile(path, "w") as z:
-            z.writestr("plugin.json", '{"id": "%s"}' % plugin_id)
-        stamp(path + ".stamp", "plugin", [path], {"plugin.id": plugin_id, "plugin.unrestricted": "false"})
-        return path
-
-    def installed(self, plugin_id):
-        self.ok(self.u.run("push", self.jar(plugin_id)))
-        self.ok(self.u.run("grant", plugin_id, "vehicle.read"))
-
-    def grants(self):
-        return read(os.path.join(self.u.sdk, "grants.properties")).decode("utf-8")
-
-    def ledger(self, text):
-        write(os.path.join(self.u.persist, "ledger.properties"), text.encode("utf-8"))
-
-    def test_removes_the_jar_and_grant_and_requests_a_reload(self):
-        self.installed("hello")
-        marker = os.path.join(self.u.sdk, "plugins/hello.reload")
-        before = read(marker)
-        r = self.ok(self.u.run("remove", "hello"))
-        self.assertFalse(os.path.exists(os.path.join(self.u.sdk, "plugins/hello.jar")))
-        self.assertNotIn("hello=", self.grants())
-        self.assertNotEqual(before, read(marker))
-        self.assertTrue(read(marker).strip())
-        self.assertTrue(os.path.exists(os.path.join(self.u.unit, "app.ro")))
-        self.assertIn("removed hello", r.stdout.decode("utf-8"))
-        self.assertIn("hello has no overrides in the ledger", r.stdout.decode("utf-8"))
-
-    def test_drops_the_plugins_off_switch(self):
-        self.installed("hello")
-        plugins = os.path.join(self.u.persist, "plugins.properties")
-        write(plugins, b"hello.off=true\nhello-2.off=true\nother.off=true\n")
+class SdkVerbTest(FakeUnitTestCase):
+    def test_remove_maps_to_sdk_remove_with_purge_data_alias(self):
         self.ok(self.u.run("remove", "hello"))
-        self.assertEqual(b"hello-2.off=true\nother.off=true\n", read(plugins))
+        self.ok(self.u.run("remove", "hello", "--purge-data"))
+        self.ok(self.u.run("remove", "--purge", "hello", "10.1.2.3"))
+        removes = [c for c in self.u.calls() if c[:2] == ["sdk", "remove"]]
+        self.assertEqual([["sdk", "remove", "hello"], ["sdk", "remove", "hello", "--purge"],
+                          ["sdk", "remove", "hello", "--purge"]], removes)
+        self.assertIn("invalid plugin id", self.failed(self.u.run("remove", "../x")))
 
-    def test_plugins_properties_is_pushed_before_the_reload_marker(self):
-        self.installed("hello")
-        write(os.path.join(self.u.persist, "plugins.properties"), b"hello.off=true\n")
-        r = self.u.run("remove", "hello", fail_mv="hello.reload")
-        self.assertNotEqual(0, r.returncode)
-        self.assertEqual(b"", read(os.path.join(self.u.persist, "plugins.properties")))
+    def test_uninstall_flags_pass_through(self):
+        self.ok(self.u.run("uninstall"))
+        self.ok(self.u.run("uninstall", "--purge", "--force"))
+        self.ok(self.u.run("uninstall", "--force", "10.1.2.3"))
+        got = [c for c in self.u.calls() if c[0] == "remove"]
+        self.assertEqual([["remove", "mibsdk"], ["remove", "mibsdk", "--purge", "--force"], ["remove", "mibsdk", "--force"]],
+                         got)
+        self.assertEqual({"10.20.0.23", "10.1.2.3"}, self.u.hosts())
+        r = self.u.run("uninstall", rc=1, out="refusing: overrides still in force")
+        self.failed(r, 1)
+        self.assertIn(b"refusing: overrides still in force", r.stdout)
 
-    def test_leaves_a_plugin_with_a_longer_id_alone(self):
-        self.installed("bike")
-        self.installed("bike-rack")
-        write(os.path.join(self.u.persist, "data/bike-rack.properties"), b"x=1\n")
-        self.ledger("a.key=bike|PERSISTENT|F1|F0|R\nb.key=bike-rack|PERSISTENT|F1|F0|A\n")
-        r = self.ok(self.u.run("remove", "bike"))
-        self.assertTrue(os.path.exists(os.path.join(self.u.sdk, "plugins/bike-rack.jar")))
-        self.assertIn("bike-rack=vehicle.read", self.grants())
-        self.assertNotIn("bike=vehicle", self.grants().replace("bike-rack=", ""))
-        self.assertTrue(os.path.exists(os.path.join(self.u.persist, "data/bike-rack.properties")))
-        self.assertIn(b"b.key=bike-rack|", read(os.path.join(self.u.persist, "ledger.properties")))
-        err = r.stderr.decode("utf-8")
-        self.assertIn("a.key=bike|PERSISTENT|F1|F0|R", err)
-        self.assertNotIn("b.key", err)
+    def test_grant_safe_mode_boot_state_data_clear_map_to_sdk_verbs(self):
+        for args in (("grant", "hello", "network,vehicle.read"), ("grant", "hello", ""), ("safe-mode", "on"),
+                     ("safe-mode", "off"), ("boot-state", "set-wrap", "3"), ("data-clear", "crashy")):
+            self.ok(self.u.run(*args))
+        verbs = [c for c in self.u.calls() if c != ["sdk", "status"]]
+        self.assertEqual([["sdk", "grant", "hello", "network,vehicle.read"], ["sdk", "grant", "hello", ""],
+                          ["sdk", "safe-mode", "on"], ["sdk", "safe-mode", "off"], ["sdk", "boot-state", "set-wrap", "3"],
+                          ["sdk", "data-clear", "crashy"]], verbs)
+        # mibpkg's exit codes pass through: 2 bad usage, 1 busy.
+        self.failed(self.u.run("boot-state", "set-wrap", "x", rc=2), 2)
+        self.failed(self.u.run("grant", "hello", "network", rc=1), 1)
+        self.assertIn("invalid permission list", self.failed(self.u.run("grant", "hello", "a b")))
 
-    def test_keeps_data_unless_purge_data(self):
-        self.installed("hello")
-        self.installed("other")
-        for i in ("hello", "other"):
-            write(os.path.join(self.u.persist, "data/%s.properties" % i), b"x=1\n")
-        self.ok(self.u.run("remove", "hello"))
-        self.assertTrue(os.path.exists(os.path.join(self.u.persist, "data/hello.properties")))
-        r = self.ok(self.u.run("remove", "other", "--purge-data"))
-        self.assertFalse(os.path.exists(os.path.join(self.u.persist, "data/other.properties")))
-        self.assertTrue(os.path.exists(os.path.join(self.u.persist, "data/hello.properties")))
-        self.assertIn("cleared the data of other", r.stdout.decode("utf-8"))
+    def test_status_is_mibpkg_sdk_status_alone(self):
+        write(os.path.join(self.u.tmp, "mibsdk.log"), b"1 STATUS hello ENABLED ok\n")
+        r = self.ok(self.u.run("status", status_out="HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\nsdk: 0.1.0"))
+        self.assertEqual(b"HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\nsdk: 0.1.0\n", r.stdout)
+        self.assertEqual([["sdk", "status"]], self.u.calls())
 
-    def test_reports_overrides_still_in_the_ledger(self):
-        self.installed("hello")
-        line = "parking.soundDirections=hello|PERSISTENT|F1R1L1X1|F1R0L1X1|R"
-        self.ledger(line + "\n")
-        r = self.ok(self.u.run("remove", "hello"))
-        err = r.stderr.decode("utf-8")
-        self.assertIn("not restored yet", err)
-        self.assertIn(line, err)
-
-    def test_a_rerun_after_the_reload_request_failed_finishes_the_removal(self):
-        # M2: jar and grants are gone when the marker push fails; the re-run must still request the reload
-        self.installed("hello")
-        marker = os.path.join(self.u.sdk, "plugins/hello.reload")
-        before = read(marker)
-        r = self.u.run("remove", "hello", fail_mv="hello.reload")
-        self.assertNotEqual(0, r.returncode)
-        self.assertFalse(os.path.exists(os.path.join(self.u.sdk, "plugins/hello.jar")))
-        self.assertNotIn("hello=", self.grants())
-        self.assertEqual(before, read(marker))
-
-        r = self.ok(self.u.run("remove", "hello"))
-        self.assertNotEqual(before, read(marker))
-        self.assertIn("removed hello", r.stdout.decode("utf-8"))
-
-    def test_a_plugin_known_only_by_its_ledger_lines_is_removed(self):
-        # M2: no jar, grants line or marker, but the ledger still holds its overrides
-        line = "parking.soundDirections=hello|PERSISTENT|F1R1L1X1|F1R0L1X1|R"
-        self.ledger(line + "\n")
-        r = self.ok(self.u.run("remove", "hello"))
-        self.assertTrue(read(os.path.join(self.u.sdk, "plugins/hello.reload")).strip())
-        self.assertIn(line, r.stderr.decode("utf-8"))
-
-    def test_refuses_an_unknown_plugin(self):
-        r = self.u.run("remove", "ghost")
-        self.assertNotEqual(0, r.returncode)
-        self.assertIn(b"is not installed", r.stderr)
+    def test_script_has_no_remote_mount_calls(self):
+        text = read(TOOL).decode("utf-8")
+        self.assertNotIn("mount -u", text)
+        self.assertIsNone(re.search(r"python3 .*(STAMP|GRANTS|LEDGER)_PY", text))
 
 
 if __name__ == "__main__":

@@ -23,8 +23,8 @@ spikes/hmi-ui/run.sh uninstall && installer/mibsdk-dev restart
   - T+140: popup 65 is hidden.
 - `ssh ... touch /tmp/mibsdk-spike-ui.rerun` runs the sequence again without a restart, so you can watch it with
   the drawer open.
-- `run.sh` copies `installer/mibsdk-dev`'s push conventions instead of sourcing that script, because the script
-  runs its `main` when sourced. The stock bundles file uses CRLF line endings, and `run.sh` keeps the CR.
+- `run.sh` is self-contained: it keeps its own copy of the push conventions of the pre-mibpkg
+  `installer/mibsdk-dev` (which now delegates every unit write to mibpkg) and sources nothing. The stock bundles file uses CRLF line endings, and `run.sh` keeps the CR.
 
 ## Spike B (Plan 2, Task 2): SDK pages
 
