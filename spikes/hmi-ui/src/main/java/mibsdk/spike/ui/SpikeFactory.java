@@ -26,6 +26,8 @@ final class SpikeFactory extends CarScreenFactory {
     static volatile SpikeFactory instance;
     /** Spike C I3: drawer row 0 (custom icon), for the "icon-next" command. Touched on HMIEvent only. */
     static volatile MenuItemController row0;
+    /** Spike C: the stub registered for popup 609600 (the popup manager shows/queues by its slot). */
+    static volatile PartialPopupStub popupStub;
     /** Spike C: image ids already logged by getImagePath (first call per id). */
     private final java.util.Hashtable loggedImages = new java.util.Hashtable();
 
@@ -220,8 +222,10 @@ final class SpikeFactory extends CarScreenFactory {
             if (n > 0) {
                 System.arraycopy(stock, 0, all, 0, n);
             }
-            all[n] = new PartialPopupStub(SpikeIds.POPUP_SDK, SpikeIds.POPUP_VISIBLE_MODEL, -1, 250, 5, 12, true, 7,
-                    terminal, 2, null, true, true);
+            PartialPopupStub stub = new PartialPopupStub(SpikeIds.POPUP_SDK, SpikeIds.POPUP_VISIBLE_MODEL, -1, 250, 5,
+                    12, true, 7, terminal, 2, null, true, true);
+            all[n] = stub;
+            popupStub = stub;
             SpikeLog.log("getPartialPopupStubs terminal=" + terminal + " stock=" + n + " + " + SpikeIds.POPUP_SDK
                     + " thread=" + Thread.currentThread().getName());
             return all;

@@ -14,6 +14,8 @@ import de.audi.atip.hmi.model.AbstractModelBank;
 import de.audi.atip.hmi.modelaccess.ChoiceModelApp;
 import de.audi.atip.hmi.modelaccess.LabelModelApp;
 import de.esolutions.hmi.widgets.audi.evo.widgets.MainWizardController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupStub;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import java.io.File;
 
@@ -21,7 +23,7 @@ import java.io.File;
  * Daemon thread "mibsdk-spike-ui": polls command files /tmp/mibsdk-spike-ui.&lt;cmd&gt; every 100 ms (each is deleted
  * when taken). "rerun" runs spike A's probe sequence (S1c, S1d, S3a/b, S3c); spike B adds row1-show/row1-hide,
  * back-reshow/back-event/back-stock, reset-sel-on/off, nolabel-on and hijack (file holds an event id).
- * Spike C adds pop-on/pop-off, pop-file, icon-next, glyphs1/glyphs2/glyph-off, logo-on/logo-off, and for the
+ * Spike C adds pop-on/pop-off, pop-file, pop-slot (file holds a slot number), icon-next, glyphs1/glyphs2/glyphs3/glyph-off, logo-on/logo-off, and for the
  * main menu (Boot B) wrench, wz-hide/wz-show and wz-label.
  */
 final class SpikeProbes implements Runnable {
@@ -97,8 +99,12 @@ final class SpikeProbes implements Runnable {
     /** S4 glyph rulers (font coverage of label 416). */
     static final String GLYPHS1 = "\u2190\u2191\u2192\u2193\u2022\u25AA\u25BA\u25C0\u25C6\u25CA\u221E\u221A\u2300";
     static final String GLYPHS2 = "\u25CF\u25CB\u2605\u25B2\u25A0\u25A1\u25CE\u203B\u266A\u260E\u2713\u26A0";
+    /** S4 re-read: the glyphs that were too small to tell apart in glyphs1, spaced out, plus a known-missing pair. */
+    static final String GLYPHS3 = "\u25AA \u25BA \u25C0 \u2300 \u25CA \u2713 \u26A0";
     /** S4: the glyph text held in label 416 (re-asserted every second, the SDK status writer may share it). */
     private static volatile String heldGlyphs;
+    /** Slot of popup 609600 (stock popup 65's is 5); changed by "pop-slot" (file holds the slot number). */
+    static volatile int popupSlot = 5;
     private long lastGlyphWrite;
 
     private void spikeC() {
@@ -114,6 +120,32 @@ final class SpikeProbes implements Runnable {
                 String path = SpikeIds.ICON_ABS_DIR + "p20.png";
                 r.setResourceLocator(new HMIResourceLocator(path));
                 SpikeLog.log("cmd pop-file 602752 := " + path);
+            }
+        }
+        File ps = cmd("pop-slot");
+        if (ps.exists()) {
+            final int slot = readInt(ps);
+            ps.delete();
+            if (slot >= 0 && slot < 14) {
+                popupVisible(0);
+                onHmi("pop-slot", new Runnable() {
+                    public void run() {
+                        popupSlot = slot;
+                        PartialPopupStub st = SpikeFactory.popupStub;
+                        int old = st == null ? -1 : st.getSlot();
+                        if (st != null) {
+                            st.setSlot(slot);
+                        }
+                        PartialPopupController b = SpikePopup.built;
+                        if (b != null) {
+                            b.setSlot(slot);
+                        }
+                        SpikeLog.log("cmd pop-slot stub " + old + " -> " + slot + " built=" + (b != null)
+                                + " (pop-on to show)");
+                    }
+                });
+            } else {
+                SpikeLog.log("cmd pop-slot ignored: " + slot);
             }
         }
         if (take("icon-next")) {
@@ -132,6 +164,9 @@ final class SpikeProbes implements Runnable {
         }
         if (take("glyphs2")) {
             glyphs(GLYPHS2);
+        }
+        if (take("glyphs3")) {
+            glyphs(GLYPHS3);
         }
         if (take("glyph-off")) {
             heldGlyphs = null;

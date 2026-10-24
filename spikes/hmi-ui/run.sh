@@ -9,6 +9,7 @@
 #                         push the jar and the icons (lsd/mibsdk-spike/icons/), rewrite the line(s)
 #   add-system            spike already installed --car-only: rewrite HMISystem= too; bundles.before is kept
 #                         (it stays the pre-spike copy, so uninstall goes all the way back)
+#   push-jar              spike installed: replace the jar only (takes effect at the next restart)
 #   uninstall             write bundles.before back (cmp-verified), remove the jar and the icons dir
 #   status                the two lines, jar/icons/backup presence, /mnt/app mount flags
 #
@@ -156,6 +157,14 @@ case "$CMD" in
     rw_end
     echo "rewrote: $STOCK_SYS_LINE -> $SPIKE_SYS_LINE (bundles.before kept); restart: installer/mibsdk-dev restart"
     ;;
+  push-jar)
+    [ -f "$JAR_SRC" ] || die "$JAR_SRC missing; build: ./gradlew :spikes:hmi-ui:carJar"
+    rsh "[ -e '$BACKUP' ] && [ -e '$JAR_DST' ]" || die "spike not installed (no $BACKUP or $JAR_DST)"
+    rw_begin
+    push_file "$JAR_SRC" "$JAR_DST"
+    rw_end
+    echo "jar replaced (verified); takes effect at the next restart"
+    ;;
   uninstall)
     fetch "$BACKUP" "$TMP/backup" || die "cannot read $BACKUP"
     [ "$(line_of "$TMP/backup" HMICar)" = "$SDK_CAR_LINE" ] || die "$BACKUP has no '$SDK_CAR_LINE'; refusing"
@@ -187,5 +196,5 @@ case "$CMD" in
     fetch /tmp/mibsdk.log "$TMP/log" || die "/tmp/mibsdk.log not found"
     cat "$TMP/log"
     ;;
-  *) echo "usage: run.sh install [--car-only] | add-system | uninstall | status | log  [host]" >&2; exit 2 ;;
+  *) echo "usage: run.sh install [--car-only] | add-system | push-jar | uninstall | status | log  [host]" >&2; exit 2 ;;
 esac

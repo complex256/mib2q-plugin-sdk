@@ -23,6 +23,8 @@ final class SpikePopup {
     static final int X = 514;
     static final int W = 255;
     static final int H = 24;
+    /** The last built popup (for the "pop-slot" command). */
+    static volatile PartialPopupController built;
 
     private SpikePopup() {
     }
@@ -89,6 +91,11 @@ final class SpikePopup {
         // Sorted ids (findViews binary-searches).
         p.setViews(new int[] {SpikeIds.POPUP_VISIBLE_MODEL, SpikeIds.POPUP_FILE_MODEL, SpikeIds.POPUP_LABEL_MODEL},
                 new HMIView[][] {{p}, {file}, {label}});
+        int slot = SpikeProbes.popupSlot;
+        if (slot != 5) {
+            p.setSlot(slot);
+        }
+        built = p;
         return p;
     }
 
