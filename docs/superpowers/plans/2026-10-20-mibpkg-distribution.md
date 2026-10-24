@@ -61,7 +61,7 @@ The rest are specific to this plan:
 
 **On-unit paths**
 - **SDK install root** `BASE = /mnt/app/eso/hmi/lsd/mibsdk/`: `sdk.properties`, `grants.properties`, `SAFE_MODE`, `permissions.json` (new), `plugins/<id>.jar`, `plugins/<id>.reload`; legacy `stock/` (old `mibsdk-dev` backup) and legacy `data/`, `ledger.properties{,.tmp}`, `cache`, `boot.state{,.tmp}` (pre-move state).
-- **Persist root** `PERSIST = /mnt/persist/mibsdk/`: `boot.state`, `ledger.properties`, `plugins.properties` (user on/off: one `<id>.off=true` line per plugin switched off; `UserToggles` via `DurableFiles`), `data/<id>.properties`. Writable without a remount.
+- **Persist root** `PERSIST = /mnt/persist/mibsdk/`: `boot.state`, `ledger.properties`, `plugins.properties` (user on/off: one `<id>.off=true` line per plugin switched off; `UserToggles` via `DurableFiles`), `statusline.properties` (status-line order and hidden items; `StatusPrefs` via `DurableFiles`; added later, mibpkg does not edit it yet), `data/<id>.properties`. Writable without a remount.
 - **RAM root**: `/ramdisk/mibsdk/`.
 - **SDK jars**: `/mnt/app/eso/hmi/lsd/jars/{mibsdk-runtime,mibsdk-adapter-hqc,mibsdk-rt-retrotranslator}.jar`.
 - **Bundle list**: `/mnt/app/eso/hmi/lsd/bundles_dsitracer_enabled.properties` (stock mode 0777). Marker: `/mnt/app/eso/hmi/lsd/dsitracer_activated`. Tracer jar: `/mnt/app/eso/hmi/lsd/DSITracer.jar`.
