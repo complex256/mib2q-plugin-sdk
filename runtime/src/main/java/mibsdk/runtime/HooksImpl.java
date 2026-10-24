@@ -34,11 +34,11 @@ final class HooksImpl implements Hooks {
     private final String pluginId;
     private final SerialExecutor exec;
     private final Registrations registrations;
-    private final Set<String> features;
+    private final LiveFeatures features; // read at each registration
     private final Set<String> granted;
 
     HooksImpl(HookTable table, EventBus bus, String pluginId, SerialExecutor exec, Registrations registrations,
-            Set<String> features, Set<String> granted) {
+            LiveFeatures features, Set<String> granted) {
         this.table = table;
         this.bus = bus;
         this.pluginId = pluginId;
@@ -82,7 +82,7 @@ final class HooksImpl implements Hooks {
         if (!granted.contains(permission)) {
             throw new PermissionDeniedException(permission);
         }
-        if (!features.contains(featureFor(point))) {
+        if (!features.has(featureFor(point))) {
             throw new UnsupportedOperationException("hook point " + point + " is not available on this platform");
         }
     }

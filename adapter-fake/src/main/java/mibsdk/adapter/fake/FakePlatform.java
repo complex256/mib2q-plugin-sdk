@@ -19,7 +19,7 @@ import mibsdk.platform.SdkRoots;
 public final class FakePlatform implements PlatformAdapter {
 
     private final String supportedVersion;
-    private final Set<String> features;
+    private volatile Set<String> features;
     private final List<SoundDirections> applied = Collections.synchronizedList(new ArrayList<SoundDirections>());
     private volatile PlatformHost host;
     private volatile SoundDirections ecu = new SoundDirections(true, true, true, true);
@@ -32,10 +32,37 @@ public final class FakePlatform implements PlatformAdapter {
 
         @Override
         public void apply(SoundDirections value) {
-            ecu = value;
             applied.add(value);
+            boolean report;
+            synchronized (ecuLock) {
+                if (failWrites > 0) {
+                    if (failWrites != Integer.MAX_VALUE) {
+                        failWrites--;
+                    }
+                    throw new IllegalStateException("ECU rejected the write (fake)");
+                }
+                if (dropWrites > 0) {
+                    if (dropWrites != Integer.MAX_VALUE) {
+                        dropWrites--;
+                    }
+                    dropped++;
+                    return;
+                }
+                report = reportWrites && (reportUnchanged || !value.equals(ecu));
+                ecu = value;
+            }
+            if (report) {
+                host().publish(new ParkingSoundChanged(value));
+            }
         }
     };
+
+    private final Object ecuLock = new Object();
+    private int failWrites;
+    private int dropWrites;
+    private int dropped;
+    private boolean reportWrites = true;
+    private boolean reportUnchanged = true;
 
     /**
      * The SDK roots for a test: {@code <tmp>/mibsdk} (install, as on the unit), {@code <tmp>/persist} and
@@ -81,6 +108,18 @@ public final class FakePlatform implements PlatformAdapter {
         return parking;
     }
 
+    /**
+     * Simulates the adapter learning (or losing) features after start, e.g. a DSI service that arrived late:
+     * replaces {@link #features()} and, if started, calls {@link PlatformHost#featuresChanged()}.
+     */
+    public void setFeatures(Set<String> features) {
+        this.features = Collections.unmodifiableSet(new HashSet<String>(features));
+        PlatformHost h = host;
+        if (h != null) {
+            h.featuresChanged();
+        }
+    }
+
     /** Simulates the ignition changing; publishes {@link IgnitionChanged}. */
     public void setIgnition(boolean on) {
         host().publish(new IgnitionChanged(on));
@@ -90,6 +129,44 @@ public final class FakePlatform implements PlatformAdapter {
     public void ecuSetSoundDirections(SoundDirections v) {
         ecu = v;
         host().publish(new ParkingSoundChanged(v));
+    }
+
+    /** The next {@code n} writes return normally but the ECU keeps its value and reports nothing. {@code Integer.MAX_VALUE} = until reset with 0. */
+    public void ecuDropWrites(int n) {
+        synchronized (ecuLock) {
+            dropWrites = n;
+        }
+    }
+
+    /** The next {@code n} writes throw {@link IllegalStateException}; checked before drop. */
+    public void ecuFailWrites(int n) {
+        synchronized (ecuLock) {
+            failWrites = n;
+        }
+    }
+
+    /** Whether an accepted write publishes {@link ParkingSoundChanged} before {@code apply} returns (default true). */
+    public void ecuReportWrites(boolean on) {
+        synchronized (ecuLock) {
+            reportWrites = on;
+        }
+    }
+
+    /**
+     * Whether an accepted write that leaves the ECU's value unchanged is reported too (default true). A real
+     * ECU may stay silent then: the value it last reported is still its value.
+     */
+    public void ecuReportUnchanged(boolean on) {
+        synchronized (ecuLock) {
+            reportUnchanged = on;
+        }
+    }
+
+    /** How many writes were dropped so far. */
+    public int droppedWrites() {
+        synchronized (ecuLock) {
+            return dropped;
+        }
     }
 
     /** The persisted ECU value. */

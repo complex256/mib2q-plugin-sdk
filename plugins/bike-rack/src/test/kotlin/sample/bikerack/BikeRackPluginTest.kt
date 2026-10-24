@@ -50,12 +50,12 @@ class BikeRackPluginTest {
         rt?.stop()
     }
 
-    private fun start(active: Boolean?) {
+    private fun start(active: Boolean?, extraProps: String = "", startDelayMs: Long = 0) {
         base = File(tmp, "mibsdk")
         File(base, "plugins").mkdirs()
         File(System.getProperty("mibsdk.pluginJar")).copyTo(File(base, "plugins/bike-rack.jar"))
         File(base, "sdk.properties").writeText(
-            "plugin.start.delay.ms=0\nheap.low.bytes=0\nlog.file=${File(tmp, "mibsdk.log").path}\n")
+            "plugin.start.delay.ms=$startDelayMs\nheap.low.bytes=0\nlog.file=${File(tmp, "mibsdk.log").path}\n$extraProps")
         File(base, "grants.properties").writeText("bike-rack=vehicle.read,vehicle.parking.write\n")
         if (active != null) {
             File(FakePlatform.roots(tmp).persist(), "data").mkdirs()
@@ -63,6 +63,7 @@ class BikeRackPluginTest {
         }
         rt = SdkRuntime(RuntimeConfig.load(FakePlatform.roots(tmp)), platform, now, HookTable(64), RingLog(500)).also {
             it.start()
+            if (startDelayMs > 0) return@also
             assertEquals(PluginState.ENABLED, it.statuses().single().state(), it.log().snapshot().toString())
         }
     }
@@ -80,6 +81,16 @@ class BikeRackPluginTest {
         Thread.sleep(200)
         assertEquals(size, fake.appliedLog().size, fake.appliedLog().toString())
     }
+
+    private fun awaitWindowClosed(count: Int) {
+        for (i in 0 until 500) {
+            if (windowClosedCount() >= count) break
+            Thread.sleep(10)
+        }
+        assertEquals(count, windowClosedCount(), rt?.log()?.snapshot().toString())
+    }
+
+    private fun windowClosedCount() = rt!!.log().snapshot().count { it.toString().contains("re-arm window closed") }
 
     private fun storedActive(): String? {
         rt!!.stop() // flushes storage
@@ -107,7 +118,7 @@ class BikeRackPluginTest {
         awaitApplied(1, f1r0l1x1)
         fake.setIgnition(false)
         awaitApplied(2, f1r1l1x1)
-        assertEquals("false", storedActive())
+        assertEquals(null, storedActive())
     }
 
     @Test
@@ -129,7 +140,7 @@ class BikeRackPluginTest {
         fake.ecuSetSoundDirections(f1r1l1x1)
         assertNoMoreThan(0)
         assertTrue(rt!!.activeOverrides().isEmpty())
-        assertEquals("false", storedActive())
+        assertEquals(null, storedActive())
     }
 
     @Test
@@ -147,5 +158,93 @@ class BikeRackPluginTest {
         awaitApplied(1, f1r0l1x1)
         rt!!.stop()
         awaitApplied(2, f1r1l1x1)
+    }
+
+    @Test
+    fun ignitionOffWhileWaitingAtTheStorageCapNeverMutes() {
+        ecuKnown = false
+        // entryBytes("active","true") estimates 12; "false" would be 13 and throw
+        start(true, "storage.plugin.max.bytes=12\n")
+        fake.setIgnition(false)
+        ecuKnown = true
+        fake.ecuSetSoundDirections(f1r1l1x1)
+        assertNoMoreThan(0)
+        assertTrue(rt!!.activeOverrides().isEmpty())
+        assertEquals(null, storedActive())
+    }
+
+    @Test
+    fun armedWhileParkedMutesAgainAtIgnitionOn() {
+        start(true, startDelayMs = 30000)
+        fake.setIgnition(false) // KL15 is off before the plugin loads (enable or reload while parked)
+        now.ms += 30000
+        awaitApplied(1, f1r0l1x1) // muted while off: the ledger ends that override at ignition on
+        fake.setIgnition(true)
+        // the ledger ends the off-mute; the armed rack takes the mute again for this drive (the restore write
+        // may or may not happen first, depending on which runs first)
+        awaitHeld { it.size == 1 && !it[0].restorePending() && fake.ecuSoundDirections() == f1r0l1x1 }
+        assertNoMoreThan(fake.appliedLog().size)
+        assertEquals(f1r0l1x1, fake.ecuSoundDirections())
+        assertEquals("bike-rack", rt!!.activeOverrides().single().pluginId())
+
+        fake.setIgnition(false) // the drive ends: the rear tones come back
+        awaitHeld { it.isEmpty() && fake.ecuSoundDirections() == f1r1l1x1 }
+        assertNoMoreThan(fake.appliedLog().size)
+        assertEquals(f1r1l1x1, fake.ecuSoundDirections())
+        assertEquals(null, storedActive())
+    }
+
+    private fun awaitHeld(done: (List<mibsdk.runtime.ActiveOverride>) -> Boolean) {
+        for (i in 0 until 500) {
+            if (done(rt!!.activeOverrides())) return
+            Thread.sleep(10)
+        }
+        throw AssertionError("${rt!!.activeOverrides()} ecu=${fake.ecuSoundDirections()} " +
+            "applied=${fake.appliedLog()}\n${rt!!.log().snapshot()}")
+    }
+
+    @Test
+    fun ignitionBlipWithinFiveSecondsReArmsAndMutesAgain() {
+        start(true)
+        awaitApplied(1, f1r0l1x1)
+        fake.setIgnition(false)
+        awaitApplied(2, f1r1l1x1)
+        now.ms += 3000
+        fake.setIgnition(true)
+        awaitApplied(3, f1r0l1x1)
+        assertEquals("true", storedActive())
+    }
+
+    @Test
+    fun ignitionOnAfterTheWindowStaysDisarmed() {
+        start(true)
+        awaitApplied(1, f1r0l1x1)
+        fake.setIgnition(false)
+        awaitApplied(2, f1r1l1x1)
+        now.ms += 5000
+        awaitWindowClosed(1)
+        fake.setIgnition(true)
+        assertNoMoreThan(2)
+        assertEquals(null, storedActive())
+    }
+
+    @Test
+    fun bouncingIgnitionOffEndsDisarmedAndUnmuted() {
+        start(true)
+        awaitApplied(1, f1r0l1x1)
+        fake.setIgnition(false)
+        awaitApplied(2, f1r1l1x1)
+        now.ms += 1000
+        fake.setIgnition(true)
+        awaitApplied(3, f1r0l1x1)
+        fake.setIgnition(false)
+        awaitApplied(4, f1r1l1x1)
+        now.ms += 1000
+        fake.setIgnition(false)
+        now.ms += 5000
+        awaitWindowClosed(1)
+        fake.setIgnition(true)
+        assertNoMoreThan(4)
+        assertEquals(null, storedActive())
     }
 }

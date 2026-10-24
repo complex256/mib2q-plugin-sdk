@@ -39,19 +39,24 @@ usage: mibsdk-dev <command> [args] [host]      (host defaults to $DEFAULT_HOST)
 
   install                    back up the stock files (first install only), push the SDK jars, bundles file and
                              sdk.properties, create $PERSIST; refuses on an unsupported HMI, carplay-rgi,
-                             or missing DSITracer.jar
+                             missing DSITracer.jar, or a dist without a matching check stamp (build it with
+                             ./gradlew :dist:assembleUnit)
   uninstall [--purge] [--force]
                              restore the stock bundles file (and its mode), remove the SDK jars (and the
                              dsitracer_activated marker if it was absent before); plugin data in $PERSIST
                              is kept unless --purge, which also removes $SDK and $RAMDIR. Refuses while
                              ledger.properties lists overrides still in force; --force uninstalls anyway
   restart                    restart the HMI (slay -s11 j9)
-  push <plugin.jar> [host]   install a plugin jar as plugins/<id>.jar and trigger a reload (writes a fresh token to
+  push <plugin.jar> [host]   install a plugin jar as plugins/<id>.jar (refuses a jar whose <jar>.stamp is missing or does
+                             not match it: build with ./gradlew :<project>:mibPluginJar) and trigger a reload (writes a fresh token to
                              plugins/<id>.reload; the runtime reloads once per new token, it never deletes markers)
   grant <id> <perm,...>      rewrite that plugin's line in grants.properties
   data-clear <id>            remove that plugin's data ($PERSIST/data/<id>.properties); the ledger, boot state
                              and other plugins' data are untouched. The storage cap counts files on disk from the
                              runtime's start, so restart afterwards (mibsdk-dev restart) to free the space
+  remove <id> [--purge-data] remove plugins/<id>.jar and its grants line, request a reload, then wait up to
+                             $MIBSDK_REMOVE_WAIT_S s (default 30) for the ledger to drop its overrides; keeps the
+                             plugin's data unless --purge-data
   safe-mode on|off           create/remove the SAFE_MODE marker (off also resets $PERSIST/boot.state: the unhealthy-boot count
                              and the wrap-boot count that turns DSI service wrapping off after a crash loop)
   log                        print $LOG
@@ -94,8 +99,10 @@ set_host() {
 
 connect() {
   rsh "echo ok" >/dev/null 2>&1 || die "cannot reach root@$HOST over ssh (is the unit on and is the host right?)"
-  TMP="$(mktemp -d "${TMPDIR:-/tmp}/mibsdk-dev.XXXXXX")"
+  [ -n "$TMP" ] || make_tmp
 }
+
+make_tmp() { TMP="$(mktemp -d "${TMPDIR:-/tmp}/mibsdk-dev.XXXXXX")"; }
 
 # remote_cat <remote path> <local file>: fetch; returns 1 if the remote file cannot be read.
 fetch() { rsh "cat '$1'" >"$2" 2>/dev/null; }
@@ -186,6 +193,16 @@ cmd_install() {
     [ -f "$DIST/$j" ] || die "$DIST/$j missing; build it with: ./gradlew :dist:assembleUnit"
   done
   command -v python3 >/dev/null || die "python3 is required on this machine"
+  # Verify and push one snapshot: the bytes that pass the check are the bytes that reach the unit.
+  local why src="$DIST"
+  make_tmp
+  mkdir "$TMP/dist"
+  for j in $SDK_JARS; do cp "$DIST/$j" "$TMP/dist/$j" || die "cannot read $DIST/$j"; done
+  if [ -f "$DIST/mibsdk-unit.stamp" ]; then cp "$DIST/mibsdk-unit.stamp" "$TMP/dist/" || die "cannot read the stamp"; fi
+  DIST="$TMP/dist"
+  why="$(python3 -I - verify "$DIST/mibsdk-unit.stamp" unit - "$DIST/mibsdk-runtime.jar" "$DIST/mibsdk-adapter-hqc.jar" \
+         "$DIST/mibsdk-rt-retrotranslator.jar" 2>&1 <<<"$STAMP_PY")" \
+    || die "$src is not a checked build ($why); build it with: ./gradlew :dist:assembleUnit; nothing changed"
   connect
 
   # 1. Facts from the unit.
@@ -325,7 +342,56 @@ migrate_ledger() {
   rsh "rm -f '$OLD_LEDGER' '$OLD_LEDGER.tmp'" || die "cannot remove $OLD_LEDGER"
 }
 
-# The ledger is OverrideLedger's file: one key=plugin|scope|prior|active line per override, no comments.
+# STAMP_PY verify <stamp> <kind> <expected-id-or-"-"> <jar>...: checks a build's check stamp (CheckStamp.java, format 1)
+# against the jars about to be installed. Exit 0 and, for a plugin, print unrestricted=<true|false>; or exit 1 with one
+# line on stderr: missing, format, kind, id <x> != <y>, no hash for <name>, hash mismatch for <name>.
+STAMP_PY='
+import hashlib, os, sys
+def fail(why):
+    sys.stderr.write(why + "\n")
+    sys.exit(1)
+stamp, kind, want_id, jars = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
+try:
+    text = open(stamp, "rb").read().decode("latin-1")
+except (IOError, OSError):
+    fail("missing")
+lines = text.split("\n")
+if lines and lines[-1] == "":
+    lines.pop()
+attrs = {}
+for line in lines:
+    if "=" not in line:
+        fail("format")
+    k, v = line.split("=", 1)
+    if k in attrs:
+        fail("format")
+    attrs[k] = v
+if lines[:1] != ["format=1"] or not attrs.get("checks"):
+    fail("format")
+if attrs.get("kind") != kind:
+    fail("kind")
+if kind == "plugin":
+    if attrs.get("plugin.id") != want_id:
+        fail("id %s != %s" % (attrs.get("plugin.id"), want_id))
+    if attrs.get("plugin.unrestricted") not in ("true", "false"):
+        fail("format")
+for jar in jars:
+    name = os.path.basename(jar)
+    want = attrs.get("sha256." + name)
+    if want is None:
+        fail("no hash for " + name)
+    try:
+        got = hashlib.sha256(open(jar, "rb").read()).hexdigest()
+    except (IOError, OSError):
+        fail("missing")
+    if got != want:
+        fail("hash mismatch for " + name)
+if kind == "plugin":
+    print("unrestricted=" + attrs["plugin.unrestricted"])
+'
+
+# The ledger is OverrideLedger's file: one key=plugin|scope|prior|active|state line per override (state A held, R
+# restoring), no comments; a 4-field line (no state) is from before the state existed and counts as held.
 # merge <old> <cur> <out>: out = cur + the old entries whose key cur lacks; exit 3 if an old key is in cur with
 # another value. conflicts <old> <cur>: prints those old entries. verify <old> <cur>: exit 1 unless every old
 # entry is in cur, unchanged.
@@ -388,13 +454,14 @@ check_ledger() {
     info "WARNING: --force: uninstalling while these overrides of vehicle state are still in force:"
     grep '[^[:space:]]' "$TMP/ledger.properties" | sed 's/^/mibsdk-dev:   /' >&2
     info "WARNING: nothing will restore their prior values; the car keeps the overridden settings until you"
-    info "WARNING: change them back by hand (format: key=plugin|scope|prior|active)."
+    info "WARNING: change them back by hand (format: key=plugin|scope|prior|active|A or R)."
     return 0
   fi
-  info "refusing to uninstall: these overrides of vehicle state are still in force (key=plugin|scope|prior|active):"
+  info "refusing to uninstall: these overrides of vehicle state are still in force (key=plugin|scope|prior|active|A or R):"
   grep '[^[:space:]]' "$TMP/ledger.properties" | sed 's/^/mibsdk-dev:   /' >&2
-  info "disable the plugin that owns them (or restart the HMI: mibsdk-dev restart) and wait for the SDK to restore"
-  info "the prior values (check: mibsdk-dev log), then run uninstall again."
+  info "let the SDK put the prior values back first: mibsdk-dev safe-mode on && mibsdk-dev restart"
+  info "(safe mode loads no plugin and restores every override in the ledger; check with: mibsdk-dev log), then run uninstall again."
+  info "after a later reinstall, leave safe mode with: mibsdk-dev safe-mode off"
   die "to uninstall anyway and leave those settings overridden, add --force"
 }
 
@@ -449,7 +516,13 @@ cmd_push() {
   local jar="${1:-}"
   [ -n "$jar" ] && [ -f "$jar" ] || die "usage: mibsdk-dev push <plugin.jar> [host]"
   command -v python3 >/dev/null || die "python3 is required on this machine"
-  local id
+  # Verify and push one snapshot of the jar and its stamp, not the files on disk (they may change meanwhile).
+  local orig="$jar" id why
+  make_tmp
+  mkdir "$TMP/snap"
+  cp "$jar" "$TMP/snap/${jar##*/}" || die "cannot read $jar"
+  if [ -f "$jar.stamp" ]; then cp "$jar.stamp" "$TMP/snap/${jar##*/}.stamp" || die "cannot read $jar.stamp"; fi
+  jar="$TMP/snap/${jar##*/}"
   id="$(python3 -I - "$jar" <<'PY'
 import json, sys, zipfile
 try:
@@ -460,6 +533,11 @@ except Exception as e:
 PY
 )" || exit 1
   check_id "$id"
+  why="$(python3 -I - verify "$jar.stamp" plugin "$id" "$jar" 2>&1 <<<"$STAMP_PY")" \
+    || die "$orig has no valid check stamp ($why); only jars built by the mibsdk.plugin convention can be pushed: ./gradlew :<project>:mibPluginJar"
+  if [ "$why" = "unrestricted=true" ]; then
+    info "WARNING: $id declares platform.unrestricted: it may use reflection, exec or exit; the SDK cannot contain it"
+  fi
   connect
   need_sdk
   # A fresh token every push: the runtime reloads once per new marker content and never deletes the marker.
@@ -472,6 +550,28 @@ PY
   echo "pushed $id; reload requested"
 }
 
+# GRANTS_PY src dst <id> set <perms> | drop: rewrite grants.properties text. set replaces the plugin's line (or adds
+# it); drop removes it. Only the key exactly equal to <id> matches. Prints "dropped" when a line was removed.
+GRANTS_PY='
+import sys
+src, dst, pid, mode = sys.argv[1:5]
+perms = sys.argv[5] if len(sys.argv) > 5 else ""
+out, done = [], False
+for line in open(src, "rb").read().decode("utf-8").splitlines():
+    key = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else None
+    if key == pid:
+        if mode == "set" and not done:
+            out.append("%s=%s" % (pid, perms))
+            done = True
+        elif mode == "drop":
+            print("dropped")
+        continue
+    out.append(line)
+if mode == "set" and not done:
+    out.append("%s=%s" % (pid, perms))
+open(dst, "wb").write(("\n".join(out) + ("\n" if out else "")).encode("utf-8"))
+'
+
 cmd_grant() {
   [ $# -ge 2 ] || die "usage: mibsdk-dev grant <id> <perm,...> [host]"
   local id="$1" perms="$2"
@@ -483,27 +583,79 @@ cmd_grant() {
   if is_present "$SDK/grants.properties"; then
     fetch "$SDK/grants.properties" "$TMP/grants.in" || die "cannot read grants.properties"
   fi
-  python3 -I - "$TMP/grants.in" "$TMP/grants.out" "$id" "$perms" <<'PY'
-import sys
-src, dst, pid, perms = sys.argv[1:5]
-out, done = [], False
-for line in open(src, "rb").read().decode("utf-8").splitlines():
-    key = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else None
-    if key == pid:
-        if not done:
-            out.append("%s=%s" % (pid, perms))
-            done = True
-        continue
-    out.append(line)
-if not done:
-    out.append("%s=%s" % (pid, perms))
-open(dst, "wb").write(("\n".join(out) + "\n").encode("utf-8"))
-PY
+  python3 -I - "$TMP/grants.in" "$TMP/grants.out" "$id" set "$perms" <<<"$GRANTS_PY" >/dev/null || die "cannot rewrite grants"
   rw_begin
   sweep_push_tmp
   push_file "$TMP/grants.out" "$SDK/grants.properties"
   rw_end
   echo "granted $id: ${perms:-<none>} (picked up on the next plugin load/reload)"
+}
+
+# cmd_remove <id> [--purge-data]: take a plugin off the unit (jar, grants line, reload token), wait for the running
+# SDK to restore its overrides, optionally clear its data.
+cmd_remove() {
+  local id="" purge=0 a
+  for a in "$@"; do
+    case "$a" in --purge-data) purge=1 ;; *) id="$a" ;; esac
+  done
+  [ -n "$id" ] || die "usage: mibsdk-dev remove <id> [--purge-data] [host]"
+  check_id "$id"
+  command -v python3 >/dev/null || die "python3 is required on this machine"
+  connect
+  need_sdk
+  local jar="$SDK/plugins/$id.jar" data="$PERSIST/data/$id.properties" has_jar=0 has_data=0 has_marker=0 has_overrides=0 dropped
+  : >"$TMP/grants.in"
+  if is_present "$SDK/grants.properties"; then
+    fetch "$SDK/grants.properties" "$TMP/grants.in" || die "cannot read grants.properties"
+  fi
+  dropped="$(python3 -I - "$TMP/grants.in" "$TMP/grants.out" "$id" drop <<<"$GRANTS_PY")" || die "cannot rewrite grants"
+  if is_present "$jar"; then has_jar=1; fi
+  if is_present "$data"; then has_data=1; fi
+  # A reload marker or ledger lines also count: a run that failed after removing the jar and the grants line (say,
+  # pushing the marker) leaves only those, and its re-run must still request the reload.
+  if is_present "$SDK/plugins/$id.reload"; then has_marker=1; fi
+  : >"$TMP/ledger"
+  if is_present "$LEDGER"; then fetch "$LEDGER" "$TMP/ledger" || die "cannot read $LEDGER"; fi
+  if grep -qF -- "=$id|" "$TMP/ledger"; then has_overrides=1; fi
+  [ "$has_jar" = 1 ] || [ "$has_data" = 1 ] || [ -n "$dropped" ] || [ "$has_marker" = 1 ] || [ "$has_overrides" = 1 ] \
+    || die "$id is not installed on $HOST"
+  printf '%s-%s-%s\n' "$(date +%s)" "$$" "$RANDOM" >"$TMP/reload"
+  rw_begin
+  sweep_push_tmp
+  rsh "rm -f '$jar'" || die "cannot remove $jar"
+  if is_present "$jar"; then die "$jar is still there after removal"; fi
+  push_file "$TMP/grants.out" "$SDK/grants.properties"
+  push_file "$TMP/reload" "$SDK/plugins/$id.reload"
+  rw_end
+  echo "removed $id: plugins/$id.jar and its grants line; reload requested"
+
+  local wait="${MIBSDK_REMOVE_WAIT_S:-30}" left first=1
+  case "$wait" in ''|*[!0-9]*) wait=30 ;; esac
+  SECONDS=0
+  while :; do
+    : >"$TMP/ledger"
+    if is_present "$LEDGER"; then fetch "$LEDGER" "$TMP/ledger" || die "cannot read $LEDGER"; fi
+    left="$(grep -F -- "=$id|" "$TMP/ledger" || true)"
+    if [ -z "$left" ]; then
+      if [ "$first" = 1 ]; then echo "$id has no overrides in the ledger"; else echo "overrides of $id restored"; fi
+      break
+    fi
+    first=0
+    if [ "$SECONDS" -ge "$wait" ]; then
+      echo "WARNING: these overrides of $id are not restored yet:" >&2
+      echo "$left" >&2
+      echo "they are restored when the SDK next starts (the plugin is no longer installed); check with: mibsdk-dev log" >&2
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$purge" = 1 ]; then
+    rsh "rm -f '$data' '$data.tmp'" || die "cannot remove $data"
+    echo "cleared the data of $id ($data)"
+    echo "Restart the HMI now (mibsdk-dev restart): a running $id may write its data back, and the storage cap"
+    echo "frees the space only from the next runtime start."
+  fi
 }
 
 cmd_safe_mode() {
@@ -575,10 +727,19 @@ main() {
     install|restart|log|status) want=0 ;;
     uninstall) want=-1 ;;
     push|safe-mode|data-clear) want=1 ;;
+    remove) want=1 ;;
     grant) want=2 ;;
     *) usage >&2; die "unknown command '$cmd'" ;;
   esac
   local args=("$@") n=${#args[@]} host_given=0
+  if [ "$cmd" = remove ]; then
+    local a rest=() purge_flag=()
+    for a in "${args[@]+"${args[@]}"}"; do
+      case "$a" in --purge-data) purge_flag=(--purge-data) ;; *) rest+=("$a") ;; esac
+    done
+    args=("${rest[@]+"${rest[@]}"}")
+    n=${#args[@]}
+  fi
   if [ "$cmd" = uninstall ]; then
     local a rest=()
     for a in "${args[@]+"${args[@]}"}"; do
@@ -593,6 +754,7 @@ main() {
   case "$cmd" in
     install) cmd_install ;;
     uninstall) cmd_uninstall "${args[@]+"${args[@]}"}" ;;
+    remove) cmd_remove "${args[@]+"${args[@]}"}" "${purge_flag[@]+"${purge_flag[@]}"}" ;;
     restart) cmd_restart ;;
     push) cmd_push "${args[@]+"${args[@]}"}" ;;
     grant) cmd_grant "${args[@]+"${args[@]}"}" ;;

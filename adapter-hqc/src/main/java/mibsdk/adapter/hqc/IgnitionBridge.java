@@ -15,11 +15,11 @@ import org.dsi.ifc.powermanagement.DSIPowerManagementListener;
  * {@link IgnitionChanged} on change only. A backlog over {@link #MAX_REPLAY} changes is cut to its last two, which
  * always include an off. The callback side assumes one DSI delivery thread per listener (stock behaviour); no lock.
  *
- * <p>The first valid observation only establishes the state: it publishes {@code IgnitionChanged(true)} if the
- * ignition is on and nothing if it is off. So {@code IgnitionChanged(false)}, which makes the runtime restore
- * UNTIL_IGNITION_OFF overrides and record a clean shutdown, is published only for a real on-to-off transition:
- * initial off gives no event; on, off gives {@code true}, {@code false}; a repeated value gives nothing. Updates
- * whose flag is not {@code ATTRVALIDFLAG_VALID} are ignored.
+ * <p>The first valid observation is published as it is, {@code IgnitionChanged(false)} included: the runtime and
+ * its override ledger must learn that KL15 was already off at boot (an UNTIL_IGNITION_OFF override taken then
+ * ends at the next ignition on). The runtime records a clean shutdown only for an off that follows an on. After
+ * that, only changes are published: off, on, off gives {@code false}, {@code true}, {@code false}; a repeated
+ * value gives nothing. Updates whose flag is not {@code ATTRVALIDFLAG_VALID} are ignored.
  */
 final class IgnitionBridge {
 
@@ -91,7 +91,7 @@ final class IgnitionBridge {
         int next = on ? ON : OFF;
         int prev = state;
         state = next;
-        if (prev == next || (prev == UNKNOWN && !on)) {
+        if (prev == next) {
             return;
         }
         pump.publishFromPump(new IgnitionChanged(on));

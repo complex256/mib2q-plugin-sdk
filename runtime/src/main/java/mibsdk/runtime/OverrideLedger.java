@@ -2,7 +2,6 @@ package mibsdk.runtime;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -19,18 +18,24 @@ import mibsdk.api.VehicleOverride;
  * Runtime-owned record of every override of persistent vehicle/ECU state, so the runtime (not the plugin)
  * can put the prior value back.
  *
- * <p>File: {@code <persist>/ledger.properties}, one line per key, {@code <key>=<pluginId>|<scope>|<prior>|<active>},
- * sorted by key, no comments and no wall-clock values (an empty ledger is an empty file). Written with
- * temp file + fsync + rename on every change. The prior is on disk before {@link #acquire} returns and
- * before anything is applied; an entry leaves the file only once its prior is back (applied, or reported
- * by the car).
+ * <p>File: {@code <persist>/ledger.properties}, one line per key,
+ * {@code <key>=<pluginId>|<scope>|<prior>|<active>|<state>}, sorted by key, no comments and no wall-clock
+ * values (an empty ledger is an empty file). {@code <state>} is {@code A} (held: the override is in force)
+ * or {@code R} (restoring: the prior must go back, whoever owns the plugin id). A line of four fields,
+ * written before the state existed, loads as {@code A}; writing always produces five. Written with
+ * {@link DurableFiles#replace} on every change. The prior is on disk before {@link #acquire} returns and
+ * before anything is applied; a release has its {@code R} queued to the file before the first restore
+ * attempt, and {@link #shutdown()} writes the final state, so a restore still pending at stop is finished
+ * by the next boot (a loaded {@code R} entry is restored as soon as {@link #attach} gives it an applier).
+ * An entry leaves the file only once the car has reported its prior (see Confirmation).
  * An unreadable file is treated as empty (logged, and kept aside as {@code ledger.properties.corrupt});
  * a malformed line is skipped (logged).
  *
  * <p>Threads: every {@link Applier#apply} (initial apply, restore, sticky re-apply, retry) runs on the
  * ledger's own daemon thread {@code mibsdk-ledger} (a {@link SerialExecutor}, priority NORM-1), never on a
  * stock thread or a plugin's executor. The public methods only change memory under a private lock and
- * queue work; {@link #acquire} additionally writes the file on the caller's thread. No monitor reachable by
+ * queue work; {@link #acquire} additionally writes the file on the caller's thread, and {@link #shutdown()}
+ * once more on its caller's thread. No monitor reachable by
  * plugin code is ever taken: handles ({@link VehicleOverride}) lock the ledger's private lock only. Delays
  * (debounce, retry) are measured on the injected {@link Clock} via a {@link PluginScheduler}.
  *
@@ -42,13 +47,31 @@ import mibsdk.api.VehicleOverride;
  * <p>Sticky: while an override is in force, an observed value different from it is re-applied
  * 1000 ms after the last change, at most 5 times per 60000 ms (all on the {@link Clock}); then the ledger gives up re-applying (logged) but still restores later.
  *
- * <p>Failures: an apply or restore that throws is logged and retried with backoff on the Clock (5 s,
- * doubling, capped at 60 s). An apply gives up after 5 attempts (the car keeps its value). A restore is
- * never given up while the runtime runs: it is also retried at once by {@link #retryPendingRestores()}
- * (ignition on) and by an {@link #onObserved} of its key that reports a different value than the
- * previous report (repeats wait for the backoff, and reports arriving while such a retry is queued share it),
- * and an observed value equal to the prior completes it. Until then the entry stays in the file and in
- * {@link #active()} with {@link ActiveOverride#restorePending()}.
+ * <p>Confirmation: a restore is complete only when the car reports the prior, never because the write
+ * returned (on HQC {@link mibsdk.platform.ParkingIo#current()} only echoes the last write, so it is not
+ * read). Each entry counts the reports of its key; a report counts for the restore if it arrived after the
+ * entry became restoring, including one that overtakes the return of the write. A write that returns
+ * starts a {@link #CONFIRM_TIMEOUT_MS} wait on the Clock: a report of the prior completes the restore; a
+ * report of another value, or no report by the timeout, is a failed attempt, unless at the timeout the
+ * car's last report of the key is the prior and was made after the override's own write: an ECU need not
+ * report a write that leaves its value unchanged, so that completes it too (logged as a warning). A report
+ * from before that write (or one that overtook it) does not: the override may have taken with its report
+ * lost, so the car may still hold the override value. An observed prior completes a restore
+ * whether or not a write was made. Applying an override still counts as done when the write returns.
+ *
+ * <p>Failures: an apply or restore that throws, and a restore the car does not confirm, is logged and
+ * retried with backoff on the Clock (5 s, doubling, capped at 60 s). An apply gives up after 5 attempts
+ * (the car keeps its value). A restore is never given up while the runtime runs: it is also retried at once
+ * by {@link #retryPendingRestores()} (ignition on, unless a write is awaiting confirmation) and by an
+ * {@link #onObserved} of its key that reports a different value than the previous report (repeats wait for
+ * the backoff, and reports arriving while such a retry is queued share it). Until it completes the entry
+ * stays in the file, marked restoring, and in {@link #active()} with {@link ActiveOverride#restorePending()};
+ * one still pending at stop is finished by the next boot.
+ *
+ * <p>Ignition ({@link #ignitionChanged}): off restores every UNTIL_IGNITION_OFF entry. An UNTIL_IGNITION_OFF
+ * override acquired while the ignition was off belongs to the drive that just ended: the next ignition on
+ * restores it. The state is unknown (treated as on) until the first event. The R of a restore is on disk
+ * before its first write, so a power loss right after ignition off leaves it for the next boot.
  */
 public final class OverrideLedger {
 
@@ -64,6 +87,12 @@ public final class OverrideLedger {
     static final long MAX_RETRY_MS = 60000;
     /** Attempts for applying an override; a restore is never given up while the runtime runs. */
     static final int MAX_ATTEMPTS = 5;
+    /** How long (on the Clock) a returned restore write waits for the car to report the prior. */
+    static final long CONFIRM_TIMEOUT_MS = 5000;
+    /** File state of an entry whose override is in force. */
+    static final String STATE_HELD = "A";
+    /** File state of an entry whose prior must be restored. */
+    static final String STATE_RESTORING = "R";
     private static final String SOURCE = "ledger";
     private static final int MAX_TOKEN = 128;
     private static final long WAIT_SLICE_MS = 50;
@@ -79,11 +108,22 @@ public final class OverrideLedger {
         Handle holder; // null when orphaned (loaded from the file)
         boolean detached; // runtime stopping: kept for the next boot, but the holder may still release it
         boolean restoring;
+        boolean acquiredWhileOff; // memory only: taken while the ignition was off (ends at ignition on if UNTIL_IGNITION_OFF)
         int generation; // bumped on every ownership/state change
         String applied; // value last applied successfully, null if unknown
         int failures; // consecutive failed applies/restores for the current generation
         int retrySeq; // only the newest scheduled retry runs
         boolean syncQueued; // an observation-triggered sync is queued and has not started yet
+        boolean retryNow; // a changed report asked for an immediate restore write
+        // restore confirmation
+        int observations; // reports of the key while the entry exists
+        int restoringSince; // observations when the entry became restoring, or when its override write returned after
+        String lastReport; // the car's last report of the key, of any age (survives state changes)
+        int applyMark; // observations when the override value was last written (or acquired): later reports postdate it
+        boolean wrote; // a restore write returned since the entry became restoring
+        boolean confirming; // a restore write returned; waiting for the car to report the prior
+        int confirmFrom; // observations when that write returned
+        int confirmSeq; // only the newest confirmation check runs
         // sticky re-apply
         String lastObserved;
         long lastDeviationAt;
@@ -121,7 +161,18 @@ public final class OverrideLedger {
             restoring = c.restoring;
             applied = c.applied;
             failures = 0;
+            stopConfirming();
             resetSticky();
+        }
+
+        void stopConfirming() {
+            confirming = false;
+            confirmSeq++;
+        }
+
+        /** The car reported the prior since the entry became restoring (it is the latest report). */
+        boolean reportedPrior() {
+            return observations > restoringSince && prior.equals(lastObserved);
         }
 
         void resetSticky() {
@@ -163,6 +214,10 @@ public final class OverrideLedger {
     private Applier fallback; // guarded by lock
     private boolean retainPersistent; // guarded by lock
     private boolean shutdown; // guarded by lock
+    private boolean halted; // guarded by lock; simulated power loss: no file write any more
+    private boolean ignitionOff; // guarded by lock; unknown (false) until the first ignition event
+    private int restoresFinished; // guarded by lock; entries removed after their restore
+    volatile DurableFiles.Ops fileOps = DurableFiles.SYSTEM; // test seam
     private SerialExecutor worker; // guarded by lock; created on first use
     private PluginScheduler timer; // guarded by lock
 
@@ -186,6 +241,24 @@ public final class OverrideLedger {
      */
     public VehicleOverride acquire(String key, String pluginId, OverrideScope scope, String priorEncoded,
             String activeEncoded, Applier applier) throws OverrideConflictException {
+        return acquire(key, pluginId, scope, priorEncoded, activeEncoded, applier, -1);
+    }
+
+    /** How many restores have finished; a caller reads it before it reads the prior it passes to acquire. */
+    int restoresFinished() {
+        synchronized (lock) {
+            return restoresFinished;
+        }
+    }
+
+    /**
+     * As {@link #acquire(String, String, OverrideScope, String, String, Applier)}, but {@code priorEncoded} was read
+     * when {@link #restoresFinished()} was {@code restoresSeen}. If a restore has finished since and nothing holds
+     * {@code key}, that prior may be the value just restored away from: nothing is recorded and null is returned,
+     * so the caller reads the prior again. A negative {@code restoresSeen} skips the check.
+     */
+    VehicleOverride acquire(String key, String pluginId, OverrideScope scope, String priorEncoded,
+            String activeEncoded, Applier applier, int restoresSeen) throws OverrideConflictException {
         requireToken("key", key);
         requireToken("pluginId", pluginId);
         requireToken("prior", priorEncoded);
@@ -206,6 +279,9 @@ public final class OverrideLedger {
                 if (e != null && !e.restoring && !e.pluginId.equals(pluginId)) {
                     throw new OverrideConflictException(key, e.pluginId);
                 }
+                if (e == null && restoresSeen >= 0 && restoresSeen != restoresFinished) {
+                    return null; // the prior may predate a restore that just finished
+                }
                 before = e == null ? null : e.copy();
                 if (e == null) {
                     e = new Entry(key, priorEncoded);
@@ -218,8 +294,11 @@ public final class OverrideLedger {
                 e.holder = h;
                 e.detached = false;
                 e.restoring = false;
+                e.acquiredWhileOff = ignitionOff;
+                e.applyMark = e.observations;
                 e.applied = null;
                 e.failures = 0;
+                e.stopConfirming();
                 e.resetSticky();
                 gen = ++e.generation;
             }
@@ -262,7 +341,7 @@ public final class OverrideLedger {
                 }
             }
         }
-        enqueueSyncs(keys, "released for " + pluginId);
+        enqueueRestores(keys, "released for " + pluginId);
     }
 
     /** Restores every entry of {@code scope} (ignition off: UNTIL_IGNITION_OFF). Never blocks. */
@@ -277,12 +356,47 @@ public final class OverrideLedger {
                 }
             }
         }
-        enqueueSyncs(keys, "scope " + scope + " ended");
+        enqueueRestores(keys, "scope " + scope + " ended");
+    }
+
+    /**
+     * The ignition changed. Never blocks. Off: every UNTIL_IGNITION_OFF entry is restored. On: an
+     * UNTIL_IGNITION_OFF override taken while the ignition was off belonged to the drive that just ended, so it
+     * is restored now (before plugins see the event; a plugin may re-acquire on it); then every pending restore
+     * is retried (the ECUs are awake). A PERSISTENT override taken while off is unaffected.
+     */
+    public void ignitionChanged(boolean on) {
+        if (!on) {
+            synchronized (lock) {
+                ignitionOff = true;
+            }
+            releaseScope(OverrideScope.UNTIL_IGNITION_OFF);
+            return;
+        }
+        List keys = new ArrayList();
+        synchronized (lock) {
+            ignitionOff = false;
+            for (int i = 0; i < entries.size(); i++) {
+                Entry e = (Entry) entries.get(i);
+                if (!e.restoring && e.scope == OverrideScope.UNTIL_IGNITION_OFF && e.acquiredWhileOff) {
+                    markRestoring(e);
+                    keys.add(e.key);
+                }
+            }
+        }
+        if (!keys.isEmpty()) {
+            enqueuePersist(); // the R goes to the file before the restore write
+            for (int i = 0; i < keys.size(); i++) {
+                info("restoring " + keys.get(i) + ": acquired while the ignition was off; ignition on");
+            }
+        }
+        retryPendingRestores(); // one sync per restoring entry, the ones just marked included
     }
 
     /** Safe mode / startup: restores every entry left in the file, using {@code applier} (also kept as fallback). */
     public void restorePendingOnBoot(Applier applier) {
         List keys = new ArrayList();
+        boolean marked = false;
         synchronized (lock) {
             if (applier != null) {
                 fallback = applier;
@@ -291,11 +405,15 @@ public final class OverrideLedger {
                 Entry e = (Entry) entries.get(i);
                 if (!e.restoring) {
                     markRestoring(e);
+                    marked = true;
                 }
                 keys.add(e.key);
             }
         }
         timer(); // create the ledger thread now, not later on a publishing thread
+        if (marked) {
+            enqueuePersist();
+        }
         enqueueSyncs(keys, "pending restore on boot");
     }
 
@@ -319,9 +437,10 @@ public final class OverrideLedger {
     /**
      * The car reported {@code observedEncoded} for {@code key}. While an override is in force this drives the
      * sticky re-apply; while a restore is pending a changed value retries the restore at once (a repeated value
-     * waits for the backoff; reports while that retry is queued share it), and an observed value equal to the
-     * prior completes it. Never blocks (memory only, plus queueing), so the platform host may call it
-     * while publishing.
+     * waits for the backoff; reports while that retry is queued share it), and the prior, or any value while a
+     * write awaits confirmation, is passed to the confirmation even if repeated. Never blocks: it only counts
+     * the report and queues work (completion and its file write happen on the ledger thread), so the platform
+     * host may call it while publishing.
      */
     public void onObserved(String key, String observedEncoded) {
         if (key == null || observedEncoded == null) {
@@ -333,13 +452,20 @@ public final class OverrideLedger {
             if (e == null || shutdown) {
                 return;
             }
+            e.observations++; // before any decision: a report that overtakes apply() is counted
+            e.lastReport = observedEncoded;
             if (e.restoring) {
                 // Retry at once only for news: a changed value, and no observation-triggered sync already
                 // queued. An adapter that re-reports the same value after each rejected write would otherwise
-                // spin apply/fail/observe; those retries stay on the Clock backoff instead.
+                // spin apply/fail/observe; those retries stay on the Clock backoff instead. A report that
+                // decides the restore (the prior; anything after a write) reaches sync() even if repeated.
                 boolean changed = !observedEncoded.equals(e.lastObserved);
                 e.lastObserved = observedEncoded; // sync() treats an observed prior as restored
-                if (!changed || e.syncQueued) {
+                if (changed) {
+                    e.retryNow = true;
+                }
+                boolean decides = e.confirming || observedEncoded.equals(e.prior);
+                if (!(changed || decides) || e.syncQueued) {
                     return;
                 }
                 e.syncQueued = true;
@@ -416,49 +542,111 @@ public final class OverrideLedger {
         }
     }
 
-    /** Waits (at most about {@code maxMs} of real time) until the queued ledger work has run. */
-    boolean awaitIdle(long maxMs) {
-        SerialExecutor w;
-        synchronized (lock) {
-            w = worker;
-        }
-        if (w == null) {
-            return true;
-        }
-        final boolean[] done = {false};
-        boolean submitted = w.submit("ledger:idle", new Runnable() {
-            public void run() {
-                synchronized (done) {
-                    done[0] = true;
-                    done.notifyAll();
-                }
-            }
-        });
-        if (!submitted) {
-            return true;
-        }
+    /**
+     * Waits (at most about {@code maxMs} of real time, in 50 ms slices) until the queued ledger work has run
+     * and no restore write is awaiting the car's confirmation. True only if then no restore is pending; false
+     * if one is (e.g. waiting for its backoff) or at the deadline: the ledger keeps what is still pending
+     * (marked restoring in the file) for the next boot.
+     */
+    boolean awaitSettled(long maxMs) {
         long slices = maxMs / WAIT_SLICE_MS + 1;
-        synchronized (done) {
-            for (long i = 0; !done[0] && i < slices; i++) {
-                try {
-                    done.wait(WAIT_SLICE_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
+        long used = 0;
+        while (true) {
+            SerialExecutor w;
+            synchronized (lock) {
+                w = worker;
             }
-            return done[0];
+            final boolean[] done = {false};
+            boolean queued = w != null && w.submit("ledger:idle", new Runnable() {
+                public void run() {
+                    synchronized (done) {
+                        done[0] = true;
+                        done.notifyAll();
+                    }
+                }
+            });
+            try {
+                synchronized (done) {
+                    while (queued && !done[0]) {
+                        if (used++ >= slices) {
+                            return false;
+                        }
+                        done.wait(WAIT_SLICE_MS);
+                    }
+                }
+                if (!anyConfirming()) {
+                    return !anyRestoring();
+                }
+                if (used++ >= slices) {
+                    return false;
+                }
+                Thread.sleep(WAIT_SLICE_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
         }
     }
 
-    /** Stops the ledger thread. Entries not yet restored stay in the file for the next boot. */
+    private boolean anyConfirming() {
+        synchronized (lock) {
+            for (int i = 0; i < entries.size(); i++) {
+                if (((Entry) entries.get(i)).confirming) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    private boolean anyRestoring() {
+        synchronized (lock) {
+            for (int i = 0; i < entries.size(); i++) {
+                if (((Entry) entries.get(i)).restoring) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Stops the ledger thread, then writes the file once on the caller's thread (queued writes are dropped
+     * with the thread). Entries not yet restored stay in the file, with their state, for the next boot. A
+     * second call does nothing.
+     */
     void shutdown() {
         SerialExecutor w;
         synchronized (lock) {
+            if (shutdown) {
+                return;
+            }
             shutdown = true;
             w = worker;
             worker = null;
             timer = null;
+        }
+        if (w != null) {
+            w.shutdown();
+        }
+        write();
+    }
+
+    /**
+     * Simulated power loss: stops the ledger thread and its timer with no final write. Nothing is written to
+     * the file after this returns (a task already running on the ledger thread may finish its platform call,
+     * but not its write). Package-private, for tests.
+     */
+    void halt() {
+        SerialExecutor w;
+        synchronized (fileLock) { // waits out a write in progress; every later one sees halted
+            synchronized (lock) {
+                halted = true;
+                shutdown = true;
+                w = worker;
+                worker = null;
+                timer = null;
+            }
         }
         if (w != null) {
             w.shutdown();
@@ -478,7 +666,7 @@ public final class OverrideLedger {
         }
         List keys = new ArrayList();
         keys.add(key);
-        enqueueSyncs(keys, byPlugin ? "released by the plugin" : "the plugin stopped");
+        enqueueRestores(keys, byPlugin ? "released by the plugin" : "the plugin stopped");
     }
 
     /** Called when the plugin's registrations are cancelled (disable, quarantine, stop). */
@@ -506,11 +694,36 @@ public final class OverrideLedger {
         e.holder = null;
         e.detached = false;
         e.failures = 0;
+        e.restoringSince = e.observations; // only reports from now on count for the restore
+        e.wrote = false;
+        e.retryNow = false;
+        e.stopConfirming();
         e.resetSticky();
         e.generation++;
     }
 
     // ---- ledger thread ----
+
+    /** Entries just marked restoring: their R goes to the file first, then each restore is queued. */
+    private void enqueueRestores(List keys, String why) {
+        if (keys.isEmpty()) {
+            return;
+        }
+        enqueuePersist();
+        enqueueSyncs(keys, why);
+    }
+
+    /** Queues one write of the file on the ledger thread (never on the caller's: it may be publishing). */
+    private void enqueuePersist() {
+        SerialExecutor w = worker();
+        if (w != null) {
+            w.submit("ledger:persist", new Runnable() {
+                public void run() {
+                    write();
+                }
+            });
+        }
+    }
 
     private void enqueueSyncs(List keys, String why) {
         for (int i = 0; i < keys.size(); i++) {
@@ -533,58 +746,185 @@ public final class OverrideLedger {
         }
     }
 
-    /** Brings the car in line with the entry: the active value while held, the prior while restoring. */
+    /**
+     * Brings the car in line with the entry: the active value while held, the prior while restoring. A
+     * restore is not done when its write returns: it waits for the car's report (see {@link #confirmCheck}).
+     */
     private void sync(String key) {
         Entry e;
         String value;
         Applier a;
         int gen;
         boolean restore;
-        boolean alreadyBack; // the car reported the prior while the restore was pending
+        String refutedBy = null; // the car reported this instead of the prior after a restore write
+        boolean writeNow = true; // false: only record the refuted write; the retry waits for the backoff
         synchronized (lock) {
             e = find(key);
             if (e == null) {
                 return;
             }
             e.syncQueued = false; // this run serves any queued observation; later ones may queue again
+            boolean retryNow = e.retryNow;
+            e.retryNow = false;
             restore = e.restoring;
-            alreadyBack = restore && e.prior.equals(e.lastObserved);
+            gen = e.generation;
+            if (restore && !e.reportedPrior() && e.confirming) {
+                if (e.observations == e.confirmFrom) {
+                    return; // the write awaits the car's report; confirmCheck decides at the timeout
+                }
+                e.stopConfirming();
+                refutedBy = e.lastObserved;
+                writeNow = retryNow; // a repeated report must not turn into a write per report
+            }
             value = restore ? e.prior : e.active;
             if (!restore && value.equals(e.applied)) {
                 return; // already in force
             }
             a = e.applier != null ? e.applier : fallback;
-            gen = e.generation;
         }
-        if (a == null && !alreadyBack) {
+        if (refutedBy != null) {
+            onNotConfirmed(e, gen, "reported " + refutedBy, writeNow);
+            if (!writeNow) {
+                return;
+            }
+        }
+        if (restore && finishIfReported(e, gen)) {
+            return;
+        }
+        if (a == null) {
             warn((restore ? "restore of " : "apply of ") + key + " waits: no platform applier yet");
             return;
         }
-        Throwable failure = alreadyBack ? null : applyQuietly(a, key, value);
+        Throwable failure = applyQuietly(a, key, value);
+        if (!restore) {
+            markApplied(e);
+        }
         if (failure != null) {
             onSyncFailed(e, gen, restore, value, failure);
             return;
         }
-        boolean removed = false;
+        int confirmSeq = 0;
         String owner;
         synchronized (lock) {
             if (find(key) != e) {
                 return;
             }
             owner = e.pluginId;
-            e.applied = value;
-            e.failures = 0;
-            if (restore && e.generation == gen) {
-                entries.remove(e);
-                removed = true;
+            if (!restore) {
+                e.applied = value;
+                e.failures = 0;
+            } else if (e.generation == gen && !e.reportedPrior()) {
+                e.wrote = true;
+                e.confirming = true;
+                e.confirmFrom = e.observations;
+                confirmSeq = ++e.confirmSeq;
+            } else if (e.generation == gen) {
+                e.wrote = true; // the report overtook the return of apply(): finished below
             }
         }
-        if (removed) {
-            write();
-            info("restored " + key + "=" + value + (alreadyBack ? " (reported by the car)" : "")
-                    + " (override of " + owner + " ended)");
-        } else if (!restore) {
+        if (!restore) {
             info("applied " + key + "=" + value + " for " + owner);
+        } else if (confirmSeq != 0) {
+            scheduleConfirmCheck(key, gen, confirmSeq);
+        } else {
+            finishIfReported(e, gen);
+        }
+    }
+
+    /**
+     * The override value was just written (returned or threw: it may have reached the car). A report that
+     * arrived before now, even one that overtook the write, may predate it. Ledger thread.
+     */
+    private void markApplied(Entry e) {
+        synchronized (lock) {
+            if (find(e.key) == e) {
+                e.applyMark = e.observations;
+                if (e.restoring) {
+                    // released mid-write: a report of the prior from before now may predate the override
+                    e.restoringSince = e.observations;
+                }
+            }
+        }
+    }
+
+    /** Completes a restore whose prior the car has reported. Ledger thread. False if it is not done. */
+    private boolean finishIfReported(Entry e, int gen) {
+        boolean wrote;
+        synchronized (lock) {
+            if (find(e.key) != e || e.generation != gen || !e.reportedPrior()) {
+                return false;
+            }
+            wrote = e.wrote;
+        }
+        finishRestore(e, gen, wrote ? "confirmed by the car" : "reported by the car", false);
+        return true;
+    }
+
+    /** Removes a restored entry and rewrites the file (same generation only). Ledger thread. */
+    private void finishRestore(Entry e, int gen, String how, boolean warning) {
+        String owner;
+        synchronized (lock) {
+            if (find(e.key) != e || e.generation != gen) {
+                return;
+            }
+            entries.remove(e);
+            restoresFinished++;
+            e.stopConfirming();
+            owner = e.pluginId;
+        }
+        write();
+        String msg = "restored " + e.key + "=" + e.prior + " (" + how + ") (override of " + owner + " ended)";
+        if (warning) {
+            warn(msg);
+        } else {
+            info(msg);
+        }
+    }
+
+    /**
+     * {@link #CONFIRM_TIMEOUT_MS} after a restore write returned: done if the car reported the prior (also
+     * when its last report, made after the override's own write, is the prior and nothing came after the
+     * restore write), else a failed attempt.
+     */
+    private void confirmCheck(String key, int gen, int seq) {
+        Entry e;
+        String reason = null;
+        boolean byLastReport = false;
+        boolean wrote;
+        synchronized (lock) {
+            e = find(key);
+            if (e == null || e.generation != gen || e.confirmSeq != seq || !e.confirming) {
+                return;
+            }
+            e.stopConfirming();
+            wrote = e.wrote;
+            if (e.reportedPrior()) {
+                reason = null;
+            } else if (e.observations > e.confirmFrom) {
+                reason = "reported " + e.lastObserved;
+            } else if (e.prior.equals(e.lastReport) && e.observations > e.applyMark) {
+                byLastReport = true; // reported after the override's own write, so the car kept the prior
+            } else {
+                reason = "no report within " + CONFIRM_TIMEOUT_MS + " ms";
+            }
+        }
+        if (reason != null) {
+            onNotConfirmed(e, gen, reason, false);
+        } else if (byLastReport) {
+            finishRestore(e, gen, "confirmed by the car's last report; none after the write", true);
+        } else {
+            finishRestore(e, gen, wrote ? "confirmed by the car" : "reported by the car", false);
+        }
+    }
+
+    private void scheduleConfirmCheck(final String key, final int gen, final int seq) {
+        PluginScheduler t = timer();
+        if (t != null) {
+            t.after(CONFIRM_TIMEOUT_MS, new Runnable() {
+                public void run() {
+                    confirmCheck(key, gen, seq);
+                }
+            });
         }
     }
 
@@ -594,6 +934,19 @@ public final class OverrideLedger {
      * after MAX_ATTEMPTS.
      */
     private void onSyncFailed(Entry e, int gen, boolean restore, String value, Throwable failure) {
+        attemptFailed(e, gen, restore, value, null, SdkRuntime.describe(failure), false);
+    }
+
+    /**
+     * A restore write returned but the car did not confirm the prior: a failed attempt. {@code retryingNow}:
+     * the caller writes the prior again at once, so no backoff retry is scheduled.
+     */
+    private void onNotConfirmed(Entry e, int gen, String reason, boolean retryingNow) {
+        attemptFailed(e, gen, true, e.prior, reason, null, retryingNow);
+    }
+
+    private void attemptFailed(Entry e, int gen, boolean restore, String value, String unconfirmed, String cause,
+            boolean retryingNow) {
         int attempts = 0;
         int seq = 0;
         String owner;
@@ -610,12 +963,15 @@ public final class OverrideLedger {
         }
         boolean retry = attempts > 0 && (restore || attempts < MAX_ATTEMPTS);
         long delay = retryDelay(attempts);
-        error((restore ? "restore of " + e.key + " to " : "apply of " + e.key + "=") + value + " for " + owner
-                + " failed (attempt " + attempts + (restore ? "" : "/" + MAX_ATTEMPTS) + "): "
-                + SdkRuntime.describe(failure) + (retry ? "; retrying in " + delay + " ms" : ""));
-        if (retry) {
+        if (retry && !retryingNow) { // before logging: once the line is visible, the retry is already on the Clock
             scheduleSync(e.key, gen, seq, delay);
-        } else if (attempts >= MAX_ATTEMPTS) {
+        }
+        String attempt = "(attempt " + attempts + (restore ? "" : "/" + MAX_ATTEMPTS) + ")";
+        String what = (restore ? "restore of " + e.key + " to " : "apply of " + e.key + "=") + value + " for " + owner;
+        error(what + (unconfirmed != null ? " not confirmed by the car (" + unconfirmed + ") " + attempt
+                : " failed " + attempt + ": " + cause)
+                + (!retry ? "" : retryingNow ? "; retrying now" : "; retrying in " + delay + " ms"));
+        if (!retry && attempts >= MAX_ATTEMPTS) {
             error("stopped retrying the apply of " + e.key + "; the car keeps its current value");
         }
     }
@@ -690,6 +1046,7 @@ public final class OverrideLedger {
             return;
         }
         Throwable failure = applyQuietly(a, key, value);
+        markApplied(e);
         synchronized (lock) {
             if (find(key) == e && failure == null && value.equals(e.active)) {
                 e.applied = value;
@@ -805,7 +1162,7 @@ public final class OverrideLedger {
     // ---- file ----
 
     private File tmpFile() {
-        return new File(file.getPath() + ".tmp");
+        return DurableFiles.tmpFile(file);
     }
 
     private boolean write() {
@@ -818,44 +1175,25 @@ public final class OverrideLedger {
     private boolean writeLocked() {
         StringBuffer b = new StringBuffer();
         synchronized (lock) {
+            if (halted) {
+                return false; // the power is gone (halt sets this holding fileLock, which the caller holds)
+            }
             List sorted = sortedEntries();
             for (int i = 0; i < sorted.size(); i++) {
                 Entry e = (Entry) sorted.get(i);
                 b.append(e.key).append('=').append(e.pluginId).append('|').append(e.scope.name()).append('|')
-                        .append(e.prior).append('|').append(e.active).append('\n');
+                        .append(e.prior).append('|').append(e.active).append('|')
+                        .append(e.restoring ? STATE_RESTORING : STATE_HELD).append('\n');
             }
         }
-        File dir = file.getAbsoluteFile().getParentFile();
-        File tmp = tmpFile();
-        FileOutputStream out = null;
         try {
-            if (dir != null && !dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
-                throw new IOException("cannot create " + dir);
-            }
-            out = new FileOutputStream(tmp);
-            out.write(b.toString().getBytes("ISO-8859-1"));
-            out.getFD().sync();
-            out.close();
-            out = null;
-            if (!tmp.renameTo(file)) {
-                // Non-POSIX rename cannot replace: drop the old file; load() recovers from .tmp if we die here.
-                file.delete();
-                if (!tmp.renameTo(file)) {
-                    throw new IOException("cannot rename " + tmp.getName() + " to " + file.getName());
-                }
+            if (!DurableFiles.replace(file, b.toString().getBytes("ISO-8859-1"), fileOps)) {
+                warn(file.getName() + " written, but its final sync failed: it may not survive a power cut");
             }
             return true;
         } catch (Throwable t) {
             error("cannot write " + file.getName() + ": " + SdkRuntime.describe(t));
             return false;
-        } finally {
-            if (out != null) {
-                try {
-                    out.close();
-                } catch (IOException ignored) {
-                    // nothing to do
-                }
-            }
         }
     }
 
@@ -903,20 +1241,35 @@ public final class OverrideLedger {
         }
     }
 
-    /** {@code <pluginId>|<scope>|<prior>|<active>}, or null if malformed. */
+    /**
+     * {@code <pluginId>|<scope>|<prior>|<active>|<state>}, or the four fields without a state (an older
+     * file: held); null if malformed. A restoring entry is loaded unowned and restoring.
+     */
     private static Entry parse(String key, String value) {
         if (!isToken(key) || value == null) {
             return null;
         }
-        String[] f = new String[4];
+        String[] f = new String[5];
+        int n = 0;
         int start = 0;
-        for (int i = 0; i < 4; i++) {
-            int bar = value.indexOf('|', start);
-            if (i < 3 && bar < 0 || i == 3 && bar >= 0) {
+        while (true) {
+            if (n == f.length) {
                 return null;
             }
-            f[i] = i < 3 ? value.substring(start, bar) : value.substring(start);
+            int bar = value.indexOf('|', start);
+            f[n++] = bar < 0 ? value.substring(start) : value.substring(start, bar);
+            if (bar < 0) {
+                break;
+            }
             start = bar + 1;
+        }
+        boolean restoring;
+        if (n == 4 || n == 5 && STATE_HELD.equals(f[4])) {
+            restoring = false;
+        } else if (n == 5 && STATE_RESTORING.equals(f[4])) {
+            restoring = true;
+        } else {
+            return null;
         }
         OverrideScope scope = null;
         OverrideScope[] all = OverrideScope.values();
@@ -932,6 +1285,7 @@ public final class OverrideLedger {
         e.pluginId = f[0];
         e.scope = scope;
         e.active = f[3];
+        e.restoring = restoring; // holder stays null: a loaded entry is never held by a handle
         return e;
     }
 
