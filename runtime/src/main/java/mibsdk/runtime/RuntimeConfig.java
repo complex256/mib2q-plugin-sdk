@@ -161,6 +161,11 @@ public final class RuntimeConfig {
         return new File(roots.persist(), "plugins.properties");
     }
 
+    /** Persistent: the user's status-line choices from the Plugins menu ({@link StatusPrefs}). */
+    public File statusPrefsFile() {
+        return new File(roots.persist(), "statusline.properties");
+    }
+
     /** Read-only: marker file that forces safe mode while it exists. */
     public File safeModeMarker() {
         return new File(roots.install(), "SAFE_MODE");
