@@ -34,7 +34,7 @@ final class SdkBoot {
             }
         }, cfg.tickMs());
         clock.start();
-        PlatformAdapter adapter = AdapterSelector.select(hmi, new PlatformAdapter[] {new HqcPlatform(ctx, clock)});
+        PlatformAdapter adapter = AdapterSelector.select(hmi, new PlatformAdapter[] {new HqcPlatform(ctx, clock, cfg.uiStatusMaxChars())});
         SdkGlobals.LOG.append("INFO", "mibsdk.hqc", "activator: hmi=" + hmi + " adapter="
                 + (adapter == null ? "none" : adapter.id()));
         SdkGlobals.LOG.append("STATUS", "mibsdk", seamLine());

@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import mibsdk.adapter.hqc.ui.HqcUiIds;
 import mibsdk.adapter.hqc.ui.UiApplier;
 import mibsdk.api.Features;
 import mibsdk.platform.ParkingIo;
@@ -45,6 +46,7 @@ public final class HqcPlatform implements PlatformAdapter {
 
     private final BundleContext ctx;
     private final Clock clock;
+    private final int statusMaxChars;
     private EventPump pump; // guarded by this
     private IgnitionBridge ignition; // guarded by this
     private ServiceWaiter waiter; // guarded by this
@@ -57,8 +59,14 @@ public final class HqcPlatform implements PlatformAdapter {
 
     /** {@code clock} only times the service waits for the log; null is fine. */
     HqcPlatform(BundleContext ctx, Clock clock) {
+        this(ctx, clock, HqcUiIds.STATUS_MAX_CHARS);
+    }
+
+    /** {@code statusMaxChars}: {@code ui.status.max.chars} for the popup-65 status line. */
+    HqcPlatform(BundleContext ctx, Clock clock, int statusMaxChars) {
         this.ctx = ctx;
         this.clock = clock;
+        this.statusMaxChars = statusMaxChars;
     }
 
     public String id() {
@@ -134,7 +142,7 @@ public final class HqcPlatform implements PlatformAdapter {
             if (waiter != startedBy) {
                 return; // stopped meanwhile (ServiceWaiter's documented late-delivery residual)
             }
-            UiApplier a = UiApplier.create(frameworkAccess, clock, SdkGlobals.LOG);
+            UiApplier a = UiApplier.create(frameworkAccess, clock, SdkGlobals.LOG, statusMaxChars);
             ui = a;
             a.start();
         }

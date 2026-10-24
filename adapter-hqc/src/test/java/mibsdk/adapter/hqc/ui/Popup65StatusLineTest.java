@@ -38,11 +38,22 @@ class Popup65StatusLineTest {
 
     @Test
     void showWritesTextThenVisibleHideWritesZero() {
-        Popup65StatusLine line = new Popup65StatusLine(fake(IFrameworkAccess.class, "fw"));
+        Popup65StatusLine line = new Popup65StatusLine(fake(IFrameworkAccess.class, "fw"), 24);
         line.show("Hello");
         line.show("0123456789012345678901234567890"); // the popup fits 24
         line.hide();
         assertEquals(Arrays.asList("label416.setText(Hello)", "choice1.setValue(1)",
                 "label416.setText(012345678901234567890...)", "choice1.setValue(1)", "choice1.setValue(0)"), calls);
+    }
+
+    @Test
+    void honoursStatusMaxCharsWithinFourToTwentyFour() {
+        String text = "0123456789012345678901234567890";
+        new Popup65StatusLine(fake(IFrameworkAccess.class, "fw"), 10).show(text); // ui.status.max.chars=10
+        new Popup65StatusLine(fake(IFrameworkAccess.class, "fw"), 1).show(text); // below the minimum: 4
+        new Popup65StatusLine(fake(IFrameworkAccess.class, "fw"), 40).show(text); // the popup fits only 24
+        assertEquals(Arrays.asList("label416.setText(0123456...)", "choice1.setValue(1)",
+                "label416.setText(0...)", "choice1.setValue(1)",
+                "label416.setText(012345678901234567890...)", "choice1.setValue(1)"), calls);
     }
 }

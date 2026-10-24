@@ -12,16 +12,25 @@ import mibsdk.platform.UiText;
  */
 final class Popup65StatusLine implements StatusLineSink {
 
-    private final Object frameworkAccess;
+    /** The shortest length kept; the runtime's {@code ui.status.max.chars} floor (one char plus "..."). */
+    static final int MIN_CHARS = 4;
 
-    /** {@code frameworkAccess}: the {@code de.audi.atip.base.IFrameworkAccess} service. */
-    Popup65StatusLine(Object frameworkAccess) {
+    private final Object frameworkAccess;
+    private final int maxChars;
+
+    /**
+     * {@code frameworkAccess}: the {@code de.audi.atip.base.IFrameworkAccess} service. {@code maxChars}:
+     * {@code ui.status.max.chars}, clamped to {@link #MIN_CHARS}..{@link HqcUiIds#STATUS_MAX_CHARS} (what the popup
+     * fits).
+     */
+    Popup65StatusLine(Object frameworkAccess, int maxChars) {
         this.frameworkAccess = frameworkAccess;
+        this.maxChars = Math.min(HqcUiIds.STATUS_MAX_CHARS, Math.max(MIN_CHARS, maxChars));
     }
 
     public void show(String text) {
         IHMIServiceApp app = app();
-        app.getLabelModel(HqcUiIds.STATUS_LABEL_MODEL).setText(UiText.clean(text, HqcUiIds.STATUS_MAX_CHARS));
+        app.getLabelModel(HqcUiIds.STATUS_LABEL_MODEL).setText(UiText.clean(text, maxChars));
         app.getChoiceModel(HqcUiIds.STATUS_VISIBLE_CHOICE).setValue(1);
     }
 

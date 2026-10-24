@@ -112,9 +112,9 @@ public final class UiApplier {
     /**
      * The production applier over {@code SdkGlobals}: popup 65 on {@code frameworkAccess} (the
      * {@code de.audi.atip.base.IFrameworkAccess} service), row visibility through {@code SdkGlobals.uiRowModels}, jobs
-     * posted to HMIEvent, no page renderer yet. Starts nothing.
+     * posted to HMIEvent, no page renderer yet. {@code statusMaxChars}: {@code ui.status.max.chars}. Starts nothing.
      */
-    public static UiApplier create(Object frameworkAccess, Clock clock, RingLog log) {
+    public static UiApplier create(Object frameworkAccess, Clock clock, RingLog log, int statusMaxChars) {
         final UiApplier[] self = new UiApplier[1];
         HmiPoster poster = new HmiPoster(HmiPoster.HMI_EVENT, new Runnable() {
             public void run() {
@@ -132,7 +132,7 @@ public final class UiApplier {
                 }
             }
         };
-        self[0] = new UiApplier(SdkGlobals.UI, rows, new Popup65StatusLine(frameworkAccess), PageRenderer.NONE,
+        self[0] = new UiApplier(SdkGlobals.UI, rows, new Popup65StatusLine(frameworkAccess, statusMaxChars), PageRenderer.NONE,
                 poster, clock, log);
         return self[0];
     }
