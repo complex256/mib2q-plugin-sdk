@@ -98,10 +98,19 @@ class PageScreensNavigationTest {
         }
     }
 
-    @BeforeEach
     @AfterEach
     void reset() {
         PageScreens.forgetForTests();
+    }
+
+    /** The monotonic clock of user presses (UiInputs) and of this test. */
+    private volatile long now;
+
+    @BeforeEach
+    void recentPress() {
+        PageScreens.forgetForTests(); // shared state of PageScreens and UiInputs
+        UiInputs.clock = () -> now;
+        UiInputs.userPressed(); // most tests open right after a press on an SDK drawer row
     }
 
     @BeforeEach
@@ -415,5 +424,132 @@ class PageScreensNavigationTest {
         pages.backPressed();
         runJobs();
         assertSame(STOCK, hmi.current, "the stock return survived the hand-over");
+    }
+
+    // ---- fix round 1 --------------------------------------------------------------------------------------------
+
+    /** Important 3: from a Car screen an open needs a recent SDK press; on an SDK page it does not. */
+    @Test
+    void openFromACarScreenNeedsARecentSdkPress() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("x", "X")), page("b/p", "Bravo", item("y", "Y")));
+        now = PageScreens.OPEN_TTL_MS + 1; // the press is stale: a plugin opening by itself
+        pages.open("a/p", s, 0);
+        assertEquals(Collections.emptyList(), calls());
+        assertEquals(Collections.singletonList("closed a/p"), inputs());
+
+        UiInputs.rowPressed(table, DrawerAssignment.EMPTY, 3); // an empty slot is no SDK press
+        pages.open("a/p", s, 0);
+        assertEquals(Collections.emptyList(), calls());
+        inputs();
+
+        UiInputs.userPressed();
+        now += PageScreens.OPEN_TTL_MS; // just within
+        pages.open("a/p", s, 0);
+        assertTrue(calls().contains("show screen1:a/p"));
+        now += 10 * PageScreens.OPEN_TTL_MS; // long after: but an SDK page is on screen
+        pages.open("b/p", s, 0);
+        assertTrue(calls().contains("show screen2:b/p"));
+    }
+
+    /** Important 3: selecting an entry on an SDK page counts as an SDK press. */
+    @Test
+    void anEntryPressCountsAsAnSdkPress() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("x", "X")));
+        pages.open("a/p", s, 0);
+        Object screen = hmi.current;
+        now = 10 * PageScreens.OPEN_TTL_MS;
+        PageScreens.listSelected(0);
+        assertEquals(0, UiInputs.sinceLastPress());
+        hmi.current = STOCK;
+        hmi.currentId = CAR_SCREEN;
+        pages.screenDisconnecting(screen);
+        calls();
+        pages.open("a/p", s, 0); // e.g. the item's handler opens a page from the Car screen
+        assertTrue(calls().contains("show screen2:a/p"));
+    }
+
+    /** Important 1: while the RVC is coming (pending change) no LINK, BACK, rebuild or close changes the screen. */
+    @Test
+    void noScreenChangeWhileTheRvcIsComing() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", link("more", "More", "a/q")), page("a/q", "Beta"));
+        pages.open("a/p", s, 0);
+        Object screen = hmi.current;
+        calls();
+        inputs();
+        hmi.pendingId = 2100001;
+
+        PageScreens.listSelected(0);
+        runJobs();
+        pages.backPressed();
+        runJobs();
+        pages.refresh(publish(page("a/p", "Alpha renamed", link("more", "More", "a/q")), page("a/q", "Beta")));
+        assertEquals(Collections.singletonList("rows [More >]"), calls(), "rows only: no build, show or stock");
+        assertEquals(Collections.emptyList(), inputs(), "the stack did not move");
+
+        pages.close();
+        assertEquals(Collections.emptyList(), calls(), "close leaves the screen alone");
+        assertEquals(Collections.singletonList("closed a/p"), inputs());
+
+        hmi.pendingId = -1; // the RVC ended; the HMI goes back to the page
+        pages.screenConnected(screen, "a/p");
+        runJobs();
+        assertEquals(Collections.singletonList("stock " + STOCK), calls(), "the close is retried");
+        assertEquals(Collections.emptyList(), inputs(), "not adopted again: the runtime is down");
+    }
+
+    /** Important 1: the same with a parking overlay or popup on the page itself. */
+    @Test
+    void noScreenChangeUnderAParkingOverlay() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", link("more", "More", "a/q")), page("a/q", "Beta"));
+        pages.open("a/p", s, 0);
+        calls();
+        hmi.blocked = true;
+        PageScreens.listSelected(0);
+        runJobs();
+        pages.backPressed();
+        runJobs();
+        pages.close();
+        assertEquals(Collections.emptyList(), calls());
+    }
+
+    /** Minor 1: a new applier's first page job sends an SDK page left by the previous one back to the stock screen. */
+    @Test
+    void orphanedPageOfAPreviousApplierIsClosed() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("x", "X")));
+        pages.open("a/p", s, 0);
+        Object oldScreen = hmi.current;
+        PageScreens old = pages;
+        calls();
+        inputs();
+        build(); // the restarted runtime's renderer; its first job is a refresh
+        pages.refresh(s);
+        assertEquals(Collections.singletonList("stock " + STOCK), calls());
+        old.screenDisconnecting(oldScreen);
+        assertEquals(Collections.emptyList(), inputs(), "the old instance sends nothing stale");
+        pages.refresh(s);
+        assertEquals(Collections.emptyList(), calls(), "only the first job looks");
+    }
+
+    /** Minor 2: the stock return is forgotten once used. */
+    @Test
+    void stockReturnIsClearedAfterUse() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("x", "X")));
+        pages.open("a/p", s, 0);
+        pages.backPressed();
+        runJobs();
+        assertNull(PageScreens.stockReturnForTests());
+    }
+
+    /** Minor 3: a dropped open does not cancel navigation the user asked for. */
+    @Test
+    void droppedOpenKeepsQueuedNavigation() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", link("more", "More", "a/q")), page("a/q", "Beta"));
+        pages.open("a/p", s, 0);
+        calls();
+        assertTrue(poster.post(() -> pages.refresh(table.snapshot())));
+        PageScreens.listSelected(0); // queued behind the pending job
+        pages.open("o/x", s, PageScreens.OPEN_TTL_MS + 1); // stale: dropped
+        runJobs();
+        assertTrue(calls().contains("show screen2:a/q"));
     }
 }

@@ -136,6 +136,7 @@ public final class UiApplier {
                 }
             }
         };
+        UiInputs.clock = clock; // SDK presses are timed on it: an open from a Car screen needs a recent one
         PageRenderer pages = PageScreens.create(frameworkAccess, SdkGlobals.UI, poster, log);
         self[0] = new UiApplier(SdkGlobals.UI, rows, new Popup65StatusLine(frameworkAccess, statusMaxChars), pages,
                 poster, clock, log);

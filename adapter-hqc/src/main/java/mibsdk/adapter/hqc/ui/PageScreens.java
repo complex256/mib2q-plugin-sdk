@@ -27,8 +27,14 @@ import mibsdk.runtime.RingLog;
  * rewrites the list rows only (a new title rebuilds the screen, and only while the page is on screen).
  *
  * <p>Opens: a request is honoured only within {@link #OPEN_TTL_MS} of the applier seeing it (monotonic clock), and
- * only while a Car screen (the Car drawer's) or an SDK page is on screen, with no popup, parking/RVC overlay or
- * screen change away from Car under way. A dropped request is logged and sent as {@code PAGE_CLOSED}, never replayed.
+ * only while an SDK page is the connected screen, or on a Car screen (the Car drawer's) within {@link #OPEN_TTL_MS}
+ * of a user press on an SDK drawer row or page entry ({@link UiInputs#sinceLastPress}); a plugin never opens a page
+ * over an arbitrary screen. A dropped request is logged and sent as {@code PAGE_CLOSED}, never replayed.
+ *
+ * <p>Vehicle safety: every screen change the SDK makes (show, BACK, return to stock, close) first checks
+ * {@link #screenChangeAllowed}: no popup or parking/RVC overlay on the current screen, and no screen change under way
+ * to a screen that is neither Car nor an SDK page. If the check fails, navigation and rebuilds are dropped, and a
+ * close leaves the screen alone and is retried when the page connects again.
  */
 final class PageScreens implements PageRenderer {
 
@@ -102,7 +108,17 @@ final class PageScreens implements PageRenderer {
         }
     };
 
+    private final Runnable closeJob = new Runnable() {
+        public void run() {
+            close();
+        }
+    };
+
     private final List<Nav> navs = new ArrayList<Nav>();
+    /** The runtime is down but the screen could not be changed then (RVC/PDC): retried when the page connects. */
+    private boolean closePending;
+    /** The first page job looks for an SDK page a previous applier left on screen. */
+    private boolean orphanChecked;
     /** The page screen this instance showed and believes on screen; null once left or never shown. */
     private Object shown;
     private String shownKey;
@@ -150,14 +166,25 @@ final class PageScreens implements PageRenderer {
     }
 
     /**
-     * Where an open may happen: the connected screen is a Car screen (the Car drawer's; SDK pages are Car-module
-     * screens too) with no popup or parking overlay on it, and no screen change away from Car is pending.
+     * Where an open may happen: an SDK page is the connected screen, or a Car screen (the Car drawer's) is, within
+     * {@link #OPEN_TTL_MS} of an SDK press ({@code sincePressMs}); and a screen change is allowed at all.
      */
-    static boolean openAllowed(int currentId, boolean blocked, int pendingId) {
-        if (blocked || currentId < 0 || (pendingId >= 0 && !isCarScreen(pendingId))) {
+    static boolean openAllowed(int currentId, boolean blocked, int pendingId, long sincePressMs) {
+        if (!screenChangeAllowed(blocked, pendingId)) {
             return false;
         }
-        return isCarScreen(currentId);
+        if (currentId == HqcUiIds.PAGE_SCREEN_ID) {
+            return true;
+        }
+        return isCarScreen(currentId) && sincePressMs >= 0 && sincePressMs <= OPEN_TTL_MS;
+    }
+
+    /**
+     * May the SDK change the screen now: no popup or parking/RVC overlay on the current screen ({@code blocked}), and
+     * no change under way to a screen that is neither Car nor an SDK page (reverse gear: the RVC is coming).
+     */
+    static boolean screenChangeAllowed(boolean blocked, int pendingId) {
+        return !blocked && (pendingId < 0 || isCarScreen(pendingId));
     }
 
     static boolean isCarScreen(int id) {
@@ -178,16 +205,20 @@ final class PageScreens implements PageRenderer {
 
     public void open(String pageKey, UiSnapshot s, long requestAgeMs) {
         try {
-            navs.clear(); // the open replaces whatever navigation was asked for before it
             if (requestAgeMs > OPEN_TTL_MS) {
                 drop(pageKey, "the request is " + requestAgeMs + " ms old");
                 return;
             }
             int current = screens.currentId();
-            if (!openAllowed(current, screens.currentBlocked(), screens.pendingId())) {
-                drop(pageKey, "screen " + current + " is not a Car screen or SDK page");
+            long sincePress = UiInputs.sinceLastPress();
+            if (!openAllowed(current, screens.currentBlocked(), screens.pendingId(), sincePress)) {
+                drop(pageKey, "screen " + current + " is no SDK page, or no SDK press within " + OPEN_TTL_MS
+                        + " ms, or a popup, parking display or screen change is under way");
                 return;
             }
+            navs.clear(); // the accepted open replaces whatever navigation was asked for before it
+            closePending = false;
+            orphanChecked = true;
             if (current != HqcUiIds.PAGE_SCREEN_ID) {
                 stockReturn = screens.currentData();
             }
@@ -201,6 +232,11 @@ final class PageScreens implements PageRenderer {
 
     public void refresh(UiSnapshot s) {
         try {
+            if (closePending) {
+                close();
+                return;
+            }
+            closeOrphanOnce();
             runNav(s);
             String before = stack.top();
             if (before == null || shown == null) {
@@ -209,7 +245,7 @@ final class PageScreens implements PageRenderer {
             stack.reconcile(s);
             String top = stack.top();
             boolean rebuild = !top.equals(before) || !eq(titleOf(top, s), shownTitle);
-            if (rebuild && screens.isCurrent(shown)) {
+            if (rebuild && screens.isCurrent(shown) && changeAllowed()) {
                 showTop(s);
             } else {
                 writeRows(pageOf(top, s)); // not connected yet: the title follows on the next refresh
@@ -219,18 +255,53 @@ final class PageScreens implements PageRenderer {
         }
     }
 
-    /** Runtime down: back to the stock screen the bottom page came from, if an SDK page is on screen. */
+    /**
+     * Runtime down: back to the stock screen the bottom page came from, if an SDK page is on screen. While the screen
+     * may not change (RVC/PDC), the screen is left alone and the return is retried when the page connects again.
+     */
     public void close() {
         try {
             navs.clear();
-            boolean onScreen = shown != null || screens.currentId() == HqcUiIds.PAGE_SCREEN_ID;
+            boolean onScreen = shown != null || closePending || screens.currentId() == HqcUiIds.PAGE_SCREEN_ID;
             shown = null;
             stack.clear();
-            if (onScreen) {
-                returnToStock();
+            closePending = false;
+            if (!onScreen) {
+                return;
             }
+            if (!changeAllowed()) {
+                closePending = true;
+                log.append("INFO", SOURCE, "ui page close deferred: a popup, parking display or screen change is"
+                        + " under way");
+                return;
+            }
+            returnToStock();
         } catch (Throwable t) {
             failed("close", t);
+        }
+    }
+
+    /**
+     * The first job of a renderer whose stack is empty: an SDK page still on screen belongs to a previous applier
+     * (its teardown did not run); send it back to the stock screen.
+     */
+    private void closeOrphanOnce() {
+        if (orphanChecked) {
+            return;
+        }
+        orphanChecked = true;
+        PageScreens prev = live;
+        if (stack.top() != null || prev == this || screens.currentId() != HqcUiIds.PAGE_SCREEN_ID) {
+            return;
+        }
+        if (prev != null) {
+            prev.shown = null; // its page leaving is not the user leaving
+        }
+        live = this;
+        if (changeAllowed()) {
+            returnToStock();
+        } else {
+            closePending = true;
         }
     }
 
@@ -257,12 +328,15 @@ final class PageScreens implements PageRenderer {
         UiEntry e = entries.get(row);
         switch (e.kind()) {
             case UiEntry.ITEM:
+                UiInputs.userPressed();
                 table.input(new UiInput(UiInput.ENTRY_SELECTED, key, e.key(), false));
                 break;
             case UiEntry.TOGGLE:
+                UiInputs.userPressed();
                 table.input(new UiInput(UiInput.TOGGLE_REQUESTED, key, e.key(), !e.on()));
                 break;
             case UiEntry.LINK:
+                UiInputs.userPressed();
                 requestNav(new Nav(e.targetPageKey()));
                 break;
             default:
@@ -285,6 +359,10 @@ final class PageScreens implements PageRenderer {
      */
     void screenConnected(Object screen, String pageKey) {
         try {
+            if (closePending) {
+                poster.post(closeJob); // the runtime is down: retry the return to stock (a pending job retries too)
+                return;
+            }
             if (screen == shown || shown != null) {
                 return; // the one we showed, or an older one on its way out
             }
@@ -324,11 +402,21 @@ final class PageScreens implements PageRenderer {
 
     /** In a job: the navigation asked for since the last one, in order. */
     private void runNav(UiSnapshot s) {
+        if (closePending) {
+            close();
+            return;
+        }
         while (!navs.isEmpty()) {
             Nav n = navs.remove(0);
             if (shown == null || stack.top() == null) {
                 navs.clear();
                 return; // the page was left meanwhile
+            }
+            if (!changeAllowed()) {
+                log.append("INFO", SOURCE, "ui page navigation dropped: a popup, parking display or screen change"
+                        + " is under way");
+                navs.clear();
+                return;
             }
             try {
                 if (n.target != null) {
@@ -354,6 +442,10 @@ final class PageScreens implements PageRenderer {
     private void showTop(UiSnapshot s) {
         String key = stack.top();
         try {
+            if (!changeAllowed()) { // callers check first; this is the last guard before showScreen
+                log.append("INFO", SOURCE, "ui page " + key + " not shown: the screen may not change now");
+                return;
+            }
             UiPage p = pageOf(key, s);
             String t = p.title() == null ? "" : p.title();
             writeRows(p);
@@ -382,10 +474,20 @@ final class PageScreens implements PageRenderer {
             return;
         }
         try {
+            if (!changeAllowed()) { // callers check first; this is the last guard before showScreen
+                log.append("INFO", SOURCE, "ui page: stock screen not shown: the screen may not change now");
+                return;
+            }
             screens.showStock(to);
+            stockReturn = null; // used: a later open records its own
         } catch (Throwable t) {
             failed("return", t);
         }
+    }
+
+    /** {@link #screenChangeAllowed} on the screen now. */
+    private boolean changeAllowed() {
+        return screenChangeAllowed(screens.currentBlocked(), screens.pendingId());
     }
 
     private void writeRows(UiPage p) {
@@ -435,7 +537,12 @@ final class PageScreens implements PageRenderer {
     }
 
     /** Tests: forget the state shared across instances. */
+    static Object stockReturnForTests() {
+        return stockReturn;
+    }
+
     static void forgetForTests() {
+        UiInputs.forgetForTests();
         live = null;
         stockReturn = null;
         title = "";

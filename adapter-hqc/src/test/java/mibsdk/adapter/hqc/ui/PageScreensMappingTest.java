@@ -33,30 +33,43 @@ class PageScreensMappingTest {
         assertEquals("More >", PageScreens.rowText(entry(UiEntry.LINK, "More", null, false)));
     }
 
-    /** The list kinds are distinct, small ids (they select the item factory's row). */
+    /**
+     * Fix round 1 (Important 3): an open is honoured on an SDK page, or on a Car screen (the drawer's) within
+     * OPEN_TTL_MS of an SDK press; never from another module, never without a recent press.
+     */
     @Test
-    void rowKindsAreDistinct() {
-        assertTrue(PageScreens.ROW_ACTION != PageScreens.ROW_TOGGLE);
-        assertTrue(PageScreens.ROW_ACTION != PageScreens.ROW_LABEL);
-        assertTrue(PageScreens.ROW_TOGGLE != PageScreens.ROW_LABEL);
-    }
-
-    /** Carried requirement: an open is honoured only on a Car screen (the drawer's) or an SDK page. */
-    @Test
-    void opensOnlyFromCarScreensOrSdkPages() {
-        assertTrue(PageScreens.openAllowed(600044, false, -1), "Car main screen (the drawer's)");
-        assertTrue(PageScreens.openAllowed(HqcUiIds.PAGE_SCREEN_ID, false, -1), "an SDK page");
-        assertFalse(PageScreens.openAllowed(1300014, false, -1), "another module's screen");
-        assertFalse(PageScreens.openAllowed(-1, false, -1), "nothing known on screen");
+    void opensOnlyOnSdkPagesOrRightAfterAnSdkPress() {
+        long recent = PageScreens.OPEN_TTL_MS;
+        long stale = PageScreens.OPEN_TTL_MS + 1;
+        assertTrue(PageScreens.openAllowed(600044, false, -1, recent), "Car screen, just pressed");
+        assertFalse(PageScreens.openAllowed(600044, false, -1, stale), "Car screen, no recent press");
+        assertFalse(PageScreens.openAllowed(600044, false, -1, Long.MAX_VALUE), "Car screen, never pressed");
+        assertTrue(PageScreens.openAllowed(HqcUiIds.PAGE_SCREEN_ID, false, -1, stale), "an SDK page");
+        assertFalse(PageScreens.openAllowed(1300014, false, -1, recent), "another module's screen");
+        assertFalse(PageScreens.openAllowed(-1, false, -1, recent), "nothing known on screen");
     }
 
     /** Carried requirement: never during RVC/PDC, and never over a popup or into a screen change away from Car. */
     @Test
     void neverOverParkingPopupsOrScreenChanges() {
-        assertFalse(PageScreens.openAllowed(2100001, false, -1), "EarlyApps parking/RVC popup screen");
-        assertFalse(PageScreens.openAllowed(600044, true, -1), "Car screen under a popup or parking overlay");
-        assertFalse(PageScreens.openAllowed(600044, false, 2100001), "a change to the RVC is pending");
-        assertTrue(PageScreens.openAllowed(600044, false, 600033), "a change to another Car screen is pending");
+        long recent = 0;
+        assertFalse(PageScreens.openAllowed(2100001, false, -1, recent), "EarlyApps parking/RVC popup screen");
+        assertFalse(PageScreens.openAllowed(600044, true, -1, recent), "Car screen under a popup or parking overlay");
+        assertFalse(PageScreens.openAllowed(HqcUiIds.PAGE_SCREEN_ID, true, -1, recent), "SDK page under one");
+        assertFalse(PageScreens.openAllowed(600044, false, 2100001, recent), "a change to the RVC is pending");
+        assertFalse(PageScreens.openAllowed(HqcUiIds.PAGE_SCREEN_ID, false, 2100001, recent), "from a page too");
+        assertTrue(PageScreens.openAllowed(600044, false, 600033, recent), "a change to another Car screen is pending");
+    }
+
+    /** Fix round 1 (Important 1): the gate before every screen change the SDK makes (show, BACK, close). */
+    @Test
+    void screenChangeAllowedOnlyWithoutParkingOrPendingChangeAway() {
+        assertTrue(PageScreens.screenChangeAllowed(false, -1));
+        assertTrue(PageScreens.screenChangeAllowed(false, 600044));
+        assertTrue(PageScreens.screenChangeAllowed(false, HqcUiIds.PAGE_SCREEN_ID));
+        assertFalse(PageScreens.screenChangeAllowed(true, -1));
+        assertFalse(PageScreens.screenChangeAllowed(false, 2100001));
+        assertFalse(PageScreens.screenChangeAllowed(false, 1300014));
     }
 
     @Test

@@ -129,19 +129,35 @@ final class PageWidgets implements PageScreens.Screens {
         IScreenData cur = fw.getScreenManager(TERMINAL).getCurrentConnectedScreenData();
         Screen page = (Screen) screen;
         page.setTerminal(fw.getHMITerminal(TERMINAL));
-        int[] popups = cur == null ? null : cur.getPartialPopups();
+        int[] popups = cur == null ? null : copy(cur.getPartialPopups());
         int scheme = cur == null ? 0 : cur.getColorScheme();
         int mode = cur == null ? 0 : cur.getScreenMode();
         fw.showScreen(TERMINAL, 0, new ScreenData(HqcUiIds.PAGE_SCREEN_ID, false, false, null, false, page, popups,
                 null, -1L, -1L, 0, scheme, mode, null));
     }
 
-    /** BACK out of SDK pages: re-shows a copy of the saved stock screen data (spike B, BACK mode "reshow"). */
+    /**
+     * BACK out of SDK pages: re-shows a copy of the saved stock screen data (spike B, BACK mode "reshow"), with the
+     * partial popups on screen now, so a popup that came up meanwhile (OPS/PDC) is never hidden.
+     */
     public void showStock(Object data) {
         if (!(data instanceof ScreenData)) {
             throw new IllegalStateException("no stock screen data: " + data);
         }
-        fw().showScreen(TERMINAL, 0, new ScreenData((ScreenData) data));
+        FwHMI fw = fw();
+        fw.showScreen(TERMINAL, 0, returnData((ScreenData) data, fw.getScreenManager(TERMINAL)
+                .getCurrentConnectedScreenData()));
+    }
+
+    /** A copy of {@code saved} carrying a copy of {@code current}'s partial popups (none without a current screen). */
+    static ScreenData returnData(ScreenData saved, IScreenData current) {
+        ScreenData d = new ScreenData(saved);
+        d.setPartialPopups(current == null ? null : copy(current.getPartialPopups()));
+        return d;
+    }
+
+    static int[] copy(int[] a) {
+        return a == null ? null : (int[]) a.clone();
     }
 
     /** Rewrites the rows in place (so focus stays), then trims or extends the list. */
