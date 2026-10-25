@@ -1,6 +1,8 @@
 package mibsdk.adapter.hqc.ui;
 
+import de.esolutions.hmi.widgets.audi.base.widgets.AbstractWidgetController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
+import mibsdk.adapter.hqc.SdkGlobals;
 
 /**
  * Applies an {@link HmiWidgetState} to the stock widgets, on HMIEvent (the applier's HMI job): only what differs from
@@ -11,6 +13,12 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
  * <p>The status popup ({@link SdkStatusPopup#current}, once built) gets its cells' bounds when the layout's geometry
  * changed, and the id bitmaps of each cell whose built-in icon changed (so a same-length swap of icons is drawn). A
  * popup built later starts from {@link SdkStatusPopup#wanted} itself.
+ *
+ * <p>The main menu's Plugins row ({@code SdkGlobals.mainMenuRow}, read from SdkGlobals so no System factory class is
+ * loaded) gets {@code setVisible} when its wanted visibility changed or screen 46 was rebuilt with a new row; per Boot B
+ * the change shows at the next ring re-layout. Each new {@code SdkGlobals.mainMenuWizard} gets
+ * {@link MainMenuWrench#apply} once, on the first job that finds it connected; until then {@link #wrenchPending} says
+ * so, and the applier posts again on its next pass (never from a job's after-hook: no loop of jobs on HMIEvent).
  */
 final class HmiWidgets {
 
@@ -21,10 +29,27 @@ final class HmiWidgets {
      */
     private int[] fresh;
     private boolean freshKnown;
+    /** The main-menu row whose visibility was applied last, and that visibility. Written on HMIEvent. */
+    private volatile Object menuRow;
+    private volatile boolean menuRowVisible;
+    /** The newest main wizard the wrench was applied to (or given up on). Written on HMIEvent. */
+    private volatile Object wrenched;
 
     /** The state applied last (read by {@code mibsdk-ui} to decide whether a job is needed). */
     HmiWidgetState applied() {
         return applied;
+    }
+
+    /** True if the main menu's Plugins row exists and {@code want} differs from what was applied to it. */
+    boolean mainMenuRowNeedsJob(HmiWidgetState want) {
+        Object row = SdkGlobals.mainMenuRow;
+        return row != null && (row != menuRow || want.mainMenuRowVisible() != menuRowVisible);
+    }
+
+    /** True if the newest main wizard has not had its wrench yet (it may not be connected yet). */
+    boolean wrenchPending() {
+        Object w = SdkGlobals.mainMenuWizard;
+        return w != null && w != wrenched;
     }
 
     /**
@@ -36,6 +61,7 @@ final class HmiWidgets {
             HmiWidgetState last = applied;
             applied = want;
             applyStatus(want.status(), last.status());
+            applyMainMenu(want.mainMenuRowVisible());
             MenuItemController[] rows = SdkCarScreenFactory.sdkRows;
             for (int slot = 0; rows != null && slot < rows.length && slot < HqcUiIds.ROW_SLOTS; slot++) {
                 if (!want.sameSlot(slot, last)) {
@@ -49,6 +75,29 @@ final class HmiWidgets {
             }
         } catch (Throwable t) {
             // stock widgets stay as they are
+        }
+    }
+
+    /** The main menu's Plugins row visibility and the wrench; isolated from the rest, each part from the other. */
+    private void applyMainMenu(boolean visible) {
+        try {
+            Object row = SdkGlobals.mainMenuRow;
+            if (row != null && (row != menuRow || visible != menuRowVisible)) {
+                menuRow = row; // recorded first: a throwing row is not retried in a loop of jobs
+                menuRowVisible = visible;
+                ((MenuItemController) row).setVisible(visible);
+            }
+        } catch (Throwable t) {
+            // the row keeps its visibility
+        }
+        Object w = SdkGlobals.mainMenuWizard;
+        try {
+            if (w != null && w != wrenched && ((AbstractWidgetController) w).isConnected()) {
+                wrenched = w;
+                MainMenuWrench.apply(w); // logs and keeps the night-vision icon on failure
+            }
+        } catch (Throwable t) {
+            wrenched = w; // given up on this wizard: the row works without the wrench
         }
     }
 

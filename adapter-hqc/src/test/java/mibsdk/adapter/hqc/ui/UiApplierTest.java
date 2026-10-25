@@ -14,7 +14,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import de.esolutions.hmi.widgets.audi.evo.widgets.IconController;
+import de.esolutions.hmi.widgets.audi.base.InitializationContext;
 import de.esolutions.hmi.widgets.audi.evo.widgets.LabelController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.MainWizardController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import mibsdk.adapter.hqc.SdkGlobals;
 import mibsdk.platform.UiEntry;
@@ -86,6 +88,10 @@ class UiApplierTest {
         SdkStatusPopup.current = null;
         SdkStatusPopup.wanted = StatusLayout.EMPTY;
         SdkGlobals.statusPopup = 0;
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_OFF;
+        SdkGlobals.mainMenuRow = null;
+        SdkGlobals.mainMenuWizard = null;
+        MainMenuWrench.forgetForTests();
     }
 
     @BeforeEach
@@ -818,5 +824,137 @@ class UiApplierTest {
         publishParts("TS up", item("TS up", b));
         applier.step(0);
         assertEquals(Arrays.asList("show:TS up", "show:TS up"), drain(), "the new path reaches the locator model");
+    }
+
+    // ---- Task 7: the main menu's Plugins row ----
+
+    /** The {@code row…} entries of {@link #writes} (drawer row visibility). */
+    private List<String> rowWrites() {
+        synchronized (writes) {
+            List<String> l = new ArrayList<String>();
+            for (String w : writes) {
+                if (w.startsWith("row")) {
+                    l.add(w);
+                }
+            }
+            return l;
+        }
+    }
+
+    /** A main-menu Plugins row that records its visibility writes into {@link #writes} as {@code menu=on|off}. */
+    private MenuItemController menuRow() {
+        HostWidgets.init();
+        return new MenuItemController() {
+            public void setVisible(boolean v) {
+                writes.add("menu=" + (v ? "on" : "off"));
+                super.setVisible(v);
+            }
+        };
+    }
+
+    /** A main wizard whose connection the test controls; counts what the wrench reads of it. */
+    static final class Wizard extends MainWizardController {
+        volatile boolean connected;
+        int wrenched;
+
+        public boolean isConnected() {
+            return connected;
+        }
+
+        public InitializationContext getInitContext() {
+            wrenched++; // MainMenuWrench.apply reads the layout through it once per call
+            return super.getInitContext();
+        }
+    }
+
+    /** Review Focus 3: screen 46 fails after the drawer hid its Plugins row; the row is back within one pass. */
+    @Test
+    void drawerPluginsRowReturnsWhenTheMainMenuFails() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", "plugins");
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_PENDING;
+        applier.step(0); // snapshot with the Plugins row
+        assertTrue(writes.contains("row0=off")); // hidden: the MENU ring has it
+        writes.clear();
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_FAILED; // screen 46 threw: refs cleared, ring stock
+        applier.step(0); // no new snapshot needed
+        assertEquals(Arrays.asList("row0=on"), rowWrites());
+        assertEquals(0, sink.size(), "no main-menu row to apply: no job");
+    }
+
+    @Test
+    void mainMenuOffKeepsTheDrawerRow() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", "plugins", "a");
+        applier.step(0);
+        assertEquals(allRows(true, true), rowWrites());
+        applier.step(0);
+        assertEquals(allRows(true, true), rowWrites(), "nothing written again");
+        assertEquals(0, sink.size());
+    }
+
+    @Test
+    void wrenchIsAppliedOncePerConnectedWizard() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_ACTIVE;
+        SdkGlobals.mainMenuRow = menuRow();
+        Wizard first = new Wizard();
+        SdkGlobals.mainMenuWizard = first;
+        publish("", "plugins");
+        applier.step(0);
+        assertEquals(1, sink.size(), "the row and the wrench need a job");
+        sink.runHeld();
+        assertEquals(0, first.wrenched, "not connected yet: no wrench");
+        assertTrue(writes.contains("menu=on"));
+        assertEquals(0, sink.size(), "the after-hook does not loop on HMIEvent while the wizard connects");
+
+        applier.step(0);
+        assertEquals(1, sink.size(), "the next pass retries");
+        first.connected = true;
+        sink.runHeld();
+        assertEquals(1, first.wrenched);
+        applier.step(0);
+        assertEquals(0, sink.size(), "applied: no more jobs");
+        sink.runHeld();
+        assertEquals(1, first.wrenched, "once");
+
+        Wizard second = new Wizard(); // screen 46 rebuilt
+        second.connected = true;
+        SdkGlobals.mainMenuWizard = second;
+        applier.step(0);
+        assertEquals(1, sink.size());
+        sink.runHeld();
+        assertEquals(1, second.wrenched, "the new wizard gets its own call");
+        assertEquals(1, first.wrenched);
+        applier.step(0);
+        assertEquals(0, sink.size());
+    }
+
+    @Test
+    void downHidesTheMainMenuRowAndClearsStatusCells() throws Exception {
+        HostWidgets.init();
+        UiApplier a = applierWith(status, StatusLayoutTest.builtins(iconDir));
+        recordingPopup();
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_ACTIVE;
+        SdkGlobals.mainMenuRow = menuRow();
+        publishParts("TS up", item("TS up", UiIcon.stock("dot")));
+        a.step(0);
+        sink.runHeld();
+        assertTrue(drainPopup().contains("id0.bitmaps=[609100]"));
+        assertTrue(drain().contains("menu=on"));
+
+        table.publish(UiSnapshot.down(++version));
+        a.step(0);
+        sink.runHeld();
+        List<String> w = drain();
+        assertTrue(w.contains("menu=off"), w.toString());
+        assertTrue(w.contains("hide"), w.toString());
+        assertTrue(drainPopup().contains("id0.bitmaps=[]"), "the id icon cell is emptied");
+
+        publishParts("TS up", item("TS up", UiIcon.stock("dot"))); // a running runtime resumes
+        a.step(0);
+        sink.runHeld();
+        assertTrue(drain().contains("menu=on"));
+        assertTrue(drainPopup().contains("id0.bitmaps=[609100]"));
     }
 }

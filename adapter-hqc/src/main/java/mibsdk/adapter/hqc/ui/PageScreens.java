@@ -27,9 +27,11 @@ import mibsdk.runtime.RingLog;
  * rewrites the list rows only (a new title rebuilds the screen, and only while the page is on screen).
  *
  * <p>Opens: a request is honoured only within {@link #OPEN_TTL_MS} of the applier seeing it (monotonic clock), and
- * only while an SDK page is the connected screen, or on a Car screen (the Car drawer's) within {@link #OPEN_TTL_MS}
- * of a user press on an SDK drawer row or page entry ({@link UiInputs#sinceLastPress}); a plugin never opens a page
- * over an arbitrary screen. A dropped request is logged and sent as {@code PAGE_CLOSED}, never replayed.
+ * only while an SDK page is the connected screen, or on a Car screen (the Car drawer's) or the main menu
+ * ({@link HqcUiIds#SYS_SCREEN_MAINWIZARD}, the MENU ring's Plugins row) within {@link #OPEN_TTL_MS} of a user press
+ * on an SDK row or page entry ({@link UiInputs#sinceLastPress}); a plugin never opens a page over an arbitrary
+ * screen. BACK on the bottom page returns to the screen the page was opened from (the Car screen's or screen 46's
+ * saved data). A dropped request is logged and sent as {@code PAGE_CLOSED}, never replayed.
  *
  * <p>Vehicle safety: every screen change the SDK makes (show, BACK, return to stock, close) first checks
  * {@link #screenChangeAllowed}: no popup or parking/RVC overlay on the current screen, and no screen change under way
@@ -179,8 +181,9 @@ final class PageScreens implements PageRenderer {
     }
 
     /**
-     * Where an open may happen: an SDK page is the connected screen, or a Car screen (the Car drawer's) is, within
-     * {@link #OPEN_TTL_MS} of an SDK press ({@code sincePressMs}); and a screen change is allowed at all.
+     * Where an open may happen: an SDK page is the connected screen, or a Car screen (the Car drawer's) or the main
+     * menu ({@link HqcUiIds#SYS_SCREEN_MAINWIZARD}) is, within {@link #OPEN_TTL_MS} of an SDK press
+     * ({@code sincePressMs}); and a screen change is allowed at all.
      */
     static boolean openAllowed(int currentId, boolean blocked, int pendingId, long sincePressMs) {
         if (!screenChangeAllowed(blocked, pendingId)) {
@@ -189,7 +192,8 @@ final class PageScreens implements PageRenderer {
         if (currentId == HqcUiIds.PAGE_SCREEN_ID) {
             return true;
         }
-        return isCarScreen(currentId) && sincePressMs >= 0 && sincePressMs <= OPEN_TTL_MS;
+        boolean origin = isCarScreen(currentId) || currentId == HqcUiIds.SYS_SCREEN_MAINWIZARD;
+        return origin && sincePressMs >= 0 && sincePressMs <= OPEN_TTL_MS;
     }
 
     /**

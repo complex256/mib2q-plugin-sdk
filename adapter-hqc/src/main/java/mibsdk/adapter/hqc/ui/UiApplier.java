@@ -27,18 +27,25 @@ import mibsdk.runtime.RingLog;
  * {@code ids}), swaps {@code SdkGlobals.uiSlots}, and publishes the wanted {@link HmiWidgetState};</li>
  * <li>rows: writes changed row visibility through {@code rows}, only while {@code SdkGlobals.uiRowModels} exists, and
  * every slot again when those models first appear (the drawer is built on HMIEvent, at a time of the HMI's
- * choosing);</li>
+ * choosing). Slot 0, the Plugins row, is wanted visible only while the main menu has no Plugins row of its own
+ * ({@code SdkGlobals.drawerPluginsRowWanted()}: the takeover is OFF or FAILED), evaluated on every pass, so a main
+ * menu that fails after the drawer hid its row brings the row back within {@link #AWAIT_MS}. This phase also
+ * publishes the main menu's Plugins row into the wanted {@link HmiWidgetState}: visible iff not down and the main
+ * menu is ACTIVE;</li>
  * <li>status: shows or hides the status line ({@link StatusSinks}: the SDK popup {@link HqcUiIds#POPUP_SDK_STATUS}
  * with icons, popup 65 as text only and only as the fallback), and re-asserts a non-empty one every
  * {@link #STATUS_REASSERT_MS} on the monotonic clock (on popup 65, stock engineering code also writes model 416). It
  * shows again when the line's parts changed, or when the sink changed since the last show, so a fallback to popup 65
  * reaches it within one pass. It publishes the line's {@link StatusLayout} into the wanted {@link HmiWidgetState} (the
- * popup's bounds and built-in icons). Popup 65 belongs to stock EngineeringApp until the SDK has shown text on it: it
+ * popup's bounds and built-in icons); an empty line (down included) publishes {@link StatusLayout#EMPTY}, so the
+ * popup's id icon cells are cleared. Popup 65 belongs to stock EngineeringApp until the SDK has shown text on it: it
  * is never hidden before that;</li>
- * <li>hmi: once the drawer or the status popup exists (so the first screen is up: before it the stock StartupFilter
- * discards posted jobs), posts the one HMI job when {@code openSeq} or the page content moved past what was last
- * <b>rendered</b>, or the wanted {@link HmiWidgetState} differs from the one {@link HmiWidgets} applied (its status
- * layout only once the popup is built). The job re-evaluates both when it
+ * <li>hmi: once the drawer, the status popup or the main menu's Plugins row exists (so the first screen is up: before
+ * it the stock StartupFilter discards posted jobs), posts the one HMI job when {@code openSeq} or the page content
+ * moved past what was last <b>rendered</b>, or the wanted {@link HmiWidgetState} differs from the one
+ * {@link HmiWidgets} applied (its status layout only once the popup is built; the main-menu row against the row it
+ * was applied to), or, on the pass only, a new main wizard still waits for its wrench (it may not be connected
+ * yet). The job re-evaluates both when it
  * runs (pages from the latest snapshot), each part isolated; if a job is already pending, the job's after-hook
  * ({@link #wake}) posts again once it is done, so an open request is never lost.</li>
  * </ul>
@@ -46,7 +53,8 @@ import mibsdk.runtime.RingLog;
  *
  * <p><b>Down.</b> The runtime publishes {@link UiSnapshot#down} first thing in its stop, and {@link #stop} ends the
  * thread, which applies the same teardown on its way out: every row hidden (the Plugins row too, and
- * {@code SdkGlobals.uiDown} so a drawer built later starts without it), a status line the SDK showed hidden, and an open
+ * {@code SdkGlobals.uiDown} so a drawer built later starts without it, and the main menu's Plugins row), a status line
+ * the SDK showed hidden, and an open
  * SDK page closed back to the stock screen it came from. A close the renderer had to defer (RVC/PDC on screen) is
  * posted again once per pass while the runtime stays down, never from a job's after-hook. A later snapshot from a running runtime resumes. Only the
  * applier started last owns the HMI: a replaced one posts and renders nothing, and its exit teardown touches nothing.
@@ -358,7 +366,7 @@ public final class UiApplier {
             bitmaps[slot] = a.iconAt(slot);
             unserved |= bitmaps[slot] == null && hasIcon(s.carRows(), a.keyAt(slot));
         }
-        wantWidgets = new HmiWidgetState(bitmaps, wantWidgets.status());
+        wantWidgets = new HmiWidgetState(bitmaps, wantWidgets.status(), wantWidgets.mainMenuRowVisible());
         if (unserved && !warnedIdsSpent && ids != null && ids.exhausted()) {
             warnedIdsSpent = true;
             log.append("WARN", SOURCE, "ui icon ids " + HqcUiIds.ICON_ID_FIRST + ".." + HqcUiIds.ICON_ID_LAST
@@ -384,8 +392,12 @@ public final class UiApplier {
         return false;
     }
 
-    /** Writes each slot whose visibility changed; all of them once {@code SdkGlobals.uiRowModels} (re)appears. */
+    /**
+     * Publishes the main menu's Plugins row's wanted visibility; writes each slot whose visibility changed, all of
+     * them once {@code SdkGlobals.uiRowModels} (re)appears. Slot 0 only while the main menu has no Plugins row.
+     */
     private void applyRows() {
+        wantWidgets = wantWidgets.withMainMenuRow(!down && SdkGlobals.mainMenu == SdkGlobals.MAIN_MENU_ACTIVE);
         RowModels m = SdkGlobals.uiRowModels;
         if (m == null) {
             return;
@@ -397,7 +409,8 @@ public final class UiApplier {
             }
         }
         for (int slot = 0; slot < rowState.length; slot++) {
-            int want = slots.visibleAt(slot) ? 1 : 0;
+            boolean visible = slots.visibleAt(slot) && (slot != 0 || SdkGlobals.drawerPluginsRowWanted());
+            int want = visible ? 1 : 0;
             if (rowState[slot] != want) {
                 rows.setVisible(slot, want == 1);
                 rowState[slot] = want;
@@ -409,6 +422,8 @@ public final class UiApplier {
         String text = s.statusLine();
         long now = clock.uptimeMs();
         if (text.length() == 0) {
+            SdkStatusPopup.wanted = StatusLayout.EMPTY; // the popup's id icon cells are cleared
+            wantWidgets = wantWidgets.withStatus(StatusLayout.EMPTY);
             if (shownStatus != null && shownStatus.length() > 0) { // only ever hide what the SDK showed
                 status.hide();
                 shownStatus = "";
@@ -436,14 +451,14 @@ public final class UiApplier {
         if (!isLive() || (stopping && !down)) {
             return; // replaced, or stopping before the teardown took the UI down
         }
-        if (SdkGlobals.uiRowModels == null && SdkStatusPopup.current == null) {
-            return; // no drawer or popup yet, so no first screen yet: the StartupFilter would discard the job
+        if (SdkGlobals.uiRowModels == null && SdkStatusPopup.current == null && SdkGlobals.mainMenuRow == null) {
+            return; // no drawer, popup or screen 46 yet, so no first screen yet: the StartupFilter would discard the job
         }
         boolean render = needsRender(table.snapshot(), tick);
         if (render && tick && down && closedRendered) {
             closeRetry = true; // the job's own re-evaluation (tick false) would not retry it
         }
-        if (render || widgetsNeedJob()) {
+        if (render || widgetsNeedJob() || (tick && widgets.wrenchPending())) {
             poster.post(hmiJob); // false: a job is pending; its wake() re-checks when it is done
         }
     }
@@ -454,6 +469,9 @@ public final class UiApplier {
      */
     private boolean widgetsNeedJob() {
         HmiWidgetState applied = widgets.applied();
+        if (widgets.mainMenuRowNeedsJob(wantWidgets)) {
+            return true;
+        }
         return SdkStatusPopup.current != null ? !wantWidgets.equals(applied) : !wantWidgets.sameRows(applied);
     }
 

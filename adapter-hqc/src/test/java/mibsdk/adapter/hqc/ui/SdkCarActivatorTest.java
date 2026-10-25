@@ -50,6 +50,7 @@ class SdkCarActivatorTest {
         SdkGlobals.uiSlots = DrawerAssignment.EMPTY;
         SdkGlobals.uiRowModels = null;
         SdkGlobals.uiDown = false;
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_OFF;
         while (SdkGlobals.UI.poll(0) != null) {
             // drain
         }
@@ -260,5 +261,20 @@ class SdkCarActivatorTest {
         SdkGlobals.uiDown = true;
         SdkCarModelBank down = (SdkCarModelBank) bankOf(new SdkCarActivator());
         assertEquals(1, model(down, HqcUiIds.ROW_VISIBILITY_MODEL_0).getValue(), "hidden once torn down");
+    }
+
+    /** Task 7: while the MENU ring has (or is getting) the Plugins row, a drawer built from scratch starts without it. */
+    @Test
+    void slot0StartsHiddenWhileTheMainMenuIsActive() throws Exception {
+        SdkGlobals.uiEnabled = true;
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_ACTIVE;
+        assertEquals(1, model((SdkCarModelBank) bankOf(new SdkCarActivator()), HqcUiIds.ROW_VISIBILITY_MODEL_0)
+                .getValue(), "ACTIVE: hidden");
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_PENDING;
+        assertEquals(1, model((SdkCarModelBank) bankOf(new SdkCarActivator()), HqcUiIds.ROW_VISIBILITY_MODEL_0)
+                .getValue(), "PENDING: hidden");
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_FAILED;
+        assertEquals(0, model((SdkCarModelBank) bankOf(new SdkCarActivator()), HqcUiIds.ROW_VISIBILITY_MODEL_0)
+                .getValue(), "FAILED: the drawer row is back");
     }
 }
