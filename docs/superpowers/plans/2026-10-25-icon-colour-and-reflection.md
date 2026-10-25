@@ -6,15 +6,15 @@
 
 **Architecture:**
 - **Colour** is a runtime widget property, not content. `Ui.icon(name, colour)` (api 4) sets a `UiIcon` flag that is in `equals` but not in the `IconIds` key. It travels snapshot → `StatusLayout.Cell` → `SdkStatusPopup.icons`, which sets `setColorIndices({1,0,4,0})` or `null` plus `setCompositesDirty(true)` on the cell's id and file icon. Drawer rows ignore it (firmware: the selected row is always multiplied by the app colour).
-- **Reflections** are files. The build writes `icons/<name>.r.png` (flipped, alpha 0.40 → 0, the built-in `-72r` transform). mibpkg installs it as an extra `<sha16>.png` with an index line `<name>.r=<rsha16>,<w>,<h>`. `IconIndex` attaches it to `<name>`'s `UiIcon`, and `DrawerSlots` gives `{id, rid}`, else `{id, id}`.
+- **Reflections** are files. The plugin build writes `icons/<name>.r.png` (flipped, alpha 0.40 → 0, the built-in `-72r` transform), encoded with stored (uncompressed) deflate. mibpkg installs it as an extra `<sha16>.png` with an index line `<name>.r=<rsha16>,<w>,<h>`. `IconIndex` attaches it to `<name>`'s `UiIcon`, and `DrawerSlots` gives `{id, rid}`, else `{id, id}`.
 
 **Tech Stack:** Unchanged: Gradle 8.13 with `build-logic`; JDK 17/Jabel → Retrolambda → Retrotranslator; class-file v48; JUnit 5.10.2; Python 3 `unittest`. mibpkg: Rust stable, `cargo test`.
 
 **Spec:** `docs/research/2026-10-25-icon-colour-and-reflection.md` (611cf2b), §5 design, §7 bench check B1–B5. Prior design: `docs/superpowers/plans/2026-10-24-menu-and-icons.md`, `docs/bench-e2e-menu-icons.md` (findings B5, B10).
 
 **Repos and order:**
-- SDK, worktree `mib2q-plugin-sdk.worktrees/icon-colour`, branch `feat/icon-colour` (from main e3240cb): Tasks 1 → 2 → 3 → 5.
-- mibpkg, worktree `mibpkg.worktrees/icon-colour`, branch `feat/icon-colour` (from main 4385df1, 0.9.0): Task 4, in parallel with 1–3.
+- SDK, worktree `mib2q-plugin-sdk.worktrees/icon-colour`, branch `feat/icon-colour` (from main e3240cb): Tasks 1 → 2 → 3 → 5, strictly in sequence.
+- mibpkg, worktree `mibpkg.worktrees/icon-colour`, branch `feat/icon-colour` (from main 4385df1, 0.9.0): Task 4 starts **after Task 3 is committed** (it needs the `.r` packaging contract and copies a Task 3 vector), and then runs in parallel with Task 5.
 - Task 6 (bench) needs all of 1–5. Nobody touches the bench before Task 6.
 
 ## Global Constraints
@@ -57,165 +57,209 @@ Copied verbatim from the 2026-10-24 plan where they still bind:
 
 **Amended by this plan**
 - API: additive only. `SdkInfo.API_VERSION = 4` and `MIN_API_VERSION = 1`, so manifests with api 1–4 load. Plugin limits are unchanged: ≤ 2 Car rows, ≤ 1 status item of ≤ 12 chars.
-- Index: one extra line kind, `<name>.r=<rsha16>,<w>,<h>`, only for a declared `<name>`, sorted with the rest by key. A `.r` file is never declared in `plugin.json` and never counts toward the 8 / 32 limits.
-- Reflection recipe (from `tools/make_builtin_icons.py` `reflection`): same width, `H = (h·68 + 36) / 72` rows (integer division; 68 for 72), row `i` = source row `h−1−i`, RGB kept, alpha `= rint(a · 0.4 · (1 − i/(H−1)))` in `double` with half-even rounding (Python `round`), written RGBA 8-bit. Generated for every icon with `h > 20`.
+- API use: a plugin whose classes reference `mibsdk/api/Ui.icon(Ljava/lang/String;I)Lmibsdk/api/Icon;` must declare `"api": 4` or higher; the build refuses it otherwise (Task 1 scan).
+- Index: one extra line kind, `<name>.r=<rsha16>,<w>,<h>`, only for a declared `<name>`, sorted with the rest by key bytes (`hello` < `hello-20` < `hello.r`). A `.r` file is never declared in `plugin.json` and never counts toward the 8 / 32 limits.
+- Reflection recipe (from `tools/make_builtin_icons.py` `reflection`), authoritative here:
+  - generated for every **plugin** icon with `h > 20`; the SDK set gets none (its built-ins already ship `-72r`, which `BuiltinIcons` uses);
+  - height, integer arithmetic: `H = (h * 68 + 36) / 72` in Java, `(h * 68 + 36) // 72` in Python (72 → 68, 45 → 43, 40 → 38, 21 → 20; so `H ≥ 20`);
+  - row `i` (0..H−1) = source row `h − 1 − i`, same width, RGB kept (LA expands to `(g, g, g, a)`);
+  - alpha, exactly this Java expression: `(int) Math.rint(a * (0.4 * (1.0 - (double) i / (H - 1))))`, which is Python's `round(a * (0.4 * (1 - i / (H - 1))))` (both half-even, same operation order);
+  - written as 8-bit RGBA (colour type 6), filter 0 on every row, one zlib stream of **stored** deflate blocks (BTYPE 00), no compression. Deterministic and independent of the JDK's zlib.
+  - Size bound: raw data ≤ 68 · (1 + 72 · 4) = 19652 bytes; with the zlib header, one stored-block header (5 bytes), Adler-32 and the PNG framing (signature, IHDR, IDAT and IEND chunks), the file is ≤ **19720 bytes**, under the 32768 cap. `PngCheck` still checks every `.r`.
 - Bench restart budget for Task 6: **1**, at most **2** (the 2nd only to recover from a failed boot).
 
 ## Review Focus
 
 1. **A missing `.r`**: an old package, an index `.r` line whose file is gone, or a `.r` line with no base. The row shows `{id, id}` and nothing throws. **Tests:** Task 5 `IconIndexTest.reflectionLineWithoutItsFileOrBaseIsIgnored`, `DrawerSlotsTest.fileIconWithoutReflectionFallsBackToIdId`; Task 4 `plugin_install_without_reflection_writes_no_r_line`.
 2. **An old runtime (api 3) reads a new index.** It must keep `hello` intact and skip `hello.r`. **Tests:** Task 5 `IconIndexTest.reflectionKeyIsNotAName`; Task 6 host check H3 runs e3240cb's `IconIndex` on a 0.9.1 index.
-3. **A toggled colour not redrawing live.** Only the flag changes (same id, same file): `sameIcons` must see it and both controllers must get the indices and `setCompositesDirty(true)`. **Tests:** Task 2 `SdkStatusPopupTest.colourToggleReappliesIndicesAndMarksBothIconsDirty`; Task 1 `UiImplTest.statusSetWithOtherColourIsASnapshotChange`.
-4. **A flag not re-applied after a popup rebuild.** New controllers start with `null` indices; an own-colour cell must be set again. **Test:** Task 2 `HmiWidgetsTest.rebuiltPopupReappliesOwnColours`.
-5. **The selected drawer row.** The flag must not touch drawer bitmaps or ids, and the Javadoc must say the selected row is multiplied by the app colour. **Tests:** Task 2 `DrawerSlotsTest.ownColoursDoesNotChangeBitmaps`, `StatusLayoutTest.colourDoesNotChangeTheId`; bench B4.
+3. **A toggled colour not redrawing live.** Only the flag changes (same id, same file): `sameIcons` must see it and both controllers must get the indices and `setCompositesDirty(true)`. **Tests:** Task 2 `SdkStatusPopupTest.colourToggleReappliesIndicesAndMarksBothIconsDirty`, `StatusLayoutTest.cellCarriesOwnColoursAndSameIconsSeesIt`; Task 1 `UiImplTest.statusSetWithOtherColourIsASnapshotChange`.
+4. **A flag not re-applied after a popup rebuild.** New controllers start with `null` indices; an own-colour cell must be set again by the build's `icons(wanted, EMPTY)`. **Test:** Task 2 `SdkCarScreenFactoryTest.rebuiltPopupReappliesOwnColours`.
+5. **The selected drawer row.** The flag must not touch drawer bitmaps or ids, and the Javadoc must say the selected row is multiplied by the app colour. **Tests:** Task 2 `DrawerSlotsTest.ownColoursDoesNotChangeBitmaps`, `DrawerSlotsTest.colourDoesNotChangeTheId`; bench B4.
 
 ---
 
-### Task 1: API level 4 colour choice, carried by `UiIcon`; hello-menu 1.2.0 demonstrates it — SDK repo
+### Task 1: API level 4 colour choice, carried by `UiIcon`, with a build-time api check; hello-menu 1.2.0 demonstrates it — SDK repo
 
 **Files:**
-- Modify: `api/src/main/java/mibsdk/api/Icon.java`, `Ui.java`, `SdkInfo.java`; `platform/src/main/java/mibsdk/platform/UiIcon.java`; `runtime/src/main/java/mibsdk/runtime/UiImpl.java` (and the manifest api check, if it has its own bound); `adapter-fake/src/main/java/mibsdk/adapter/fake/FakeUi.java`; `tools/make_builtin_icons.py` (`plugin_sample` only); `plugins/hello-menu/src/main/resources/plugin.json`, `src/main/icons/hello.png`, `hello-20.png`, `HelloMenuPlugin.java`
-- Test: `runtime/src/test/java/mibsdk/runtime/UiImplTest.java`, `adapter-fake/src/test/java/mibsdk/adapter/fake/FakeUiTest.java`, `plugins/hello-menu/src/test/java/sample/hellomenu/HelloMenuPluginTest.java`, `installer/test_make_builtin_icons.py`
+- Modify:
+  - `api/src/main/java/mibsdk/api/Icon.java`, `Ui.java`, `SdkInfo.java`; `api/permissions.json` (`"api": 4`);
+  - `platform/src/main/java/mibsdk/platform/UiIcon.java`; `runtime/src/main/java/mibsdk/runtime/UiImpl.java`; `adapter-fake/src/main/java/mibsdk/adapter/fake/FakeUi.java`;
+  - `build-logic/src/main/java/mibsdk/build/PluginJson.java` (`MAX_API = 4`), `PermissionScan.java`, `PermissionScanTask.java`, `MibPluginPlugin.java` (wires the declared api into the scan task);
+  - `tools/make_builtin_icons.py` (`plugin_sample` only);
+  - `plugins/hello-menu/src/main/resources/plugin.json`, `src/main/icons/hello.png`, `hello-20.png`, `HelloMenuPlugin.java`.
+- Test: `runtime/src/test/java/mibsdk/runtime/UiImplTest.java`, `ManifestParserTest.java`; `api/src/test/java/mibsdk/api/PermissionCatalogTest.java` (passes once the json says 4); `adapter-fake/src/test/java/mibsdk/adapter/fake/FakeUiTest.java`; `build-logic/src/test/java/mibsdk/build/PluginJsonTest.java`, `PermissionScanTest.java`, `MpkStageTest.java`, `MibPluginPluginFunctionalTest.java`; `plugins/hello-menu/src/test/java/sample/hellomenu/HelloMenuPluginTest.java`; `installer/test_make_builtin_icons.py`
 
 **Interfaces:**
 - Produces:
   - `mibsdk.api.Icon`: `int TINTED = 0; int OWN_COLOURS = 1;` (constants only).
-  - `Ui.icon(String name, int colour)`; `icon(name) == icon(name, Icon.TINTED)`. Any other `colour` → `IllegalArgumentException("colour must be Icon.TINTED or Icon.OWN_COLOURS")`. Javadoc, verbatim from the spec: "Status items honour it. Car rows ignore it: the drawer draws every row icon in its own colours and multiplies the selected row by the app colour, so ship a white glyph for the stock look."
+  - `Ui.icon(String name, int colour)`; `icon(name) == icon(name, Icon.TINTED)`. Any other `colour` → `IllegalArgumentException("colour must be Icon.TINTED or Icon.OWN_COLOURS")`. The Javadoc says "Needs api 4." and then, verbatim from the spec: "Status items honour it. Car rows ignore it: the drawer draws every row icon in its own colours and multiplies the selected row by the app colour, so ship a white glyph for the stock look."
   - `stockIcon(name)` is unchanged and tinted only (its Javadoc says why: the built-ins are white glyphs).
   - `UiIcon.ownColours()`, `UiIcon withOwnColours(boolean)`: in `equals`/`hashCode`/`toString`; `key()` and `owner()` unchanged.
   - `UiImpl` caches one handle per (name, colour). A declared-but-not-installed icon is inert in both colours.
-  - `FakeUi` tag: `[png:<key>+own] ` for an own-colour file icon; other tags unchanged.
+  - `FakeUi` tag: `[png:<key>+own] ` for an own-colour file icon **in status parts only**. Car-row tags never show `+own`, because rows ignore the flag.
+  - `SdkInfo.API_VERSION = 4`; `PluginJson.MAX_API = 4`; `MpkStage.sdkManifest` follows `MAX_API`, so it stages `api = 4`.
+  - `PermissionScan.Result.needsApi() -> int`: 4 when any class references `mibsdk/api/Ui.icon(Ljava/lang/String;I)Lmibsdk/api/Icon;`, else 1. Each such site is also listed by `apiFindings()` as `owner.method -> Ui.icon(String,int)`.
+  - `PermissionScanTask` gets `@Input Property<Integer> declaredApi` (from `plugin.json`). It fails with `<site> needs api 4; plugin.json declares api <n>` when `needsApi() > declaredApi`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `UiImplTest.iconWithoutColourIsTinted`: `icon("hello")` equals `icon("hello", Icon.TINTED)` and its `UiIcon.ownColours()` is false;
   - `UiImplTest.ownColoursKeepsTheKey`: `icon("hello", OWN_COLOURS)` has `ownColours()` true and the same `key()` as the tinted one, but is not `equals`;
   - `UiImplTest.unknownColourIsRefused`: colour 2 throws `IllegalArgumentException`;
   - `UiImplTest.statusSetWithOtherColourIsASnapshotChange`: `set("Hello", icon("hello-20", OWN_COLOURS))` after the tinted one publishes a new snapshot;
-  - `UiImplTest.api4ManifestLoads`: api 4 loads, api 5 is refused;
-  - `FakeUiTest.ownColourIconTag`: `[png:<key>+own] Hello`;
+  - `ManifestParserTest.acceptsApi1To4AndIconsOnlyWithApi3` (renamed from `…1To3…`): api 4 loads, and api 5 is refused with "1..4";
+  - `PluginJsonTest`: `MAX_API` is 4; the out-of-range probe `fail4` becomes `fail5`;
+  - `MibPluginPluginFunctionalTest`: the `api4` fixture becomes `api5` (it must still fail);
+  - `MpkStageTest`: the staged SDK manifest has `api = 4`;
+  - `PermissionScanTest.findsTheColourIconOverload`: a class calling `ui.icon("x", Icon.OWN_COLOURS)` gives `needsApi() == 4`, and one calling only `icon(String)` gives 1;
+  - `MibPluginPluginFunctionalTest.colourOverloadNeedsApi4`: a fixture plugin with `"api": 3` that calls `icon(String,int)` fails `mibPackage` with "needs api 4"; the same plugin with api 4 builds;
+  - `FakeUiTest.ownColourIconTag`: the status part reads `[png:<key>+own] Hello`, and a Car row with the same own-colour icon reads `[png:<key>] Hello`;
   - `HelloMenuPluginTest.statusIconIsOwnColoursAndToggles`: the status part starts `[png:<key>+own]`; "Status icon colour" makes it `[png:<key>]`, and again `+own`; the choice is kept in storage key `colour` across disable/enable;
   - `HelloMenuPluginTest.manifestIsApi4Version120`;
-  - `test_make_builtin_icons.PluginSampleTest.test_left_white_right_blue`: in `hello` and `hello-20`, opaque pixels with `x < w/2` are (255, 255, 255) and those with `x ≥ w/2` are (0, 0, 255).
-- [ ] **Step 2: Run them and verify they fail:** `./gradlew :runtime:test :adapter-fake:test :plugins:hello-menu:test && python3 -m unittest installer.test_make_builtin_icons`. Expected: FAIL (no `Icon.TINTED`, no overload).
+  - `test_make_builtin_icons.PluginSampleTest.test_left_white_right_blue`: in the tool's `plugin_sample()` output, opaque pixels left of the glyph box's centre (`x < 36` at 72 px, `x < 9` at 20 px) are (255, 255, 255) and the rest are (0, 0, 255); and the committed `plugins/hello-menu/src/main/icons/hello*.png` are byte-equal to that output.
+- [ ] **Step 2: Run them and verify they fail:** `./gradlew :runtime:test :adapter-fake:test :api:test :plugins:hello-menu:test :build-logic:test && python3 -m unittest installer.test_make_builtin_icons`. Expected: FAIL (no `Icon.TINTED`, no overload, `MAX_API` 3).
 - [ ] **Step 3: Implement.**
-  - `SdkInfo.API_VERSION = 4`.
-  - `plugin_sample()`: the same ring-and-dot shape, coloured left half white, right half (0, 0, 255). Regenerate both PNGs with `--plugin-sample`.
+  - `plugin_sample()`: the same ring-and-dot shape, white left of the glyph box's centre (the 18-px box's centre for `hello-20`), (0, 0, 255) right of it. Regenerate both PNGs with `--plugin-sample`.
   - hello-menu: `plugin.json` gets `api: 4` and `version: "1.2.0"`. The status item uses `ui.icon("hello-20", colour)`, default `OWN_COLOURS`. A page item `status-colour`, "Status icon colour", flips it. The STAR/DOT stages of "Next status icon" stay stock (tinted). The row keeps `ui.icon("hello")`.
-- [ ] **Step 4: Run and verify:** `./gradlew check && python3 -m unittest discover -s installer -p 'test_*.py'`. Expected: PASS.
-- [ ] **Step 5: Commit:** `git add api platform runtime adapter-fake tools installer plugins/hello-menu && git commit -m "feat(api): per-icon colour choice, Icon.TINTED / OWN_COLOURS (api 4); hello-menu 1.2.0 shows it"`
+- [ ] **Step 4: Run and verify:** `./gradlew check && ./gradlew :build-logic:test && python3 -m unittest discover -s installer -p 'test_*.py'`. Expected: PASS.
+- [ ] **Step 5: Commit:** `git add api platform runtime adapter-fake build-logic tools installer plugins/hello-menu && git commit -m "feat(api): per-icon colour choice, Icon.TINTED / OWN_COLOURS (api 4, checked at build); hello-menu 1.2.0 shows it"`
 
 ---
 
 ### Task 2: The status popup honours the flag; the drawer ignores it — SDK repo
 
 **Files:**
-- Modify: `adapter-hqc/src/main/java/mibsdk/adapter/hqc/ui/StatusLayout.java`, `SdkStatusPopup.java`, `HqcUiIds.java`, `HmiWidgets.java`
-- Test: `StatusLayoutTest.java`, `HmiWidgetsTest.java`, `DrawerSlotsTest.java`, new `SdkStatusPopupTest.java` (all in `adapter-hqc/src/test/java/mibsdk/adapter/hqc/ui/`)
+- Modify: `adapter-hqc/src/main/java/mibsdk/adapter/hqc/ui/StatusLayout.java`, `SdkStatusPopup.java`, `HqcUiIds.java`, `DrawerSlots.java` (comment only)
+- Test: `StatusLayoutTest.java`, `SdkCarScreenFactoryTest.java`, `DrawerSlotsTest.java`, new `SdkStatusPopupTest.java` (all in `adapter-hqc/src/test/java/mibsdk/adapter/hqc/ui/`)
 
 **Interfaces:**
-- Consumes: `UiIcon.ownColours()` (Task 1).
+- Consumes: `UiIcon.ownColours()`, `withOwnColours` (Task 1).
 - Produces:
   - `HqcUiIds.STATUS_ICON_OWN_COLOURS = {1, 0, 4, 0}` (popup vis state 1 → plate entry 0, white).
-  - `StatusLayout.Cell.ownColours` (final boolean), set from `icon.ownColours()` at the cell build (`StatusLayout.java:89`). `sameIcons` also compares it.
-  - `SdkStatusPopup.icons(want, last)`: when cell `i`'s `ownColours` differs from `last`, call `setColorIndices(own ? HqcUiIds.STATUS_ICON_OWN_COLOURS : null)` and then `setCompositesDirty(true)` on **both** `idIcons[i]` and `fileIcons[i]`. The existing bitmap logic is unchanged.
-  - After a popup rebuild (`SdkStatusPopup.current` is a new instance), `HmiWidgets` applies icons against `StatusLayout.EMPTY`. Use the rebuild detection that already re-places bounds, or add it if there is none.
-  - A package-private `SdkStatusPopup(IconController[] idIcons, IconController[] fileIcons)` test constructor, so the tests can pass recording `IconController` subclasses.
+  - `StatusLayout.Cell.ownColours` (final boolean), set from `icon.ownColours()` at the cell build (`StatusLayout.java:89`). `sameIcons` also compares it. That also feeds `HmiWidgetState.equals`, so a toggle posts a job. The stale `Cell.filePath` doc ("currently tinted … B10") is updated.
+  - `SdkStatusPopup.icons(want, last)`: when cell `i`'s `ownColours` differs from `last`, call `setColorIndices(own ? HqcUiIds.STATUS_ICON_OWN_COLOURS : null)` and then `setCompositesDirty(true)` on **both** `idIcons[i]` and `fileIcons[i]`. The existing bitmap logic is unchanged. The class doc's "a per-icon choice is a planned follow-up" is replaced by a description of the flag.
+  - Rebuilds need no new code: `SdkStatusPopup.build` already runs `place(wanted)` and `icons(wanted, EMPTY)`, and `EMPTY` cells are tinted, so every own cell is applied. `HmiWidgets` is **not** changed.
+  - Tests use the existing package-private `SdkStatusPopup(LabelController[], IconController[], IconController[])` constructor with real `IconController`s after `HostWidgets.init()`. They read back through `getColorIndices()` and `getRenderer().areCompositesDirty()`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `StatusLayoutTest.cellCarriesOwnColoursAndSameIconsSeesIt`: two layouts that differ only in the flag are `sameGeometry`, not `sameIcons`;
-  - `StatusLayoutTest.colourDoesNotChangeTheId`: the tinted and own-colour versions of one file get the same `IconIds` id;
-  - `SdkStatusPopupTest.colourToggleReappliesIndicesAndMarksBothIconsDirty`: tinted → own sets `{1,0,4,0}` and dirty on both controllers of that cell only; own → tinted sets `null` and dirty;
-  - `SdkStatusPopupTest.unchangedColourTouchesNothing`: no `setColorIndices` call;
-  - `HmiWidgetsTest.rebuiltPopupReappliesOwnColours`: with an own cell applied, a new popup instance gets `{1,0,4,0}` on its next pass;
-  - `DrawerSlotsTest.ownColoursDoesNotChangeBitmaps`: `bitmaps(f.withOwnColours(true))` equals `bitmaps(f)`.
-- [ ] **Step 2: Run and verify they fail:** `./gradlew :adapter-hqc:test`. Expected: FAIL.
+  - `SdkStatusPopupTest.colourToggleReappliesIndicesAndMarksBothIconsDirty`: tinted → own gives `{1,0,4,0}` and dirty on both controllers of that cell only; own → tinted gives `null` and dirty;
+  - `SdkStatusPopupTest.unchangedColourTouchesNothing`: indices unchanged, nothing marked dirty;
+  - `SdkCarScreenFactoryTest.rebuiltPopupReappliesOwnColours`: `getPartialPopup(609600)` with an own-colour `wanted` layout gives the new popup's `idIcons`/`fileIcons` for that cell `getColorIndices()` = `{1,0,4,0}`, and `null` for the other cells;
+  - regression guards (they pass before any Task 2 code, so they are not TDD failures):
+    - `DrawerSlotsTest.ownColoursDoesNotChangeBitmaps`: `bitmaps(f.withOwnColours(true))` equals `bitmaps(f)`;
+    - `DrawerSlotsTest.colourDoesNotChangeTheId`: `DrawerSlots.id(f) == DrawerSlots.id(f.withOwnColours(true))` with a single allocation (the next free id is unchanged), and the status cell's `filePath` is the same for both.
+- [ ] **Step 2: Run and verify the new tests fail:** `./gradlew :adapter-hqc:test`. Expected: FAIL for the four non-guard tests.
 - [ ] **Step 3: Implement** as specified. `DrawerSlots` gets only a one-line comment saying the flag is ignored on purpose (spec §2.2).
 - [ ] **Step 4: Run and verify:** `./gradlew check` (it includes `NoStockConstantsTest` and LinkCheck). Expected: PASS.
 - [ ] **Step 5: Commit:** `git add adapter-hqc && git commit -m "feat(hqc): status popup draws own-colour icons (setColorIndices per cell, live)"`
 
 ---
 
-### Task 3: The build generates faded reflections — SDK repo
+### Task 3: The plugin build generates faded reflections — SDK repo
 
 **Files:**
-- Create: `build-logic/src/main/java/mibsdk/build/PngImage.java`, `PngEncoder.java`, `Reflection.java`; `build-logic/src/test/java/mibsdk/build/ReflectionTest.java`; `build-logic/src/test/resources/png/reflect-*.png` (vectors written by the tool)
-- Modify: `build-logic/src/main/java/mibsdk/build/MpkStage.java`, `MpkStageTest.java`; `dist/build.gradle.kts`; `tools/make_builtin_icons.py`; `installer/test_make_builtin_icons.py`
+- Create: `build-logic/src/main/java/mibsdk/build/Reflection.java`; `build-logic/src/test/java/mibsdk/build/ReflectionTest.java`
+- Modify:
+  - `build-logic/src/main/java/mibsdk/build/PngCheck.java` (exposes the decoded pixels; one decoder);
+  - `MpkStage.java`, `MibPluginPlugin.java` (the 3-argument `stageIcons` call at `:157`);
+  - `dist/build.gradle.kts` (passes `reflect = false`);
+  - `tools/make_builtin_icons.py` (`fixtures()` gains the reflection and filter vectors; `reflection()` callers use the integer height);
+  - `build-logic/src/test/resources/png/*` (regenerated by `--fixtures`), `installer/test_make_builtin_icons.py`.
+- Test: `ReflectionTest.java`, `PngCheckTest.java`, `MpkStageTest.java`, `MibPluginPluginFunctionalTest.java`, `installer/test_make_builtin_icons.py`
 
 **Interfaces:**
+- Consumes: the recipe in Global Constraints.
 - Produces:
-  - `PngImage.decode(byte[] png) -> PngImage {int width, height; byte[] rgba}`: for a file that `PngCheck` accepted; filters 0–4; LA is expanded to RGBA `(g, g, g, a)`.
-  - `PngEncoder.encode(int w, int h, byte[] rgba) -> byte[]`: a port of the tool's `png()`, `idat()` and `deflate()` with distances `(1, 4, 1 + 4w)`, filter 0 on every row, colour type 6. The output is byte-identical to the tool's.
-  - `Reflection.of(PngImage src) -> PngImage`: the recipe in Global Constraints.
-  - `MpkStage.stageIcons(List<String> names, File from, File stage, Predicate<String> reflect)`: for every name with `h > 20` that `reflect` accepts, it also writes `icons/<name>.r.png` and checks it with `PngCheck.check(bytes, 72)`. A failure fails the stage with `icon <name>.r: <rule>`. Plugin packages pass `n -> true`. `dist` passes `n -> !n.endsWith("-72r")`, because those files are already reflections. The `.r` names never go into `icons = [...]`.
-  - `MpkStage.sdkManifest(...)` stages `api = 4`.
-  - The tool gets `--reflection-vectors DIR`, which writes `reflect-rgba-48x40.png` (coloured), `reflect-la-72.png` and the `.r.png` of each into DIR.
+  - `PngCheck.rgba(byte[] png) -> Pixels {int width, height; byte[] rgba}`: it runs `check(png, 72)`, then reuses the same inflate (refactor the private `inflateExactly` so it returns the rows), un-filters types 0–4, and expands LA to RGBA. There is no second chunk walker.
+  - `Reflection.of(Pixels src) -> Pixels`: the recipe.
+  - `Reflection.encode(Pixels p) -> byte[]`: RGBA, filter 0, stored deflate (one or more BTYPE-00 blocks of ≤ 65535 bytes, zlib header `78 01`, Adler-32), CRCs via `java.util.zip.CRC32`.
+  - `MpkStage.stageIcons(List<String> names, File from, File stage, boolean reflect)`: when `reflect`, every icon with `h > 20` also gets `icons/<name>.r.png`, which is checked with `PngCheck.check(bytes, 72)`. A failure fails the stage with `icon <name>.r: <rule>`. `MibPluginPlugin` passes `true`, and `dist` passes `false` (Global Constraints). The `.r` names never go into `icons = [...]`.
+  - `fixtures()` also writes, under `build-logic/src/test/resources/png/`:
+    - `reflect-rgba-48x45.png` (coloured) with its Python `reflect-rgba-48x45.r.png` (48×43);
+    - `reflect-la-72.png` (grey + alpha) with `reflect-la-72.r.png` (72×68);
+    - `filters-1234.png`: RGBA rows with Sub, Up, Average and Paeth filters, plus `filters-1234.rgba`, its raw pixels.
+
+    The Python vectors use the same recipe (integer `H`, the same alpha expression) and the tool's own compressor. They are compared by **pixels**, not bytes.
 
 - [ ] **Step 1: Write the failing tests:**
-  - `ReflectionTest.matchesTheBuiltinReflectionsByteForByte`: for each of the 8 glyphs, `encode(of(decode(dist/icons/<g>-72.png)))` equals the bytes of `dist/icons/<g>-72r.png`;
-  - `ReflectionTest.matchesThePythonVectors`: each `reflect-*.png` → its `reflect-*.r.png`, byte for byte;
+  - `ReflectionTest.matchesTheBuiltinReflectionsPixelForPixel`: for each of the 8 glyphs, `rgba(encode(of(rgba(dist/icons/<g>-72.png))))` equals `rgba(dist/icons/<g>-72r.png)`;
+  - `ReflectionTest.matchesThePythonVectors`: each `reflect-*.png` → pixels equal to its `reflect-*.r.png`;
   - `ReflectionTest.keepsRgbAndFadesAlpha`: an opaque (0, 0, 255) source gives row 0 alpha 102, the last row alpha 0, and RGB (0, 0, 255) kept;
-  - `ReflectionTest.heightScales`: 72 → 68, 40 → 38, 21 → 20;
+  - `ReflectionTest.heightScales`: 72 → 68, 45 → 43, 40 → 38, 21 → 20;
+  - `ReflectionTest.encodingIsStoredDeterministicAndBounded`: encoding twice gives identical bytes; `PngCheck.check` accepts the result; a 72×72 noise source gives ≤ 19720 bytes;
+  - `PngCheckTest.rgbaUnfiltersAllFiveTypes`: `rgba(filters-1234.png)` equals `filters-1234.rgba`;
   - `MpkStageTest.pluginStageWritesReflectionsForDrawerSizedIconsOnly`: `hello` → `icons/hello.r.png` at 72×68; `hello-20` gets none; `[plugin] icons` is unchanged;
-  - `MpkStageTest.sdkStageSkipsExistingReflectionsAndIsApi4`: `star-72.r.png` is staged, `star-72r.r.png` is not, and the manifest has `api = 4`;
-  - `test_make_builtin_icons.ReflectionVectorsTest`: re-running `--reflection-vectors` reproduces the committed vectors.
-- [ ] **Step 2: Run and verify they fail:** `./gradlew :build-logic:test`. Expected: FAIL (no `Reflection`).
-- [ ] **Step 3: Implement** as specified. Generate the vectors with `python3 tools/make_builtin_icons.py --reflection-vectors build-logic/src/test/resources/png` and commit them.
-- [ ] **Step 4: Run and verify:** `./gradlew check && python3 -m unittest discover -s installer -p 'test_*.py'`; `./gradlew :plugins:hello-menu:mibPackage :dist:mibpkgPackage -Pmibsdk.mibpkg=<mibpkg 0.9.0>` builds both, and both packages contain `icons/*.r.png`. Expected: PASS.
-- [ ] **Step 5: Commit:** `git add build-logic dist tools installer && git commit -m "build: generate faded drawer reflections (<name>.r.png) for plugin and SDK icons"`
+  - `MpkStageTest.sdkStageWritesNoReflections`: with `reflect = false`, no `*.r.png` is staged;
+  - `MibPluginPluginFunctionalTest.mibPackageContainsTheReflection`: the `icons` fixture plugin's package contains `icons/<name>.r.png` for its drawer-sized icon;
+  - `test_make_builtin_icons`: `test_named_fixtures_are_the_shared_vectors` lists the 6 new names, and `test_output_is_byte_identical_to_the_committed_files` still passes (one generator, no subdirectory).
+- [ ] **Step 2: Run and verify they fail:** `./gradlew :build-logic:test`. Expected: FAIL (no `Reflection`, no `PngCheck.rgba`).
+- [ ] **Step 3: Implement** as specified. Regenerate with `python3 tools/make_builtin_icons.py --fixtures build-logic/src/test/resources/png` and commit the vectors.
+- [ ] **Step 4: Run and verify:** `./gradlew check && ./gradlew :build-logic:test && python3 -m unittest discover -s installer -p 'test_*.py'`. Then `./gradlew :plugins:hello-menu:mibPackage :dist:mibpkgPackage -Pmibsdk.mibpkg=<mibpkg 0.9.0>` builds both; the hello-menu package contains `icons/hello.r.png`, and the SDK package contains no `.r`. Expected: PASS.
+- [ ] **Step 5: Commit:** `git add build-logic dist tools installer && git commit -m "build: plugin packages carry a faded drawer reflection (<name>.r.png, stored deflate)"`
 
 ---
 
-### Task 4: mibpkg 0.9.1 installs reflections and writes `.r` index lines — mibpkg repo
+### Task 4: mibpkg 0.9.1 installs reflections and writes `.r` index lines — mibpkg repo (after Task 3)
 
 **Files:**
 - Modify: `src/mibsdk/icons.rs`, `Cargo.toml`, `Cargo.lock` (version 0.9.1), `README.md`
-- Create: `tests/fixtures/icons/ok-72r.png` (a byte copy of the SDK's `dist/icons/star-72r.png`, 72×68)
-- Test: `tests/mibsdk_icons.rs`, `tests/sdk_pkg.rs`
+- Create: `tests/fixtures/icons/reflect-la-72.r.png` (a byte copy of Task 3's `build-logic/src/test/resources/png/reflect-la-72.r.png`, under the same name, as the fixtures' header comment requires)
+- Test: `tests/plugin_pkg.rs` (the plugin tests; its helpers `plugin_src_icons`, `install_src`, `with_sdk`, `icon_dir`, `plugin_jar`, `GRANTS` live there), `tests/mibsdk_icons.rs` (one `check_from` test), `tests/sdk_pkg.rs`
 
 **Interfaces:**
 - Produces:
   - `icons::reflection_file_of(name: &str) -> String` = `icons/<name>.r.png`.
-  - `check_from(src, names)`: for each declared name it also reads the **optional** `reflection_file_of(name)`. If the file is absent, it is skipped. If present, it is `png_check(&bytes, MAX_PX)`'d and pushed as one more `Checked { name: "<name>.r", .. }`. An error reads `icon <name>.r: <rule>`, and the caller adds `; nothing changed`. A `.r` file for an undeclared name is never read. `install`, `index_text` (sorted by key: `hello`, `hello-20`, `hello.r`) and the removal of unlisted files work unchanged on the longer list.
+  - `check_from(src, names)`: for each declared name it also reads the **optional** `reflection_file_of(name)`.
+    - Absent (`NotFound`, or `Source::Package(p).file()` is `None`): skipped.
+    - Present: it is checked with `png_check(&bytes, MAX_PX)` and pushed as one more `Checked { name: "<name>.r", .. }`. An error reads `icon <name>.r: <rule>`, and the callers add `; nothing changed`.
+    - A `.r` file for an undeclared name is never read.
+
+    `install`, `index_text` and `drop_files_except` work unchanged on the longer list.
   - No count check covers the `.r` entries (manifest limits count declared names only).
+  - `tests/plugin_pkg.rs` gains a helper `plugin_src_icons_with_reflection(..)`, which also writes `icons/<name>.r.png` and optionally an undeclared `icons/other.r.png`.
 
 - [ ] **Step 1: Write the failing tests:**
-  - `plugin_install_writes_reflection_file_and_index_line`: the index is `hello=<s>,72,72\nhello-20=<s2>,20,20\nhello.r=<rs>,72,68\n`, and `<rs>.png` equals the source bytes;
-  - `plugin_install_without_reflection_writes_no_r_line`: the index has only the 0.9.0 lines;
-  - `plugin_install_with_a_bad_reflection_writes_nothing`: a `.r` that is `bad-crc.png` refuses with `icon hello.r:` and leaves no jar, grants line or icon dir;
-  - `reflection_of_an_undeclared_name_is_ignored`;
-  - `update_dropping_the_reflection_removes_its_file`;
-  - `sdk_install_writes_reflection_lines`.
-- [ ] **Step 2: Run and verify they fail:** `cargo test --test mibsdk_icons --test sdk_pkg`. Expected: FAIL.
+  - in `tests/plugin_pkg.rs`:
+    - `plugin_install_writes_reflection_file_and_index_line`: the index is `hello=<s>,72,72\nhello-20=<s2>,20,20\nhello.r=<rs>,72,68\n`, and `<rs>.png` equals the source bytes;
+    - `plugin_install_without_reflection_writes_no_r_line`: the index has only the 0.9.0 lines;
+    - `plugin_install_with_a_bad_reflection_writes_nothing`: a `.r` that is `bad-crc.png` refuses with `icon hello.r:` and leaves no jar, grants line or icon dir;
+    - `reflection_of_an_undeclared_name_is_ignored`;
+    - `update_dropping_the_reflection_removes_its_file`;
+  - `mibsdk_icons::check_from_adds_an_optional_reflection_entry` (both the `Dir` and the `Package` source);
+  - `sdk_pkg::sdk_install_writes_reflection_lines`: uses a fixture SDK package that carries one `.r` (the real SDK package has none).
+- [ ] **Step 2: Run and verify they fail:** `cargo test --test plugin_pkg --test mibsdk_icons --test sdk_pkg`. Expected: FAIL.
 - [ ] **Step 3: Implement**, bump the version to 0.9.1, and add one README paragraph on the `.r` line and on why old runtimes ignore it.
 - [ ] **Step 4: Run and verify:** `cargo test`. Expected: PASS.
 - [ ] **Step 5: Commit:** `git add src tests Cargo.toml Cargo.lock README.md && git commit -m "feat(sdk): install optional icon reflections (<name>.r index line); 0.9.1"`
 
 ---
 
-### Task 5: The runtime reads `.r` and drawer rows use `{id, rid}` — SDK repo (after Task 1)
+### Task 5: The runtime reads `.r` and drawer rows use `{id, rid}` — SDK repo (after Task 3)
 
 **Files:**
 - Modify: `platform/src/main/java/mibsdk/platform/UiIcon.java`, `IconIndex.java`; `adapter-hqc/src/main/java/mibsdk/adapter/hqc/ui/DrawerSlots.java`
 - Test: `platform/src/test/java/mibsdk/platform/IconIndexTest.java`, `adapter-hqc/src/test/java/mibsdk/adapter/hqc/ui/DrawerSlotsTest.java`
 
 **Interfaces:**
-- Consumes: the index line `<name>.r=<rsha16>,<w>,<h>` (Task 4); `UiIcon.withOwnColours` (Task 1).
+- Consumes: the index line `<name>.r=<rsha16>,<w>,<h>` (the Task 4 contract, fixed in Global Constraints); `UiIcon.withOwnColours` (Task 1).
 - Produces:
-  - `UiIcon.reflection() -> UiIcon` (a FILE icon with the same owner, or null) and `UiIcon withReflection(UiIcon r)`. Both are in `equals`. `withOwnColours` keeps the reflection.
-  - `IconIndex.read`: the name lines are parsed exactly as today. Then each key `<base>.r` with `isName(base)`, a present `<base>` entry, a value valid under `entry`'s rules and an existing `<rsha16>.png` replaces `<base>` with `base.withReflection(...)`. Anything else is ignored. `isName` is unchanged, and `get("<base>.r")` is null.
-  - `DrawerSlots.bitmaps` for FILE: `f = id(icon)`, `r = icon.reflection() == null ? -1 : id(icon.reflection())`. It returns `{f, r}` when `r ≥ 0`, else `{f, f}`. The reflection's id comes from `IconIds` under `owner/<rsha16>` and is served by `getImagePath` like any file id. The Javadoc of `bitmaps` is updated.
+  - `UiIcon.reflection() -> UiIcon` (a FILE icon with the same owner, or null) and `UiIcon withReflection(UiIcon r)`. Both are in `equals`. `withOwnColours` keeps the reflection. `UiImpl` needs no change: its handle wraps the `IconIndex` entry.
+  - `IconIndex`: the value parsing moves out of `entry` into `private static UiIcon value(String owner, File dir, String v)` (key, w, h, file present), and both passes use it. The name lines are parsed exactly as today. Then each key with `key.endsWith(".r")` and `base = key.substring(0, key.length() - 2)` that satisfies `isName(base)`, has a present `<base>` entry and has a non-null `value(...)` replaces `<base>` with `base.withReflection(...)`. Anything else is ignored. It is Java 1.4 API (no `contains`/`isEmpty`). `isName` is unchanged, and `get("<base>.r")` is null.
+  - `DrawerSlots.bitmaps` for FILE: `f = id(icon)`, `r = icon.reflection() == null ? -1 : id(icon.reflection())`. It returns `{f, r}` when `r ≥ 0`, else `{f, f}`. The reflection's id comes from `IconIds.idFor(owner, rsha16, abs, rel)` under `owner/<rsha16>` and is served by `getImagePath` like any file id. The Javadoc of `bitmaps` is updated.
 
-- [ ] **Step 1: Write the failing tests** (each old/new mix):
-  - `IconIndexTest.readsReflectionIntoItsBase` (new runtime, new index);
-  - `IconIndexTest.indexWithoutReflectionsReadsAsBefore` (new runtime, old index);
-  - `IconIndexTest.reflectionKeyIsNotAName` (old runtime, new index: the api-3 rule is `isName`, which rejects `hello.r`): `isName("hello.r")` is false, `get("hello.r")` is null, and `hello` is identical to its entry in an index without the line;
-  - `IconIndexTest.reflectionLineWithoutItsFileOrBaseIsIgnored`;
-  - `DrawerSlotsTest.fileIconWithReflectionUsesItsOwnId`: two distinct ids, and the reflection's path is `../mibsdk/icons/<id>/<rsha16>.png`;
-  - `DrawerSlotsTest.fileIconWithoutReflectionFallsBackToIdId`;
-  - `DrawerSlotsTest.spentRangeForTheReflectionFallsBackToIdId`.
+- [ ] **Step 1: Write the tests** (each old/new mix a unit test can reach):
+  - failing first:
+    - `IconIndexTest.readsReflectionIntoItsBase` (new runtime, new index);
+    - `IconIndexTest.reflectionLineWithoutItsFileOrBaseIsIgnored`;
+    - `DrawerSlotsTest.fileIconWithReflectionUsesItsOwnId`: two distinct ids, and the reflection's path is `../mibsdk/icons/<plugin>/<rsha16>.png`;
+    - `DrawerSlotsTest.fileIconWithoutReflectionFallsBackToIdId`;
+    - `DrawerSlotsTest.spentRangeForTheReflectionFallsBackToIdId`;
+  - regression guards (they pass on today's code, and they test this jar's reader; H3 tests the old one):
+    - `IconIndexTest.indexWithoutReflectionsReadsAsBefore` (new runtime, old index);
+    - `IconIndexTest.reflectionKeyIsNotAName`: `isName("hello.r")` is false, `get("hello.r")` is null, and `hello`'s key, path and size match an index without the line.
 
-  The two mixes with an old mibpkg binary (0.9.0 + new package; new package + old SDK) cannot be unit tests. They are Task 6's host checks H2 and H3.
-- [ ] **Step 2: Run and verify they fail:** `./gradlew :platform:test :adapter-hqc:test`. Expected: FAIL.
+  The two mixes with old binaries (old mibpkg + new package; old runtime + new index) cannot be unit tests. They are Task 6's host checks H2 and H3.
+- [ ] **Step 2: Run and verify the new tests fail:** `./gradlew :platform:test :adapter-hqc:test`. Expected: FAIL for the five non-guard tests.
 - [ ] **Step 3: Implement** as specified.
 - [ ] **Step 4: Run and verify:** `./gradlew check && python3 -m unittest discover -s installer -p 'test_*.py'`. Expected: PASS.
 - [ ] **Step 5: Commit:** `git add platform adapter-hqc && git commit -m "feat(ui): drawer rows draw the package's faded reflection ({id, rid}), else {id, id}"`
@@ -228,9 +272,9 @@ Copied verbatim from the 2026-10-24 plan where they still bind:
 - Create: `docs/bench-e2e-icon-colour.md`, `docs/bench-e2e/icon-colour-*.jpg`, `docs/bench-e2e/icon-colour-log-r1.txt`
 
 **Host first (no unit):** build mibpkg 0.9.1 (Task 4), plus mibpkg 0.9.0 from main 4385df1. Build `mibsdk` (api 4) and hello-menu 1.2.0 with a `+bench.N` version.
-- [ ] H1: `mibpkg-0.9.1 --root <fake1> install-file` of both packages. `<fake1>/…/icons/hello-menu/index.properties` has `hello.r=<rs>,72,68` and `<rs>.png` exists. `icons-sdk/index.properties` has the `-72.r` lines.
+- [ ] H1: `mibpkg-0.9.1 --root <fake1> install-file` of both packages. `<fake1>/…/icons/hello-menu/index.properties` has `hello.r=<rs>,72,68` and `<rs>.png` exists. `icons-sdk/index.properties` has no `.r` line.
 - [ ] H2 (old mibpkg + new package): `mibpkg-0.9.0 --root <fake2>` installs both, and the index has no `.r` line.
-- [ ] H3 = spec B5 (old runtime + new index): with `jshell --class-path <platform.jar built at e3240cb>`, `IconIndex.read("hello-menu", <fake1 dir>)`: `get("hello")` is the 72×72 entry and `get("hello.r")` is null. The same call with this branch's jar on `<fake2>` gives `hello` with no reflection.
+- [ ] H3 = spec B5 (old runtime + new index): with `jshell --class-path <platform.jar>:<api.jar>`, both built at e3240cb,, `IconIndex.read("hello-menu", <fake1 dir>)`: `get("hello")` is the 72×72 entry and `get("hello.r")` is null. The same call with this branch's jar on `<fake2>` gives `hello` with no reflection.
 
 **On the unit, before the restart:**
 - [ ] `curl -s 10.20.0.23:8099/status` → `bridge_connected:true`. Upgrade mibpkg to 0.9.1 as `docs/bench-e2e-ui.md` "Builds and deploys" did. Install `mibsdk` and hello-menu 1.2.0 with mibpkg. Check that `mibpkg sdk status` shows `api: 1..4`, and that the unit's hello-menu index has `hello.r`.
@@ -259,8 +303,12 @@ If B2 fails, record it as a finding. The spec's fallback (`processStateChange` 0
 - [decided, controller] The API is `Icon.TINTED = 0`, `Icon.OWN_COLOURS = 1` and `Ui.icon(String, int)`, at api 4, additive (manifests api 1–4 load). The flag is in `UiIcon.equals`, not in the `IconIds` key. Status popup only: `setColorIndices({1,0,4,0})`/`null` plus `setCompositesDirty(true)` on both of a cell's icons. Drawer rows ignore it (firmware limit), and the Javadoc says so.
 - [decided, from the spec §5.1] `stockIcon(...)` gets no colour choice: the built-ins are white glyphs, so own colours would only draw them white.
 - [decided, controller] Faded reflections are generated by the build with the built-in `-72r` recipe, validated by `PngCheck`, installed by mibpkg with a separate `<name>.r=` line, and validated with `png_check`. The runtime uses `{id, rid}`, else `{id, id}`.
+- [decided, preflight 10] The build writes `.r` with stored (uncompressed) deflate. There is no Java port of the Python compressor. Tests compare decoded pixels (through `PngCheck`'s own inflate) with the Python `-72r` output and vectors. Packages stay reproducible, and a `.r` is ≤ 19720 bytes, under the 32 KB cap.
+- [decided, preflight 12] The SDK set gets no `.r`. Its `-72.r` would be a copy of `-72r`, which `BuiltinIcons` already uses. Moving `BuiltinIcons` to `.r` and retiring `-72r` is a possible later change.
+- [decided, preflight 13] The build refuses a plugin that references `Ui.icon(String,int)` with api < 4 (an extension of the permission scan), so an api-3 package can never hit `NoSuchMethodError` on an api-3 runtime.
+- [decided, ledger] Task 4 runs after Task 3, then in parallel with Task 5.
 - [my call] mibpkg is **0.9.1**, not 0.10.0. The change is additive in both directions: an old mibpkg ignores the extra package file (H2), an old runtime ignores the `.r` key (`isName`), and no existing line or package changes meaning.
-- [my call] The Java port matches the Python tool byte for byte, which proves the shared recipe. The built-in `-72r` files are the test vectors, so the tool keeps generating them and `BuiltinIcons` keeps using `-72r`. The SDK set skips `.r` for names ending in `-72r`.
+- [my call, preflight 9] The integer height `(h·68 + 36)/72` (half up) is authoritative, rather than the spec's `round(h·68/72)` (half-even). They differ only at h = 45 (43 against 42). The Python vectors use the same formula.
 - [my call] In mibpkg a reflection is just one more `Checked` entry named `<name>.r`, so install, index writing and cleanup need no new code path. A bad `.r` refuses the whole install, the same as a bad icon.
 - [my call] The mixes with old binaries (old mibpkg + new package, old runtime + new index) are host checks H2/H3 in the bench task, because unit tests cannot run old binaries. Task 5 pins the reader invariant (`reflectionKeyIsNotAName`) that makes H3 hold.
 - [my call] B1 uses one status item and the toggle, because the plugin limit is one status item (Global Constraints). This differs from the spec's "two status items"; the four frames show the same comparison.
