@@ -15,9 +15,11 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupController;
  * The SDK status popup {@link HqcUiIds#POPUP_SDK_STATUS}: spike C's recipe (a copy of stock popup 65,
  * SystemScreenBag3.partialPopupDebugInfo) at ({@link HqcUiIds#POPUP_SDK_X}, 0, {@link HqcUiIds#POPUP_SDK_W},
  * {@link HqcUiIds#POPUP_SDK_H}) in slot {@link HqcUiIds#POPUP_SDK_SLOT}, beside popup 65 (Boot B). It holds a backdrop,
- * the indicator label, and {@link HqcUiIds#STATUS_CELLS} cells, each an id icon (a built-in, tinted like stock icons),
- * a file icon on its ResourceLocatorModel (a package PNG, currently tinted with the app colour like the id icons:
- * bench B10; a per-icon choice is a planned follow-up) and a label on its LabelModel.
+ * the indicator label, and {@link HqcUiIds#STATUS_CELLS} cells, each an id icon (a built-in, drawn by image id),
+ * a file icon on its ResourceLocatorModel (a package PNG) and a label on its LabelModel. Each cell's icons are tinted
+ * with the app colour (bench B10, no colour indices) or, when the cell's {@link StatusLayout.Cell#ownColours} is set,
+ * drawn in their own colours ({@link HqcUiIds#STATUS_ICON_OWN_COLOURS}); a rebuilt popup applies it from
+ * {@link #wanted} like the id icons.
  *
  * <p>Built on HMIEvent by {@link SdkCarScreenFactory#getPartialPopup} with the bounds and id icons of {@link #wanted};
  * later changes come from {@link HmiWidgets} through {@link #current}. HMIEvent only, apart from the two volatile
@@ -166,15 +168,28 @@ final class SdkStatusPopup {
 
     /**
      * Sets the id icon of each cell whose built-in icon differs from {@code last}: its image id, or an empty array (no
-     * icon), and marks it for a redraw. HMIEvent.
+     * icon), and marks it for a redraw. Of each cell whose colour flag differs from {@code last}, sets both icons'
+     * colour indices ({@link HqcUiIds#STATUS_ICON_OWN_COLOURS} for own colours, null for tinted) and marks both for a
+     * redraw. HMIEvent.
      */
     void icons(StatusLayout l, StatusLayout last) {
         for (int i = 0; i < idIcons.length; i++) {
-            int id = l.cell(i).stockIconId;
+            StatusLayout.Cell c = l.cell(i);
+            int id = c.stockIconId;
             if (id != last.cell(i).stockIconId) {
                 idIcons[i].setBitmaps(id >= 0 ? new int[] {id} : new int[0]);
                 idIcons[i].setCompositesDirty(true); // setBitmaps only stores the array: redraw it now, not at the next screen
             }
+            if (c.ownColours != last.cell(i).ownColours) {
+                colours(idIcons[i], c.ownColours);
+                colours(fileIcons[i], c.ownColours);
+            }
         }
+    }
+
+    /** Own colours (plate entry 0) or tinted (no indices: the renderer's tint), redrawn now. */
+    private static void colours(IconController icon, boolean own) {
+        icon.setColorIndices(own ? HqcUiIds.STATUS_ICON_OWN_COLOURS : null);
+        icon.setCompositesDirty(true);
     }
 }

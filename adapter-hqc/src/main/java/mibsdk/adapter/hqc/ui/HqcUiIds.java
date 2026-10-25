@@ -131,6 +131,12 @@ public final class HqcUiIds {
      * it. Layout only; follows {@link #STATUS_CHAR_PX}.
      */
     public static final int STATUS_ICON_ADVANCE_PX = STATUS_ICON_CHARS * STATUS_CHAR_PX;
+    /**
+     * A status icon drawn in its own colours: colour indices mapping popup vis state 1 to plate entry 0, which is
+     * white ({@code -1}) in every stock palette row, so the modulate leaves the bitmap's colours as they are (the
+     * popup labels use the same indices). Tinted icons have none (null). Never written to: widgets keep the reference.
+     */
+    public static final int[] STATUS_ICON_OWN_COLOURS = {1, 0, 4, 0};
 
     /**
      * SDK image ids (Car module, {@code id / 100000 == CAR_MODULE}), served by {@code SdkCarScreenFactory.getImagePath}

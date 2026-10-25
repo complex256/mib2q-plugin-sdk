@@ -99,6 +99,7 @@ final class DrawerSlots {
      * installed file {@code {id, id}}. Null for no icon, an unknown built-in, a missing ids table, or a spent range.
      */
     static int[] bitmaps(UiIcon icon, IconIds ids, BuiltinIcons builtins) {
+        // UiIcon.ownColours() is ignored on purpose: drawer rows always draw their icon's own colours (spec 2.2).
         if (icon == null || ids == null) {
             return null;
         }

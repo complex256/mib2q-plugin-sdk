@@ -198,6 +198,7 @@ class SdkCarScreenFactoryTest {
         HostWidgets.init();
         SdkGlobals.statusPopup = 0;
         SdkStatusPopup.current = null;
+        SdkStatusPopup.wanted = StatusLayout.EMPTY;
     }
 
     /**
@@ -356,6 +357,30 @@ class SdkCarScreenFactoryTest {
         ids[0].setCompositesDirty(false);
         SdkStatusPopup.current.icons(StatusLayout.EMPTY, l);
         assertTrue(ids[0].getRenderer().areCompositesDirty(), "a removed icon is redrawn too");
+    }
+
+    /** A popup rebuilt while a cell wants its own colours starts with them, on both of that cell's icons. */
+    @Test
+    void rebuiltPopupReappliesOwnColours() throws Exception {
+        systemFonts(true);
+        List<UiStatusPart> parts = new ArrayList<UiStatusPart>();
+        parts.add(new UiStatusPart("TS up", UiIcon.file("hello", HqcUiIds.INSTALL_ROOT
+                + "/icons/hello/aaaa000000000000.png", "aaaa000000000000", 20, 20).withOwnColours(true), false));
+        parts.add(new UiStatusPart("MQ", UiIcon.stock("dot"), false));
+        SdkStatusPopup.wanted = StatusLayout.of(parts, new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST),
+                StatusLayoutTest.builtins(iconDir));
+        SdkCarScreenFactory f = new SdkCarScreenFactory(fw());
+        f.getPartialPopupStubs(0);
+        assertTrue(f.getPartialPopup(HqcUiIds.POPUP_SDK_STATUS, 0) instanceof PartialPopupController,
+                "built: " + SdkGlobals.LOG.snapshot());
+        IconController[] ids = (IconController[]) popupField("idIcons");
+        IconController[] files = (IconController[]) popupField("fileIcons");
+        assertArrayEquals(new int[] {1, 0, 4, 0}, ids[0].getColorIndices());
+        assertArrayEquals(new int[] {1, 0, 4, 0}, files[0].getColorIndices());
+        for (int i = 1; i < ids.length; i++) {
+            assertNull(ids[i].getColorIndices(), "cell " + i + ": tinted");
+            assertNull(files[i].getColorIndices(), "cell " + i + ": tinted");
+        }
     }
 
     private static Object popupField(String name) throws Exception {

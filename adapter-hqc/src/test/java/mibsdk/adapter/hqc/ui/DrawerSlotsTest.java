@@ -17,6 +17,7 @@ import java.util.Collections;
 import java.util.List;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiRow;
+import mibsdk.platform.UiStatusPart;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -217,5 +218,40 @@ class DrawerSlotsTest {
         int[] copy = again.iconAt(1);
         copy[0] = 1;
         assertArrayEquals(new int[] {609102, 609102}, again.iconAt(1), "immutable");
+    }
+
+    /** Regression guard (spec 2.2): the drawer draws every icon its own way, so the colour flag changes nothing. */
+    @Test
+    void ownColoursDoesNotChangeBitmaps() {
+        IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
+        UiIcon f = UiIcon.file("hello", HqcUiIds.INSTALL_ROOT + "/icons/hello/0123456789abcdef.png",
+                "0123456789abcdef", 72, 72);
+        int[] tinted = DrawerSlots.bitmaps(f, ids, BuiltinIcons.NONE);
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST}, tinted);
+        assertArrayEquals(tinted, DrawerSlots.bitmaps(f.withOwnColours(true), ids, BuiltinIcons.NONE));
+    }
+
+    /**
+     * Regression guard: the flag is not part of the id key, so both forms share one id (one allocation) and one
+     * file.
+     */
+    @Test
+    void colourDoesNotChangeTheId() {
+        IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
+        String path = HqcUiIds.INSTALL_ROOT + "/icons/hello/0123456789abcdef.png";
+        UiIcon f = UiIcon.file("hello", path, "0123456789abcdef", 20, 20);
+        int id = DrawerSlots.id(f, ids);
+        assertEquals(HqcUiIds.ICON_ID_FIRST, id);
+        assertEquals(id, DrawerSlots.id(f.withOwnColours(true), ids));
+        UiIcon other = UiIcon.file("hello", HqcUiIds.INSTALL_ROOT + "/icons/hello/fedcba9876543210.png",
+                "fedcba9876543210", 20, 20);
+        assertEquals(HqcUiIds.ICON_ID_FIRST + 1, DrawerSlots.id(other, ids), "a single allocation for both");
+
+        List<UiStatusPart> tinted = new ArrayList<UiStatusPart>();
+        tinted.add(new UiStatusPart("x", f, false));
+        List<UiStatusPart> own = new ArrayList<UiStatusPart>();
+        own.add(new UiStatusPart("x", f.withOwnColours(true), false));
+        assertEquals(path, StatusLayout.of(tinted, ids, BuiltinIcons.NONE).cell(0).filePath);
+        assertEquals(path, StatusLayout.of(own, ids, BuiltinIcons.NONE).cell(0).filePath);
     }
 }
