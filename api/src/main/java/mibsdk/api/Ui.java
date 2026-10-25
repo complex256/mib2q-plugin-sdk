@@ -61,7 +61,8 @@ public interface Ui {
 
     /**
      * An icon this plugin declared by name in its manifest's {@code "icons"} (needs {@code "api": 3}); the package
-     * installs it as {@code icons/<name>.png}. An undeclared name throws {@link IllegalArgumentException}. Icons are
+     * carries it as {@code icons/<name>.png}, and mibpkg installs it as {@code icons/<id>/<sha16>.png} (the first 16 hex
+     * digits of its SHA-256). An undeclared name throws {@link IllegalArgumentException}. Icons are
      * static per installed package version: a new picture needs a new package. A declared icon that is not installed
      * (the jar was pushed without installing its package) gives an inert icon: rows and items show without it, and
      * the runtime logs one WARN.

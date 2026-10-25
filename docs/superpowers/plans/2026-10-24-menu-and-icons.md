@@ -515,7 +515,7 @@ git commit -m "feat(adapter-hqc): installed icons served by getImagePath with pe
   - `SdkGlobals.statusPopup`: `0` unknown, `1` registered (the stub was added), `2` built, `-1` failed (the stub or the build threw). `-1` is sticky for the boot: a later stub collection or build never moves it back to 1 or 2, and once it is `-1`, `getPartialPopupStubs` adds no stub.
   - Boot window (documented, no timer): while the state is 0, because the popup manager has not collected the stubs yet, the line goes to popup 65. The switch to 609600 then hides popup 65. Put this in `StatusSinks`' class doc.
   - `StatusLineSink.show(String)` becomes `void show(List<UiStatusPart> parts, String textLine)`; `hide()` is unchanged.
-    - `SdkPopupStatusLine` writes the 7 label models and 6 locator models the way `RowModels` writes the bank's models. Locators are set with `setResourceLocator(-1, path, 1)` and cleared with `(-1, "", 0)`. It then sets the visible model.
+    - `SdkPopupStatusLine` writes the 7 label models and 6 locator models the way `RowModels` writes the bank's models. Locators are set with `setResourceLocator(-1, path, 0)` and cleared with `(-1, "", 0)` (status 0, as spike C; status 1 draws bitmap 0 and never loads the URI, bench R1, 5340cd3). It then sets the visible model.
     - `Popup65StatusLine.show(parts, textLine)` shows `textLine`.
   - `final class StatusSinks implements StatusLineSink { interface State { int get(); } StatusSinks(StatusLineSink sdkPopup, StatusLineSink popup65, State state) }`. In production the state reads `SdkGlobals.statusPopup`.
     - It delegates to the SDK popup while the state is `1` or `2`, else to popup 65.
@@ -1041,7 +1041,7 @@ There is no R4. The screen-46 failure path (`ui-forcefail screen`) is covered by
 - [decided, controller ruling] The drawer row comes back whenever the System takeover is not active:
   - `mainMenu` OFF: the stock fallback on any Throwable, swdl, the UI off or an unsupported build, or mibpkg not managing `HMISystem=`;
   - FAILED: a screen-46 build that failed. FAILED is sticky for the boot.
-- [my call] In the PENDING state (the SDK System factory is up, but MENU has not been opened yet this boot) the drawer row is already hidden. The ring builds its row on the first MENU, and a failure there brings the drawer row back within one applier pass.
+- [controller ruling] Only the ACTIVE state hides the drawer row. In the PENDING state (the SDK System factory is up, but screen 46 has not been built yet this boot) the drawer row still shows, so a PENDING that never moves on cannot lock the user out of Plugins (`SdkGlobals.drawerPluginsRowWanted`). The ring builds its row on the first MENU, and a failure there (FAILED) keeps or brings the drawer row back within one applier pass.
 
 **Icons**
 - [decided] Row icons: Car-drawer plugin rows can carry a stock icon or a plugin PNG, served through `getImagePath` with fresh ids per content. They are near-static: a change shows at the next Car reconnect.
@@ -1065,9 +1065,9 @@ There is no R4. The screen-46 failure path (`ui-forcefail screen`) is covered by
 **System takeover and the bench**
 - [decided] mibpkg manages `HMISystem=` exactly like `HMICar=`: a stock-value check, a byte-identical restore, and refusal on unknown builds and on a firmware change without `--force`. The activator is pure stock in swdl and on any Throwable, and it has no throwing static initialisers.
 - [my call] The `[sdk]` keys `hmisystem_stock`/`hmisystem`/`icons` and `[plugin] icons` are optional. An SDK package without the first two leaves `HMISystem=` stock (the "mibpkg declined" fallback). They arrive with mibpkg 0.9.0.
-- [decided] The failure path gets a deliberate bench test: R2 forces the System factory to fail (`ui.forcefail=factory`), then checks that the HMI is stock and the Car-drawer Plugins row is back.
+- [decided] The failure path gets a deliberate bench test. As run (docs/bench-e2e-menu-icons.md), R2b forced the screen-46 failure (`ui.forcefail=screen`) with safe mode, and checked that the main menu is stock and the Car-drawer Plugins row is back. The `factory` failure is covered by host tests.
 - [my call] The forced-failure switch is a file in persist, `/mnt/persist/mibsdk/dev/ui.forcefail` (`factory` or `screen`). Only the configurator reads it, and `mibsdk-dev ui-forcefail` sets it. R2 combines it with safe mode, which proves `SAFE` in the new popup without an extra restart.
-- [decided] The restart budget is 3, at most 4. There is no R4 boot (preflight 26), so the screen-46 failure path is covered by host tests only.
+- [decided] The restart budget is 3, at most 4. There is no R4 boot (preflight 26). The screen-46 failure path ran on the unit at R2b; the `factory` failure path is host-tested only.
 - [my call] API level 3 is additive: `Icon`, `StockIcons`, `Ui.icon`/`stockIcon`, icon overloads of `carMenuRow`/`statusItem`, `StatusItem.set(text, icon)`, `Features.UI_ICONS`, and the manifest field `icons`.
 
 **Open points for the owner:** none.

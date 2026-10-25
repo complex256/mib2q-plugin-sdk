@@ -11,6 +11,11 @@ The deflate streams come from the small encoder below (fixed Huffman codes, gree
 not from zlib.compress, whose bytes differ between zlib builds: the output is the same everywhere. Only zlib.crc32 and
 zlib.adler32 are used, and those are pure checksums.
 
+The geometry is platform-independent too: it uses only + - * / and comparisons on float literals, which IEEE 754
+rounds the same everywhere. math.cos/sin/hypot and ** are not guaranteed bit-exact across platform maths libraries,
+so the star's vertices and the stroke lengths are precomputed literals (repr, so they round-trip exactly); math is used
+only to check those literals, never to compute a pixel.
+
 Usage (python3 -I tools/make_builtin_icons.py ...):
   (no option)          writes dist/icons/
   --icons DIR          writes the built-in set to DIR instead
@@ -170,12 +175,17 @@ def union(*fs):
     return lambda x, y: any(f(x, y) for f in fs)
 
 
+def _d2(x, y, cx, cy):
+    dx, dy = x - cx, y - cy
+    return dx * dx + dy * dy
+
+
 def circle(cx, cy, r):
-    return lambda x, y: (x - cx) ** 2 + (y - cy) ** 2 <= r * r
+    return lambda x, y: _d2(x, y, cx, cy) <= r * r
 
 
 def ring(cx, cy, r0, r1):
-    return lambda x, y: r0 * r0 <= (x - cx) ** 2 + (y - cy) ** 2 <= r1 * r1
+    return lambda x, y: r0 * r0 <= _d2(x, y, cx, cy) <= r1 * r1
 
 
 def polygon(pts):
@@ -192,31 +202,48 @@ def polygon(pts):
     return inside
 
 
-def stroke(ax, ay, bx, by, half):
-    """A straight bar of half-width half from (ax, ay) to (bx, by)."""
+def _literal(value, exact):
+    """value, a precomputed literal, after checking it against exact (computed with math: only the check uses it)."""
+    if abs(value - exact) > 1e-12:
+        raise AssertionError("literal %r is not %r" % (value, exact))
+    return value
+
+
+def stroke(ax, ay, bx, by, half, length):
+    """A straight bar of half-width half from (ax, ay) to (bx, by); length is |b - a|, a literal."""
     dx, dy = bx - ax, by - ay
-    k = half / math.hypot(dx, dy)
+    k = half / _literal(length, math.hypot(dx, dy))
     nx, ny = -dy * k, dx * k
     return polygon([(ax + nx, ay + ny), (bx + nx, by + ny), (bx - nx, by - ny), (ax - nx, ay - ny)])
 
 
-def star(cx, cy, r_out, r_in, n=5):
-    pts = []
-    for k in range(2 * n):
+def star(cx, cy, r_out, r_in, pts, n=5):
+    """A star of n points; pts are its 2n vertices as literals, outer first, clockwise from the top."""
+    for k, (x, y) in enumerate(pts):
         r = r_out if k % 2 == 0 else r_in
         a = -math.pi / 2 + k * math.pi / n
-        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+        _literal(x, cx + r * math.cos(a))
+        _literal(y, cy + r * math.sin(a))
     return polygon(pts)
+
+
+STAR_PTS = [(0.5, 0.09000000000000002), (0.6116791979355699, 0.37628677106876),
+            (0.9184648671698676, 0.3940325224750232), (0.6807007380960792, 0.58871322893124),
+            (0.7586255110086881, 0.8859674775249768), (0.5, 0.72),
+            (0.24137448899131186, 0.8859674775249768), (0.31929926190392083, 0.58871322893124),
+            (0.08153513283013242, 0.3940325224750232), (0.3883208020644301, 0.37628677106876)]
 
 
 GLYPHS = {
     "dot": circle(0.5, 0.5, 0.22),
     "circle": ring(0.5, 0.5, 0.28, 0.42),
-    "star": star(0.5, 0.53, 0.44, 0.19),
+    "star": star(0.5, 0.53, 0.44, 0.19, STAR_PTS),
     "triangle": polygon([(0.5, 0.1), (0.92, 0.86), (0.08, 0.86)]),
     "square": rect(0.16, 0.16, 0.84, 0.84),
-    "check": union(stroke(0.14, 0.52, 0.40, 0.78, 0.075), stroke(0.40, 0.78, 0.88, 0.24, 0.075)),
-    "cross": union(stroke(0.18, 0.18, 0.82, 0.82, 0.08), stroke(0.82, 0.18, 0.18, 0.82, 0.08)),
+    "check": union(stroke(0.14, 0.52, 0.40, 0.78, 0.075, 0.36769552621700474),
+                   stroke(0.40, 0.78, 0.88, 0.24, 0.075, 0.7224956747275377)),
+    "cross": union(stroke(0.18, 0.18, 0.82, 0.82, 0.08, 0.9050966799187807),
+                   stroke(0.82, 0.18, 0.18, 0.82, 0.08, 0.9050966799187807)),
     # A mains plug seen from the front: two prongs on top, a body, a taper, a cable going down.
     "plug": union(
         rect(0.33, 0.10, 0.41, 0.32), rect(0.59, 0.10, 0.67, 0.32),

@@ -22,7 +22,7 @@ final class StatusLayout {
         final int labelW;
         /** A built-in icon's image id (its {@code <name>-20}, drawn by id and tinted); -1 for none. */
         final int stockIconId;
-        /** A package icon's absolute installed path (drawn in its own colours); null for none. */
+        /** A package icon's absolute installed path (currently tinted with the app colour, bench B10); null for none. */
         final String filePath;
         final String text;
 

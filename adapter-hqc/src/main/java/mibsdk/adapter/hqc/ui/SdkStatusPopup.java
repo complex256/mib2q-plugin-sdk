@@ -16,7 +16,8 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupController;
  * SystemScreenBag3.partialPopupDebugInfo) at ({@link HqcUiIds#POPUP_SDK_X}, 0, {@link HqcUiIds#POPUP_SDK_W},
  * {@link HqcUiIds#POPUP_SDK_H}) in slot {@link HqcUiIds#POPUP_SDK_SLOT}, beside popup 65 (Boot B). It holds a backdrop,
  * the indicator label, and {@link HqcUiIds#STATUS_CELLS} cells, each an id icon (a built-in, tinted like stock icons),
- * a file icon on its ResourceLocatorModel (a package PNG, in its own colours) and a label on its LabelModel.
+ * a file icon on its ResourceLocatorModel (a package PNG, currently tinted with the app colour like the id icons:
+ * bench B10; a per-icon choice is a planned follow-up) and a label on its LabelModel.
  *
  * <p>Built on HMIEvent by {@link SdkCarScreenFactory#getPartialPopup} with the bounds and id icons of {@link #wanted};
  * later changes come from {@link HmiWidgets} through {@link #current}. HMIEvent only, apart from the two volatile
