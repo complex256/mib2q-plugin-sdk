@@ -17,7 +17,11 @@ final class SpikeIds {
     /** Spike B: the SDK page's ListModel (3 columns: text, value, row kind) and its LABEL row's LabelModel. */
     static final int PAGE_LIST_MODEL = MODEL_BASE + ROWS + 2;  // 602749
     static final int PAGE_LABEL_MODEL = MODEL_BASE + ROWS + 3; // 602750
-    static final int MODEL_COUNT = ROWS + 4;
+    /** Spike C (S1/S2): popup 609600's visibility ChoiceModel, file-path ResourceLocatorModel and LabelModel. */
+    static final int POPUP_VISIBLE_MODEL = MODEL_BASE + ROWS + 4;   // 602751
+    static final int POPUP_FILE_MODEL = MODEL_BASE + ROWS + 5;      // 602752
+    static final int POPUP_LABEL_MODEL = MODEL_BASE + ROWS + 6;     // 602753
+    static final int MODEL_COUNT = ROWS + 7;
     static final int TEXT_BASE = 609000;
     /** Factory texts served for TEXT_BASE + 0..TEXTS-1 (rows 0..8, then page texts). */
     static final int TEXTS = 32;
@@ -44,6 +48,37 @@ final class SpikeIds {
     static final int POPUP_STATUS = 65;
     static final int STATUS_LABEL_MODEL = 416;
     static final int STATUS_VISIBLE_CHOICE = 1;
+
+    // ---- Spike C ------------------------------------------------------------------------------------------------
+    /** Car-module image ids served from the spike icons dir by SpikeFactory.getImagePath. */
+    static final int ICON_FIRST = 609100;
+    static final int ICON_LAST = 609199;
+    static final String ICON_REL_DIR = "../mibsdk-spike/icons/";
+    static final String ICON_ABS_DIR = "/mnt/app/eso/hmi/lsd/mibsdk-spike/icons/";
+    static final int ICON_PLUG = 609100;
+    static final int ICON_PLUG_REFLEX = 609101;
+    static final int ICON_NEXT = 609102;
+    static final int ICON_NEXT_REFLEX = 609103;
+    static final int ICON_POP_A = 609110;
+    static final int ICON_POP_B = 609111;
+    static final int ICON_P65 = 609120;
+    /** System-module stock phone icon pair (row 1, I2). */
+    static final int SYS_ICON_PHONE = 422;
+    static final int SYS_ICON_PHONE_REFLEX = 423;
+    /** Stock System status-bar icon used beside the custom one in popup 65 (S3). */
+    static final int SYS_ICON_STATUS = 230;
+    /** SDK-owned partial popup registered through the Car factory's stubs (S1). */
+    static final int POPUP_SDK = 609600;
+    /** System ResourceLocatorModel of the status bar's provider-logo cell (S5). */
+    static final int SYS_PROVIDER_LOGO_MODEL = 3838;
+
+    /** Main menu (Boot B): System screen 46, the wizard ring; SDK rows' text ids, widgetIDs. */
+    static final int SYS_SCREEN_MAINWIZARD = 46;
+    static final int WIZARD_TEXT_BASE = 90000;
+    static final int[] WIZARD_WIDGET_IDS = {10, 11, 12, 14};
+    static final int WIZARD_INTERNAL_ID_BASE = 90100;
+    /** widgetID whose atlas mapping the "wrench" command rewrites ({16, 9}: the unused red wrench cell). */
+    static final int WRENCH_WIDGET_ID = 11;
 
     private SpikeIds() {
     }
