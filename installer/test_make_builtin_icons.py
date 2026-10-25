@@ -125,5 +125,33 @@ class PluginSampleTest(unittest.TestCase):
                 self.assertEqual(out[name], f.read(), name + " is stale: rerun --plugin-sample")
 
 
+BIKE_RACK_ICONS = os.path.join(REPO, "plugins", "bike-rack", "src", "main", "icons")
+
+
+class PluginBikeRackTest(unittest.TestCase):
+    def test_writes_the_bike_rack_icons(self):
+        with tempfile.TemporaryDirectory() as t:
+            run("--plugin-bike-rack", t)
+            self.assertEqual(["bike-20.png", "bike.png"], sorted(os.listdir(t)))
+            self.assertEqual(listing(BIKE_RACK_ICONS), listing(t), "bike-rack's icons are stale: rerun --plugin-bike-rack")
+
+    def test_a_white_bicycle_on_transparent_with_the_status_gap(self):
+        out = load_tool().plugin_bike_rack()
+        for name, size in (("bike.png", 72), ("bike-20.png", 20)):
+            w, h, rows = decode(out[name])
+            self.assertEqual((size, size), (w, h), name)
+            self.assertTrue(all(p[:3] == (255, 255, 255) for r in rows for p in r), name)
+            self.assertTrue(any(p[3] == 255 for r in rows for p in r), name)
+            self.assertTrue(any(p[3] == 0 for r in rows for p in r), name)
+        w, h, small = decode(out["bike-20.png"])
+        self.assertTrue(all(r[18][3] == 0 and r[19][3] == 0 for r in small), "bike-20: right 2-px margin")
+        w, h, big = decode(out["bike.png"])
+        # two wheels: below each hub, the inside of the wheel is clear and its rim is covered
+        for cx in (0.24, 0.76):
+            x = int(cx * 72)
+            self.assertEqual(0, big[int(0.70 * 72)][x][3], "inside the wheel at %s" % cx)
+            self.assertEqual(255, big[int(0.785 * 72)][x][3], "the rim at %s" % cx)
+
+
 if __name__ == "__main__":
     unittest.main()

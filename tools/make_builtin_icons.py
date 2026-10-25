@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The SDK's built-in icon set, the shared PNG test vectors and hello-menu's sample icons (pure Python, deterministic).
+"""The SDK's built-in icon set, the shared PNG test vectors and the sample plugins' icons (pure Python, deterministic).
 
 For each mibsdk.api.StockIcons name, three white-on-transparent 8-bit RGBA PNGs:
 - <name>-72.png   72x72, the Car-drawer row icon;
@@ -21,6 +21,7 @@ Usage (python3 -I tools/make_builtin_icons.py ...):
   --icons DIR          writes the built-in set to DIR instead
   --fixtures DIR       writes the named PNG test vectors (build-logic/src/test/resources/png/; mibpkg copies them)
   --plugin-sample DIR  writes hello-menu's hello.png (72x72) and hello-20.png (20x20): half white, half blue
+  --plugin-bike-rack DIR  writes bike-rack's bike.png (72x72) and bike-20.png (20x20): a white bicycle
 """
 import math
 import os
@@ -288,6 +289,28 @@ def plugin_sample():
             "hello-20.png": status(hello, blue_from(9))}  # the 18-px box's centre
 
 
+# A bicycle seen from the side: two wheels, the diamond frame (chain stay, seat tube, seat stay, top tube, down tube),
+# the fork, a saddle and a handlebar. The frame joints: rear hub, bottom bracket, seat cluster, head, front hub.
+_REAR, _BB, _SEAT, _HEAD, _FRONT = (0.24, 0.60), (0.47, 0.60), (0.39, 0.32), (0.68, 0.32), (0.76, 0.60)
+_TUBE = 0.035  # half the tube width
+BIKE = union(
+    ring(_REAR[0], _REAR[1], 0.155, 0.215), ring(_FRONT[0], _FRONT[1], 0.155, 0.215),
+    stroke(_REAR[0], _REAR[1], _BB[0], _BB[1], _TUBE, 0.22999999999999998),
+    stroke(_BB[0], _BB[1], _SEAT[0], _SEAT[1], _TUBE, 0.29120439557122074),
+    stroke(_SEAT[0], _SEAT[1], _REAR[0], _REAR[1], _TUBE, 0.31764760348537185),
+    stroke(_SEAT[0], _SEAT[1], _HEAD[0], _HEAD[1], _TUBE, 0.29000000000000004),
+    stroke(_BB[0], _BB[1], _HEAD[0], _HEAD[1], _TUBE, 0.3500000000000001),
+    stroke(0.66, 0.24, _FRONT[0], _FRONT[1], _TUBE, 0.37363083384538814),  # fork, from the stem
+    stroke(_SEAT[0], _SEAT[1], 0.37, 0.25, _TUBE, 0.0728010988928052),  # seat post
+    rect(0.29, 0.21, 0.45, 0.25),  # saddle
+    rect(0.60, 0.20, 0.72, 0.24))  # handlebar
+
+
+def plugin_bike_rack():
+    """bike-rack's white bicycle: bike.png for its Car row, bike-20.png for its RACK status item (both tinted)."""
+    return {"bike.png": png(72, 72, render(72, 72, BIKE)), "bike-20.png": status(BIKE)}
+
+
 # --------------------------------------------------------------------------------------------------------- fixtures
 
 def _paeth(a, b, c):
@@ -407,8 +430,9 @@ def write_all(directory, files):
 def main(argv):
     opts, i = {}, 0
     while i < len(argv):
-        if argv[i] not in ("--icons", "--fixtures", "--plugin-sample") or i + 1 >= len(argv):
-            sys.exit("usage: make_builtin_icons.py [--icons DIR] [--fixtures DIR] [--plugin-sample DIR]")
+        if argv[i] not in ("--icons", "--fixtures", "--plugin-sample", "--plugin-bike-rack") or i + 1 >= len(argv):
+            sys.exit("usage: make_builtin_icons.py [--icons DIR] [--fixtures DIR] [--plugin-sample DIR]"
+                     " [--plugin-bike-rack DIR]")
         opts[argv[i]] = argv[i + 1]
         i += 2
     if not opts:
@@ -419,6 +443,8 @@ def main(argv):
         write_all(opts["--fixtures"], fixtures())
     if "--plugin-sample" in opts:
         write_all(opts["--plugin-sample"], plugin_sample())
+    if "--plugin-bike-rack" in opts:
+        write_all(opts["--plugin-bike-rack"], plugin_bike_rack())
 
 
 if __name__ == "__main__":
