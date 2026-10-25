@@ -63,7 +63,7 @@ class StatusLayoutTest {
         assertEquals(HqcUiIds.INSTALL_ROOT + "/icons/hello/aaaa000000000000.png", c.filePath,
                 "a file icon is drawn from its absolute path");
         assertEquals(-1, c.stockIconId);
-        assertEquals(HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX - c.labelX, c.labelW);
+        assertEquals(HqcUiIds.POPUP_SDK_W - c.labelX, c.labelW);
         assertEquals(c.labelX + 40 + 10, l.cell(1).labelX, "a space, then the next item");
         assertEquals("I0", l.cell(1).text);
         assertEquals("I4", l.cell(5).text, "the 7th item (I5) has no cell");
@@ -101,7 +101,7 @@ class StatusLayoutTest {
         assertEquals(GRID_END - 70, l.cell(0).iconX);
         assertEquals(GRID_END - 50, l.cell(0).labelX);
         assertEquals(GRID_END, end(l.cell(0)));
-        assertEquals(HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX - l.cell(0).labelX, l.cell(0).labelW);
+        assertEquals(HqcUiIds.POPUP_SDK_W - l.cell(0).labelX, l.cell(0).labelW);
         assertEquals("", l.cell(1).text);
         assertNull(l.cell(1).filePath);
     }
@@ -122,8 +122,10 @@ class StatusLayoutTest {
         assertEquals(l.cell(0).labelX + 50, l.cell(1).labelX, "a space, then the next item");
         assertEquals(GRID_END, end(l.cell(1)), "the line ends at the right edge");
         assertTrue(GRID_END <= HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX);
-        assertEquals(HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX - l.indicators().labelX, l.indicators().labelW);
-        assertEquals(HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX - l.cell(1).labelX, l.cell(1).labelW);
+        assertEquals(HqcUiIds.POPUP_SDK_W - l.indicators().labelX, l.indicators().labelW);
+        assertEquals(HqcUiIds.POPUP_SDK_W - l.cell(1).labelX, l.cell(1).labelW);
+        assertEquals(HqcUiIds.POPUP_SDK_W, l.cell(1).labelX + l.cell(1).labelW,
+                "the last label's box reaches the band edge: slack for a wider-than-average font");
         assertEquals(0, l.cell(2).labelX, "unused cells stay all zero");
         assertEquals(0, l.cell(2).labelW);
     }

@@ -18,7 +18,10 @@ final class StatusLayout {
         /** The icon's x; the label's x when the cell has no icon. */
         final int iconX;
         final int labelX;
-        /** The label's width: to the popup's right padding, never negative. */
+        /**
+         * The label's width: to the popup's right edge, never negative. The labels are left-aligned, so the box past the
+         * grid is only slack: a text wider than {@link HqcUiIds#STATUS_CHAR_PX} per character is not abbreviated.
+         */
         final int labelW;
         /** A built-in icon's image id (its {@code <name>-20}, drawn by id and tinted); -1 for none. */
         final int stockIconId;
@@ -41,10 +44,10 @@ final class StatusLayout {
             this.text = text;
         }
 
-        /** This cell moved right by {@code dx}, its label width again to the popup's right padding. */
+        /** This cell moved right by {@code dx}, its label width again to the popup's right edge. */
         Cell shifted(int dx) {
             int x = labelX + dx;
-            return new Cell(iconX + dx, x, Math.max(0, HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX - x), stockIconId,
+            return new Cell(iconX + dx, x, labelWidth(x), stockIconId,
                     filePath, ownColours, text);
         }
 
@@ -106,7 +109,7 @@ final class StatusLayout {
                 x += HqcUiIds.STATUS_ICON_ADVANCE_PX;
             }
             int labelX = x;
-            int labelW = Math.max(0, HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX - x);
+            int labelW = labelWidth(x);
             x += p.text().length() * HqcUiIds.STATUS_CHAR_PX;
             Cell c = new Cell(iconX, labelX, labelW, stockId(icon, ids, builtins),
                     icon != null && icon.kind() == UiIcon.FILE ? icon.path() : null,
@@ -127,6 +130,11 @@ final class StatusLayout {
             }
         }
         return new StatusLayout(indicators, items);
+    }
+
+    /** A label at {@code x}: its box runs to the popup's right edge (bench B9 review: slack for the last item). */
+    private static int labelWidth(int x) {
+        return Math.max(0, HqcUiIds.POPUP_SDK_W - x);
     }
 
     /** The image id of a built-in icon's {@code <name>-20}; -1 for a file icon, none, or no id. */
