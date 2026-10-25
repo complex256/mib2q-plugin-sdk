@@ -21,13 +21,45 @@ final class SpikeIds {
     static final int POPUP_VISIBLE_MODEL = MODEL_BASE + ROWS + 4;   // 602751
     static final int POPUP_FILE_MODEL = MODEL_BASE + ROWS + 5;      // 602752
     static final int POPUP_LABEL_MODEL = MODEL_BASE + ROWS + 6;     // 602753
-    static final int MODEL_COUNT = ROWS + 7;
+    // ---- Spike D (native inputs) ------------------------------------------------------------------------------
+    /** Type-8 checkbox row's ChoiceModel (0/1, toggled by its listener). */
+    static final int ROW8_MODEL = MODEL_BASE + ROWS + 7;            // 602754
+    /** Type-64 combo row's ChoiceModel (value = option index). */
+    static final int COMBO_MODEL = MODEL_BASE + ROWS + 8;           // 602755
+    /** Type-128 row's and the slider screen's RangeModel (-6..6 step 1, medial 0). */
+    static final int RANGE_MODEL = MODEL_BASE + ROWS + 9;           // 602756
+    /** Confirm screen's LabelModel (spare: the hint text is a factory text id). */
+    static final int CONFIRM_LABEL_MODEL = MODEL_BASE + ROWS + 10;  // 602757
+    /** Confirm screen's ListModel (rows "Yes", "No"). */
+    static final int CONFIRM_LIST_MODEL = MODEL_BASE + ROWS + 11;   // 602758
+    /** Speller screen's SpellerModel (stretch). */
+    static final int SPELLER_MODEL = MODEL_BASE + ROWS + 12;        // 602759
+    static final int MODEL_COUNT = ROWS + 13;
     static final int TEXT_BASE = 609000;
-    /** Factory texts served for TEXT_BASE + 0..TEXTS-1 (rows 0..8, then page texts). */
-    static final int TEXTS = 32;
+    /** Factory texts served for TEXT_BASE + 0..TEXTS-1 (rows 0..8, then page texts, then spike D texts). */
+    static final int TEXTS = 48;
     static final int TEXT_PAGE_TITLE = TEXT_BASE + 20;
     static final int TEXT_PAGE_INFO = TEXT_BASE + 21;
     static final int INTERNAL_ID_BASE = 609900;
+    /** Spike D texts. */
+    static final int TEXT_COMBO_OPT0 = TEXT_BASE + 22;   // ..25: Off/Low/Mid/High
+    static final int TEXT_ROW8 = TEXT_BASE + 26;
+    static final int TEXT_CONFIRM_TITLE = TEXT_BASE + 27;
+    static final int TEXT_BASS = TEXT_BASE + 28;
+    static final int TEXT_SLIDER_TITLE = TEXT_BASE + 29;
+    static final int TEXT_CONFIRM_TEXT = TEXT_BASE + 30;
+    static final int TEXT_COMBO_LABEL = TEXT_BASE + 31;
+    static final int TEXT_SLIDER_MIN = TEXT_BASE + 32;
+    static final int TEXT_SLIDER_MAX = TEXT_BASE + 33;
+    static final int TEXT_SPELLER_TITLE = TEXT_BASE + 34;
+    static final int TEXT_SPELLER_INFO = TEXT_BASE + 35;
+    static final int TEXT_SPELLER_HINT = TEXT_BASE + 36;
+    /** Spike D screens, shown with FwHMI.showScreen like the page. */
+    static final int SLIDER_SCREEN_ID = 609501;
+    static final int CONFIRM_SCREEN_ID = 609502;
+    static final int SPELLER_SCREEN_ID = 609503;
+    static final int ROW_TYPE_COMBO = 64;
+    static final int ROW_TYPE_ROTARY = 128;
 
     static final int DRAWER_ROW_TYPE_ACTION = 2;
     static final int DRAWER_SELECTION_MODEL = 601227;          // stock cARSEL rows' shared ChoiceModel

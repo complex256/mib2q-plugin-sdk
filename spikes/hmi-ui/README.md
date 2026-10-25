@@ -65,3 +65,34 @@ spikes/hmi-ui/run.sh uninstall && installer/mibsdk-dev restart
   `wz-show`, `wz-label`.
 - Emergency revert (blank HMI): `mount -uw /mnt/app; cp /mnt/persist/mibsdk-spike/bundles.before
   /mnt/app/eso/hmi/lsd/bundles_dsitracer_enabled.properties; chmod 777 …; sync; mount -ur /mnt/app; slay -s11 j9`.
+
+## Spike D: native input widgets on SDK pages
+
+Plan and results: `docs/research/2026-10-25-native-inputs.md` §6 and "Spike D results". Boot A path only, on a unit
+whose SDK owns both `HMICar=` and `HMISystem=` (mibpkg takeover): `install --car-only` now swaps `HMICar=` only and
+keeps the live `HMISystem=` line byte for byte, whatever it is. The backup is `/mnt/persist/mibsdk-spike/bundles.before-d`
+(spike C's `bundles.before` is never reused), and `uninstall` refuses unless the live file with the spike line put back
+equals that backup byte for byte (host `cmp`). Do not use the MENU ring's Plugins row while the spike is installed.
+
+```
+./gradlew :spikes:hmi-ui:carJar && python3 -I spikes/hmi-ui/icons/make_icons.py
+spikes/hmi-ui/run.sh install --car-only
+installer/mibsdk-dev restart
+ssh ... touch /tmp/mibsdk-spike-ui.page          # or Car -> drawer row 0
+spikes/hmi-ui/run.sh uninstall && installer/mibsdk-dev restart
+```
+
+- `SpikePage` list (`ListModel` 602749, 5 columns: text, int value, kind, enabled, value text) with
+  `setRecordSetColumn(2)` and `setEnabledColumn(3)`: Action A/B, Checkbox 1-3, Checkbox off (disabled), Radio A-C,
+  Progress (60), Language/English (value column), Icon row. Kinds 0 action, 1 checkbox, 2 radio, 3 progress, 4 value,
+  5 icon. After the list, three typed rows: type 8 on ChoiceModel 602754, type 64 combo on ChoiceModel 602755, type 128
+  on RangeModel 602756 (SELECT opens the slider screen).
+- `SpikeScreens`: slider 609501 (RotaryController + RotaryBigRendererHigh on 602756), confirm 609502
+  (InstructionTextContoller + Yes/No list on 602758), speller 609503 (TouchController + inline SpellerController on
+  SpellerModel 602759). BACK on each re-shows the page.
+- `SpikeInputs`: the models and their logging listeners (each sets the value itself).
+- Popup 609600 now uses slot 7 (the SDK's), so the toast and the SDK status line (popup 65) show together.
+- Command files `/tmp/mibsdk-spike-ui.<cmd>`: `page`, `cb-set`, `cb-clear`, `prog-next`, `kind-swap`, `rs-off`/`rs-on`,
+  `typed-off`/`typed-on`, `label-on`, `slider`, `confirm`, `speller`, `slider-fwd`, `slider-focus`, `range-set` (file
+  holds the value), `toast` ("Saved" for 3 s), `dump`.
+- Emergency revert (blank HMI): as for spike C, but from `bundles.before-d`.

@@ -51,6 +51,23 @@ final class SpikeFactory extends CarScreenFactory {
         }
         t[SpikeIds.TEXT_PAGE_TITLE - SpikeIds.TEXT_BASE] = "SDK spike page";
         t[SpikeIds.TEXT_PAGE_INFO - SpikeIds.TEXT_BASE] = "Info (text id)";
+        // Spike D
+        String[] opts = {"Off", "Low", "Mid", "High"};
+        for (int i = 0; i < opts.length; i++) {
+            t[SpikeIds.TEXT_COMBO_OPT0 - SpikeIds.TEXT_BASE + i] = opts[i];
+        }
+        t[SpikeIds.TEXT_ROW8 - SpikeIds.TEXT_BASE] = "Type-8 checkbox row";
+        t[SpikeIds.TEXT_CONFIRM_TITLE - SpikeIds.TEXT_BASE] = "SDK confirm";
+        t[SpikeIds.TEXT_BASS - SpikeIds.TEXT_BASE] = "Bass";
+        t[SpikeIds.TEXT_SLIDER_TITLE - SpikeIds.TEXT_BASE] = "Bass (SDK slider)";
+        t[SpikeIds.TEXT_CONFIRM_TEXT - SpikeIds.TEXT_BASE] =
+                "Reset the plugin settings? This is the SDK confirm screen, a multi-line hint above two rows.";
+        t[SpikeIds.TEXT_COMBO_LABEL - SpikeIds.TEXT_BASE] = "Combo level";
+        t[SpikeIds.TEXT_SLIDER_MIN - SpikeIds.TEXT_BASE] = "-6";
+        t[SpikeIds.TEXT_SLIDER_MAX - SpikeIds.TEXT_BASE] = "+6";
+        t[SpikeIds.TEXT_SPELLER_TITLE - SpikeIds.TEXT_BASE] = "SDK speller";
+        t[SpikeIds.TEXT_SPELLER_INFO - SpikeIds.TEXT_BASE] = "Name";
+        t[SpikeIds.TEXT_SPELLER_HINT - SpikeIds.TEXT_BASE] = "Enter a name (SDK SpellerModel)";
         return t;
     }
 
@@ -222,7 +239,8 @@ final class SpikeFactory extends CarScreenFactory {
             if (n > 0) {
                 System.arraycopy(stock, 0, all, 0, n);
             }
-            PartialPopupStub stub = new PartialPopupStub(SpikeIds.POPUP_SDK, SpikeIds.POPUP_VISIBLE_MODEL, -1, 250, 5,
+            PartialPopupStub stub = new PartialPopupStub(SpikeIds.POPUP_SDK, SpikeIds.POPUP_VISIBLE_MODEL, -1, 250,
+                    SpikeProbes.popupSlot,
                     12, true, 7, terminal, 2, null, true, true);
             all[n] = stub;
             popupStub = stub;

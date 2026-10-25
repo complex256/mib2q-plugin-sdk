@@ -1,8 +1,10 @@
 package mibsdk.spike.ui;
 
 import de.audi.atip.hmi.HMIService;
+import de.audi.atip.hmi.event.JoystickEvent;
 import de.audi.atip.hmi.event.KeyEvent;
 import de.audi.atip.hmi.event.RunnableEvent;
+import de.audi.atip.hmi.event.WheelButtonEvent;
 import de.audi.atip.hmi.model.AbstractModelBank;
 import de.audi.atip.hmi.model.IntegerListCell;
 import de.audi.atip.hmi.model.ListCell;
@@ -18,6 +20,7 @@ import de.audi.tghu.car.hmi.evohigh.FontFactory;
 import de.audi.tghu.fwhmi.FwHMI;
 import de.esolutions.hmi.widgets.audi.base.InitializationContext;
 import de.esolutions.hmi.widgets.audi.base.widgets.AbstractWidgetController;
+import de.esolutions.hmi.widgets.audi.evo.IWidgetKeyHandler;
 import de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO;
 import de.esolutions.hmi.widgets.audi.evo.gridlayout.AxisConstraints;
 import de.esolutions.hmi.widgets.audi.evo.gridlayout.GridLayout;
@@ -30,6 +33,8 @@ import de.esolutions.hmi.widgets.audi.evo.high.widgets.GlassplateRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.IconRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.LabelRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.MenuItemRendererHigh;
+import de.esolutions.hmi.widgets.audi.evo.high.widgets.ProgressBarRendererHigh;
+import de.esolutions.hmi.widgets.audi.evo.high.widgets.RadioButtonRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.ScreenRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.ScrollbarRendererKanziHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.TitleBarRendererHigh;
@@ -40,6 +45,8 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.FocusCursorController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.GlassplateController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.IconController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.LabelController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.ProgressBarController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.RadioButtonController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.ScrollbarController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.StatusBarStubController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.TitleBarWidget;
@@ -64,16 +71,37 @@ final class SpikePage {
     /** S2b: the Car SMM event to fire. */
     static volatile int hijackEvent = SpikeIds.HIJACK_EVENT;
     /** S2a: build without the static LABEL row (in case mixing it with the list breaks the menu). */
-    static volatile boolean noLabelRow;
+    static volatile boolean noLabelRow = true;   // spike D: off by default ("label-on" brings it back)
 
     private static volatile long hijackArmedAt;
     /** The screen data the S2a page was shown from (HMIEvent only). */
     private static IScreenData from;
 
-    private static final int KIND_ACTION = 0;
-    private static final int KIND_CHECKBOX = 1;
-    private static final String[] ROW_TEXT = {"Action A", "Action B", "Action C", "Checkbox 1", "Checkbox 2"};
-    private static final int[] ROW_KIND = {KIND_ACTION, KIND_ACTION, KIND_ACTION, KIND_CHECKBOX, KIND_CHECKBOX};
+    static final int KIND_ACTION = 0;
+    static final int KIND_CHECKBOX = 1;
+    static final int KIND_RADIO = 2;
+    static final int KIND_PROGRESS = 3;
+    static final int KIND_VALUE = 4;
+    static final int KIND_ICON = 5;
+    /** Spike D list columns: 0 text, 1 int value, 2 kind (record set), 3 enabled, 4 value text. */
+    static final int COL_TEXT = 0;
+    static final int COL_VALUE = 1;
+    static final int COL_KIND = 2;
+    static final int COL_ENABLED = 3;
+    static final int COL_VALUE_TEXT = 4;
+    static final int COLUMNS = 5;
+    static final String[] ROW_TEXT = {"Action A", "Action B", "Checkbox 1", "Checkbox 2", "Checkbox 3",
+        "Checkbox off", "Radio A", "Radio B", "Radio C", "Progress", "Language", "Icon row"};
+    static final int[] ROW_KIND = {KIND_ACTION, KIND_ACTION, KIND_CHECKBOX, KIND_CHECKBOX, KIND_CHECKBOX,
+        KIND_CHECKBOX, KIND_RADIO, KIND_RADIO, KIND_RADIO, KIND_PROGRESS, KIND_VALUE, KIND_ICON};
+    private static final int[] ROW_VALUE = {0, 0, 0, 0, 1, 0, 1, 0, 0, 60, 0, 0};
+    private static final int[] ROW_ENABLED = {1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1};
+    static final int ROW_CHECKBOX_1 = 2;
+    static final int ROW_PROGRESS = 9;
+    /** Icon cell bitmaps, indexed by the cell value (two SDK ids served by getImagePath, one stock id). */
+    static final int[] ICON_CELL_BITMAPS = {SpikeIds.ICON_POP_A, SpikeIds.ICON_POP_B, SpikeIds.ICON_PLUG};
+    /** The page's ListModel (created by the bank). */
+    static volatile ListModel pageList;
 
     private SpikePage() {
     }
@@ -82,22 +110,19 @@ final class SpikePage {
 
     static ListModel createListModel(int id) {
         final ListModel l = new ListModel(id);
-        l.setMaxColumns(3);
+        l.setMaxColumns(COLUMNS);
         l.setMaxRows(24);
         for (int i = 0; i < ROW_TEXT.length; i++) {
-            l.addRow(new ListCell[] {TextListCell.create(ROW_TEXT[i]), IntegerListCell.create(0),
-                    IntegerListCell.create(ROW_KIND[i])});
+            l.addRow(new ListCell[] {TextListCell.create(ROW_TEXT[i]), IntegerListCell.create(ROW_VALUE[i]),
+                    IntegerListCell.create(ROW_KIND[i]), IntegerListCell.create(ROW_ENABLED[i]),
+                    TextListCell.create(ROW_KIND[i] == KIND_VALUE ? "English" : "")});
         }
         l.setListListener(new ListListener() {
             public void itemSelected(int modelId, int row, int x, int terminal) {
                 try {
                     SpikeLog.log("page-select row=" + row + " x=" + x + " terminal=" + terminal + " thread="
                             + Thread.currentThread().getName());
-                    if (row >= 0 && row < ROW_KIND.length && ROW_KIND[row] == KIND_CHECKBOX) {
-                        int v = ((IntegerListCell) l.getCell(row, 1)).getValue() == 0 ? 1 : 0;
-                        l.setCell(row, 1, IntegerListCell.create(v));
-                        SpikeLog.log("page-toggle row=" + row + " value=" + v);
-                    }
+                    select(l, row);
                 } catch (Throwable t) {
                     SpikeLog.log("page-select FAILED: " + t);
                 }
@@ -110,16 +135,69 @@ final class SpikePage {
             public void itemReleased(int modelId, int row, int x, int terminal) {
             }
         });
+        pageList = l;
         return l;
+    }
+
+    static int intCell(ListModel l, int row, int col) {
+        ListCell c = l.getCell(row, col);
+        return c instanceof IntegerListCell ? ((IntegerListCell) c).getValue() : -1;
+    }
+
+    /** The plugin side of a press: the SDK decides and writes the new value; the cell follows the model. */
+    private static void select(ListModel l, int row) {
+        int kind = intCell(l, row, COL_KIND);
+        int v = intCell(l, row, COL_VALUE);
+        if (kind == KIND_CHECKBOX) {
+            int nv = v == 0 ? 1 : 0;
+            l.setCell(row, COL_VALUE, IntegerListCell.create(nv));
+            SpikeLog.log("page-toggle row=" + row + " value=" + nv);
+        } else if (kind == KIND_RADIO) {
+            for (int r = 0; r < ROW_KIND.length; r++) {
+                if (intCell(l, r, COL_KIND) == KIND_RADIO) {
+                    int want = r == row ? 1 : 0;
+                    if (intCell(l, r, COL_VALUE) != want) {
+                        l.setCell(r, COL_VALUE, IntegerListCell.create(want));
+                    }
+                }
+            }
+            SpikeLog.log("page-radio row=" + row + " selected");
+        } else if (kind == KIND_PROGRESS) {
+            progressNext("select");
+        } else if (kind == KIND_ICON) {
+            int nv = (v + 1) % ICON_CELL_BITMAPS.length;
+            l.setCell(row, COL_VALUE, IntegerListCell.create(nv));
+            SpikeLog.log("page-icon row=" + row + " index=" + nv + " bitmap=" + ICON_CELL_BITMAPS[nv]);
+        } else {
+            SpikeLog.log("page-action row=" + row + " kind=" + kind);
+        }
+    }
+
+    /** Progress row: +20 (0..100, wrapping at 120 to 0). */
+    static void progressNext(String why) {
+        ListModel l = pageList;
+        if (l == null) {
+            SpikeLog.log("page-progress no model");
+            return;
+        }
+        int v = intCell(l, ROW_PROGRESS, COL_VALUE);
+        int nv = (v + 20) % 120;
+        l.setCell(ROW_PROGRESS, COL_VALUE, IntegerListCell.create(nv));
+        SpikeLog.log("page-progress " + why + " " + v + " -> " + nv + " thread=" + Thread.currentThread().getName());
     }
 
     // ---- S2a: showScreen with a prebuilt Screen -----------------------------------------------------------------
 
     static void postShowDirect() {
+        postShowPage(true, "drawer");
+    }
+
+    /** Shows the page on HMIEvent; saveFrom: remember the current screen for the page's own BACK. */
+    static void postShowPage(final boolean saveFrom, final String why) {
         post(new Runnable() {
             public void run() {
                 try {
-                    showDirect();
+                    showPage(saveFrom, why);
                 } catch (Throwable t) {
                     SpikeLog.log("page-show FAILED: " + t);
                 }
@@ -127,28 +205,33 @@ final class SpikePage {
         });
     }
 
-    private static void showDirect() {
-        FwHMI fw = fw();
-        IScreenManager sm = fw.getScreenManager(0);
+    private static void showPage(boolean saveFrom, String why) {
+        IScreenManager sm = fw().getScreenManager(0);
         IScreenData cur = sm.getCurrentConnectedScreenData();
-        IScreenData prev = sm.getPreviousConnectedScreenData();
-        SpikeLog.log("page-show S2a from current=" + describe(cur) + " previous=" + describe(prev) + " thread="
+        SpikeLog.log("page-show " + why + " from current=" + describe(cur) + " previous="
+                + describe(sm.getPreviousConnectedScreenData()) + " saveFrom=" + saveFrom + " thread="
                 + Thread.currentThread().getName());
-        from = cur;
+        if (saveFrom) {
+            from = cur;
+        }
         long t0 = System.currentTimeMillis();
         Screen page = build(SpikeFactory.instance, SpikeIds.PAGE_SCREEN_ID, 0, true);
+        showBuilt(page, SpikeIds.PAGE_SCREEN_ID);
+        SpikeLog.log("page-show done build+show=" + (System.currentTimeMillis() - t0) + "ms now="
+                + describe(sm.getCurrentConnectedScreenData()));
+    }
+
+    /** showScreen of a prebuilt Screen (on HMIEvent): the current screen's popups, colour scheme and mode. */
+    static void showBuilt(Screen s, int id) {
+        FwHMI fw = fw();
+        IScreenData cur = fw.getScreenManager(0).getCurrentConnectedScreenData();
         // The cache path (AbstractTerminalContext.getScreenFromCache) sets the terminal; a prebuilt screen needs it too.
-        page.setTerminal(fw.getHMITerminal(0));
+        s.setTerminal(fw.getHMITerminal(0));
         int[] popups = cur == null ? null : cur.getPartialPopups();
         int scheme = cur == null ? 0 : cur.getColorScheme();
         int mode = cur == null ? 0 : cur.getScreenMode();
-        ScreenData sd = new ScreenData(SpikeIds.PAGE_SCREEN_ID, false, false, null, false, page, popups, null, -1L,
-                -1L, 0, scheme, mode, null);
-        SpikeLog.log("page-show S2a screenData popups=" + (popups == null ? -1 : popups.length) + " colorScheme="
-                + scheme + " screenMode=" + mode);
+        ScreenData sd = new ScreenData(id, false, false, null, false, s, popups, null, -1L, -1L, 0, scheme, mode, null);
         fw.showScreen(0, 0, sd);
-        SpikeLog.log("page-show S2a showScreen done build+show=" + (System.currentTimeMillis() - t0) + "ms now="
-                + describe(sm.getCurrentConnectedScreenData()));
     }
 
     private static void back(String how) {
@@ -204,18 +287,36 @@ final class SpikePage {
         }
     }
 
-    /** A MenuController that logs keys and, on the S2a page, handles BACK (key 15) itself. */
+    /**
+     * A MenuController that logs keys and handles BACK (key 15) itself: on the S2a page by backMode, on a spike D
+     * screen by its onBack runnable (posted to HMIEvent).
+     */
     static final class PageMenu extends MenuController {
         private final boolean ownBack;
+        private final Runnable onBack;
+        private final String name;
 
         PageMenu(boolean ownBack) {
             this.ownBack = ownBack;
+            this.onBack = null;
+            this.name = "page";
+        }
+
+        PageMenu(String name, Runnable onBack) {
+            this.ownBack = true;
+            this.onBack = onBack;
+            this.name = name;
         }
 
         public void keyPressed(KeyEvent e) {
             int code = e.getKeyCode();
-            SpikeLog.log("page-key press code=" + code + " ownBack=" + ownBack);
-            if (ownBack && code == SpikeIds.KEY_RETURN && backMode != 2) {
+            SpikeLog.log(name + "-key press code=" + code + " ownBack=" + ownBack);
+            if (onBack != null && code == SpikeIds.KEY_RETURN) {
+                e.consume(true);
+                post(onBack);
+                return;
+            }
+            if (onBack == null && ownBack && code == SpikeIds.KEY_RETURN && backMode != 2) {
                 e.consume(true);
                 if (backMode == 0) {
                     post(new Runnable() {
@@ -237,7 +338,7 @@ final class SpikePage {
         }
 
         public void keyReleased(KeyEvent e) {
-            if (ownBack && e.getKeyCode() == SpikeIds.KEY_RETURN && backMode != 2) {
+            if (ownBack && e.getKeyCode() == SpikeIds.KEY_RETURN && (onBack != null || backMode != 2)) {
                 e.consume(true);
                 return;
             }
@@ -245,29 +346,25 @@ final class SpikePage {
         }
     }
 
+    /** Spike D: append the typed rows (type 8, 64, 128) to the page menu after the list. */
+    static volatile boolean typedRows = true;
+    /** Spike D: the list's record-set (kind) column and enabled column; "rs-off" reproduces spike B's S2c. */
+    static volatile boolean recordSet = true;
+
     static Screen build(SpikeFactory f, int screenId, int t, boolean ownBack) {
         AbstractWidgetController ref0 = f.getRefWidget(t, 0, f);
-
-        GlassplateController glass = new GlassplateController();
-        glass.setRenderer(new GlassplateRendererHigh(glass));
-        glass.setBounds(0, 0, 100, 100);
-        glass.setSdsNumbersGapWidth(4);
-        glass.setSdsNumbersWidth(64);
-        FocusCursorController cursor = new FocusCursorController();
-        cursor.setRenderer(new FocusCursorRendererHigh(cursor));
-        cursor.setBounds(0, 0, 100, 100);
-        cursor.setColorIndices(new int[] {1, 2, 4, 0});
-        cursor.setOptionsIconVisible(false);
-        ScrollbarController scroll = new ScrollbarController();
-        scroll.setRenderer(new ScrollbarRendererKanziHigh(scroll));
-        scroll.setBounds(933, 8, 5, 308);
 
         ListController list = new ListController();
         list.setModelID(SpikeIds.PAGE_LIST_MODEL);
         list.setBounds(0, 0, 0, 0);
         list.setGlassplateInsetsBottom(new int[0]);
         list.setGlassplateInsetsTop(new int[0]);
-        list.setIdColumn(2);
+        list.setIdColumn(COL_KIND);
+        if (recordSet) {
+            // The fix (native-inputs note §1): the item factory's kind comes from the record-set column.
+            list.setRecordSetColumn(COL_KIND);
+            list.setEnabledColumn(COL_ENABLED);
+        }
         list.setNoFocusAreasBottom(new int[0]);
         list.setNoFocusAreasTop(new int[0]);
         list.setItemFactory(new Items());
@@ -286,6 +383,104 @@ final class SpikePage {
         }
 
         PageMenu menu = new PageMenu(ownBack);
+        dressMenu(menu, f, t, 32);
+        if (label != null) {
+            menu.add(label);
+        }
+        menu.add(list);
+
+        MenuItemController row8 = null;
+        MenuItemController combo = null;
+        MenuItemController rotary = null;
+        if (typedRows) {
+            // Type-8 checkbox row on its own ChoiceModel (MenuItemBuilder.setupCheckboxMenuItem at connect).
+            row8 = new MenuItemController();
+            row8.setRenderer(new CompositeRendererHigh(row8));
+            row8.setModelID(SpikeIds.ROW8_MODEL);
+            row8.setLabelId(SpikeIds.TEXT_ROW8);
+            row8.setGlassplateInsetsBottom(6);
+            row8.setGlassplateInsetsTop(7);
+            row8.setInternalID(609960);
+            row8.setType(SpikeIds.ROW_TYPE_CHECKBOX);
+            row8.setWidgetID(-1);
+            // Type-64 combo row (stock tONESOUNDEFFECTMAIN / CarScreenBag3 recipe; carplay-rgi UpmixToneUi).
+            combo = new MenuItemController();
+            CompositeRendererHigh comboR = new CompositeRendererHigh(combo);
+            combo.setRenderer(comboR);
+            int[] comboBitmaps = new int[44];
+            for (int i = 0; i < 42; i++) {
+                comboBitmaps[i] = 127;
+            }
+            comboBitmaps[42] = 129;
+            comboBitmaps[43] = 332;
+            combo.setBitmaps(comboBitmaps);
+            comboR.setFonts(FontFactory.getFonts(5, t, f.framework()));
+            combo.setModelID(SpikeIds.COMBO_MODEL);
+            combo.setTextIds(new int[] {SpikeIds.TEXT_COMBO_OPT0, SpikeIds.TEXT_COMBO_OPT0 + 1,
+                SpikeIds.TEXT_COMBO_OPT0 + 2, SpikeIds.TEXT_COMBO_OPT0 + 3});
+            combo.setLabelId(SpikeIds.TEXT_COMBO_LABEL);
+            combo.setGlassplateInsetsBottom(6);
+            combo.setGlassplateInsetsTop(7);
+            combo.setInternalID(609961);
+            combo.setType(SpikeIds.ROW_TYPE_COMBO);
+            combo.setWidgetID(1);
+            // Type-128 rotary row (display) on the RangeModel; its key handler opens the slider screen.
+            rotary = new MenuItemController();
+            rotary.setRenderer(new CompositeRendererHigh(rotary));
+            rotary.setModelID(SpikeIds.RANGE_MODEL);
+            rotary.setLabelId(SpikeIds.TEXT_BASS);
+            rotary.setGlassplateInsetsBottom(6);
+            rotary.setGlassplateInsetsTop(7);
+            rotary.setHasInfolineDisclaimer(false);
+            rotary.setInternalID(609962);
+            rotary.setType(SpikeIds.ROW_TYPE_ROTARY);
+            rotary.setKeyHandler(new SliderOpenKeyHandler());
+            menu.add(row8);
+            menu.add(combo);
+            menu.add(rotary);
+        }
+
+        // Views: sorted ids (findViews binary-searches). Typed rows: id -> {row}; the builder adds the inner widget.
+        int n = 2 + (label != null ? 1 : 0) + (typedRows ? 3 : 0);
+        int[] ids = new int[n];
+        HMIView[][] views = new HMIView[n][];
+        int k = 0;
+        ids[k] = SpikeIds.PAGE_LIST_MODEL;
+        views[k++] = new HMIView[] {list};
+        if (label != null) {
+            ids[k] = SpikeIds.PAGE_LABEL_MODEL;
+            views[k++] = new HMIView[] {label};
+        }
+        if (typedRows) {
+            ids[k] = SpikeIds.ROW8_MODEL;
+            views[k++] = new HMIView[] {row8};
+            ids[k] = SpikeIds.COMBO_MODEL;
+            views[k++] = new HMIView[] {combo};
+            ids[k] = SpikeIds.RANGE_MODEL;
+            views[k++] = new HMIView[] {rotary};
+        }
+        ScreenWidgetEVO s = shell(null, f, screenId, t, ref0, menu, SpikeIds.TEXT_PAGE_TITLE, 0.4f, 3, ids, views);
+        SpikeLog.log("page built id=" + screenId + " ownBack=" + ownBack + " labelRow=" + (label != null)
+                + " recordSet=" + recordSet + " typedRows=" + typedRows);
+        return s;
+    }
+
+    /** The page's MenuController settings (EngineeringScreenBag2 / Car settings recipe) plus glass, cursor, scrollbar. */
+    static void dressMenu(MenuController menu, SpikeFactory f, int t, int rightOffset) {
+        GlassplateController glass = new GlassplateController();
+        glass.setRenderer(new GlassplateRendererHigh(glass));
+        glass.setBounds(0, 0, 100, 100);
+        glass.setSdsNumbersGapWidth(4);
+        glass.setSdsNumbersWidth(64);
+        FocusCursorController cursor = new FocusCursorController();
+        cursor.setRenderer(new FocusCursorRendererHigh(cursor));
+        cursor.setBounds(0, 0, 100, 100);
+        cursor.setColorIndices(new int[] {1, 2, 4, 0});
+        cursor.setOptionsIconVisible(false);
+        ScrollbarController scroll = new ScrollbarController();
+        scroll.setRenderer(new ScrollbarRendererKanziHigh(scroll));
+        scroll.setBounds(933, 8, 5, 308);
+
         menu.setRenderer(new MenuRendererHigh(menu));
         menu.createInfolineWidgets(new InfoLineRendererHigh());
         menu.getInfoline().getInfolineRenderer().setFonts(FontFactory.getFonts(2, t, f.framework()));
@@ -293,7 +488,7 @@ final class SpikePage {
         menu.getInfoline().setColorIndices(new int[] {2, 0, 4, 3});
         menu.getLayout().setBackgroundInsetsVert(7);
         menu.getLayout().setContentLeftOffset(12);
-        menu.getLayout().setContentRightOffset(32);
+        menu.getLayout().setContentRightOffset(rightOffset);
         menu.getLayout().setContentRightOffsetSmallStage(25);
         menu.getLayout().setItemsGap(9);
         menu.getLayout().setOptionsIconAdditionalRightInsets(26);
@@ -302,19 +497,24 @@ final class SpikePage {
         menu.add(glass, 4);
         menu.add(cursor, 1);
         menu.add(scroll, 3);
-        if (label != null) {
-            menu.add(label);
-        }
-        menu.add(list);
+    }
 
+    /**
+     * The screen around a body widget: body container (layer 1), title bar (layer 2), status-bar stub, ref widgets,
+     * palettes. ids/views: the screen's own views, sorted, all above 138 (the stub's id goes first).
+     */
+    static ScreenWidgetEVO shell(ScreenWidgetEVO screen, SpikeFactory f, int screenId, int t,
+            AbstractWidgetController ref0,
+            AbstractWidgetController bodyChild, int titleText, float dimOpacity, int smallStage, int[] ids,
+            HMIView[][] views) {
         ContainerController body = new ContainerController();
         body.setRenderer(new ContainerRendererHigh(body));
         body.setBounds(0, 0, 0, 0);
         body.setEntertainmentMenuTransformation(12.0f, 12.0f, 0.96f, 0.96f, 0.5f);
-        body.setOpacitySet(1.0f, 0.4f);
+        body.setOpacitySet(1.0f, dimOpacity);
         body.setOptionMenuTransformation(-4.0f, 7.0f, 0.6f, 0.6f, 0.5f);
         body.setSelectionMenuTransformation(391.0f, 7.0f, 0.6f, 0.6f, 0.25f);
-        body.add(menu);
+        body.add(bodyChild);
 
         IconController icon = new IconController();
         icon.setRenderer(new IconRendererHigh(icon));
@@ -324,7 +524,7 @@ final class SpikePage {
         LabelRendererHigh titleR = new LabelRendererHigh(title);
         title.setRenderer(titleR);
         titleR.setFonts(FontFactory.getFonts(4, t, f.framework()));
-        title.setTextIds(new int[] {SpikeIds.TEXT_PAGE_TITLE});
+        title.setTextIds(new int[] {titleText});
         title.setBounds(0, 0, 0, 30);
         title.setColorIndices(new int[] {1, 2, 4, 0});
         TitleBarWidget bar = new TitleBarWidget();
@@ -340,7 +540,7 @@ final class SpikePage {
         head.setRenderer(new ContainerRendererHigh(head));
         head.setBounds(0, 0, 1024, 0);
         head.setEntertainmentMenuTransformation(12.0f, 12.0f, 0.96f, 0.96f, 0.0f);
-        head.setOpacitySet(1.0f, 0.4f);
+        head.setOpacitySet(1.0f, dimOpacity);
         head.setOptionMenuTransformation(-4.0f, 7.0f, 0.6f, 0.6f, 0.0f);
         head.setSelectionMenuTransformation(391.0f, 7.0f, 0.6f, 0.6f, 0.0f);
         head.add(bar);
@@ -351,7 +551,7 @@ final class SpikePage {
         stub.setRenderStyle(2);
         AbstractWidgetController ref1 = f.getRefWidget(t, 1, f);   // also sets refWidgets[t][2]
 
-        ScreenWidgetEVO s = new PageScreen(screenId);
+        ScreenWidgetEVO s = screen != null ? screen : new PageScreen(screenId);
         s.setScreenFactory(f);
         ScreenRendererHigh sr = new ScreenRendererHigh(s);
         s.setRenderer(sr);
@@ -366,58 +566,123 @@ final class SpikePage {
             {-1, 255, -19456, -6123155, a, b, c, a, -6123155},
             {-1, 255, -14775126, -9594974, a, b, c, a, -9594974},
             {-1, 255, -10180096, -9200779, a, b, c, a, -9200779}});
-        s.setSmallStageType(3);
+        s.setSmallStageType(smallStage);
         s.add(ref0);
         s.add(body, 1);
         s.add(head, 2);
         s.add(stub);
         s.add(ref1, 15);
-        if (label != null) {
-            s.setViews(new int[] {SpikeIds.STATUSBAR_STUB_MODEL, SpikeIds.PAGE_LIST_MODEL, SpikeIds.PAGE_LABEL_MODEL},
-                    new HMIView[][] {{stub, f.refWidgets[t][2]}, {list}, {label}});
-        } else {
-            s.setViews(new int[] {SpikeIds.STATUSBAR_STUB_MODEL, SpikeIds.PAGE_LIST_MODEL},
-                    new HMIView[][] {{stub, f.refWidgets[t][2]}, {list}});
+        int n = ids == null ? 0 : ids.length;
+        int[] all = new int[n + 1];
+        HMIView[][] allViews = new HMIView[n + 1][];
+        all[0] = SpikeIds.STATUSBAR_STUB_MODEL;
+        allViews[0] = new HMIView[] {stub, f.refWidgets[t][2]};
+        for (int i = 0; i < n; i++) {
+            all[i + 1] = ids[i];
+            allViews[i + 1] = views[i];
         }
-        SpikeLog.log("page built id=" + screenId + " ownBack=" + ownBack + " labelRow=" + (label != null));
+        s.setViews(all, allViews);
         return s;
     }
 
-    /** List rows: kind 0 = ACTION (label only), kind 1 = CHECKBOX (label + checkbox on column 1). */
+    /** Type-128 row: SELECT (key 17) opens the slider screen; nothing else (no SMM event). */
+    static final class SliderOpenKeyHandler implements IWidgetKeyHandler {
+        public void keyPressed(AbstractWidgetController w, KeyEvent e) {
+            try {
+                if (e == null || e.getKeyCode() != SpikeIds.KEY_ENTER) {
+                    return;
+                }
+                e.consume(false);
+                SpikeLog.log("row128-press thread=" + Thread.currentThread().getName());
+                SpikeScreens.postShow(SpikeIds.SLIDER_SCREEN_ID, "row128");
+            } catch (Throwable t) {
+                SpikeLog.log("row128-press FAILED: " + t);
+            }
+        }
+
+        public void keyReleased(AbstractWidgetController w, KeyEvent e) {
+        }
+
+        public void keyTurned(AbstractWidgetController w, WheelButtonEvent e) {
+        }
+
+        public void keyMoved(AbstractWidgetController w, JoystickEvent e) {
+        }
+    }
+
+    /**
+     * List rows by kind (the record set): 0 ACTION label; 1 label + checkbox (Factory settings recipe); 2 label +
+     * radio (Language recipe); 3 label + progress bar (Media recipe); 4 label + right-aligned value label (column 4);
+     * 5 icon (column 1 = bitmap index) + label.
+     */
     static final class Items implements ListItemFactory {
         public AbstractWidgetController createListItem(int kind, ListCell[] cells) {
-            boolean box = kind == KIND_CHECKBOX;
+            SpikeLog.log("items createListItem kind=" + kind);
             MenuItemController item = new MenuItemController();
             item.setType(SpikeIds.ROW_TYPE_LIST_ITEM);
             item.setRenderer(new MenuItemRendererHigh(item));
             GridLayout grid = new GridLayout();
-            MenuItemColumnsConstraints cols = new MenuItemColumnsConstraints(box ? 2 : 1);
-            if (box) {
-                cols.gaps = new int[] {0, 22, 0};
-                cols.grow = new float[] {1.0f, 0.0f};
-                cols.shrink = new float[] {1.0f, 0.0f};
+            AbstractWidgetController text = label(COL_TEXT, 1);
+            AbstractWidgetController second = null;
+            MenuItemColumnsConstraints cols;
+            boolean secondFirst = false;
+            if (kind == KIND_CHECKBOX) {
+                second = checkbox();
+                cols = cols2(new int[] {0, 22, 0}, new float[] {1.0f, 0.0f}, null, null);
+            } else if (kind == KIND_RADIO) {
+                second = radio();
+                cols = cols2(new int[] {0, 22, 0}, new float[] {1.0f, 0.0f}, null, new int[] {-1, 33});
+            } else if (kind == KIND_PROGRESS) {
+                second = progress();
+                cols = cols2(new int[] {0, 22, 0}, new float[] {1.0f, 0.0f}, new int[] {-1, 300}, null);
+            } else if (kind == KIND_VALUE) {
+                second = label(COL_VALUE_TEXT, 3);
+                cols = cols2(new int[] {0, 22, 0}, new float[] {1.0f, 0.0f}, null, null);
+            } else if (kind == KIND_ICON) {
+                second = icon();
+                secondFirst = true;
+                cols = cols2(new int[] {0, 15, 0}, new float[] {0.0f, 1.0f}, null, new int[] {30, -1});
             } else {
+                cols = new MenuItemColumnsConstraints(1);
                 cols.grow = new float[] {1.0f};
             }
             grid.setColumnConstraints(cols);
-            grid.setRowConstraints(new AxisConstraints(1));
-            AbstractWidgetController text = createCell(0);
-            GridLayoutHints th = new GridLayoutHints(0, 0);
-            th.hidemode = 0;
-            if (box) {
-                AbstractWidgetController check = createCell(1);
-                GridLayoutHints ch = new GridLayoutHints(1, 0);
-                ch.hidemode = 0;
-                grid.setCellConstraints(new GridLayoutHints[] {th, ch}, new Object[] {text, check});
-                item.setLayoutChoices(new GridLayout[] {grid});
-                item.add(text);
-                item.add(check);
-            } else {
+            AxisConstraints rows = new AxisConstraints(1);
+            rows.alignment = new int[] {5};
+            grid.setRowConstraints(rows);
+            if (second == null) {
+                GridLayoutHints th = new GridLayoutHints(0, 0);
+                th.hidemode = 0;
                 grid.setCellConstraints(new GridLayoutHints[] {th}, new Object[] {text});
                 item.setLayoutChoices(new GridLayout[] {grid});
                 item.add(text);
+                return item;
             }
+            GridLayoutHints th = new GridLayoutHints(secondFirst ? 1 : 0, 0);
+            th.hidemode = 0;
+            th.alignmentVert = 5;
+            GridLayoutHints sh = new GridLayoutHints(secondFirst ? 0 : 1, 0);
+            sh.hidemode = 0;
+            sh.alignmentVert = 5;
+            grid.setCellConstraints(new GridLayoutHints[] {th, sh}, new Object[] {text, second});
+            item.setLayoutChoices(new GridLayout[] {grid});
+            item.add(text);
+            item.add(second);
             return item;
+        }
+
+        private static MenuItemColumnsConstraints cols2(int[] gaps, float[] grow, int[] min, int[] max) {
+            MenuItemColumnsConstraints c = new MenuItemColumnsConstraints(2);
+            c.gaps = gaps;
+            c.grow = grow;
+            c.shrink = new float[] {grow[0], grow[1]};
+            if (min != null) {
+                c.min = min;
+            }
+            if (max != null) {
+                c.max = max;
+            }
+            return c;
         }
 
         public AbstractWidgetController createListItemNoData() {
@@ -425,21 +690,63 @@ final class SpikePage {
         }
 
         public AbstractWidgetController createCell(int col) {
-            if (col == 0) {
-                LabelController l = new LabelController();
-                l.setRenderer(new LabelRendererHigh(l));
-                l.setModelColumn(0);
-                return l;
+            if (col == COL_TEXT) {
+                return label(COL_TEXT, 1);
             }
-            if (col == 1) {
-                CheckboxController cb = new CheckboxController();
-                cb.setRenderer(new CheckboxRendererHigh(cb));
-                cb.setBounds(0, 0, 100, 100);
-                cb.setMapping(new int[][] {{0}, {1}});
-                cb.setModelColumn(1);
-                return cb;
+            if (col == COL_VALUE) {
+                return checkbox();
             }
             return null;
+        }
+
+        /** Label on a column; hAlign 1 left, 3 right. */
+        static LabelController label(int col, int hAlign) {
+            LabelController l = new LabelController();
+            LabelRendererHigh r = new LabelRendererHigh(l);
+            l.setRenderer(r);
+            l.setModelColumn(col);
+            r.setAlignment(hAlign, 5);
+            return l;
+        }
+
+        static CheckboxController checkbox() {
+            CheckboxController cb = new CheckboxController();
+            cb.setRenderer(new CheckboxRendererHigh(cb));
+            cb.setBounds(0, 0, 100, 100);
+            cb.setMapping(new int[][] {{0}, {1}});
+            cb.setModelColumn(COL_VALUE);
+            return cb;
+        }
+
+        static RadioButtonController radio() {
+            RadioButtonController rb = new RadioButtonController();
+            rb.setRenderer(new RadioButtonRendererHigh(rb));
+            rb.setBounds(0, 0, 100, 100);
+            rb.setModelColumn(COL_VALUE);
+            return rb;
+        }
+
+        static ProgressBarController progress() {
+            ProgressBarController pb = new ProgressBarController();
+            pb.setRenderer(new ProgressBarRendererHigh(pb));
+            pb.setBitmaps(new int[] {40, 41, 42, 43, 44, 45});
+            pb.setColorIndices(new int[] {1, 2, 4, 0});
+            pb.setMaximumModelValue(100);
+            pb.setMinimumModelValue(0);
+            pb.setModelColumn(COL_VALUE);
+            pb.setPreferredHeight(15);
+            return pb;
+        }
+
+        static IconController icon() {
+            IconController ic = new IconController();
+            IconRendererHigh r = new IconRendererHigh(ic);
+            ic.setRenderer(r);
+            ic.setBitmaps(ICON_CELL_BITMAPS);
+            ic.setModelColumn(COL_VALUE);
+            ic.setPreferredHeight(1);
+            r.setAlignment(1, 5);
+            return ic;
         }
     }
 

@@ -10,7 +10,9 @@ import de.audi.atip.model.CarModelBank;
 /**
  * CarModelBank plus MODEL_COUNT spike models at MODEL_BASE.. (the Tone bank-growing technique): 9 row-visibility
  * ChoiceModels, one shared selection ChoiceModel, one LabelModel for row 0's %1 replacement, spike B's page models,
- * and spike C's popup 609600 models (visibility ChoiceModel, file-path ResourceLocatorModel, LabelModel).
+ * spike C's popup 609600 models (visibility ChoiceModel, file-path ResourceLocatorModel, LabelModel), and spike D's
+ * input models (SpikeInputs.createModel: type-8 and combo ChoiceModels, the slider RangeModel, the confirm models, the
+ * SpellerModel).
  */
 final class SpikeBank extends CarModelBank {
     static volatile SpikeBank instance;
@@ -59,6 +61,8 @@ final class SpikeBank extends CarModelBank {
         HMIModel m;
         if (id == SpikeIds.PAGE_LIST_MODEL) {
             m = SpikePage.createListModel(id);
+        } else if (id >= SpikeIds.ROW8_MODEL && id <= SpikeIds.SPELLER_MODEL) {
+            m = SpikeInputs.createModel(id);
         } else if (id == SpikeIds.PAGE_LABEL_MODEL) {
             LabelModel l = new LabelModel(id);
             l.setText("Info: LABEL row on LabelModel " + id);

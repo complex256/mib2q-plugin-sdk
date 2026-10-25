@@ -8,7 +8,11 @@ import de.audi.atip.hmi.event.RunnableEvent;
 import de.audi.atip.hmi.model.ChoiceModel;
 import de.audi.atip.hmi.model.HMIModel;
 import de.audi.atip.hmi.model.HMIResourceLocator;
+import de.audi.atip.hmi.model.IntegerListCell;
 import de.audi.atip.hmi.model.LabelModel;
+import de.audi.atip.hmi.model.ListModel;
+import de.audi.atip.hmi.model.RangeModel;
+import de.audi.atip.hmi.model.SpellerModel;
 import de.audi.atip.hmi.model.ResourceLocatorModel;
 import de.audi.atip.hmi.model.AbstractModelBank;
 import de.audi.atip.hmi.modelaccess.ChoiceModelApp;
@@ -24,7 +28,9 @@ import java.io.File;
  * when taken). "rerun" runs spike A's probe sequence (S1c, S1d, S3a/b, S3c); spike B adds row1-show/row1-hide,
  * back-reshow/back-event/back-stock, reset-sel-on/off, nolabel-on and hijack (file holds an event id).
  * Spike C adds pop-on/pop-off, pop-file, pop-slot (file holds a slot number), icon-next, glyphs1/glyphs2/glyphs3/glyph-off, logo-on/logo-off, and for the
- * main menu (Boot B) wrench, wz-hide/wz-show and wz-label.
+ * main menu (Boot B) wrench, wz-hide/wz-show and wz-label. Spike D adds page, cb-set/cb-clear, prog-next, kind-swap,
+ * rs-off/rs-on, typed-off/typed-on, label-on, slider, confirm, speller, slider-fwd, slider-focus, range-set (file
+ * holds the value), toast and dump.
  */
 final class SpikeProbes implements Runnable {
     private static final String RULER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -79,6 +85,7 @@ final class SpikeProbes implements Runnable {
                     SpikeLog.log("cmd noLabelRow=true");
                 }
                 spikeC();
+                spikeD();
                 File h = cmd("hijack");
                 if (h.exists()) {
                     int ev = readInt(h);
@@ -103,8 +110,11 @@ final class SpikeProbes implements Runnable {
     static final String GLYPHS3 = "\u25AA \u25BA \u25C0 \u2300 \u25CA \u2713 \u26A0";
     /** S4: the glyph text held in label 416 (re-asserted every second, the SDK status writer may share it). */
     private static volatile String heldGlyphs;
-    /** Slot of popup 609600 (stock popup 65's is 5); changed by "pop-slot" (file holds the slot number). */
-    static volatile int popupSlot = 5;
+    /**
+     * Slot of popup 609600 (stock popup 65's is 5); changed by "pop-slot" (file holds the slot number). Spike D: 7,
+     * the SDK's slot, so the toast and the SDK status line (popup 65 under the spike activator) show side by side.
+     */
+    static volatile int popupSlot = 7;
     private long lastGlyphWrite;
 
     private void spikeC() {
@@ -214,6 +224,137 @@ final class SpikeProbes implements Runnable {
             SpikeSystemFactory.wizardTexts = t;
             SpikeLog.log("cmd wz-label text[90000]='" + t[0] + "'");
         }
+    }
+
+    // ---- Spike D ------------------------------------------------------------------------------------------------
+
+    /** Toast: when to hide popup 609600 again (0 = no toast pending). */
+    private long toastHideAt;
+
+    private void spikeD() {
+        if (take("page")) {
+            SpikePage.postShowPage(true, "cmd");
+        }
+        if (take("cb-set")) {
+            ListModel l = SpikePage.pageList;
+            if (l != null) {
+                l.setCell(SpikePage.ROW_CHECKBOX_1, SpikePage.COL_VALUE, IntegerListCell.create(1));
+            }
+            SpikeLog.log("cmd cb-set row=" + SpikePage.ROW_CHECKBOX_1 + " value=1 model=" + (l != null) + " thread="
+                    + Thread.currentThread().getName());
+        }
+        if (take("cb-clear")) {
+            ListModel l = SpikePage.pageList;
+            if (l != null) {
+                l.setCell(SpikePage.ROW_CHECKBOX_1, SpikePage.COL_VALUE, IntegerListCell.create(0));
+            }
+            SpikeLog.log("cmd cb-clear row=" + SpikePage.ROW_CHECKBOX_1 + " value=0");
+        }
+        if (take("prog-next")) {
+            SpikePage.progressNext("cmd");
+        }
+        if (take("kind-swap")) {
+            ListModel l = SpikePage.pageList;
+            if (l != null) {
+                int k = SpikePage.intCell(l, 1, SpikePage.COL_KIND);
+                int nk = k == SpikePage.KIND_ACTION ? SpikePage.KIND_CHECKBOX : SpikePage.KIND_ACTION;
+                l.setCell(1, SpikePage.COL_KIND, IntegerListCell.create(nk));
+                SpikeLog.log("cmd kind-swap row=1 kind " + k + " -> " + nk);
+            }
+        }
+        if (take("rs-off")) {
+            SpikePage.recordSet = false;
+            SpikeLog.log("cmd recordSet=false (next page build)");
+        }
+        if (take("rs-on")) {
+            SpikePage.recordSet = true;
+            SpikeLog.log("cmd recordSet=true (next page build)");
+        }
+        if (take("typed-off")) {
+            SpikePage.typedRows = false;
+            SpikeLog.log("cmd typedRows=false (next page build)");
+        }
+        if (take("typed-on")) {
+            SpikePage.typedRows = true;
+            SpikeLog.log("cmd typedRows=true (next page build)");
+        }
+        if (take("label-on")) {
+            SpikePage.noLabelRow = false;
+            SpikeLog.log("cmd noLabelRow=false (next page build)");
+        }
+        if (take("slider")) {
+            SpikeScreens.postShow(SpikeIds.SLIDER_SCREEN_ID, "cmd");
+        }
+        if (take("confirm")) {
+            SpikeScreens.postShow(SpikeIds.CONFIRM_SCREEN_ID, "cmd");
+        }
+        if (take("speller")) {
+            SpikeScreens.postShow(SpikeIds.SPELLER_SCREEN_ID, "cmd");
+        }
+        if (take("slider-fwd")) {
+            SpikeScreens.sliderForward = true;
+            SpikeLog.log("cmd sliderForward=true");
+        }
+        if (take("slider-focus")) {
+            onHmi("slider-focus", new Runnable() {
+                public void run() {
+                    SpikeScreens.SliderRotary r = SpikeScreens.rotary;
+                    if (r != null) {
+                        r.setActive(true);
+                        r.setFocused(true);
+                    }
+                    SpikeLog.log("cmd slider-focus rotary=" + (r != null) + " has36="
+                            + (r != null && r.hasState(36)));
+                }
+            });
+        }
+        File rs = cmd("range-set");
+        if (rs.exists()) {
+            int v = readInt(rs);
+            rs.delete();
+            RangeModel r = (RangeModel) spike(SpikeIds.RANGE_MODEL);
+            if (r != null) {
+                r.setValue(SpikeInputs.clamp(v));
+            }
+            SpikeLog.log("cmd range-set " + v + " model=" + (r != null));
+        }
+        if (take("toast")) {
+            LabelModel l = (LabelModel) spike(SpikeIds.POPUP_LABEL_MODEL);
+            if (l != null) {
+                l.setText("Saved");
+            }
+            popupVisible(1);
+            toastHideAt = System.currentTimeMillis() + 3000;
+            SpikeLog.log("cmd toast 'Saved' shown, hide in 3000 ms (slot " + popupSlot + ")");
+        }
+        if (toastHideAt != 0 && System.currentTimeMillis() >= toastHideAt) {
+            toastHideAt = 0;
+            popupVisible(0);
+            SpikeLog.log("toast hidden by timer");
+        }
+        if (take("dump")) {
+            dump();
+        }
+    }
+
+    private static void dump() {
+        StringBuffer b = new StringBuffer("dump");
+        ListModel l = SpikePage.pageList;
+        if (l != null) {
+            for (int r = 0; r < SpikePage.ROW_TEXT.length; r++) {
+                b.append(" r").append(r).append('=').append(SpikePage.intCell(l, r, SpikePage.COL_VALUE)).append('/')
+                        .append(SpikePage.intCell(l, r, SpikePage.COL_KIND));
+            }
+        }
+        ChoiceModel r8 = (ChoiceModel) spike(SpikeIds.ROW8_MODEL);
+        ChoiceModel cb = (ChoiceModel) spike(SpikeIds.COMBO_MODEL);
+        RangeModel rg = (RangeModel) spike(SpikeIds.RANGE_MODEL);
+        SpellerModel sp = (SpellerModel) spike(SpikeIds.SPELLER_MODEL);
+        b.append(" row8=").append(r8 == null ? -99 : r8.getValue());
+        b.append(" combo=").append(cb == null ? -99 : cb.getValue());
+        b.append(" range=").append(rg == null ? -99 : rg.getValue());
+        b.append(" speller='").append(sp == null ? "?" : sp.getText()).append('\'');
+        SpikeLog.log(b.toString());
     }
 
     private static HMIModel spike(int id) {
