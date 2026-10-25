@@ -24,6 +24,14 @@ final class SdkCarScreenFactory extends CarScreenFactory {
     /** The Car factory SDK pages are built with (their ref widgets, fonts and title text); null until built. */
     static volatile SdkCarScreenFactory current;
 
+    /** The SDK drawer rows by slot, once a drawer took them ({@link HmiWidgets} sets their bitmaps); else null. */
+    static volatile MenuItemController[] sdkRows;
+
+    /** {@link #getImagePath} logs the first serve of each SDK id, at most {@link #MAX_SERVE_LOGS} a session. */
+    private static final int MAX_SERVE_LOGS = 64;
+    private static final boolean[] SERVED = new boolean[HqcUiIds.ICON_ID_LAST - HqcUiIds.ICON_ID_FIRST + 1];
+    private static int serveLogs; // HMIEvent only
+
     private final TextIds texts = new TextIds(HqcUiIds.TEXT_BASE);
 
     SdkCarScreenFactory(IFrameworkAccess fw) {
@@ -51,8 +59,12 @@ final class SdkCarScreenFactory extends CarScreenFactory {
         return drawers;
     }
 
-    /** Appends the SDK rows once per drawer object; {@link #install} keeps the drawer whole if that fails. */
-    private void addRows(DrawerController d) {
+    /**
+     * Appends the SDK rows once per drawer object; {@link #install} keeps the drawer whole if that fails. Each row
+     * takes its icon's bitmaps from {@code SdkGlobals.uiSlots} as it is now; later changes come from
+     * {@link HmiWidgets} through {@link #sdkRows}.
+     */
+    void addRows(DrawerController d) {
         int[] ids = d.getViewIDs();
         int n = ids == null ? 0 : ids.length;
         for (int k = 0; k < n; k++) {
@@ -61,6 +73,7 @@ final class SdkCarScreenFactory extends CarScreenFactory {
             }
         }
         AbstractWidget main = (AbstractWidget) d.getDrawerMain();
+        DrawerAssignment slots = SdkGlobals.uiSlots;
         int[] bitmaps = sourceBitmaps(main.getChildren());
         MenuItemController[] rows = new MenuItemController[HqcUiIds.ROW_SLOTS];
         int[] addIds = new int[HqcUiIds.ROW_SLOTS + 1];
@@ -71,7 +84,10 @@ final class SdkCarScreenFactory extends CarScreenFactory {
             v.setBounds(0, 0, 100, 100);
             v.setDisableAvailable(false);
             MenuItemController m = new MenuItemController();
-            if (bitmaps != null) {
+            int[] icon = slots.iconAt(slot);
+            if (icon != null) {
+                m.setBitmaps(icon);
+            } else if (bitmaps != null) {
                 m.setBitmaps((int[]) bitmaps.clone());
             }
             // No event and no key handler: MenuItemBuilder picks ChoiceModelKeyHandler inside CloseDrawerKeyHandler.
@@ -107,15 +123,17 @@ final class SdkCarScreenFactory extends CarScreenFactory {
             nids[o] = addIds[a];
             nviews[o++] = addViews[a++];
         }
-        install(d, (AbstractWidgetController) main, rows, nids, nviews);
+        if (install(d, (AbstractWidgetController) main, rows, nids, nviews)) {
+            sdkRows = rows;
+        }
     }
 
     /**
      * Adds the rows to the drawer's menu, then maps the views. If either step throws, the rows added so far are
      * removed again, so the drawer is never left half-built (views pointing at rows outside the menu, or rows
-     * without their visibility views).
+     * without their visibility views). True if the rows went in.
      */
-    static void install(DrawerController d, AbstractWidgetController menu, MenuItemController[] rows, int[] ids,
+    static boolean install(DrawerController d, AbstractWidgetController menu, MenuItemController[] rows, int[] ids,
                         HMIView[][] views) {
         int added = 0;
         try {
@@ -123,6 +141,7 @@ final class SdkCarScreenFactory extends CarScreenFactory {
                 menu.add(rows[added]);
             }
             d.setViews(ids, views);
+            return true;
         } catch (Throwable t) {
             for (int k = added - 1; k >= 0; k--) {
                 try {
@@ -131,6 +150,7 @@ final class SdkCarScreenFactory extends CarScreenFactory {
                     // keep removing the others
                 }
             }
+            return false;
         }
     }
 
@@ -142,6 +162,30 @@ final class SdkCarScreenFactory extends CarScreenFactory {
             return null;
         }
         return ((MenuItemController) children.get(src)).getBitmapIndices();
+    }
+
+    /**
+     * SDK icon ids ({@link HqcUiIds#ICON_ID_FIRST}..{@link HqcUiIds#ICON_ID_LAST}) with a known path: that path,
+     * relative to ImageRoot, precomputed when the id was given (a lookup, no file work). Anything else: stock.
+     */
+    public String getImagePath(int id, int terminal) {
+        try {
+            if (id >= HqcUiIds.ICON_ID_FIRST && id <= HqcUiIds.ICON_ID_LAST) {
+                String p = SdkGlobals.ICON_IDS.relPathFor(id);
+                if (p != null) {
+                    int i = id - HqcUiIds.ICON_ID_FIRST;
+                    if (!SERVED[i] && serveLogs < MAX_SERVE_LOGS) {
+                        SERVED[i] = true;
+                        serveLogs++;
+                        SdkGlobals.LOG.append("INFO", "mibsdk", "getImagePath " + id + " -> " + p);
+                    }
+                    return p;
+                }
+            }
+        } catch (Throwable t) {
+            // stock path
+        }
+        return super.getImagePath(id, terminal);
     }
 
     public String getText(int id) {

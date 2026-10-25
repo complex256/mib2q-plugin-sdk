@@ -1,5 +1,6 @@
 package mibsdk.adapter.hqc.ui;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -12,8 +13,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
+import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import mibsdk.adapter.hqc.SdkGlobals;
 import mibsdk.platform.UiEntry;
+import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiRow;
 import mibsdk.platform.UiSnapshot;
@@ -35,6 +38,7 @@ class UiApplierTest {
     private Runnable onOpen = () -> { };
     private final List<Long> ages = Collections.synchronizedList(new ArrayList<Long>());
     private UiApplier applier;
+    private final IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
     private long version;
 
     private final RowModels rows = (slot, visible) -> writes.add("row" + slot + "=" + (visible ? "on" : "off"));
@@ -74,6 +78,7 @@ class UiApplierTest {
         SdkGlobals.uiSlots = DrawerAssignment.EMPTY;
         SdkGlobals.uiRowModels = null;
         SdkGlobals.uiDown = false;
+        SdkCarScreenFactory.sdkRows = null;
     }
 
     @BeforeEach
@@ -87,7 +92,7 @@ class UiApplierTest {
     private UiApplier newApplier(UiApplier[] self) {
         Clock clock = () -> now;
         HmiPoster poster = new HmiPoster(sink, () -> self[0].wake(), clock, HmiPoster.PENDING_DEADLINE_MS);
-        return new UiApplier(table, rows, status, pages, poster, clock, log);
+        return new UiApplier(table, rows, status, pages, poster, clock, log, ids, BuiltinIcons.NONE, new HmiWidgets());
     }
 
     private void publish(String status, List<String> rowKeys, Map<String, UiPage> pageMap, long openSeq,
@@ -428,7 +433,8 @@ class UiApplierTest {
             public void hide() {
             }
         };
-        self[0] = new UiApplier(table, failing, failingStatus, pages, poster, clock, log);
+        self[0] = new UiApplier(table, failing, failingStatus, pages, poster, clock, log, ids, BuiltinIcons.NONE,
+                new HmiWidgets());
         self[0].claimLive();
         publish("S", Arrays.asList("plugins", "a"), pages("p1"), 1, "p1");
         self[0].step(0);
@@ -569,5 +575,72 @@ class UiApplierTest {
         closePending = false;
         applier.step(0);
         assertEquals(0, sink.size(), "done");
+    }
+
+    private static UiIcon icon(String sha16) {
+        return UiIcon.file("hello", HqcUiIds.INSTALL_ROOT + "/icons/hello/" + sha16 + ".png", sha16, 72, 72);
+    }
+
+    private void publishIcon(UiIcon icon) {
+        List<UiRow> r = new ArrayList<UiRow>();
+        r.add(new UiRow("plugins", "PLUGINS", "plugins.page"));
+        r.add(new UiRow("a", "A", "a.page", icon));
+        table.publish(new UiSnapshot(++version, r, "", null, 0, null));
+    }
+
+    /**
+     * Task 4: a row's new icon content posts one HMI job (no pages to render), which sets that row's bitmaps once; an
+     * unchanged snapshot posts nothing, and the new content gets a new id.
+     */
+    @Test
+    void slotIconChangePostsOneJobAndAppliesBitmapsOnce() throws Exception {
+        List<String> set = Collections.synchronizedList(new ArrayList<String>());
+        MenuItemController[] drawer = new MenuItemController[HqcUiIds.ROW_SLOTS];
+        for (int i = 0; i < drawer.length; i++) {
+            final int slot = i;
+            drawer[i] = new MenuItemController() {
+                public void setBitmaps(int[] b) {
+                    set.add(slot + "=" + Arrays.toString(b));
+                    super.setBitmaps(b);
+                }
+            };
+        }
+        SdkCarScreenFactory.sdkRows = drawer;
+        SdkGlobals.uiRowModels = rows;
+
+        publishIcon(icon("aaaa000000000000"));
+        applier.step(0);
+        assertEquals(1, sink.size(), "one job");
+        sink.runHeld();
+        assertEquals(Collections.singletonList("1=[609100, 609100]"), set);
+        assertEquals(Collections.emptyList(), drain().stream().filter(w -> !w.startsWith("row")).collect(
+                java.util.stream.Collectors.toList()), "no page render");
+
+        publishIcon(icon("aaaa000000000000")); // same content, new snapshot
+        applier.step(0);
+        assertEquals(0, sink.size(), "nothing changed: no job");
+
+        publishIcon(icon("bbbb000000000000"));
+        applier.step(0);
+        assertEquals(1, sink.size());
+        sink.runHeld();
+        assertEquals(0, sink.size(), "the after-hook posts nothing more");
+        assertEquals(Arrays.asList("1=[609100, 609100]", "1=[609101, 609101]"), set);
+        assertArrayEquals(new int[] {609101, 609101}, drawer[1].getBitmapIndices());
+        assertEquals(HqcUiIds.INSTALL_ROOT + "/icons/hello/aaaa000000000000.png", ids.fileFor(609100),
+                "the old id keeps its file");
+
+        publishIcon(null); // the icon goes away
+        applier.step(0);
+        sink.runHeld();
+        assertEquals("1=null", set.get(set.size() - 1));
+    }
+
+    /** No drawer yet: the wanted icons are not posted (the StartupFilter would discard the job). */
+    @Test
+    void noIconJobBeforeTheDrawerExists() throws Exception {
+        publishIcon(icon("cccc000000000000"));
+        applier.step(0);
+        assertEquals(0, sink.size());
     }
 }

@@ -12,20 +12,25 @@ import java.util.List;
 public final class DrawerAssignment {
 
     public static final DrawerAssignment EMPTY =
-            new DrawerAssignment(new String[0], new String[0], new String[0], new ArrayList<String>());
+            new DrawerAssignment(new String[0], new String[0], new String[0], new int[0][], new ArrayList<String>());
 
     private final String[] keys = new String[HqcUiIds.ROW_SLOTS];
     private final String[] labels = new String[HqcUiIds.ROW_SLOTS];
     private final String[] pageKeys = new String[HqcUiIds.ROW_SLOTS];
+    private final int[][] bitmaps = new int[HqcUiIds.ROW_SLOTS][];
     private final List<String> overflow;
 
-    /** Copies at most {@link HqcUiIds#ROW_SLOTS} entries of each array (a null key leaves the slot empty). */
-    DrawerAssignment(String[] keys, String[] labels, String[] pageKeys, List<String> overflow) {
+    /**
+     * Copies at most {@link HqcUiIds#ROW_SLOTS} entries of each array (a null key leaves the slot empty). A slot's
+     * {@code bitmaps} are its image id pair (icon, reflection), or null for none.
+     */
+    DrawerAssignment(String[] keys, String[] labels, String[] pageKeys, int[][] bitmaps, List<String> overflow) {
         for (int i = 0; i < HqcUiIds.ROW_SLOTS && i < keys.length; i++) {
             if (keys[i] != null) {
                 this.keys[i] = keys[i];
                 this.labels[i] = i < labels.length ? labels[i] : null;
                 this.pageKeys[i] = i < pageKeys.length ? pageKeys[i] : null;
+                this.bitmaps[i] = i < bitmaps.length && bitmaps[i] != null ? (int[]) bitmaps[i].clone() : null;
             }
         }
         this.overflow = Collections.unmodifiableList(new ArrayList<String>(overflow));
@@ -44,6 +49,12 @@ public final class DrawerAssignment {
     /** The page the row in {@code slot} opens, or null. */
     public String pageKeyAt(int slot) {
         return inRange(slot) ? pageKeys[slot] : null;
+    }
+
+    /** The image id pair of the row in {@code slot} (a copy), or null (no icon). */
+    public int[] iconAt(int slot) {
+        int[] b = inRange(slot) ? bitmaps[slot] : null;
+        return b == null ? null : (int[]) b.clone();
     }
 
     /** True if a row is assigned to {@code slot}. */

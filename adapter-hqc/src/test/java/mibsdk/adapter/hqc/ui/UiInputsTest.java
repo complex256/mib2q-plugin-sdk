@@ -18,7 +18,7 @@ class UiInputsTest {
         List<UiRow> rows = new ArrayList<UiRow>();
         rows.add(new UiRow("mibsdk.plugins", "Plugins", "mibsdk.plugins"));
         rows.add(new UiRow("hello.row", "Hello", "hello.page"));
-        DrawerAssignment a = DrawerSlots.assign(DrawerAssignment.EMPTY, rows, HqcUiIds.PLUGIN_ROW_SLOTS);
+        DrawerAssignment a = DrawerSlots.assign(DrawerAssignment.EMPTY, rows, HqcUiIds.PLUGIN_ROW_SLOTS, null, null);
         UiTable t = new UiTable(4);
 
         UiInputs.rowPressed(t, a, 1);

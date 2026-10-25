@@ -9,6 +9,7 @@ import java.util.Set;
 import mibsdk.adapter.hqc.SdkGlobals;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiPage;
+import mibsdk.platform.UiRow;
 import mibsdk.platform.UiSnapshot;
 import mibsdk.platform.UiTable;
 import mibsdk.runtime.Clock;
@@ -16,22 +17,24 @@ import mibsdk.runtime.RingLog;
 
 /**
  * Applies the runtime's UI snapshots to the HMI on the SDK thread {@code mibsdk-ui}: Car drawer slots and row
- * visibility, the status line, and SDK pages (through one coalesced {@link HmiPoster} job).
+ * visibility and icons, the status line, and SDK pages (through one combined {@link HmiPoster} job).
  *
  * <p>Each pass waits up to {@link #AWAIT_MS} for a newer snapshot, then runs four isolated phases (a failure in one is
  * logged once per phase and message, and never starves the others):
  * <ul>
- * <li>slots: assigns the Car rows to drawer slots ({@link DrawerSlots}) and swaps {@code SdkGlobals.uiSlots};</li>
+ * <li>slots: assigns the Car rows to drawer slots ({@link DrawerSlots}, which gives their icons image ids from
+ * {@code ids}), swaps {@code SdkGlobals.uiSlots}, and publishes the wanted {@link HmiWidgetState};</li>
  * <li>rows: writes changed row visibility through {@code rows}, only while {@code SdkGlobals.uiRowModels} exists, and
  * every slot again when those models first appear (the drawer is built on HMIEvent, at a time of the HMI's
  * choosing);</li>
  * <li>status: shows or hides the status line, and re-asserts a non-empty one every {@link #STATUS_REASSERT_MS} on the
  * monotonic clock (stock engineering code also writes model 416). Popup 65 belongs to stock EngineeringApp until the
  * SDK has shown text on it: it is never hidden before that;</li>
- * <li>pages: once the drawer exists (so the first screen is up: before it the stock StartupFilter discards posted
- * jobs), posts one page job when {@code openSeq} or the page content moved past what was last <b>rendered</b>. The job
- * reads the latest snapshot when it runs; if a job is already pending, the job's after-hook ({@link #wake}) posts
- * again once it is done, so an open request is never lost.</li>
+ * <li>hmi: once the drawer exists (so the first screen is up: before it the stock StartupFilter discards posted
+ * jobs), posts the one HMI job when {@code openSeq} or the page content moved past what was last <b>rendered</b>, or
+ * the wanted {@link HmiWidgetState} differs from the one {@link HmiWidgets} applied. The job re-evaluates both when it
+ * runs (pages from the latest snapshot), each part isolated; if a job is already pending, the job's after-hook
+ * ({@link #wake}) posts again once it is done, so an open request is never lost.</li>
  * </ul>
  * Writes happen only when a value changed.
  *
@@ -51,7 +54,7 @@ public final class UiApplier {
     private static final String SOURCE = "mibsdk";
     private static final int UNKNOWN = -1;
     private static final int MAX_LOGGED_FAILURES = 32;
-    private static final String[] PHASES = {"slots", "rows", "status", "pages"};
+    private static final String[] PHASES = {"slots", "rows", "status", "hmi"};
 
     /**
      * The generation of the applier that owns the HMI (the last one started); others post and render nothing, and
@@ -69,9 +72,12 @@ public final class UiApplier {
     private final HmiPoster poster;
     private final Clock clock;
     private final RingLog log;
-    private final Runnable pageJob = new Runnable() {
+    private final IconIds ids;
+    private final BuiltinIcons builtins;
+    private final HmiWidgets widgets;
+    private final Runnable hmiJob = new Runnable() {
         public void run() {
-            renderPages();
+            runHmiJob();
         }
     };
 
@@ -83,6 +89,7 @@ public final class UiApplier {
     private final int[] rowState = new int[HqcUiIds.ROW_SLOTS]; // UNKNOWN, 0 hidden, 1 visible
     private RowModels seenModels;
     private final Set<String> warnedOverflow = new HashSet<String>();
+    private boolean warnedIdsSpent;
     private final Set<String> loggedFailures = new HashSet<String>();
     private String shownStatus; // null: the SDK never showed text
     private long statusShownAt;
@@ -95,12 +102,20 @@ public final class UiApplier {
     private volatile long seenOpenSeq = Long.MIN_VALUE;
     private volatile long seenOpenAt;
     private volatile Map<String, UiPage> renderedPages;
+    /** What the stock widgets should show; published by {@code mibsdk-ui}, applied by the HMI job. */
+    private volatile HmiWidgetState wantWidgets = HmiWidgetState.EMPTY;
+    /** Set by a pass that saw a deferred close: the next HMI job retries it (never the after-hook's own re-post). */
+    private volatile boolean closeRetry;
 
     private volatile boolean stopping;
     private Thread thread; // guarded by this
 
+    /**
+     * {@code ids}: the session's image ids ({@code SdkGlobals.ICON_IDS} in production); {@code builtins}: the
+     * built-in icon set; {@code widgets}: applies the wanted {@link HmiWidgetState} on HMIEvent.
+     */
     UiApplier(UiTable t, RowModels rows, StatusLineSink s, PageRenderer pages, HmiPoster p, Clock clock,
-              RingLog log) {
+              RingLog log, IconIds ids, BuiltinIcons builtins, HmiWidgets widgets) {
         this.table = t;
         this.rows = rows;
         this.status = s;
@@ -108,6 +123,9 @@ public final class UiApplier {
         this.poster = p;
         this.clock = clock;
         this.log = log;
+        this.ids = ids;
+        this.builtins = builtins;
+        this.widgets = widgets;
         for (int i = 0; i < rowState.length; i++) {
             rowState[i] = UNKNOWN;
         }
@@ -116,8 +134,9 @@ public final class UiApplier {
     /**
      * The production applier over {@code SdkGlobals}: popup 65 on {@code frameworkAccess} (the
      * {@code de.audi.atip.base.IFrameworkAccess} service), row visibility through {@code SdkGlobals.uiRowModels}, jobs
-     * posted to HMIEvent, SDK pages as native screens ({@link PageScreens}). {@code statusMaxChars}:
-     * {@code ui.status.max.chars}. Starts nothing.
+     * posted to HMIEvent, SDK pages as native screens ({@link PageScreens}), icon ids from the session's
+     * {@code SdkGlobals.ICON_IDS} (never a new table) and the built-ins {@code HqcPlatform.start} read.
+     * {@code statusMaxChars}: {@code ui.status.max.chars}. Starts nothing.
      */
     public static UiApplier create(Object frameworkAccess, Clock clock, RingLog log, int statusMaxChars) {
         final UiApplier[] self = new UiApplier[1];
@@ -140,7 +159,7 @@ public final class UiApplier {
         UiInputs.clock = clock; // SDK presses are timed on it: an open from a Car screen needs a recent one
         PageRenderer pages = PageScreens.create(frameworkAccess, SdkGlobals.UI, poster, log);
         self[0] = new UiApplier(SdkGlobals.UI, rows, new Popup65StatusLine(frameworkAccess, statusMaxChars), pages,
-                poster, clock, log);
+                poster, clock, log, SdkGlobals.ICON_IDS, SdkGlobals.builtinIcons, new HmiWidgets());
         return self[0];
     }
 
@@ -153,6 +172,11 @@ public final class UiApplier {
             generation = ++lastGeneration;
             liveGeneration = generation;
         }
+    }
+
+    /** The image id table this applier gives ids from. */
+    IconIds iconIds() {
+        return ids;
     }
 
     private boolean isLive() {
@@ -203,15 +227,16 @@ public final class UiApplier {
     }
 
     /**
-     * HmiPoster's after-job hook, on HMIEvent: posts the next page job if the snapshot moved past what was rendered
-     * while the last job was pending. Reads volatile state only; never throws.
+     * HmiPoster's after-job hook, on HMIEvent: posts the next HMI job if the snapshot moved past what was rendered, or
+     * the wanted widget state past what was applied, while the last job was pending. Reads volatile state only; never
+     * throws.
      */
     void wake() {
         if (!isLive()) {
             return; // replaced: never post again (a stale job would otherwise re-post itself forever)
         }
         try {
-            postPagesIfNeeded(false); // never the deferred-close retry: that waits for the next tick
+            postJobIfNeeded(false); // never the deferred-close retry: that waits for the next tick
         } catch (Throwable t) {
             // never propagate into the HMI
         }
@@ -286,7 +311,7 @@ public final class UiApplier {
                         applyStatus(current.statusLine());
                         break;
                     default:
-                        postPagesIfNeeded(true);
+                        postJobIfNeeded(true);
                         break;
                 }
             } catch (Throwable t) {
@@ -304,9 +329,21 @@ public final class UiApplier {
     }
 
     private void assignSlots(UiSnapshot s) {
-        DrawerAssignment a = DrawerSlots.assign(slots, s.carRows(), HqcUiIds.PLUGIN_ROW_SLOTS);
+        DrawerAssignment a = DrawerSlots.assign(slots, s.carRows(), HqcUiIds.PLUGIN_ROW_SLOTS, ids, builtins);
         slots = a;
         SdkGlobals.uiSlots = a;
+        int[][] bitmaps = new int[HqcUiIds.ROW_SLOTS][];
+        boolean unserved = false;
+        for (int slot = 0; slot < HqcUiIds.ROW_SLOTS; slot++) {
+            bitmaps[slot] = a.iconAt(slot);
+            unserved |= bitmaps[slot] == null && hasIcon(s.carRows(), a.keyAt(slot));
+        }
+        wantWidgets = new HmiWidgetState(bitmaps);
+        if (unserved && !warnedIdsSpent && ids != null && ids.exhausted()) {
+            warnedIdsSpent = true;
+            log.append("WARN", SOURCE, "ui icon ids " + HqcUiIds.ICON_ID_FIRST + ".." + HqcUiIds.ICON_ID_LAST
+                    + " are spent: new icons show without an image until the HMI restarts");
+        }
         List<String> overflow = a.overflow();
         for (int i = 0; i < overflow.size(); i++) {
             String key = overflow.get(i);
@@ -314,6 +351,17 @@ public final class UiApplier {
                 log.append("WARN", SOURCE, "ui car row " + key + " has no drawer slot; reachable from the Plugins menu");
             }
         }
+    }
+
+    /** True if the row {@code key} of {@code rows} has an icon. */
+    private static boolean hasIcon(List<UiRow> rows, String key) {
+        for (int i = 0; key != null && rows != null && i < rows.size(); i++) {
+            UiRow r = rows.get(i);
+            if (r != null && key.equals(r.key())) {
+                return r.icon() != null;
+            }
+        }
+        return false;
     }
 
     /** Writes each slot whose visibility changed; all of them once {@code SdkGlobals.uiRowModels} (re)appears. */
@@ -352,15 +400,43 @@ public final class UiApplier {
     }
 
     /** {@code tick}: called from the applier's pass (not the job's after-hook), so a deferred close may be retried. */
-    private void postPagesIfNeeded(boolean tick) {
+    private void postJobIfNeeded(boolean tick) {
         if (!isLive() || (stopping && !down)) {
             return; // replaced, or stopping before the teardown took the UI down
         }
         if (SdkGlobals.uiRowModels == null) {
             return; // no drawer yet, so no first screen yet: the StartupFilter would discard the job
         }
-        if (needsRender(table.snapshot(), tick)) {
-            poster.post(pageJob); // false: a job is pending; its wake() re-checks when it is done
+        boolean render = needsRender(table.snapshot(), tick);
+        if (render && tick && down && closedRendered) {
+            closeRetry = true; // the job's own re-evaluation (tick false) would not retry it
+        }
+        if (render || !wantWidgets.equals(widgets.applied())) {
+            poster.post(hmiJob); // false: a job is pending; its wake() re-checks when it is done
+        }
+    }
+
+    /**
+     * The one HMI job, on HMIEvent: renders pages if they still need it, then applies the wanted widget state. Each
+     * part is isolated. A replaced applier's job does nothing.
+     */
+    private void runHmiJob() {
+        if (!isLive()) {
+            return;
+        }
+        try {
+            boolean retry = closeRetry;
+            closeRetry = false;
+            if (retry || needsRender(table.snapshot(), false)) {
+                renderPages();
+            }
+        } catch (Throwable t) {
+            // the widgets still get applied
+        }
+        try {
+            widgets.apply(wantWidgets);
+        } catch (Throwable t) {
+            // stock widgets stay as they are
         }
     }
 
@@ -377,7 +453,7 @@ public final class UiApplier {
     }
 
     /**
-     * The page job, on HMIEvent: renders the snapshot current now, never the one that triggered the post; once down,
+     * The page part of the HMI job: renders the snapshot current now, never the one that triggered the post; once down,
      * closes SDK pages back to the stock screen. A replaced applier's job does nothing.
      */
     private void renderPages() {

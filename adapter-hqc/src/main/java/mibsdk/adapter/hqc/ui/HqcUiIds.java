@@ -75,6 +75,15 @@ public final class HqcUiIds {
     /** 25 characters measured on the bench; one of margin for the proportional font. */
     public static final int STATUS_MAX_CHARS = 24;
 
+    /**
+     * SDK image ids (Car module, {@code id / 100000 == CAR_MODULE}), served by {@code SdkCarScreenFactory.getImagePath}
+     * from a precomputed path: one per installed icon {@code <owner>/<sha16>} per HMI session (spike C, Boot A I1).
+     */
+    public static final int ICON_ID_FIRST = 609100;
+    public static final int ICON_ID_LAST = 609399;
+    /** The SDK install root on the unit: image paths are computed from it (its sibling {@code images} is ImageRoot). */
+    public static final String INSTALL_ROOT = "/mnt/app/eso/hmi/lsd/mibsdk";
+
     private HqcUiIds() {
     }
 }

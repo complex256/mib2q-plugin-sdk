@@ -1,6 +1,9 @@
 package mibsdk.adapter.hqc;
 
+import mibsdk.adapter.hqc.ui.BuiltinIcons;
 import mibsdk.adapter.hqc.ui.DrawerAssignment;
+import mibsdk.adapter.hqc.ui.HqcUiIds;
+import mibsdk.adapter.hqc.ui.IconIds;
 import mibsdk.adapter.hqc.ui.RowModels;
 import mibsdk.platform.HookTable;
 import mibsdk.platform.UiTable;
@@ -56,6 +59,15 @@ public final class SdkGlobals {
      * read the reference.
      */
     public static volatile DrawerAssignment uiSlots = DrawerAssignment.EMPTY;
+
+    /**
+     * The session's image ids for installed icons ({@link HqcUiIds#ICON_ID_FIRST}..{@link HqcUiIds#ICON_ID_LAST}):
+     * the one instance, shared by every applier the session starts, so an id never changes its file.
+     */
+    public static final IconIds ICON_IDS = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
+
+    /** The SDK's built-in icons; read by {@code HqcPlatform.start} (an SDK thread), {@link BuiltinIcons#NONE} before. */
+    public static volatile BuiltinIcons builtinIcons = BuiltinIcons.NONE;
 
     /** The SDK drawer rows' visibility models; null until the Car bank created them (first drawer build). */
     public static volatile RowModels uiRowModels;

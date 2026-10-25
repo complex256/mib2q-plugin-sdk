@@ -1,9 +1,11 @@
 package mibsdk.adapter.hqc;
 
+import java.io.File;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import mibsdk.adapter.hqc.ui.BuiltinIcons;
 import mibsdk.adapter.hqc.ui.HqcUiIds;
 import mibsdk.adapter.hqc.ui.UiApplier;
 import mibsdk.api.Features;
@@ -39,14 +41,15 @@ public final class HqcPlatform implements PlatformAdapter {
             Arrays.asList(new String[] {Features.PARKING, Features.IGNITION, Features.HOOK_PARKING})));
     private static final Set<String> FEATURES_UI = Collections.unmodifiableSet(new HashSet<String>(
             Arrays.asList(new String[] {Features.PARKING, Features.IGNITION, Features.SLOT_CAR_MENU, Features.UI_PAGES,
-                Features.SLOT_STATUS_BAR})));
+                Features.SLOT_STATUS_BAR, Features.UI_ICONS})));
     private static final Set<String> FEATURES_HOOKED_UI = Collections.unmodifiableSet(new HashSet<String>(
             Arrays.asList(new String[] {Features.PARKING, Features.IGNITION, Features.HOOK_PARKING,
-                Features.SLOT_CAR_MENU, Features.UI_PAGES, Features.SLOT_STATUS_BAR})));
+                Features.SLOT_CAR_MENU, Features.UI_PAGES, Features.SLOT_STATUS_BAR, Features.UI_ICONS})));
 
     private final BundleContext ctx;
     private final Clock clock;
     private final int statusMaxChars;
+    private final File sdkIconDir;
     private EventPump pump; // guarded by this
     private IgnitionBridge ignition; // guarded by this
     private ServiceWaiter waiter; // guarded by this
@@ -62,11 +65,17 @@ public final class HqcPlatform implements PlatformAdapter {
         this(ctx, clock, HqcUiIds.STATUS_MAX_CHARS);
     }
 
-    /** {@code statusMaxChars}: {@code ui.status.max.chars} for the popup-65 status line. */
+    /** {@code statusMaxChars}: {@code ui.status.max.chars} for the popup-65 status line. No built-in icons. */
     HqcPlatform(BundleContext ctx, Clock clock, int statusMaxChars) {
+        this(ctx, clock, statusMaxChars, null);
+    }
+
+    /** {@code sdkIconDir}: the installed built-in icon set ({@code RuntimeConfig.sdkIconDir()}); null for none. */
+    HqcPlatform(BundleContext ctx, Clock clock, int statusMaxChars, File sdkIconDir) {
         this.ctx = ctx;
         this.clock = clock;
         this.statusMaxChars = statusMaxChars;
+        this.sdkIconDir = sdkIconDir;
     }
 
     public String id() {
@@ -82,7 +91,7 @@ public final class HqcPlatform implements PlatformAdapter {
      * (wrapping enabled and its raw object recorded): otherwise no parking hook point ever fires, and plugins must
      * see {@code has(HOOK_PARKING) == false}. The runtime reads this again before it loads plugins and on every
      * {@link PlatformHost#featuresChanged()}. With {@code SdkGlobals.uiEnabled} (fixed for the boot) also
-     * SLOT_CAR_MENU, UI_PAGES and SLOT_STATUS_BAR.
+     * SLOT_CAR_MENU, UI_PAGES, SLOT_STATUS_BAR and UI_ICONS.
      */
     public Set<String> features() {
         boolean hooked = SdkGlobals.wrappingEnabled && RawServices.get(DSICarParkingSystem.class.getName()) != null;
@@ -96,6 +105,7 @@ public final class HqcPlatform implements PlatformAdapter {
      * Starts the event pump and the service waits; does not block. A second start is ignored. With
      * {@code SdkGlobals.uiEnabled} (never under the wrap-loop latch) it also waits for {@link #FRAMEWORK_ACCESS} and
      * then starts the {@code mibsdk-ui} applier; otherwise no SDK UI is ever drawn and popup 65 is never touched.
+     * Reads the built-in icon index here, on the calling SDK thread, into {@code SdkGlobals.builtinIcons}.
      */
     public synchronized void start(final PlatformHost host) {
         if (pump != null) {
@@ -123,6 +133,7 @@ public final class HqcPlatform implements PlatformAdapter {
             }
         });
         if (SdkGlobals.uiEnabled) {
+            SdkGlobals.builtinIcons = BuiltinIcons.read(sdkIconDir);
             if (clock == null) {
                 SdkGlobals.LOG.append("WARN", "mibsdk.hqc", "no clock: the SDK UI applier does not start");
                 return;

@@ -105,7 +105,7 @@ class SdkCarActivatorTest {
         List<UiRow> rows = new ArrayList<UiRow>();
         rows.add(new UiRow("mibsdk.plugins", "Plugins", "mibsdk.plugins"));
         rows.add(new UiRow("hello.row", "Hello", "hello.page"));
-        SdkGlobals.uiSlots = DrawerSlots.assign(DrawerAssignment.EMPTY, rows, HqcUiIds.PLUGIN_ROW_SLOTS);
+        SdkGlobals.uiSlots = DrawerSlots.assign(DrawerAssignment.EMPTY, rows, HqcUiIds.PLUGIN_ROW_SLOTS, null, null);
 
         for (int slot = 0; slot < HqcUiIds.ROW_SLOTS; slot++) {
             assertNull(SdkGlobals.uiRowModels, "published only once every row model exists");
@@ -134,7 +134,7 @@ class SdkCarActivatorTest {
         List<UiRow> rows = new ArrayList<UiRow>();
         rows.add(new UiRow("mibsdk.plugins", "Plugins", "mibsdk.plugins"));
         rows.add(new UiRow("hello.row", "Hello", "hello.page"));
-        SdkGlobals.uiSlots = DrawerSlots.assign(DrawerAssignment.EMPTY, rows, HqcUiIds.PLUGIN_ROW_SLOTS);
+        SdkGlobals.uiSlots = DrawerSlots.assign(DrawerAssignment.EMPTY, rows, HqcUiIds.PLUGIN_ROW_SLOTS, null, null);
 
         ChoiceModel sel = model(bank, HqcUiIds.ROW_SELECTION_MODEL);
         assertEquals(-1, sel.getValue());

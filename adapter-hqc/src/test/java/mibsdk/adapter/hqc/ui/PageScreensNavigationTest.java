@@ -576,7 +576,8 @@ class PageScreensNavigationTest {
             public void hide() {
             }
         };
-        self[0] = new UiApplier(table, (slot, visible) -> { }, noStatus, pages, p, () -> now, log);
+        self[0] = new UiApplier(table, (slot, visible) -> { }, noStatus, pages, p, () -> now, log,
+                new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST), BuiltinIcons.NONE, new HmiWidgets());
         self[0].claimLive();
         return self[0];
     }
