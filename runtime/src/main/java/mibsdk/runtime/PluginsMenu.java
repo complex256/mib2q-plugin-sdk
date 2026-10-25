@@ -15,8 +15,9 @@ import mibsdk.platform.UiText;
 /**
  * The SDK's own pages (owner {@code mibsdk}): the Plugins menu, one page per plugin and the SDK page; and the
  * mapping of input on them to runtime actions. Pure functions: every text, including plugin-supplied names, is
- * cleaned and cut to the {@link PageSpec} limits here. LINK entries are navigated by the adapter; only toggles and
- * the reset item reach {@link #handle}.
+ * cleaned and cut to the {@link PageSpec} limits here. LINK entries are navigated by the adapter; only toggles, the
+ * status move items and the reset item reach {@link #handle}. Toggles render as {@code [on]}/{@code [off]} text and
+ * the move items are plain knob-selectable rows: neither needs a widget unproven on this HMI.
  */
 final class PluginsMenu {
 
@@ -25,18 +26,35 @@ final class PluginsMenu {
     static final String PLUGIN_KEY_PREFIX = UiHub.SDK_OWNER + "/plugin.";
     static final String ENABLED_ENTRY = "enabled";
     static final String RESET_ENTRY = "reset";
+    static final String STATUS_ENTRY = "status";
+    static final String STATUS_EARLIER_ENTRY = "status.earlier";
+    static final String STATUS_LATER_ENTRY = "status.later";
+
+    /**
+     * What the plugin pages need for the status-item rows: {@code eligible}, the plugins that have a status item or
+     * the permission for one, in the line's order ({@link StatusLine#order}); {@code hidden}, those the user hid.
+     */
+    static final class StatusChoices {
+        final List<String> eligible;
+        final Set<String> hidden;
+
+        StatusChoices(List<String> eligible, Set<String> hidden) {
+            this.eligible = eligible == null ? Collections.<String>emptyList() : eligible;
+            this.hidden = hidden == null ? Collections.<String>emptySet() : hidden;
+        }
+    }
 
     /** What an input on an SDK page asks the runtime to do. */
     static final class Action {
         enum Kind {
-            ENABLE, DISABLE, RESET_BOOT_GUARD, NONE
+            ENABLE, DISABLE, RESET_BOOT_GUARD, STATUS_SHOW, STATUS_HIDE, STATUS_EARLIER, STATUS_LATER, NONE
         }
 
         static final Action NONE = new Action(Kind.NONE, null);
         static final Action RESET_BOOT_GUARD = new Action(Kind.RESET_BOOT_GUARD, null);
 
         final Kind kind;
-        /** The plugin id for ENABLE/DISABLE, else null. */
+        /** The plugin id for ENABLE/DISABLE and the STATUS_* kinds, else null. */
         final String id;
 
         Action(Kind kind, String id) {
@@ -63,13 +81,24 @@ final class PluginsMenu {
     static List<UiPage> pages(List<PluginStatus> st, Map<String, PluginManifest> m,
             Map<String, List<String>> pluginPageKeys, Map<String, String> pageTitles, Set<String> offIds, SdkState s,
             Grants g) {
+        return pages(st, m, pluginPageKeys, pageTitles, offIds, s, g, null);
+    }
+
+    /**
+     * As above, and each plugin page of a plugin in {@code sc.eligible} gets a {@code Status item} toggle (on: shown;
+     * with its place, {@code (2 of 3)}, when there are several) and, with two or more eligible plugins, the
+     * {@code Move status item earlier} / {@code later} items. {@code sc} null: no status rows.
+     */
+    static List<UiPage> pages(List<PluginStatus> st, Map<String, PluginManifest> m,
+            Map<String, List<String>> pluginPageKeys, Map<String, String> pageTitles, Set<String> offIds, SdkState s,
+            Grants g, StatusChoices sc) {
         List<UiPage> out = new ArrayList<UiPage>();
         out.add(root(st, m, s));
         for (int i = 0; i < st.size(); i++) {
             PluginStatus p = st.get(i);
             List<String> keys = pluginPageKeys == null ? null : pluginPageKeys.get(p.id());
             boolean off = offIds != null && offIds.contains(p.id());
-            out.add(pluginPage(p, m == null ? null : m.get(p.id()), keys, pageTitles, off, s, g));
+            out.add(pluginPage(p, m == null ? null : m.get(p.id()), keys, pageTitles, off, s, g, sc));
         }
         out.add(sdkPage(s));
         return out;
@@ -93,19 +122,29 @@ final class PluginsMenu {
                 && reason.endsWith(" is " + PluginState.DISABLED);
     }
 
-    /** ENABLE/DISABLE for the Enabled toggle of a plugin page, RESET_BOOT_GUARD for the SDK page's item. */
+    /**
+     * On a plugin page: ENABLE/DISABLE for the Enabled toggle, STATUS_SHOW/STATUS_HIDE for the Status item toggle,
+     * STATUS_EARLIER/STATUS_LATER for the move items. RESET_BOOT_GUARD for the SDK page's item.
+     */
     static Action handle(UiInput in) {
         if (in == null || in.pageKey() == null || in.entryKey() == null) {
             return Action.NONE;
         }
         String key = in.pageKey();
-        if (in.kind() == UiInput.TOGGLE_REQUESTED && key.startsWith(PLUGIN_KEY_PREFIX)
-                && ENABLED_ENTRY.equals(in.entryKey())) {
+        String entry = in.entryKey();
+        if (key.startsWith(PLUGIN_KEY_PREFIX)) {
             String id = key.substring(PLUGIN_KEY_PREFIX.length());
-            if (!ManifestParser.isValidId(id)) {
-                return Action.NONE;
+            Action.Kind kind = null;
+            if (in.kind() == UiInput.TOGGLE_REQUESTED && ENABLED_ENTRY.equals(entry)) {
+                kind = in.on() ? Action.Kind.ENABLE : Action.Kind.DISABLE;
+            } else if (in.kind() == UiInput.TOGGLE_REQUESTED && STATUS_ENTRY.equals(entry)) {
+                kind = in.on() ? Action.Kind.STATUS_SHOW : Action.Kind.STATUS_HIDE;
+            } else if (in.kind() == UiInput.ENTRY_SELECTED && STATUS_EARLIER_ENTRY.equals(entry)) {
+                kind = Action.Kind.STATUS_EARLIER;
+            } else if (in.kind() == UiInput.ENTRY_SELECTED && STATUS_LATER_ENTRY.equals(entry)) {
+                kind = Action.Kind.STATUS_LATER;
             }
-            return new Action(in.on() ? Action.Kind.ENABLE : Action.Kind.DISABLE, id);
+            return kind == null || !ManifestParser.isValidId(id) ? Action.NONE : new Action(kind, id);
         }
         if (in.kind() == UiInput.ENTRY_SELECTED && SDK_KEY.equals(key) && RESET_ENTRY.equals(in.entryKey())) {
             return Action.RESET_BOOT_GUARD;
@@ -174,7 +213,7 @@ final class PluginsMenu {
     }
 
     private static UiPage pluginPage(PluginStatus p, PluginManifest m, List<String> pageKeys,
-            Map<String, String> pageTitles, boolean off, SdkState s, Grants g) {
+            Map<String, String> pageTitles, boolean off, SdkState s, Grants g, StatusChoices sc) {
         List<UiEntry> e = new ArrayList<UiEntry>();
         if (m != null) {
             String author = m.author();
@@ -195,6 +234,16 @@ final class PluginsMenu {
         }
         if (m != null) {
             e.add(info("Permissions: " + granted(m, g)));
+        }
+        int place = sc == null ? -1 : sc.eligible.indexOf(p.id());
+        if (place >= 0) {
+            int n = sc.eligible.size();
+            String label = n > 1 ? "Status item (" + (place + 1) + " of " + n + ")" : "Status item";
+            e.add(new UiEntry(UiEntry.TOGGLE, STATUS_ENTRY, label, null, !sc.hidden.contains(p.id()), null));
+            if (n > 1) {
+                e.add(new UiEntry(UiEntry.ITEM, STATUS_EARLIER_ENTRY, "Move status item earlier", null, false, null));
+                e.add(new UiEntry(UiEntry.ITEM, STATUS_LATER_ENTRY, "Move status item later", null, false, null));
+            }
         }
         if (pageKeys != null) {
             for (int i = 0; i < pageKeys.size() && e.size() < PageSpec.MAX_ENTRIES; i++) {

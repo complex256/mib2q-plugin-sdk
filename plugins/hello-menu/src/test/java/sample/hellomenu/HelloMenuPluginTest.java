@@ -136,15 +136,8 @@ class HelloMenuPluginTest {
     void pageReachableFromPluginsMenuWithoutCarSlotFeature() throws Exception {
         start(Features.UI_PAGES);
         await(() -> !ui.render(PAGE).isEmpty(), "page registered");
+        await(this::linked, "Plugins-menu page links to " + PAGE); // the SDK pages refresh after the plugin's page
         assertFalse(ui.carRows().contains("Hello"), ui.carRows().toString());
-        List<String> menu = ui.render("mibsdk/plugin.hello-menu");
-        boolean linked = false;
-        for (mibsdk.platform.UiEntry e : table.snapshot().pages().get("mibsdk/plugin.hello-menu").entries()) {
-            if (e.kind() == mibsdk.platform.UiEntry.LINK && PAGE.equals(e.targetPageKey())) {
-                linked = true;
-            }
-        }
-        assertTrue(linked, menu.toString());
     }
 
     /** UI off (wrap-loop latch, ui.enabled=false, count or init failure): inert UI handles, still ENABLED. */
@@ -167,12 +160,16 @@ class HelloMenuPluginTest {
     void lastSelectionIsRestoredFromStorage() throws Exception {
         write(new File(FakePlatform.roots(tmp).persist(), "data/hello-menu.properties"), "last=plum\n");
         start(Features.SLOT_CAR_MENU, Features.UI_PAGES);
-        await(() -> !ui.render(PAGE).isEmpty(), "page registered");
-        assertTrue(ui.render(PAGE).get(3).contains("Selected: Plum"), ui.render(PAGE).toString());
+        await(() -> ui.render(PAGE).size() > 3 && ui.render(PAGE).get(3).contains("Selected: Plum"),
+                "Selected: Plum, restored: " + ui.render(PAGE));
     }
 
     private boolean linked() {
-        for (mibsdk.platform.UiEntry e : table.snapshot().pages().get("mibsdk/plugin.hello-menu").entries()) {
+        mibsdk.platform.UiPage menu = table.snapshot().pages().get("mibsdk/plugin.hello-menu");
+        if (menu == null) {
+            return false;
+        }
+        for (mibsdk.platform.UiEntry e : menu.entries()) {
             if (e.kind() == mibsdk.platform.UiEntry.LINK && PAGE.equals(e.targetPageKey())) {
                 return true;
             }

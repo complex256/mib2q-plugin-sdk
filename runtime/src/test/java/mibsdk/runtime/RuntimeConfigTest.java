@@ -109,4 +109,18 @@ class RuntimeConfigTest {
                     "ui.enabled=" + c[0]);
         }
     }
+
+    /** Status line: 14 ("SAFE PDC R OFF") to 24 (popup 65's capacity); outside that, the default. */
+    @Test
+    void statusMaxCharsIsBoundedByTheMustShowIndicatorsAndThePopup() throws Exception {
+        String[][] cases = {{null, "24"}, {"20", "20"}, {"14", "14"}, {"13", "24"}, {"24", "24"}, {"25", "24"},
+                {"80", "24"}};
+        for (String[] c : cases) {
+            Files.write(new File(base, "sdk.properties").toPath(),
+                    (c[0] == null ? "" : "ui.status.max.chars=" + c[0] + "\n").getBytes("ISO-8859-1"));
+            assertEquals(Integer.parseInt(c[1]), RuntimeConfig.load(FakePlatform.roots(tmp)).uiStatusMaxChars(),
+                    "ui.status.max.chars=" + c[0]);
+        }
+        assertEquals(StatusLine.MAX_LINE_CHARS, UiHub.DEFAULT_STATUS_MAX_CHARS, "one constant");
+    }
 }

@@ -25,6 +25,7 @@ import mibsdk.api.Listener;
 import mibsdk.api.MibPlugin;
 import mibsdk.api.OverrideScope;
 import mibsdk.api.ParkingSoundChanged;
+import mibsdk.api.Permissions;
 import mibsdk.api.PluginContext;
 import mibsdk.api.Subscription;
 import mibsdk.platform.HookTable;
@@ -202,6 +203,7 @@ public final class SdkRuntime {
     /** The boot guard was reset from the SDK page; takes effect at the next start. */
     private volatile boolean resetRequested;
     private final UserToggles toggles;
+    private final StatusPrefs statusPrefs;
     /** Set on the control thread once the initial plugin load ran; reload() is deferred until then. */
     private volatile boolean pluginsLoaded;
     private PluginScheduler timer; // posts to the control executor; guarded by this
@@ -215,6 +217,8 @@ public final class SdkRuntime {
     // ---- the last SDK UI pushed to the hub; control thread only ----
     private List<UiPage> lastSdkPages;
     private List<String> lastIndicators;
+    private List<String> lastStatusOrder; // control thread
+    private Set<String> lastStatusHidden; // control thread
     private String lastPluginsLabel;
     private boolean overflowLogged;
 
@@ -324,6 +328,7 @@ public final class SdkRuntime {
                 log);
         this.storageQuota = new StorageQuota(cfg.dataDir(), cfg.storagePluginMaxBytes(), cfg.storageTotalMaxBytes());
         this.toggles = new UserToggles(cfg.userTogglesFile(), log);
+        this.statusPrefs = new StatusPrefs(cfg.statusPrefsFile(), log);
     }
 
     /**
@@ -906,6 +911,7 @@ public final class SdkRuntime {
         purgeSnapshots(); // stale copies from a previous run
         restoreStaleOverrides();
         toggles.refresh(); // mibsdk-dev may have edited the user's choices since the last read
+        statusPrefs.refresh(installedIds());
         File[] files = pluginJars();
         List pending = new ArrayList(); // PluginHost, DISCOVERED
         for (int i = 0; i < files.length; i++) {
@@ -973,6 +979,7 @@ public final class SdkRuntime {
     private void listPluginsInSafeMode() {
         grants = Grants.load(cfg.grantsFile());
         toggles.refresh();
+        statusPrefs.refresh(installedIds());
         File[] files = pluginJars();
         for (int i = 0; i < files.length && !isStopped(); i++) {
             PluginHost h = discover(files[i]);
@@ -1232,6 +1239,7 @@ public final class SdkRuntime {
         }
         grants = Grants.load(cfg.grantsFile());
         toggles.refresh();
+        statusPrefs.refresh(installedIds());
         PluginHost old = findHost(id);
         if (old != null) {
             disableHost(old, PluginState.DISABLED, "reloading", true, false); // no notice flash during a reload
@@ -1480,6 +1488,15 @@ public final class SdkRuntime {
                 resetRequested = true;
                 log.append("INFO", SOURCE, "boot guard reset from the SDK page: takes effect at the next start");
             }
+        } else if (a.kind == PluginsMenu.Action.Kind.STATUS_SHOW || a.kind == PluginsMenu.Action.Kind.STATUS_HIDE) {
+            boolean hide = a.kind == PluginsMenu.Action.Kind.STATUS_HIDE;
+            statusPrefs.setHidden(a.id, hide);
+            log.append("INFO", SOURCE, "Plugins menu: " + a.id + " status item " + (hide ? "hidden" : "shown"));
+        } else if (a.kind == PluginsMenu.Action.Kind.STATUS_EARLIER || a.kind == PluginsMenu.Action.Kind.STATUS_LATER) {
+            boolean earlier = a.kind == PluginsMenu.Action.Kind.STATUS_EARLIER;
+            statusPrefs.move(a.id, earlier ? -1 : 1, statusEligible(statuses(), uiHub));
+            log.append("INFO", SOURCE, "Plugins menu: " + a.id + " status item moved " + (earlier ? "earlier" : "later")
+                    + ", order now " + statusPrefs.order());
         } else if (a.kind == PluginsMenu.Action.Kind.ENABLE || a.kind == PluginsMenu.Action.Kind.DISABLE) {
             boolean off = a.kind == PluginsMenu.Action.Kind.DISABLE;
             toggles.setOff(a.id, off);
@@ -1536,6 +1553,54 @@ public final class SdkRuntime {
         }
     }
 
+    /** The ids of the plugin jars installed now ({@code <id>.jar}). */
+    private Set<String> installedIds() {
+        Set<String> out = new HashSet<String>();
+        File[] files = pluginJars();
+        for (int i = 0; i < files.length; i++) {
+            String name = files[i].getName();
+            if (name.endsWith(".jar")) {
+                out.add(name.substring(0, name.length() - ".jar".length()));
+            }
+        }
+        return out;
+    }
+
+    /** Every host's manifest (absent for an unreadable plugin.json), by plugin id. */
+    private Map<String, PluginManifest> manifestsById() {
+        Map<String, PluginManifest> manifests = new HashMap<String, PluginManifest>();
+        synchronized (this) {
+            for (int i = 0; i < hosts.size(); i++) {
+                PluginHost h = (PluginHost) hosts.get(i);
+                if (h.manifest != null) {
+                    manifests.put(h.id, h.manifest);
+                }
+            }
+        }
+        return manifests;
+    }
+
+    /**
+     * The plugins whose page gets the status-item rows: those that declare and were granted
+     * {@code ui.slot.statusbar}, and any that has an item now.
+     */
+    private Set<String> statusEligible(List<PluginStatus> st, UiHub hub) {
+        Set<String> withItem = hub == null ? new HashSet<String>() : hub.statusOwners();
+        Map<String, PluginManifest> manifests = manifestsById();
+        Grants g = grants;
+        Set<String> out = new HashSet<String>();
+        for (int i = 0; i < st.size(); i++) {
+            String id = st.get(i).id();
+            PluginManifest m = manifests.get(id);
+            boolean permitted = m != null && m.permissions().contains(Permissions.UI_SLOT_STATUS_BAR)
+                    && g.granted(id).contains(Permissions.UI_SLOT_STATUS_BAR);
+            if (permitted || withItem.contains(id)) {
+                out.add(id);
+            }
+        }
+        return out;
+    }
+
     /** Queues one {@link #refreshUi} on the control thread; a queued one absorbs this request. */
     private void requestUiRefresh() {
         SerialExecutor c;
@@ -1561,15 +1626,7 @@ public final class SdkRuntime {
         }
         try {
             List<PluginStatus> st = statuses();
-            Map<String, PluginManifest> manifests = new HashMap<String, PluginManifest>();
-            synchronized (this) {
-                for (int i = 0; i < hosts.size(); i++) {
-                    PluginHost h = (PluginHost) hosts.get(i);
-                    if (h.manifest != null) {
-                        manifests.put(h.id, h.manifest);
-                    }
-                }
-            }
+            Map<String, PluginManifest> manifests = manifestsById();
             Map<String, List<String>> pageKeys = new HashMap<String, List<String>>();
             Map<String, String> titles = new HashMap<String, String>();
             for (int i = 0; i < st.size(); i++) {
@@ -1591,12 +1648,21 @@ public final class SdkRuntime {
                 log.append("WARN", SOURCE, st.size() + " plugins installed: the Plugins page lists the first "
                         + (st.size() - hidden) + " (+" + hidden + " more)");
             }
-            List<UiPage> pages = PluginsMenu.pages(st, manifests, pageKeys, titles, toggles.offIds(), s, grants);
+            List<String> statusOrder = statusPrefs.order();
+            Set<String> statusHidden = statusPrefs.hiddenIds();
+            PluginsMenu.StatusChoices sc = new PluginsMenu.StatusChoices(
+                    StatusLine.order(statusOrder, statusEligible(st, hub)), statusHidden);
+            List<UiPage> pages = PluginsMenu.pages(st, manifests, pageKeys, titles, toggles.offIds(), s, grants, sc);
             List<String> indicators = StatusLine.indicators(s);
             String label = safeMode ? PLUGINS_LABEL_SAFE : PLUGINS_LABEL;
             if (!PluginsMenu.samePages(pages, lastSdkPages)) {
                 lastSdkPages = pages;
                 hub.setSdkPages(pages);
+            }
+            if (!statusOrder.equals(lastStatusOrder) || !statusHidden.equals(lastStatusHidden)) {
+                lastStatusOrder = statusOrder;
+                lastStatusHidden = statusHidden;
+                hub.setStatusPrefs(statusOrder, statusHidden);
             }
             if (!indicators.equals(lastIndicators)) {
                 lastIndicators = indicators;

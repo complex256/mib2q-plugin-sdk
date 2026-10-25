@@ -192,3 +192,109 @@ followed, and then the reinstall. Not observed separately: popup 65 hidden after
   the next reset (`tailscale.sh start` brings them back). The status line reads `TS dn MQ dn`.
 - `/mnt/app` is mounted read-only. kl15 is active. The unit is on its home screen with drive select on Dynamic
   (`ui-29`).
+
+## Status line on the bench
+
+Run 2026-10-24 on the bench (10.20.0.23, same HMI), for `feat/status-line` (447ce0d) and mibpkg
+`feat/statusline-cleanup` (620b00f). Frames: `docs/bench-e2e/ui-status-*.jpg` (popup 65 is the text at the top
+right of each frame).
+
+**Overall: pass. No defects found; two cosmetic notes (S1, S2). Three HMI restarts. The first came back on its
+own after about 1.5 minutes. The second and third each needed one `keypanel up` (about 10 and 6 minutes).**
+
+| # | Finding | Status |
+|---|---------|--------|
+| S1 | "Move status item earlier" on the item that is already first logs `status item moved earlier, order now [...]` with an unchanged order. `StatusPrefs.move` returns false and does nothing, but `SdkRuntime` logs without checking the result. | recorded (log wording only) |
+| S2 | After `mibsdk-dev remove statustest`, the Plugins list still showed `Status Test: Off >` until the menu was rebuilt (P3-F11, unchanged by this branch). | recorded (known) |
+
+### Builds and deploys
+
+- **mibpkg `0.8.1+bench.1`** (package version only; the binary is 0.8.1 at 620b00f): `scripts/build.sh` (QNX
+  cross-build in `qnx65-armv7-toolchain:8.5-rust`, Docker Desktop context), `scripts/bundle.sh`, then
+  `out/stage/mibpkg` was rebuilt as a package with the version `0.8.1+bench.1` in the staged manifest (the repo
+  version stays 0.8.1). `install-file mibpkg` → `updated mibpkg 0.8.1 -> 0.8.1+bench.1; mibpkg restarts itself`.
+  The new supervisor was up within 15 s.
+- **mibsdk `0.1.0+bench.2`** from 447ce0d: `./gradlew :dist:mibpkgPackage -Pmibsdk.version=0.1.0+bench.2
+  -Pmibsdk.mibpkg=<host mibpkg from 620b00f>`. Then `mibsdk-dev install`: `updated mibsdk 0.1.0+bench.1 ->
+  0.1.0+bench.2`. On the unit the runtime jar is 236457 bytes (`dist/build/dist`).
+- **Throwaway plugin `statustest` 0.0.1** (never committed, removed at the end): `ui.slot.statusbar`, a single
+  fixed item `LONGITEM-ABCDEFGHIJKLMN` (23 chars). Installed with `mibsdk-dev install-plugin
+  --approve=ui.slot.statusbar`.
+- `crashy` mode `ui-throw` (`data/crashy.properties`) gave a third item, `C<n>` (rewritten in bursts, 2–4 chars).
+  `daemon-status` showed `TS ? MQ ?`, later `TS ? MQ dn`. tailscale was not started after the resets, and carmqtt's
+  endpoint came up after its 5-minute tailnet wait.
+
+Each expected line below was computed on the host with `StatusLine.compose` (the branch's runtime classes,
+`MAX_LINE_CHARS` 24) for the texts seen in the frame. Each one matched the frame character for character.
+
+### Fair share with three items (pass)
+
+After restart 1, the log showed `runtime started … safeMode=false` and all six plugins `ENABLED`. The default order is
+by plugin id: crashy, daemon-status, statustest.
+
+| Frame | Texts | Expected = on screen |
+|-------|-------|----------------------|
+| `ui-status-01` | `C281`, `TS ? MQ ?`, `LONGITEM-ABCDEFGHIJKLMN` | `C281 TS ? MQ ? LONGIT...` |
+
+The short items keep their full text, and the long one gets the rest of the line, cut with `...`. None is pushed
+off. Before this branch, the long item placed first would have taken the whole line.
+
+### Plugins menu rows: toggle and move (pass)
+
+Plugins › Status Test shows `[on] Status item (4 of 4)`, `Move status item earlier` and `Move status item later`
+(`ui-status-02`). All four eligible plugins count: bike-rack, crashy, daemon-status and statustest (bike-rack has
+no item now). The rows are reachable with the knob. Each frame below was captured 1.8 s after the press.
+
+| Step | Row | Status line | `statusline.properties` | Frame |
+|------|-----|-------------|-------------------------|-------|
+| hide | `[off] Status item (4 of 4)` | `C212 TS ? MQ ?` (item gone) | `statustest.hidden=true` | `ui-status-03` |
+| show | `[on] … (4 of 4)` | `C462 TS ? MQ ? LONGIT...` | empty | `ui-status-04` |
+| earlier | `(3 of 4)` | `C237 LONGIT... TS ? MQ ?` | `order=bike-rack,crashy,statustest,daemon-status` | `ui-status-05` |
+| earlier | `(2 of 4)` | `LONGIT... C608 TS ? MQ ?` | `order=bike-rack,statustest,crashy,daemon-status` | `ui-status-06` |
+| later | `(3 of 4)` | `C399 LONGIT... TS ? MQ ?` | `order=bike-rack,crashy,statustest,daemon-status` | `ui-status-07` |
+| earlier ×2 | `(1 of 4)` | `LONGIT... C800 TS ? MQ ?` | `order=statustest,bike-rack,crashy,daemon-status` | `ui-status-08` |
+| earlier (already first) | `(1 of 4)` | unchanged | unchanged (S1) | — |
+| hide | `[off] Status item (1 of 4)` | `C1 TS ? MQ ?` | `order=statustest,…` + `statustest.hidden=true` | `ui-status-09` |
+
+Each press logged `INFO mibsdk Plugins menu: statustest status item hidden|shown|moved …`. statustest stayed
+`ENABLED` throughout.
+
+### Persistence and safe mode (pass)
+
+- `mibsdk-dev safe-mode on` + restart 2. The log had `WARN mibsdk safeMode=true reason=marker` and every plugin
+  `DISABLED safe mode: not loaded`. Popup 65 reads `SAFE` alone (`ui-status-10`). No plugin runs in safe mode, so
+  no item can show next to `SAFE`. SAFE with items is covered by the host composition
+  (`SAFE C462 TS ? MQ ?`). The file kept both lines. Plugins › Status Test shows `Safe mode: changes apply after it
+  ends` and `[off] Status item (1 of 4)` (`ui-status-11`), so the hidden flag and the order are both read back
+  after the restart.
+- `mibsdk-dev safe-mode off` + restart 3: normal boot, all six plugins `ENABLED`. Popup 65 shows `C837 TS ? MQ dn`
+  with statustest still hidden (`ui-status-12`). After `[on]`, it reads `LONGIT... C411 TS ? M...`, with statustest
+  first as saved (`ui-status-13`; expected `LONGIT... C411 TS ? M...`).
+
+### mibpkg remove and reinstall in one boot (pass)
+
+With statustest hidden and first in `order=` again, `mibsdk-dev remove statustest` printed:
+
+```
+stopping statustest and removing its files
+removed statustest: plugins/statustest.jar and its grants line and its status-line settings; reload requested
+statustest has no overrides in the ledger
+```
+
+`sed -n 1,20p /mnt/persist/mibsdk/statusline.properties` then printed `order=bike-rack,crashy,daemon-status` only
+(no `statustest.hidden`, and statustest is gone from `order=`). Popup 65 showed `C3 TS ? MQ dn` (`ui-status-14`).
+`install-plugin` of the same package (same boot) gave `loaded: ENABLED enabled`, and the file did not change. The
+item came back visible in the default place, last by id: `C42 TS ? MQ dn LONGIT...` (`ui-status-15`; expected
+the same). A second `remove` at the end printed no "status-line settings" clause, because there was nothing to
+drop.
+
+### Bench state at the end
+
+- mibpkg `0.8.1+bench.1` (620b00f) supervises. `mibsdk` is `0.1.0+bench.2`, built from `feat/status-line` 447ce0d.
+- `hello`, `bike-rack`, `crashy` 1.1.0 (mode empty, idle; reloaded through Plugins › Crashy › Enabled off/on),
+  `hello-menu` and `daemon-status` are installed and ENABLED with the brief's grants. `statustest` is removed (not
+  in `mibpkg list` or `grants.properties`). `carmqtt` 0.2.2 is unchanged.
+- Safe mode is off (no `SAFE_MODE`). `boot.state` has `unhealthyBoots=0` and `wrapBoots=0`.
+  `statusline.properties` holds `order=bike-rack,crashy,daemon-status`, which is the same as the default id order.
+- The unit is on its home screen (drive select). Popup 65 reads `TS ? MQ dn` (`ui-status-16`). tailscale was not
+  restarted after the resets.

@@ -12,7 +12,10 @@ import mibsdk.platform.UiText;
  */
 final class Popup65StatusLine implements StatusLineSink {
 
-    /** The shortest length kept; the runtime's {@code ui.status.max.chars} floor (one char plus "..."). */
+    /**
+     * The shortest length kept (one char plus "..."): only a guard for a direct caller. The runtime never passes less
+     * than its own floor, {@code StatusLine.MIN_LINE_CHARS} (14, the length of {@code "SAFE PDC R OFF"}).
+     */
     static final int MIN_CHARS = 4;
 
     private final Object frameworkAccess;

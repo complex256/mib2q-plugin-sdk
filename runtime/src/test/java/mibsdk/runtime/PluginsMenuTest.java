@@ -335,4 +335,58 @@ class PluginsMenuTest {
                 "mibsdk/plugin.a");
         assertEquals(Arrays.asList("Rack status", "cfg"), labels(a, UiEntry.LINK), "title, else the page id");
     }
+
+    // ---- status item controls ----
+
+    private static List<String> lines(UiPage p) {
+        List<String> out = new ArrayList<String>();
+        for (UiEntry e : p.entries()) {
+            out.add(mibsdk.platform.UiPageText.line(e));
+        }
+        return out;
+    }
+
+    private static List<UiPage> withStatus(List<PluginStatus> st, List<String> eligible, Set<String> hidden)
+            throws IOException {
+        return PluginsMenu.pages(st, null, null, null, Collections.<String>emptySet(), NORMAL, null,
+                new PluginsMenu.StatusChoices(eligible, hidden));
+    }
+
+    @Test
+    void statusRowsOnlyForPluginsThatCanShowAnItem() throws Exception {
+        List<PluginStatus> st = Arrays.asList(status("rack", PluginState.ENABLED, "enabled"),
+                status("plain", PluginState.ENABLED, "enabled"), status("ts", PluginState.ENABLED, "enabled"));
+        List<UiPage> p = withStatus(st, Arrays.asList("ts", "rack"), Collections.singleton("rack"));
+        assertEquals(Arrays.asList("[on] Enabled", "[off] Status item (2 of 2)", "Move status item earlier",
+                "Move status item later"), lines(page(p, "mibsdk/plugin.rack")));
+        assertEquals(Arrays.asList("[on] Enabled", "[on] Status item (1 of 2)", "Move status item earlier",
+                "Move status item later"), lines(page(p, "mibsdk/plugin.ts")));
+        assertEquals(Arrays.asList("[on] Enabled"), lines(page(p, "mibsdk/plugin.plain")), "no item, no permission");
+
+        List<UiPage> alone = withStatus(st, Arrays.asList("ts"), Collections.<String>emptySet());
+        assertEquals(Arrays.asList("[on] Enabled", "[on] Status item"), lines(page(alone, "mibsdk/plugin.ts")),
+                "nothing to reorder with one item");
+        assertEquals(Arrays.asList("[on] Enabled"), lines(page(pages(st, null, null, NORMAL, null),
+                "mibsdk/plugin.ts")), "no status choices given: no rows");
+    }
+
+    @Test
+    void statusInputMapsToStatusActions() {
+        PluginsMenu.Action hide = PluginsMenu.handle(new UiInput(UiInput.TOGGLE_REQUESTED, "mibsdk/plugin.rack",
+                "status", false));
+        assertEquals(PluginsMenu.Action.Kind.STATUS_HIDE, hide.kind);
+        assertEquals("rack", hide.id);
+        assertEquals(PluginsMenu.Action.Kind.STATUS_SHOW, PluginsMenu.handle(new UiInput(UiInput.TOGGLE_REQUESTED,
+                "mibsdk/plugin.rack", "status", true)).kind);
+        PluginsMenu.Action earlier = PluginsMenu.handle(new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/plugin.rack",
+                "status.earlier", false));
+        assertEquals(PluginsMenu.Action.Kind.STATUS_EARLIER, earlier.kind);
+        assertEquals("rack", earlier.id);
+        assertEquals(PluginsMenu.Action.Kind.STATUS_LATER, PluginsMenu.handle(new UiInput(UiInput.ENTRY_SELECTED,
+                "mibsdk/plugin.rack", "status.later", false)).kind);
+        assertEquals(PluginsMenu.Action.Kind.NONE, PluginsMenu.handle(new UiInput(UiInput.ENTRY_SELECTED,
+                "mibsdk/plugin.Bad!", "status.later", false)).kind, "invalid id");
+        assertEquals(PluginsMenu.Action.Kind.NONE, PluginsMenu.handle(new UiInput(UiInput.ENTRY_SELECTED,
+                "mibsdk/sdk", "status.later", false)).kind, "only on a plugin page");
+    }
 }
