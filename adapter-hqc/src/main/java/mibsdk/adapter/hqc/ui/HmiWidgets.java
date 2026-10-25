@@ -13,8 +13,9 @@ import mibsdk.adapter.hqc.SdkGlobals;
  * <p>The status popup ({@link SdkStatusPopup#current}, once built) gets its cells' bounds when the layout's geometry
  * changed, the id bitmaps of each cell whose built-in icon changed (so a same-length swap of icons is drawn), and the
  * colour indices of each cell whose colour flag changed. After a colour change or a move it asks for one repaint
- * ({@link SdkStatusPopup#redraw}): no model write follows a colour change (bench C1), and setBounds only stores the
- * bounds, while the line is packed to the right edge (bench B9), so a text-length change moves every cell. A popup built later starts from
+ * ({@link SdkStatusPopup#redraw}): no model write follows a colour change (bench C1), and a move is only marked dirty
+ * (stock AbstractWidgetController.setBounds), while the line is packed to the right edge (bench B9), so a
+ * text-length change moves every cell. A popup built later starts from
  * {@link SdkStatusPopup#wanted} itself.
  *
  * <p>The main menu's Plugins row ({@code SdkGlobals.mainMenuRow}, read from SdkGlobals so no System factory class is
@@ -114,7 +115,8 @@ final class HmiWidgets {
             boolean repaint = false;
             if (!want.sameGeometry(last)) {
                 p.place(want);
-                repaint = true; // setBounds only stores the bounds; the label's model write may have painted already
+                repaint = true; // stock setBounds marks each moved widget dirty; this repaint paints them (the
+                                // label's model write may have painted before the move)
             }
             if (!want.sameIcons(last) && p.icons(want, last)) {
                 repaint = true; // a colour change writes no model, so nothing else repaints it (C1)

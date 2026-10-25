@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.IconRendererHigh;
+import de.esolutions.hmi.widgets.audi.evo.high.widgets.LabelRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.widgets.IconController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.LabelController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupController;
@@ -52,6 +53,7 @@ class SdkStatusPopupTest {
         labels = new LabelController[HqcUiIds.STATUS_CELLS + 1];
         for (int i = 0; i < labels.length; i++) {
             labels[i] = new LabelController();
+            labels[i].setRenderer(new LabelRendererHigh(labels[i]));
             p.add(labels[i]);
         }
         popup = new SdkStatusPopup(labels, ids, files, p);
@@ -100,6 +102,21 @@ class SdkStatusPopupTest {
             ids[i].setCompositesDirty(false);
             files[i].setCompositesDirty(false);
         }
+        for (int i = 0; i < labels.length; i++) {
+            labels[i].setCompositesDirty(false);
+        }
+    }
+
+    /** SAFE, then two file-icon items, the first with text {@code a}. */
+    private static StatusLayout withIndicator(String a) {
+        String root = HqcUiIds.INSTALL_ROOT + "/icons/hello/";
+        List<UiStatusPart> parts = new ArrayList<UiStatusPart>();
+        parts.add(new UiStatusPart("SAFE", null, true));
+        parts.add(new UiStatusPart(a, UiIcon.file("hello", root + "aaaa000000000000.png", "aaaa000000000000", 20, 20),
+                false));
+        parts.add(new UiStatusPart("B", UiIcon.file("hello", root + "bbbb000000000000.png", "bbbb000000000000", 20, 20),
+                false));
+        return StatusLayout.of(parts, null, null);
     }
 
     @Test
@@ -181,5 +198,27 @@ class SdkStatusPopupTest {
 
         applyAfter(layout("A", false, false), layout("A longer", true, false));
         assertEquals(1, repaints, "a move and a colour change in one job: one repaint");
+    }
+
+    /**
+     * The stock label and icon renderers draw (and take their new position) only when dirty. Every moved widget must
+     * be dirty after the job, so the one repaint draws it at its new x; unmoved widgets are left alone. Stock
+     * AbstractWidgetController.setBounds does the marking (the host widgets are the stock classes), so this guards
+     * that place() goes through it.
+     */
+    @Test
+    void movedWidgetsAreMarkedDirty() {
+        applyAfter(withIndicator("A"), withIndicator("A longer"));
+        assertEquals(1, repaints);
+        assertTrue(labels[0].getRenderer().areCompositesDirty(), "the SAFE indicator label moved");
+        assertTrue(labels[1].getRenderer().areCompositesDirty(), "the changed item's label moved");
+        assertTrue(ids[0].getRenderer().areCompositesDirty(), "the changed item's id icon moved");
+        assertTrue(files[0].getRenderer().areCompositesDirty(), "the changed item's file icon moved");
+        assertFalse(labels[2].getRenderer().areCompositesDirty(), "the last label stays at the right edge");
+        assertFalse(files[1].getRenderer().areCompositesDirty(), "the last item's icon did not move");
+        for (int i = 2; i < ids.length; i++) {
+            assertFalse(ids[i].getRenderer().areCompositesDirty(), "unused cell " + i);
+            assertFalse(labels[1 + i].getRenderer().areCompositesDirty(), "unused label " + (1 + i));
+        }
     }
 }
