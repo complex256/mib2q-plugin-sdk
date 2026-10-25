@@ -253,7 +253,8 @@ final class SdkCarModelBank extends CarModelBank {
 
     /**
      * The {@code mibsdk-ui} thread's handle on the status popup's models. A locator is set with
-     * {@code setResourceLocator(-1, path, 1)} and cleared with {@code (-1, "", 0)}.
+     * {@code setResourceLocator(-1, path, 0)} and cleared with {@code (-1, "", 0)}. Status 0, as spike C's
+     * {@code HMIResourceLocator(path)}: for status 1 IconRendererHigh draws the icon's bitmap 0 and never loads the URI.
      */
     private static final class StatusModels implements SdkPopupStatusLine.Models {
         private final ChoiceModel visible;
@@ -277,7 +278,7 @@ final class SdkCarModelBank extends CarModelBank {
                 if (path == null || path.length() == 0) {
                     files[i].setResourceLocator(-1, "", 0);
                 } else {
-                    files[i].setResourceLocator(-1, path, 1);
+                    files[i].setResourceLocator(-1, path, 0);
                 }
             }
         }

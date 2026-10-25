@@ -73,7 +73,7 @@ final class SdkStatusPopup {
             lr.setFonts(FontFactory.getFonts(10, terminal, fw)); // the System font popup 65's label uses
             l.setModelID(HqcUiIds.STATUS_LABEL_MODEL_0 + i);
             l.setColorIndices(new int[] {1, 0, 4, 0});
-            lr.setAlignment(3, 4);
+            lr.setAlignment(1, 4); // ALIGN_LEFT: the layout places each label from its left edge (3 is ALIGN_RIGHT)
             labels[i] = l;
         }
         for (int i = 0; i < cells; i++) {
@@ -165,13 +165,14 @@ final class SdkStatusPopup {
 
     /**
      * Sets the id icon of each cell whose built-in icon differs from {@code last}: its image id, or an empty array (no
-     * icon). HMIEvent.
+     * icon), and marks it for a redraw. HMIEvent.
      */
     void icons(StatusLayout l, StatusLayout last) {
         for (int i = 0; i < idIcons.length; i++) {
             int id = l.cell(i).stockIconId;
             if (id != last.cell(i).stockIconId) {
                 idIcons[i].setBitmaps(id >= 0 ? new int[] {id} : new int[0]);
+                idIcons[i].setCompositesDirty(true); // setBitmaps only stores the array: redraw it now, not at the next screen
             }
         }
     }

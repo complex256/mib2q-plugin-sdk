@@ -2,6 +2,7 @@ package mibsdk.adapter.hqc.ui;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -14,15 +15,22 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.DrawerController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.ContainerController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupStub;
+import de.esolutions.hmi.widgets.audi.evo.high.widgets.LabelRendererHigh;
+import de.esolutions.hmi.widgets.audi.evo.widgets.IconController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.LabelController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import java.util.ArrayList;
+import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.util.List;
 import mibsdk.adapter.hqc.SdkGlobals;
+import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiRow;
+import mibsdk.platform.UiStatusPart;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** Carried requirement 3: the SDK rows go in whole or not at all; the drawer is never left half-built. */
 class SdkCarScreenFactoryTest {
@@ -298,5 +306,61 @@ class SdkCarScreenFactoryTest {
         systemFonts(true); // a build would succeed now
         assertNull(ok.getPartialPopup(HqcUiIds.POPUP_SDK_STATUS, 0), "nor a later build to 2");
         assertEquals(-1, SdkGlobals.statusPopup);
+    }
+
+    @TempDir
+    java.io.File iconDir;
+
+    /**
+     * Bench R1 (Task 12): with {@code setAlignment(3, …)} (ALIGN_RIGHT in the stock {@code Alignment}) every cell's
+     * text ended at the popup's right padding, so the items were drawn on top of each other. The layout places each
+     * label from its left edge.
+     */
+    @Test
+    void popupLabelsAreLeftAligned() throws Exception {
+        systemFonts(true);
+        SdkCarScreenFactory f = new SdkCarScreenFactory(fw());
+        f.getPartialPopupStubs(0);
+        f.getPartialPopup(HqcUiIds.POPUP_SDK_STATUS, 0);
+        LabelController[] labels = (LabelController[]) popupField("labels");
+        assertEquals(HqcUiIds.STATUS_CELLS + 1, labels.length);
+        Field hAlign = LabelRendererHigh.class.getDeclaredField("hAlign");
+        hAlign.setAccessible(true);
+        for (int i = 0; i < labels.length; i++) {
+            assertEquals(1, hAlign.getInt(labels[i].getRenderer()), "label " + i + ": ALIGN_LEFT");
+        }
+    }
+
+    /**
+     * Bench R1 (Task 12): {@code setBitmaps} on a built popup's id icon only stores the array, so the new icon was
+     * drawn at the next screen change, not live. A changed cell's icon is marked dirty; an unchanged one is not.
+     */
+    @Test
+    void iconChangeOnABuiltPopupMarksTheIconDirty() throws Exception {
+        systemFonts(true);
+        SdkCarScreenFactory f = new SdkCarScreenFactory(fw());
+        f.getPartialPopupStubs(0);
+        f.getPartialPopup(HqcUiIds.POPUP_SDK_STATUS, 0);
+        IconController[] ids = (IconController[]) popupField("idIcons");
+        for (IconController i : ids) {
+            i.setCompositesDirty(false); // as after the first paint
+        }
+        List<UiStatusPart> parts = new ArrayList<UiStatusPart>();
+        parts.add(new UiStatusPart("TS up", UiIcon.stock("dot"), false));
+        StatusLayout l = StatusLayout.of(parts, new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST),
+                StatusLayoutTest.builtins(iconDir));
+        SdkStatusPopup.current.icons(l, StatusLayout.EMPTY);
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST}, ids[0].getBitmapIndices());
+        assertTrue(ids[0].getRenderer().areCompositesDirty(), "the changed icon is redrawn");
+        assertFalse(ids[1].getRenderer().areCompositesDirty(), "an unchanged cell is left alone");
+        ids[0].setCompositesDirty(false);
+        SdkStatusPopup.current.icons(StatusLayout.EMPTY, l);
+        assertTrue(ids[0].getRenderer().areCompositesDirty(), "a removed icon is redrawn too");
+    }
+
+    private static Object popupField(String name) throws Exception {
+        Field fd = SdkStatusPopup.class.getDeclaredField(name);
+        fd.setAccessible(true);
+        return fd.get(SdkStatusPopup.current);
     }
 }

@@ -240,7 +240,9 @@ class SdkCarActivatorTest {
                 rawModel(bank, HqcUiIds.STATUS_FILE_ICON_MODEL_1);
         m.fileIcon(0, "/i/a.png");
         assertEquals("/i/a.png", r0.getResourceLocator().getResourceURI());
-        assertEquals(1, r0.getResourceLocator().getStatus());
+        // Status 0, as spike C's HMIResourceLocator(path): IconRendererHigh draws bitmap 0 for a locator of status 1
+        // and never loads the URI (bench R1, Task 12: hello's PNG was not drawn).
+        assertEquals(0, r0.getResourceLocator().getStatus());
         m.fileIcon(0, null);
         assertEquals("", r0.getResourceLocator().getResourceURI());
         assertEquals(0, r0.getResourceLocator().getStatus());
