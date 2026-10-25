@@ -185,7 +185,7 @@ public final class UiApplier {
                     public int get() {
                         return SdkGlobals.statusPopup;
                     }
-                });
+                }, log);
         self[0] = new UiApplier(SdkGlobals.UI, rows, status, pages, poster, clock, log, SdkGlobals.ICON_IDS,
                 SdkGlobals.builtinIcons, new HmiWidgets());
         return self[0];
@@ -441,7 +441,8 @@ public final class UiApplier {
             status.show(parts, text);
             shownStatus = text;
             shownParts = partsKey;
-            shownSink = sink;
+            // after the show: a throwing SDK popup fails over to popup 65 inside it, and that is where the line is
+            shownSink = status instanceof StatusSinks ? ((StatusSinks) status).active() : 0;
             statusShownAt = now;
         }
     }
