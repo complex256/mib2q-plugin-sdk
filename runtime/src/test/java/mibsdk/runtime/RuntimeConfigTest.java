@@ -65,6 +65,7 @@ class RuntimeConfigTest {
         assertEquals(new File(persist, "boot.state"), c.bootStateFile());
         assertEquals(new File(persist, "ledger.properties"), c.ledgerFile());
         assertEquals(new File(persist, "data"), c.dataDir());
+        assertEquals(new File(new File(persist, "dev"), "ui.forcefail"), c.uiForceFailFile());
         // RAM
         assertEquals(new File(ram, "cache"), c.cacheDir());
     }

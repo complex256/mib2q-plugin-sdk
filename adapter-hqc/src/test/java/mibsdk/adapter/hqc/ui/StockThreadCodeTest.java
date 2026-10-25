@@ -23,7 +23,8 @@ class StockThreadCodeTest {
 
     private static final String[] STOCK_THREAD_FILES = {"SdkCarActivator", "SdkCarModelBank", "SdkCarScreenFactory",
         "TextIds", "UiInputs", "DrawerAssignment", "HmiPoster", "PageEvents", "PageRenderer", "PageScreens",
-        "PageWidgets", "IconIds", "HmiWidgets", "HmiWidgetState", "StatusLayout", "SdkStatusPopup"};
+        "PageWidgets", "IconIds", "HmiWidgets", "HmiWidgetState", "StatusLayout", "SdkStatusPopup",
+        "SdkSystemActivator", "SdkSystemScreenFactory", "MainMenuKeyHandler", "MainMenuWrench"};
 
     private static final Pattern FORBIDDEN = Pattern.compile("java\\.io\\.|java\\.nio\\.|java\\.net\\.|\\bnew Thread\\b"
             + "|\\bThread\\.sleep\\b|\\.start\\(\\)|\\.join\\(|\\.wait\\(|\\bnew Timer\\b|System\\.(out|err)"
@@ -78,14 +79,25 @@ class StockThreadCodeTest {
             {"PageWidgets", "void keyPressed"},
             {"PageWidgets", "void keyReleased"},
             {"SdkCarModelBank", "void createPageList"},
+            {"SdkSystemActivator", "AbstractScreenFactory getScreenFactory"},
+            {"SdkSystemScreenFactory", "Screen createScreen"},
+            {"SdkSystemScreenFactory", "Screen withPluginsRow"},
+            {"SdkSystemScreenFactory", "String getText"}, // both overloads: getText(int), getText(int, int)
+            {"SdkSystemScreenFactory", "String getAltText"},
+            {"MainMenuKeyHandler", "void keyPressed"},
+            {"MainMenuWrench", "boolean apply"},
         };
         for (String[] o : overrides) {
             String src = source(o[0]);
             int at = src.indexOf(" " + o[1] + "(");
             assertTrue(at >= 0, o[0] + "." + o[1]);
-            int next = src.indexOf("\n    }", at); // end of the method (4-space indented class member)
-            String body = src.substring(at, next < 0 ? src.length() : next);
-            assertTrue(body.contains("catch (Throwable"), o[0] + "." + o[1] + " must catch Throwable");
+            // A name with its return type ("String getText") only matches declarations: check every overload.
+            while (at >= 0) {
+                int next = src.indexOf("\n    }", at); // end of the method (4-space indented class member)
+                String body = src.substring(at, next < 0 ? src.length() : next);
+                assertTrue(body.contains("catch (Throwable"), o[0] + "." + o[1] + " must catch Throwable");
+                at = o[1].indexOf(' ') < 0 ? -1 : src.indexOf(" " + o[1] + "(", at + 1);
+            }
         }
     }
 }

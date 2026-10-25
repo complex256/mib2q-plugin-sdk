@@ -135,6 +135,24 @@ public final class HqcUiIds {
     /** The SDK install root on the unit: image paths are computed from it (its sibling {@code images} is ImageRoot). */
     public static final String INSTALL_ROOT = "/mnt/app/eso/hmi/lsd/mibsdk";
 
+    /**
+     * The {@code HMISystem=} takeover (spike C, Boot B C1/C2 and the wrench): the System HMI module, its main-menu
+     * wizard screen (the MENU ring, {@code SystemScreenBag2.mAINWIZARD}) and the SDK's Plugins row in it.
+     */
+    public static final int SYSTEM_MODULE = 0;
+    public static final int SYS_SCREEN_MAINWIZARD = 46;
+    /** The Plugins row's text id (System module), served by the SDK System factory's {@code getText}. */
+    public static final int SYS_TEXT_PLUGINS = 90000;
+    /** The row's widgetID: a free one; its atlas entry (stock {11, 11}, night vision) is re-pointed to the wrench. */
+    public static final int MAIN_MENU_WIDGET_ID = 11;
+    /** The wrench: {@code mapping[MAIN_MENU_WIDGET_ID] := {WRENCH_ATLAS_CELL, WRENCH_DECORATOR}} (cell 16 is unused). */
+    public static final int WRENCH_ATLAS_CELL = 16;
+    public static final int WRENCH_DECORATOR = 9;
+    /** The row's menu-item internal id: none of screen 46's stock rows uses it. */
+    public static final int MAIN_MENU_INTERNAL_ID = 90100;
+    /** Hard key ENTER / knob SELECT (KeyEvent code), as the spike's wizard key handler consumed it. */
+    public static final int KEY_ENTER = 17;
+
     private HqcUiIds() {
     }
 }

@@ -86,6 +86,49 @@ public final class SdkGlobals {
      */
     public static volatile int statusPopup;
 
+    /**
+     * The {@code HMISystem=} takeover's main-menu Plugins row, {@link #mainMenu}. Transitions, all on stock threads:
+     * <ul>
+     * <li>{@code OFF} at load; it stays OFF when {@code SdkSystemActivator} gives the stock System factory (swdl, the
+     * UI off, the forced failure {@code factory}, the SDK factory failed to build), or when HMISystem= is stock.</li>
+     * <li>{@code OFF -> PENDING}: the activator chose the SDK factory; screen 46 has not been built yet.</li>
+     * <li>{@code PENDING -> ACTIVE}: screen 46 was built with the Plugins row ({@link #mainMenuRow} and
+     * {@link #mainMenuWizard} are set first). A rebuild keeps ACTIVE and moves both refs to the new screen.</li>
+     * <li>{@code PENDING or ACTIVE -> FAILED}: adding the row threw (or the forced failure {@code screen}); screen 46
+     * is stock and both refs are null (cleared before the state is written). FAILED is sticky for the boot.</li>
+     * </ul>
+     * The Car drawer shows its own Plugins row only while the state is OFF or FAILED ({@link #drawerPluginsRowWanted}).
+     */
+    public static final int MAIN_MENU_OFF = 0;
+    public static final int MAIN_MENU_PENDING = 1;
+    public static final int MAIN_MENU_ACTIVE = 2;
+    public static final int MAIN_MENU_FAILED = 3;
+
+    /** One of the {@code MAIN_MENU_*} states; written only by the System activator and factory. */
+    public static volatile int mainMenu = MAIN_MENU_OFF;
+
+    /**
+     * The main menu's Plugins row (a {@code MenuItemController}) and its {@code MainWizardController}, of the newest
+     * screen 46; null unless {@link #mainMenu} is ACTIVE. Typed Object, so Car-side code that reads them never loads a
+     * System factory class.
+     */
+    public static volatile Object mainMenuRow;
+    public static volatile Object mainMenuWizard;
+
+    /**
+     * The developer's forced failure for the System takeover, read by the configurator from
+     * {@code <persist>/dev/ui.forcefail}: null, {@code "factory"} (the activator's SDK factory throws) or
+     * {@code "screen"} (adding the Plugins row to screen 46 throws). Compare with {@code "factory".equals(..)}, never
+     * {@code ==}.
+     */
+    public static volatile String uiForceFail;
+
+    /** Whether the Car drawer should show its Plugins row: while the main-menu takeover is OFF or FAILED. */
+    public static boolean drawerPluginsRowWanted() {
+        int m = mainMenu;
+        return m == MAIN_MENU_OFF || m == MAIN_MENU_FAILED;
+    }
+
     private SdkGlobals() {
     }
 }

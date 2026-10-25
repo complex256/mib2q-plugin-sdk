@@ -177,6 +177,14 @@ public final class RuntimeConfig {
         return new File(roots.persist(), "statusline.properties");
     }
 
+    /**
+     * Persistent, developer only: the HMI System takeover's forced failure ({@code factory} or {@code screen} on the
+     * first line), read once by the configurator.
+     */
+    public File uiForceFailFile() {
+        return new File(new File(roots.persist(), "dev"), "ui.forcefail");
+    }
+
     /** Read-only: marker file that forces safe mode while it exists. */
     public File safeModeMarker() {
         return new File(roots.install(), "SAFE_MODE");
