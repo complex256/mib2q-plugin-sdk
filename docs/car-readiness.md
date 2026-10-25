@@ -44,5 +44,7 @@ below is closed. Plan 4 (car session, carplay-rgi migration) starts with these.
 
 The bench has no reverse camera and no PDC ECU (`docs/bench-e2e-ui.md`), so these wait for the car:
 
-- Popup 65 (the SDK status line) never covers the reverse-camera image or the PDC display.
+- Popup 609600 (the SDK status popup, x 514..769) never covers the reverse-camera image or the PDC display.
+- Popup 65 (the status line's text-only fallback, and its home in the boot window before 609600 takes over) never
+  covers the reverse-camera image or the PDC display, and neither popup does while the line moves from one to the other.
 - `PDC R OFF` shows on the status line while bike-rack's override is held and while it is restoring.

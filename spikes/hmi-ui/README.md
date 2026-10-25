@@ -40,6 +40,8 @@ Plan: `docs/research/2026-10-24-main-menu-and-icons.md` §8. `run.sh` now works 
 mibpkg (there is no `mibsdk/stock/` any more): it expects `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator` and the stock
 `HMISystem=` line, saves a byte copy of the live bundles file to `/mnt/persist/mibsdk-spike/bundles.before`, and
 `uninstall` writes that copy back (`cmp`-checked).
+After the main-menu feature (`2026-10-24-menu-and-icons`), `run.sh install` refuses by design on a unit with the SDK
+installed, because the SDK package now owns `HMISystem=` and the line is no longer stock.
 
 ```
 ./gradlew :spikes:hmi-ui:carJar && python3 -I spikes/hmi-ui/icons/make_icons.py

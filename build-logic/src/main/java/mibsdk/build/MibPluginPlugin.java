@@ -131,27 +131,33 @@ public class MibPluginPlugin implements Plugin<Project> {
         });
         project.getTasks().named("assemble").configure(t -> t.dependsOn(pluginJar));
 
-        // mibPackage: <id>-<version>.mpk from the checked jar and its stamp (mibpkg re-checks the stamp).
+        // mibPackage: <id>-<version>.mpk from the checked jar and its stamp (mibpkg re-checks the stamp), plus the
+        // declared icons as icons/<name>.png, checked again with PngCheck as they are staged.
         Provider<Directory> mibsdkDir = project.getLayout().getBuildDirectory().dir("mibsdk");
         Provider<File> stamp = mibsdkDir.zip(manifest, (d, m) -> new File(d.getAsFile(), m.id + ".jar.stamp"));
         Provider<Directory> stageDir = project.getLayout().getBuildDirectory().dir("mibpkg-stage");
         TaskProvider<Sync> stage = project.getTasks().register("mibPackageStage", Sync.class, t -> {
-            t.setDescription("Stages manifest.toml, the plugin jar and its check stamp for mibpkg.");
+            t.setDescription("Stages manifest.toml, the plugin jar, its check stamp and its icons for mibpkg.");
             t.from(pluginJar.flatMap(Jar::getArchiveFile));
             t.from(stamp);
             t.into(stageDir);
             t.dependsOn(pluginJar);
             t.getInputs().property("manifest", manifest.map(MpkStage::pluginManifest));
+            File iconsDir = project.file(ICONS);
+            t.getInputs().files(project.fileTree(iconsDir)).withPropertyName("icons")
+                    .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE);
             t.doFirst("require stamp", task -> {
                 if (!stamp.get().isFile()) {
                     throw new GradleException("mibsdk.plugin: " + stamp.get() + " is missing: a check did not run,"
                             + " so the plugin is not packaged");
                 }
             });
-            t.doLast("write manifest.toml", task -> {
+            t.doLast("write icons and manifest.toml", task -> {
+                PluginJson m = PluginJson.read(manifestFile);
+                MpkStage.stageIcons(m.icons, iconsDir, t.getDestinationDir());
                 try {
                     java.nio.file.Files.write(new File(t.getDestinationDir(), "manifest.toml").toPath(),
-                            MpkStage.pluginManifest(PluginJson.read(manifestFile)).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                            MpkStage.pluginManifest(m).getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 } catch (java.io.IOException e) {
                     throw new GradleException("mibsdk.plugin: cannot write manifest.toml: " + e, e);
                 }

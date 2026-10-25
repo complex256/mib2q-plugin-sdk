@@ -228,6 +228,28 @@ class MibPluginPluginFunctionalTest {
         for (String entry : new String[] {"manifest.toml", "hello.jar", "hello.jar.stamp"}) {
             assertTrue(listing.lines().anyMatch(l -> l.equals(entry) || l.equals("./" + entry)), entry + " in " + listing);
         }
+        assertFalse(listing.contains("icons/"), listing);
+    }
+
+    @Test
+    void mibPackageShipsDeclaredIconsThatTheHostMibpkgAccepts() throws Exception {
+        String mibpkg = System.getProperty("mibsdk.mibpkg", "");
+        org.junit.jupiter.api.Assumptions.assumeTrue(new File(mibpkg).canExecute(), "no host mibpkg: -Pmibsdk.mibpkg");
+        assertSucceeded(runner(":plugins:icons:mibPackage", "-Pmibsdk.mibpkg=" + mibpkg).build(),
+                ":plugins:icons:mibPackage");
+        File mpk = root.resolve("out/plugins_icons/mibsdk/icons-1.0.0.mpk").toFile();
+        Process tar = new ProcessBuilder("tar", "-xzOf", mpk.getPath(), "manifest.toml").redirectErrorStream(true).start();
+        String manifest = new String(tar.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, tar.waitFor(), manifest);
+        assertTrue(manifest.contains("\nicons = [\"row\", \"status\"]\n"), manifest);
+        for (String[] e : new String[][] {{"row", "ok-72.png"}, {"status", "ok-20.png"}}) {
+            Process x = new ProcessBuilder("tar", "-xzOf", mpk.getPath(), "icons/" + e[0] + ".png").start();
+            byte[] staged = x.getInputStream().readAllBytes();
+            assertEquals(0, x.waitFor(), e[0]);
+            try (InputStream in = MibPluginPluginFunctionalTest.class.getResourceAsStream("/png/" + e[1])) {
+                org.junit.jupiter.api.Assertions.assertArrayEquals(in.readAllBytes(), staged, e[0]);
+            }
+        }
     }
 
     @Test

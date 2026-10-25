@@ -4,13 +4,16 @@
 # A thin transport over the unit's mibpkg (/tmp/mibpkg, 0.8.0 or later): every change on the unit is a mibpkg verb,
 # and mibpkg owns every /mnt/app write. This tool only uploads files to /tmp (`ssh ... "cat > /tmp/<name>"`, read
 # back and compared: there is no scp) and passes mibpkg's output and exit code through (3: permissions to approve,
-# 2: bad usage, 1: failed or busy). Only log and restart talk to the unit directly.
+# 2: bad usage, 1: failed or busy). Only log, restart and ui-forcefail talk to the unit directly (ui-forcefail
+# writes a developer switch under /mnt/persist, which is read-write: no remount).
 # This tool never reads or prints the j9 command line (lsd.sh embeds the VIN and IMSI).
 set -euo pipefail
 
 DEFAULT_HOST="10.20.0.23"
 MIBPKG="/tmp/mibpkg"
 LOG="/tmp/mibsdk.log"
+FORCEFAIL_DIR="/mnt/persist/mibsdk/dev"
+FORCEFAIL="$FORCEFAIL_DIR/ui.forcefail"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST="${MIBSDK_DIST:-$HERE/../dist/build/dist}"
@@ -26,7 +29,7 @@ usage() {
   cat <<USAGE
 usage: mibsdk-dev <command> [args] [host]      (host defaults to $DEFAULT_HOST)
 
-Every command but log and restart runs a verb of the unit's mibpkg (0.8.0 or later; see the mibpkg README) and
+Every command but log, restart and ui-forcefail runs a verb of the unit's mibpkg (0.8.0 or later; see the mibpkg README) and
 exits with its status: 3 asks for permissions to be approved (the lines say which, ending in "approve with:").
 
   install                    install or update the SDK: uploads the single $DIST/mibsdk-*.mpk (or \$MIBSDK_MPK;
@@ -44,9 +47,15 @@ exits with its status: 3 asks for permissions to be approved (the lines say whic
   safe-mode on|off           mibpkg sdk safe-mode (off also resets boot.state)
   boot-state set-wrap <n>    mibpkg sdk boot-state set-wrap <n>
   data-clear <id>            mibpkg sdk data-clear <id> (restart afterwards to free the storage cap)
-  status                     mibpkg sdk status: the HMICar= line, the SDK, its plugins, the ledger, the STATUS lines
+  status                     mibpkg sdk status: the HMICar= and HMISystem= lines, the SDK, its plugins, the ledger,
+                             the STATUS lines
   log                        print $LOG
   restart                    restart the HMI (slay -s11 j9)
+  ui-forcefail factory|screen|off
+                             developer switch: write (or, with off, remove) $FORCEFAIL so the SDK's
+                             main-menu takeover fails on purpose (factory: the SDK factory throws; screen: adding the
+                             Plugins row to the MENU ring throws);
+                             read at boot, so restart afterwards
 
 Environment: MIBSDK_DIST overrides the dist directory (default dist/build/dist); MIBSDK_MPK names the SDK .mpk.
 USAGE
@@ -211,6 +220,18 @@ cmd_restart() {
   echo "HMI restart requested (slay -s11 j9)"
 }
 
+# cmd_ui_forcefail factory|screen|off: the value was validated by the caller.
+cmd_ui_forcefail() {
+  connect
+  if [ "$1" = off ]; then
+    rsh "rm -f $FORCEFAIL" </dev/null || die "cannot remove $FORCEFAIL on $HOST"
+    echo "ui.forcefail removed on $HOST; restart the HMI (mibsdk-dev restart) for it to take effect"
+  else
+    rsh "mkdir -p $FORCEFAIL_DIR && printf '%s\\n' $1 > $FORCEFAIL" </dev/null || die "cannot write $FORCEFAIL on $HOST"
+    echo "ui.forcefail=$1 written on $HOST; restart the HMI (mibsdk-dev restart) for it to take effect"
+  fi
+}
+
 # sdk_verb <verb> <arg>...: a mibpkg sdk verb, after the probe.
 sdk_verb() {
   connect
@@ -228,7 +249,7 @@ main() {
   local want flags=() args=() a
   case "$cmd" in
     install|restart|log|status|uninstall) want=0 ;;
-    install-plugin|push|safe-mode|data-clear|remove) want=1 ;;
+    install-plugin|push|safe-mode|data-clear|remove|ui-forcefail) want=1 ;;
     boot-state|grant) want=2 ;;
     *) usage >&2; usage_err "unknown command '$cmd'" ;;
   esac
@@ -285,6 +306,9 @@ main() {
       cat "$TMP/status.err" >&2 ;;
     log) cmd_log ;;
     restart) cmd_restart ;;
+    ui-forcefail)
+      case "${1:-}" in factory|screen|off) ;; *) usage_err "usage: mibsdk-dev ui-forcefail factory|screen|off [host]" ;; esac
+      cmd_ui_forcefail "$1" ;;
   esac
 }
 
