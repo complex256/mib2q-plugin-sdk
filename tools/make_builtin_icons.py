@@ -159,8 +159,14 @@ def render(w, h, inside, box=None):
     return px
 
 
+def reflect_height(h):
+    """The reflection's row count for an h-row icon, in integers (72 -> 68, 45 -> 43, 40 -> 38, 21 -> 20)."""
+    return (h * 68 + 36) // 72
+
+
 def reflection(px, h):
-    """The glyph flipped vertically and cut to its first h rows, alpha fading 40 % -> 0."""
+    """The RGBA image flipped vertically and cut to its first h rows (h = reflect_height of its height), alpha fading
+    40 % -> 0. build-logic's Reflection is the same recipe: (int) Math.rint(a * (0.4 * (1.0 - (double) i / (H - 1))))."""
     out = []
     for i, row in enumerate(px[::-1][:h]):
         f = 0.4 * (1 - i / (h - 1))
@@ -270,7 +276,7 @@ def builtin_icons():
     for name in sorted(GLYPHS):
         big = render(72, 72, GLYPHS[name])
         out[name + "-72.png"] = png(72, 72, big)
-        out[name + "-72r.png"] = png(72, 68, reflection(big, 68))
+        out[name + "-72r.png"] = png(72, reflect_height(72), reflection(big, reflect_height(72)))
         out[name + "-20.png"] = status(GLYPHS[name])
     return out
 
@@ -284,8 +290,61 @@ def plugin_sample():
 
 # --------------------------------------------------------------------------------------------------------- fixtures
 
+def _paeth(a, b, c):
+    p = a + b - c
+    pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+    return a if pa <= pb and pa <= pc else b if pb <= pc else c
+
+
+def filtered(rows, types, bpp=4):
+    """rows: raw scanlines (bytes, no filter byte); types: the filter type (0..4) of each row. Returns the filtered
+    scanlines, each led by its filter byte."""
+    out, prev = bytearray(), bytes(len(rows[0]))
+    for row, t in zip(rows, types):
+        line = bytearray()
+        for x, v in enumerate(row):
+            a = row[x - bpp] if x >= bpp else 0
+            b = prev[x]
+            c = prev[x - bpp] if x >= bpp else 0
+            pred = (0, a, b, (a + b) // 2, _paeth(a, b, c))[t]
+            line.append((v - pred) & 0xFF)
+        out += bytes([t]) + line
+        prev = row
+    return bytes(out)
+
+
+def reflect_vectors():
+    """Sources and their reflections (build-logic's Reflection must match them pixel for pixel): a coloured RGBA
+    48x45 glyph, and a grey + alpha 72x72 one (expanded to (g, g, g, a) before reflecting)."""
+    tri = render(48, 45, GLYPHS["triangle"])
+    rgba = [[((x * 5) % 256, (y * 5) % 256, (x * y) % 256, p[3]) for x, p in enumerate(row)]
+            for y, row in enumerate(tri)]
+    la = [[((64 + 2 * x) % 256, p[3]) for x, p in enumerate(row)] for row in render(72, 72, GLYPHS["plug"])]
+    la_rgba = [[(g, g, g, a) for (g, a) in row] for row in la]
+    return {"reflect-rgba-48x45.png": png(48, 45, rgba),
+            "reflect-rgba-48x45.r.png": png(48, reflect_height(45), reflection(rgba, reflect_height(45))),
+            "reflect-la-72.png": png(72, 72, la, ctype=4),
+            "reflect-la-72.r.png": png(72, reflect_height(72), reflection(la_rgba, reflect_height(72)))}
+
+
+def filter_vector():
+    """A 12x10 RGBA image whose rows use every filter type (row 0 is Paeth over the all-zero row before it), and its
+    raw pixels."""
+    w, h, seed, rows = 12, 10, 7, []
+    for _ in range(h):
+        row = bytearray()
+        for _ in range(w * 4):
+            seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF
+            row.append(seed >> 16 & 0xFF)
+        rows.append(bytes(row))
+    types = [(y * 3 + 4) % 5 for y in range(h)]
+    data = SIGNATURE + ihdr(w, h) + chunk(b"IDAT", deflate(filtered(rows, types))) + chunk(b"IEND", b"")
+    return {"filters-1234.png": data, "filters-1234.rgba": b"".join(rows)}
+
+
 def fixtures():
-    """The named vectors: two valid files, then one file per rule, each broken in exactly that rule."""
+    """The named vectors: two valid files, then one file per rule, each broken in exactly that rule; then the
+    reflection vectors and the filter-type vector (valid files, compared by decoded pixels)."""
     ok20 = png(20, 20, render(20, 20, GLYPHS["dot"]))
     grey = [[(255, a) for (_, _, _, a) in row] for row in render(72, 72, GLYPHS["star"])]
     ok72 = png(72, 72, grey, ctype=4)
@@ -330,6 +389,8 @@ def fixtures():
     # Every byte of the image is there, but the stream lacks its adler32, so it never finishes.
     f["zlib-unfinished.png"] = head + chunk(b"IDAT", stream[:-4]) + iend
     f["iend-trailing-byte.png"] = ok20 + b"\x00"
+    f.update(reflect_vectors())
+    f.update(filter_vector())
     return f
 
 

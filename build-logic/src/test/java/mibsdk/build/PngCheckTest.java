@@ -1,5 +1,6 @@
 package mibsdk.build;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -84,6 +85,26 @@ class PngCheckTest {
         String msg = assertThrows(IllegalArgumentException.class,
                 () -> PngCheck.check(fixture("ok-72.png"), 20)).getMessage();
         assertTrue(msg.contains("72x72"), msg);
+    }
+
+    @Test
+    void rgbaUnfiltersAllFiveTypes() throws Exception {
+        byte[] png = fixture("filters-1234.png");
+        PngCheck.Pixels p = PngCheck.rgba(png);
+        PngCheck.Info info = PngCheck.check(png, 72);
+        assertEquals(info.width, p.width);
+        assertEquals(info.height, p.height);
+        assertArrayEquals(fixture("filters-1234.rgba"), p.rgba);
+    }
+
+    @Test
+    void rgbaExpandsGreyAlpha() throws Exception {
+        PngCheck.Pixels p = PngCheck.rgba(fixture("ok-72.png"));
+        assertEquals(72 * 72 * 4, p.rgba.length);
+        for (int i = 0; i < p.rgba.length; i += 4) {
+            assertEquals(p.rgba[i], p.rgba[i + 1]);
+            assertEquals(p.rgba[i], p.rgba[i + 2]);
+        }
     }
 
     @Test

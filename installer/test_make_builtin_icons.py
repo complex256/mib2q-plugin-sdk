@@ -89,11 +89,15 @@ class MakeBuiltinIconsTest(unittest.TestCase):
             "rgb.png", "depth16.png", "interlaced.png", "apng.png", "73x20.png", "1x100000.png",
             "ihdr-not-first.png", "iend-not-last.png", "short-idat.png", "compression1.png", "filter1.png",
             "idat-bomb.png", "ihdr-twice.png", "idat-split.png", "row-filter5.png", "idat-trailing.png",
-            "zlib-unfinished.png", "iend-trailing-byte.png"]), sorted(os.listdir(FIXTURES)))
+            "zlib-unfinished.png", "iend-trailing-byte.png",
+            "reflect-rgba-48x45.png", "reflect-rgba-48x45.r.png", "reflect-la-72.png", "reflect-la-72.r.png",
+            "filters-1234.png", "filters-1234.rgba"]), sorted(os.listdir(FIXTURES)))
         self.assertEqual(32769, os.path.getsize(os.path.join(FIXTURES, "too-big.png")))
         bomb = open(os.path.join(FIXTURES, "idat-bomb.png"), "rb").read()
         self.assertLess(len(bomb), 32768)
         self.assertEqual(1 << 20, len(zlib.decompress(bomb[8 + 25 + 8:-12 - 4])))
+        for name, size in (("reflect-rgba-48x45.r.png", (48, 43)), ("reflect-la-72.r.png", (72, 68))):
+            self.assertEqual(size, decode(open(os.path.join(FIXTURES, name), "rb").read())[:2], name)
 
 
 def load_tool():

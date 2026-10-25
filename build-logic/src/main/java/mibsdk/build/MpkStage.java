@@ -88,9 +88,12 @@ public final class MpkStage {
     /**
      * Copies {@code <from>/<name>.png} to {@code <stage>/icons/<name>.png} for each name, after every one has passed
      * {@link PngCheck}: a missing or refused file fails the build and stages none of them. The bytes written are the
-     * bytes checked.
+     * bytes checked. With {@code reflect} (plugin packages; the SDK's set has its own {@code -72r}), every icon taller
+     * than 20 px also gets its {@link Reflection}, {@code icons/<name>.r.png}, checked by the same rules. The
+     * {@code .r} files are never declared: the manifest's {@code icons} stays the declared names.
      */
-    public static void stageIcons(List<String> names, File from, File stage) {
+    public static void stageIcons(List<String> names, File from, File stage, boolean reflect) {
+        List<String> files = new ArrayList<String>();
         List<byte[]> checked = new ArrayList<byte[]>();
         for (String name : names) {
             File png = new File(from, name + ".png");
@@ -100,12 +103,24 @@ public final class MpkStage {
             } catch (IOException e) {
                 throw new GradleException("mibpkg stage: cannot read icon " + png + ": " + e, e);
             }
+            PngCheck.Info info;
             try {
-                PngCheck.check(bytes, PngCheck.MAX_PX);
+                info = PngCheck.check(bytes, PngCheck.MAX_PX);
             } catch (IllegalArgumentException e) {
                 throw new GradleException("mibpkg stage: " + png + ": " + e.getMessage(), e);
             }
+            files.add(name + ".png");
             checked.add(bytes);
+            if (reflect && info.height > 20) {
+                byte[] r = Reflection.encode(Reflection.of(PngCheck.rgba(bytes)));
+                try {
+                    PngCheck.check(r, PngCheck.MAX_PX);
+                } catch (IllegalArgumentException e) {
+                    throw new GradleException("mibpkg stage: icon " + name + ".r: " + e.getMessage(), e);
+                }
+                files.add(name + ".r.png");
+                checked.add(r);
+            }
         }
         if (names.isEmpty()) {
             return;
@@ -113,8 +128,8 @@ public final class MpkStage {
         File dir = new File(stage, "icons");
         try {
             Files.createDirectories(dir.toPath());
-            for (int i = 0; i < names.size(); i++) {
-                Files.write(new File(dir, names.get(i) + ".png").toPath(), checked.get(i));
+            for (int i = 0; i < files.size(); i++) {
+                Files.write(new File(dir, files.get(i)).toPath(), checked.get(i));
             }
         } catch (IOException e) {
             throw new GradleException("mibpkg stage: cannot write " + dir + ": " + e, e);

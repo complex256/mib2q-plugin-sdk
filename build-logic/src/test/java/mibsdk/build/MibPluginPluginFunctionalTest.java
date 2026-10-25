@@ -268,6 +268,27 @@ class MibPluginPluginFunctionalTest {
     }
 
     @Test
+    void mibPackageContainsTheReflection() throws Exception {
+        String mibpkg = System.getProperty("mibsdk.mibpkg", "");
+        org.junit.jupiter.api.Assumptions.assumeTrue(new File(mibpkg).canExecute(), "no host mibpkg: -Pmibsdk.mibpkg");
+        assertSucceeded(runner(":plugins:icons:mibPackage", "-Pmibsdk.mibpkg=" + mibpkg).build(),
+                ":plugins:icons:mibPackage");
+        File mpk = root.resolve("out/plugins_icons/mibsdk/icons-1.0.0.mpk").toFile();
+        Process tar = new ProcessBuilder("tar", "-tzf", mpk.getPath()).redirectErrorStream(true).start();
+        String listing = new String(tar.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, tar.waitFor(), listing);
+        assertTrue(listing.lines().anyMatch(l -> l.endsWith("icons/row.r.png")), listing);
+        assertFalse(listing.contains("status.r.png"), listing);
+        Process x = new ProcessBuilder("tar", "-xzOf", mpk.getPath(), "icons/row.r.png").start();
+        byte[] staged = x.getInputStream().readAllBytes();
+        assertEquals(0, x.waitFor());
+        try (InputStream in = MibPluginPluginFunctionalTest.class.getResourceAsStream("/png/ok-72.png")) {
+            org.junit.jupiter.api.Assertions.assertArrayEquals(
+                    Reflection.encode(Reflection.of(PngCheck.rgba(in.readAllBytes()))), staged);
+        }
+    }
+
+    @Test
     void mibPackageWithoutAHostMibpkgFailsWithAHint() {
         BuildResult result = runner(":plugins:hello:mibPackage", "-Pmibsdk.mibpkg=/nonexistent/mibpkg").buildAndFail();
         assertTrue(result.getOutput().contains("host mibpkg not found: build it (cargo build --release in the mibpkg repo)"
