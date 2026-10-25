@@ -46,7 +46,7 @@ class MibPluginPluginFunctionalTest {
         repo = new File(System.getProperty("mibsdk.repoRoot")).getCanonicalFile();
         String r = repo.getPath().replace('\\', '/');
         write("settings.gradle.kts", "rootProject.name = \"tk\"\n"
-                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api4\", \"plugins:apifrac\")\n"
+                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api4\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\")\n"
                 + "project(\":compat\").projectDir = file(\"" + r + "/compat\")\n"
                 + "project(\":api\").projectDir = file(\"" + r + "/api\")\n"
                 + "project(\":plugins:hello\").projectDir = file(\"" + r + "/plugins/hello\")\n"
@@ -75,6 +75,22 @@ class MibPluginPluginFunctionalTest {
                     manifest(a[0], "sample.refl.ReflPlugin", "[]").replace("\"api\":1", "\"api\":" + a[1]));
         }
 
+        // Icons (api 3): a valid one, a refused one (a shared PNG vector), and one declared without its file.
+        for (String id : new String[] {"icons", "badicon", "noicon"}) {
+            javaPlugin(id, "sample.refl.ReflPlugin", "package sample.refl;\n"
+                    + "import mibsdk.api.*;\n"
+                    + "public class ReflPlugin extends MibPlugin {\n"
+                    + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
+                    + "}\n", "[]");
+            write("plugins/" + id + "/src/main/resources/plugin.json", manifest(id, "sample.refl.ReflPlugin", "[]")
+                    .replace("\"api\":1", "\"api\":3,\"icons\":[\"row\",\"status\"]"));
+        }
+        copyFixture("ok-72.png", "plugins/icons/src/main/icons/row.png");
+        copyFixture("ok-20.png", "plugins/icons/src/main/icons/status.png");
+        copyFixture("ok-72.png", "plugins/badicon/src/main/icons/row.png");
+        copyFixture("interlaced.png", "plugins/badicon/src/main/icons/status.png");
+        copyFixture("ok-72.png", "plugins/noicon/src/main/icons/row.png");
+
         write("plugins/kt/build.gradle.kts", "plugins {\n"
                 + "    id(\"org.jetbrains.kotlin.jvm\") version \"2.0.21\"\n"
                 + "    id(\"mibsdk.plugin\")\n"
@@ -102,6 +118,14 @@ class MibPluginPluginFunctionalTest {
     private static String manifest(String id, String main, String permissions) {
         return "{\"id\":\"" + id + "\",\"name\":\"" + id + "\",\"version\":\"1.0.0\",\"author\":\"complex256\","
                 + "\"api\":1,\"main\":\"" + main + "\",\"permissions\":" + permissions + ",\"dependencies\":[]}\n";
+    }
+
+    private static void copyFixture(String name, String rel) throws IOException {
+        Path p = root.resolve(rel);
+        Files.createDirectories(p.getParent());
+        try (InputStream in = MibPluginPluginFunctionalTest.class.getResourceAsStream("/png/" + name)) {
+            Files.write(p, in.readAllBytes());
+        }
     }
 
     private static void write(String rel, String text) throws IOException {
@@ -247,6 +271,19 @@ class MibPluginPluginFunctionalTest {
             String want = id.equals("apifrac") ? "api must be an integer" : "unsupported api";
             assertTrue(out.contains(want), id + ": " + out);
         }
+    }
+
+    @Test
+    void declaredIconsAreCheckedAtPluginBuild() throws Exception {
+        assertSucceeded(runner(":plugins:icons:mibPluginJar").build(), ":plugins:icons:mibPluginJar");
+
+        String bad = runner(":plugins:badicon:mibPluginJar").buildAndFail().getOutput();
+        assertTrue(bad.contains("status.png: icon PNG refused: interlace 1"), bad);
+        assertFalse(pluginJar("badicon", "badicon").exists());
+
+        String missing = runner(":plugins:noicon:mibPluginJar").buildAndFail().getOutput();
+        assertTrue(missing.contains("icon 'status' is declared in plugin.json but src/main/icons/status.png does not exist"),
+                missing);
     }
 
     @Test

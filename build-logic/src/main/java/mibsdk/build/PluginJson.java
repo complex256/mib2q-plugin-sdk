@@ -42,6 +42,11 @@ final class PluginJson {
     static final int ICONS_API = 3;
     static final int MAX_ICONS = 8;
 
+    /** An icon name: it names {@code src/main/icons/<name>.png} in a plugin and a file in the SDK's built-in set. */
+    static boolean isIconName(String s) {
+        return s.matches("[a-z0-9-]{1,32}");
+    }
+
     /**
      * Like the runtime, only an integral JSON number (no fraction, no exponent) is an api level. JsonSlurper gives
      * BigDecimal for {@code 2.0} or {@code 2e0}, Integer for a value that fits an int and Long beyond; its Long path
@@ -115,7 +120,7 @@ final class PluginJson {
             throw new GradleException("mibsdk.plugin: " + file + ": \"icons\" must be an array of icon names");
         }
         for (Object o : (List<?>) v) {
-            if (!(o instanceof String) || !((String) o).matches("[a-z0-9-]{1,32}")) {
+            if (!(o instanceof String) || !isIconName((String) o)) {
                 throw new GradleException("mibsdk.plugin: " + file + ": invalid icon name " + o
                         + ": must match [a-z0-9-]{1,32} (it names icons/<name>.png)");
             }
