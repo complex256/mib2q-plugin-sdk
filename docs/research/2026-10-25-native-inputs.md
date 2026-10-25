@@ -3,7 +3,7 @@
 Date: 2026-10-25. Scope: why spike B's checkbox cell drew nothing (S2c), the stock recipe for a working checkbox row,
 and a survey of every native input/list widget of this HMI that SDK pages could offer plugins (api 5). Build
 `HMI_AU_MIB2_HQC_NAR_G22_C10_180803`. Host-only, read-only survey of the decompiled HMI, this repo and carplay-rgi.
-Nothing new has run on a unit. Everything marked **[spike]** is settled by the bench check in §6.
+Sections 1-6 are host-only; everything marked **[spike]** there was settled by the bench check in §6, whose results are §7 (spike D, run on 2026-10-25).
 
 Sources (all outside this repo unless a repo path is given):
 - Decompiled stock HMI, `patching/lsd-src/lsd/` (cited for every number) and `patching/lsd_java/` (CFR). Paths below
@@ -292,3 +292,140 @@ Gate: D1 go → land §1.4 in the SDK and remove the text toggles. D2-D4 go → 
 icon cells in api 5. D5 combo go → `dropdown`. D6 go → `slider`; D6 no-go (no knob focus) → slider is display-only,
 or a hijack fallback. D7 go → `Ui.confirm`. D8 go → `Ui.toast`. D9 decides whether `Ui.speller` is api 5 or later.
 Leave the unit on its home screen.
+
+## 7. Spike D results
+
+Date: 2026-10-25. Bench MHI2Q, `HMI_AU_MIB2_HQC_NAR_G22_C10_180803`, mibsdk 0.2.0 installed by mibpkg 0.9.1 with the
+takeover active (`HMICar=`/`HMISystem=` are the SDK activators), 5 plugins ENABLED. Code: `spikes/hmi-ui` at commit
+`51e15f6` (README "Spike D"). Boot A only: `run.sh install --car-only` swapped `HMICar=` to
+`mibsdk.spike.ui.SpikeCarActivator` and kept `HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator` byte for byte (the
+live diff was that one line). The pre-spike bundles file (10238 bytes) is `/mnt/persist/mibsdk-spike/bundles.before-d`,
+`cmp`-equal on the host to a snapshot taken before anything changed. The MENU ring's Plugins row was not used.
+
+Log: `ui-spike-d-log.txt` (the whole `/tmp/mibsdk.log` of the spike boot; first number = ms since the runtime
+started). Frames: `ui-spike-d-*.jpg`, each polled twice from `/screen.jpg` 1-2 s after the input, plus two zoomed crops
+(`*-zoom.png`). The page was opened with the `page` command (from Car, screen 600044). A low-fuel dialog was up at boot
+and was answered "No" (`ui-spike-d-page-fuel-dialog.jpg`); it shows the boxes already drawn beneath it.
+
+Restarts: 2. Install 16:02:00; the unit answered again at 16:05:05 by itself (`keypanel up` run anyway: up). Revert
+16:14:54; the unit stayed off the network until `keypanel up` try 1 (16:22:46) kicked DHCP; ready 16:23:54.
+
+### 7.1 Verdicts
+
+| # | Widget | Verdict | Evidence |
+|---|---|---|---|
+| D1 | Checkbox cell (the §1 fix) | **go** | With `setRecordSetColumn(2)` all four checkbox rows draw a box, Checkbox 3 (cell 1) starts checked (`-page`). Select on Checkbox 1: checked, again: empty (`-cb1-focus`, `-cb1-on`, `-cb1-off`; `133906 page-toggle row=2 value=1`, `136906 … value=0`). A model write from the probe thread checks it with no input (`-cb1-sdk-set`; `149908 cmd cb-set row=2 value=1 model=true thread=mibsdk-spike-ui`). **Control:** the same page built without `setRecordSetColumn`/`setEnabledColumn` (`rs-off`) draws no boxes and no grey row, exactly spike B's S2c (`-rs-off`); back on, they return (`-rs-on`). The root cause of §1 is confirmed on the unit. |
+| D1 | Disabled row (`setEnabledColumn(3)`) | **partial** | "Checkbox off" (enabled 0) is drawn grey, label and box (`-page`, `-radio-a`). It **still takes focus and still delivers `itemSelected`**: select toggled it (`-cb-off-focus`, `-cb-off-select`; `165910 page-select row=5`, `page-toggle row=5 value=1`). The SDK must drop presses on disabled rows itself. |
+| D1 | Kind change on refresh | **go** | `kind-swap` wrote kind 1 into row 1's column 2 while the page was up: the row was rebuilt at once with a checkbox (`-kind-swap`; `575013 cmd kind-swap row=1 kind 0 -> 1`, then `items createListItem kind=1`). |
+| — | Multi-choice | **go** | Independent checkbox cells, one per option: Checkbox 1 and Checkbox 3 checked together, each toggling alone (`-cb1-on`, `-cb1-sdk-set`). Nothing beyond D1. |
+| D2 | Radio cell | **go** | Radio A (1) marked, B/C (0) empty; select on Radio C moves the mark to C (`-radio-a`, `-radio-c`; `185914 page-radio row=8 selected`). The SDK writes 1 to the picked row and 0 to the others; the cell is selected when its value equals its `widgetID` (default 1 for a list cell). |
+| — | Choice sub-page | **partial** | Not run as one screen. Its two parts are both go: radio cells (D2) and a second SDK prebuilt screen with its own BACK back to the page (D6, D7, D9 use exactly that path). Assembling them (a page with only radio rows, pick or BACK returns) needs no new mechanism, but has not been seen on the unit. |
+| D3 | Progress cell | **go** | Bar at 60 % (`-progress-60`), `prog-next` from the probe thread → 80 % at once (`-progress-80`; `207917 page-progress cmd 60 -> 80 thread=mibsdk-spike-ui`). Red fill in the Car colour. |
+| D4 | Value column | **go** | "English" right-aligned in a second label cell on column 4 of the "Language" row (`-value-col`). |
+| — | Icon cell | **go** (with a size rule) | Column 1 = bitmap index into `{609110, 609111, 609100}`, SDK ids served by `getImagePath` (`… getImagePath 609110 -> ../mibsdk-spike/icons/609110.png`, then 609111, 609100 when first shown). A model write changes the icon **live** (circle → triangle → plug, `-value-col`, `-icon-next`, `-icon-plug`; `page-icon row=11 index=1 bitmap=609111`). Unlike the drawer (spike C I3) no screen reconnect is needed. The cell does **not scale**: the 72×72 plug spills over the 30 px column and the label. List icons must be small PNGs (20-24 px, like `<name>-20`). |
+| D5 | Type-8 row | **go** | Draws label + box on ChoiceModel 602754 (`-row8-focus`); select checks it (`-row8-on`). Key order: exactly one `itemSelected value=1` (the checkbox's `CheckboxChoiceModelKeyHandler`, the other mapping value), then `ButtonListener.keyReleased key=0` from the row's `ButtonModelKeyHandler` (`widgetID -1`: no `ChoiceModelKeyHandler`). No double toggle (`234922`, `235922`). Not needed by the SDK (the cell does the same). |
+| D5 | Combo row (type 64) | **go** | "Combo level ▾ Off" (`-combo-focus`); select opens the dropdown Off/Low/Mid/High with the tick on Off (`-combo-open`); knob +2 → Mid (`-combo-mid-focus`); select → row shows "Mid" (`-combo-picked`). Log: `itemFocused value=0`, `itemFocused value=2`, `261925 choice 602755 value=2`, `itemFocused value=-1` (dropdown closed). |
+| D5 | Rotary row (type 128) | **go** (display) | Draws on the pooled RangeModel 602756 as a **small rotary-knob preview**, not a bar (`-row128`). It follows the model: after the slider edit its pointer sits at +3 (`-row128-zoom.png` vs `-row128-plus3-zoom.png`). Its own key handler (set before connect; `configureKeyHandler` keeps a non-null one) opens the slider screen (`279930 row128-press`). |
+| D6 | Slider edit screen | **go** | 609501 draws the big rotary with -6 / +6 (`-slider`). The `RotaryController` is focused and active at connect (`slider-rotary connected state=615 has36=true model=…RangeModel`), so no fallback was needed. Knob +3 → `RangeModelKeyHandler` → `288931 range 602756 increment n=3 -> 3`; the pointer moves 3 ticks (`-slider-plus3`). BACK (consumed by the screen) re-shows the page (`297932 slider-screen key press code=15`, `screen-back slider-back -> page`; `-slider-back`), and the Bass row shows +3 (`-row128-plus3`). |
+| D7 | Confirm screen | **go** (text: partial) | 609502 draws the title, the hint and two rows Yes/No (`-confirm`, `-confirm-no-focus`). No → `340954 confirm row=1 (No)` and the page again (`-confirm-no`); Yes → `361966 confirm row=0 (Yes)`; BACK → `354956 confirm-screen key press code=15`, `screen-back confirm-back` (`-confirm-back`). **The hint does not wrap**: one line ending in "…". `MultiLineLabelRendererHigh.autoWrap` is -1 by default, which only breaks on `'\n'`; stock code calls `setAutoWrap(0)` (88 calls in `de/audi/tghu`). Unverified on the unit. |
+| D8 | Toast (partial popup, timer) | **go** | `toast`: popup 609600 (slot 7) shows "Saved" with its icons top right, **beside** the SDK status line in popup 65 (`-toast` at +1.2 s, `-toast-2s` at +2.2 s), and the 3 s timer hides it (`-toast-gone`). Log: `401972 cmd toast 'Saved' shown, hide in 3000 ms (slot 7)`, `getPartialPopup 609600 built` (lazily, at the first show), `404972 toast hidden by timer`. |
+| D9 | Speller (stretch) | **partial** | 609503: a `TouchController` input field with an inline `SpellerController` on the SDK `SpellerModel` 602759 draws (`-speller`). Select opens the band inline (`openSpellerOnOtherScreen false`; `-speller-open`; `commandPressed command=4711`, `COMMAND_SPELLER_OPENED`). Each character reaches the listener (`textChanged text='B' char=66`, `text='BC' char=67`; the delete key `text='' char=8`) and shows in the field (`-speller-b-typed`, `-speller-typed`). ▼ closes the band: `commandPressed command=4712` (`COMMAND_SPELLER_CLOSED`) with `SpellerModel.getText()='BC'`: the GUI writes the text into the SDK model (`-speller-closed`). BACK returns to the page (`-speller-back`). **No OK:** the band ends with 123 / àöü / !&? and wraps (`-speller-band-end`), and the red exit button right of the field is not in the rotary ring. OK reaches the model as `keyTyped(0)` (`TouchController.okPressed`), which needs that exit button enabled from the model; not tried. |
+| end | Back to Car, revert | **go** | Page BACK re-shows Car, Audi drive select (`-back-to-car`; `615034 page-back mode=reshow … target=id=600044`). `run.sh uninstall` → host `cmp` identical; after the revert restart the SDK is back (`-end-home`, §7.4). |
+
+Other observations:
+- The B11/C5 rotation quirk has a speller cousin: the band re-lays out after each keystroke, so a blind `rot -1` after
+  "B" landed on delete. Every select was sent after a frame check of the focus.
+- There is no `FAILED` line and no exception in the log; the only error line is the known `dirSync=unsupported`.
+- The SDK runtime kept running under the spike Car activator (status line "TS … MQ … Hello" in popup 65, 5 plugins
+  ENABLED), as in spike C.
+
+### 7.2 Recipes for the SDK (go widgets)
+
+All on the existing page path (`FwHMI.showScreen(0, 0, ScreenData(id, …, prebuiltScreen, …))`, `setTerminal` first;
+the current screen's popups, colour scheme and mode). Ids below are the spike's; the SDK takes its own from its bank and
+text range. Code: `SpikePage.Items`, `SpikePage.build`, `SpikeScreens`, `SpikeInputs`.
+
+**List cells** (one `ListController`, the page's `ListModel`):
+- `ListController`: `setIdColumn(2)`, **`setRecordSetColumn(2)`** (column 2 = row kind), `setEnabledColumn(3)` (value
+  `> 0` = enabled). `ListModel.setMaxColumns(5)`: 0 `TextListCell` label, 1 `IntegerListCell` value, 2 kind, 3
+  enabled, 4 `TextListCell` value text.
+- Row: `MenuItemController` `setType(16)`, `MenuItemRendererHigh`, one `GridLayout` via `setLayoutChoices`;
+  `MenuItemColumnsConstraints(2)`, row `AxisConstraints(1)` with `alignment {5}`; `GridLayoutHints` `hidemode 0`,
+  `alignmentVert 5`. Label: `LabelController` + `LabelRendererHigh`, `setModelColumn(0)`, `setAlignment(1, 5)`.
+- Checkbox (kind 1): `CheckboxController` + `CheckboxRendererHigh`, `setBounds(0,0,100,100)`,
+  `setMapping({{0},{1}})`, `setModelColumn(1)`; columns `gaps {0,22,0}`, `grow/shrink {1,0}`.
+- Radio (kind 2): `RadioButtonController` + `RadioButtonRendererHigh`, `setBounds(0,0,100,100)`, `setModelColumn(1)`;
+  columns as the checkbox plus `max {-1, 33}`. Selected row 1, the others 0.
+- Progress (kind 3): `ProgressBarController` + `ProgressBarRendererHigh`, `setBitmaps {40..45}`,
+  `setColorIndices {1,2,4,0}`, `setMinimumModelValue(0)`, `setMaximumModelValue(100)`, `setPreferredHeight(15)`,
+  `setModelColumn(1)`; column `min {-1, 300}`.
+- Value (kind 4): a second `LabelController` on column 4, `setAlignment(3, 5)`; `grow {1,0}`.
+- Icon (kind 5): `IconController` + `IconRendererHigh`, `setBitmaps(ids)` indexed by column 1, `setPreferredHeight(1)`,
+  `setAlignment(1, 5)`; icon column first, `gaps {0,15,0}`, `grow {0,1}`, `max {30,-1}`. SDK ids through the Car
+  factory's `getImagePath`. Icons ≤ 24 px; no scaling.
+- Input: the `ListListener.itemSelected(model, row, …)` as today. **Ignore rows whose enabled column is 0** (the HMI
+  still sends them). The plugin decides and the SDK writes the new cell (`ListModel.setCell`, any thread); kind
+  changes rebuild the row.
+- Fix the comments that say the id column picks the row (`PageScreens.java:46`, `HqcUiIds.PAGE_LIST_MODEL`).
+
+**Combo row** (type 64; `PageSpec.dropdown`): a `MenuItemController` after the `ListController` in the page menu,
+`CompositeRendererHigh`, `setBitmaps({127 ×42, 129, 332})`, renderer `setFonts(Car FontFactory.getFonts(5, …))`,
+`setModelID(pooled ChoiceModel)`, `setTextIds(option text ids)`, `setLabelId`, glassplate insets 6/7, a unique
+`setInternalID`, `setType(64)`, `setWidgetID(1)`. Screen `setViews` gets `modelId → {row}`, ids sorted. The
+`ChoiceListener.itemSelected(id, value, 0, t)` carries the option index; the SDK sets the value. Ignore `itemFocused`.
+
+**Rotary row + slider screen** (type 128; `PageSpec.slider`): row `CompositeRendererHigh`, `setModelID(pooled
+RangeModel)`, `setLabelId`, `setHasInfolineDisclaimer(false)`, `setType(128)`, and `setKeyHandler(own)` before connect
+(on key 17: `consume(false)`, post the slider screen). `RangeModel`: `setLimits(min, max, step)`, `setMedialPosition`,
+`setValue`, `setRangeListener`. Slider screen (`tONESOUNDBASS` recipe): `GlassplateController` (59,77,946,324) with
+`setCoordinateSets {1,59,77,946,324,59,77,946,324}`, `RotaryController` + `RotaryBigRendererHigh` on the same model at
+(397,122,100,100), min/max `LabelController`s at (226,323) / (621,323) 202×30, in a `MirroredContainerController`
+(`MirrorRendererHigh`, 0,0,1024,480) inside a `ContainerController` (`GlassplateContainerRendererHigh`); the screen's
+views `{138 → stub, model → rotary}`. The knob reaches `RangeListener.increment/decrement(id, n, t)` with `n` already
+limited to the range; the SDK clamps, sets the value, and the row and the big knob follow. BACK: the screen consumes
+key 15 and re-shows the page.
+
+**Confirm screen** (`Ui.confirm`; `cARPOPUPDRIVESELECTLIFTNA` recipe, non-popup `ScreenData`, `setSmallStageType(1)`):
+an `InstructionTextContoller` (0,0,100,100, colours `{1,0,4,0}`) with `setOptions(menu)` and `addHintText(label)`;
+label `LabelController` + `MultiLineLabelRendererHigh`, `setTextOrientationHints {6}`, **plus `setAutoWrap(0)` or
+`'\n'` in the text** (unverified); the menu holds a `ListController` on a two-row `ListModel` (Yes, No) with the
+page's item factory. `ListListener` row 0 = yes, 1 = no; BACK (key 15, consumed) = no.
+
+**Toast** (`Ui.toast`): a partial popup from the Car factory's `getPartialPopupStubs`/`getPartialPopup` (the 609600
+mechanism: `PartialPopupStub(id, visibilityChoiceModel, -1, 250, slot, 12, true, 7, t, 2, null, true, true)`), shown by
+its visibility `ChoiceModel` := 1 and hidden by a timer := 0. In slot 7 it coexists with popup 65. In the SDK, 609600 is
+already the status popup: a toast needs its own popup id and models (for example 609601). The slot choice decides
+whether it pushes the status popup aside for 3 s (same slot: newest wins, spike C) or shows beside it. Not run.
+
+**Speller** (partial; `Ui.speller` stays api 6 unless OK is solved): `TouchControllerFactory.create()` +
+`TouchRendererHighFactory.create`, `setBitmaps {483,484,857}`, Connectivity `FontFactory.getFonts(4, …)`,
+`setModelID(SpellerModel)`, `setInfoTextIDs`, colours `{2,5,4,3}`, cursor offsets 1/-1, glassplate insets 17/5,
+`setPreferredHeight(60)`, `setPrefilledInputField(true)`, `setTouchControllerScreenLevel(2)`, `setWidgetID(1)`,
+`setOpenSpellerOnOtherScreen(false)`, `setSpeller(SpellerControllerFactory.create()` + `SpellerRendererHighFactory`,
+the 49 bitmaps of `cMOPTBLUETOOTHNAMEEDIT`, fonts 5, colours `{2,0,4,0})`, children `ModelStubController` 5602 (16)
+and 5606 (8); in the page-style menu inside an `InstructionTextContoller`; views `{138, 5602, 5606, model}`.
+`SpellerModel.setMaxLength(n)`. Listener: `textChanged` per character, `commandPressed` 4711/4712 on open/close,
+`getText()` holds the text. For "done" either take 4712 plus the text, or add a Save list row below the field (as the
+stock name-edit screen has); a real OK needs the model's button-state API (`setControlButtonStates`,
+`setExitButtonText(EXIT_OK)`, `setCommandAvailable`), which nothing here exercised.
+
+### 7.3 Gate (§6) outcome
+
+- D1 go: land §1.4 in the SDK (record-set column, the checkbox cell, `IntegerListCell` 0/1, drop the `[on]/[off]`
+  text), plus the disabled-row press filter.
+- D2-D4 go: `progress`, the value column and icon cells (≤ 24 px) in api 5. `choice` builds on D2 plus the D6/D7
+  screen path; it should get its own short bench check when built.
+- D5 combo go: `dropdown` is safe on an SDK page. The type-128 row is a knob preview, not a bar.
+- D6 go: `slider` with the edit screen (no hijack fallback needed).
+- D7 go: `Ui.confirm`, with `setAutoWrap(0)` checked at the next bench run.
+- D8 go: `Ui.toast`, on its own popup id.
+- D9 partial: `Ui.speller` stays api 6, unless "done = close (4712) or a Save row" is acceptable for api 5.
+
+### 7.4 End state (verified after the revert restart)
+
+`run.sh uninstall` wrote `bundles.before-d` back; the live file is `cmp`-identical on the host to it and to the
+pre-spike snapshot. The jar and `lsd/mibsdk-spike/` were removed. `mibpkg sdk status`: `HMICar=…SdkCarActivator`,
+`HMISystem=…SdkSystemActivator`, sdk 0.2.0, api 1..4, running yes, reboot needed no, 5 plugins, ledger 0. Log:
+`ui system=sdk`, `ui car=sdk`, `ui status popup 609600 registered/built`, 5 × ENABLED,
+`boot healthy: 5 plugin(s) enabled`. `/mnt/persist/mibsdk/dev/` empty. `/mnt/app` read-only (`touch`: "Read-only file
+system"). Unit on the home screen, Car / Audi drive select (a second low-fuel dialog after the boot answered "No").

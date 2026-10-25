@@ -1,0 +1,421 @@
+0 INFO mibsdk.hqc configurator: hmi=HMI_AU_MIB2_HQC_NAR_G22_C10_180803 safeMode=false wrapLoop=false wrappingEnabled=true uiEnabled=true hookServices=[org.dsi.ifc.carparkingsystem.DSICarParkingSystem]
+0 INFO mibsdk.hqc configurator: chain=de.audi.tghu.dsitrace.TraceConfigurator
+0 STATUS mibsdk ui system=sdk
+0 INFO mibsdk.hqc wrapped org.dsi.ifc.carparkingsystem.DSICarParkingSystem chain=TraceConfigurator
+0 INFO mibsdk.hqc activator: hmi=HMI_AU_MIB2_HQC_NAR_G22_C10_180803 adapter=hqc-nar-g22-c10
+0 STATUS mibsdk seam configurator=seen wrapping=true raw.parking=true
+0 STATUS mibsdk state persist=/mnt/persist/mibsdk ok ram=/ramdisk/mibsdk ok bootGuard=armed
+0 STATUS mibsdk durability persist=/mnt/persist/mibsdk fileSync=ok dirSync=unsupported (java.io.FileNotFoundException: /mnt/persist/mibsdk at java.io.RandomAccessFile.<init>(Unknown Source)) fsyncMs=0
+0 INFO mibsdk.hqc org.dsi.ifc.carparkingsystem.DSICarParkingSystem available after 0 ms (1 lookups)
+0 INFO mibsdk.hqc org.dsi.ifc.powermanagement.DSIPowerManagement available after 0 ms (1 lookups)
+0 STATUS mibsdk seam configurator=seen wrapping=true raw.parking=true
+0 STATUS mibsdk features=[hook.parking, slot.carmenu, slot.statusbar, ui.icons, ui.pages, vehicle.ignition, vehicle.parking]
+0 INFO mibsdk.hqc de.audi.atip.base.IFrameworkAccess available after 0 ms (1 lookups)
+0 STATUS mibsdk features=[hook.parking, slot.carmenu, slot.statusbar, ui.icons, ui.pages, vehicle.ignition, vehicle.parking]
+0 STATUS mibsdk runtime started adapter=hqc-nar-g22-c10 safeMode=false
+1119 STATUS mibsdk heap free=50292420 total=62914560
+1119 INFO mibsdk plugins load in 30000 ms
+8120 INFO spike.ui bank stock models.length=2738 modelIDs.length=1147 -> first free id 602738 (MODEL_BASE=602738)
+8120 INFO spike.ui activator constructed on fw[HMIThreadPool:2]Dispatcher-Startup
+8120 INFO spike.ui factory: SpikeFactory
+8120 INFO spike.ui getPartialPopupStubs terminal=0 stock=3 + 609600 thread=fw[HMIThreadPool:2]Dispatcher-Startup
+8120 INFO spike.ui bank created model 602751 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+9236 INFO spike.ui createScreen id=600109 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+17440 INFO spike.ui createScreen id=600044 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+18473 INFO spike.ui getSelectionDrawers terminal=0 count=1 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+18473 INFO spike.ui drawer id=600043 main=de.esolutions.hmi.widgets.audi.evo.widgets.SelectionMenuController
+18473 INFO spike.ui   child 0 de.esolutions.hmi.widgets.audi.evo.widgets.menu.SelectionMenuIdleTimerController
+18473 INFO spike.ui   row 1 label=601352 text='Audi drive select' event=600050 widgetID=0 model=601227 type=2 visible=true
+18473 INFO spike.ui   row 2 label=603599 text='Charge' event=600290 widgetID=7 model=601227 type=2 visible=true
+18473 INFO spike.ui   row 3 label=603727 text='Range & statistics' event=600312 widgetID=8 model=601227 type=2 visible=true
+18473 INFO spike.ui   row 4 label=605882 text='Statistics' event=600312 widgetID=8 model=601227 type=2 visible=true
+18473 INFO spike.ui   row 5 label=601354 text='Vehicle settings' event=600025 widgetID=1 model=601227 type=2 visible=true
+18473 INFO spike.ui   row 6 label=601355 text='Driver assistance' event=600024 widgetID=2 model=601227 type=2 visible=true
+18473 INFO spike.ui   row 7 label=601356 text='Air conditioning' event=600026 widgetID=3 model=601227 type=2 visible=true
+18473 INFO spike.ui   row 8 label=601357 text='Auxiliary heating' event=600023 widgetID=4 model=601227 type=2 visible=true
+18473 INFO spike.ui   row 9 label=603898 text='Auxiliary air conditioning' event=600301 widgetID=4 model=601227 type=2 visible=true
+18473 INFO spike.ui   row 10 label=603899 text='Auxiliary heating / AC' event=600302 widgetID=4 model=601227 type=2 visible=true
+18473 INFO spike.ui   row 11 label=601359 text='Service & checks' event=600027 widgetID=5 model=601227 type=2 visible=true
+18473 INFO spike.ui   row 12 label=602086 text='Owner's manual' event=600148 widgetID=6 model=601227 type=2 visible=true
+18473 INFO spike.ui   row 13 label=605468 text='Sportanzeige' event=0 widgetID=7 model=601227 type=2 visible=false
+18473 INFO spike.ui   viewIDs: 600815 601005 601006 601007 601008 601009 601010 601172 601227 601234 601672 1700231
+18473 INFO spike.ui added 9 rows; views 12 -> 22
+18473 INFO spike.ui bank created model 602738 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+18473 INFO spike.ui bank created model 602739 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+18473 INFO spike.ui bank created model 602740 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+18473 INFO spike.ui bank created model 602741 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+18473 INFO spike.ui bank created model 602742 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+18473 INFO spike.ui bank created model 602743 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+18473 INFO spike.ui bank created model 602744 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+18473 INFO spike.ui bank created model 602745 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+18473 INFO spike.ui bank created model 602746 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+18473 INFO spike.ui bank created model 602747 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+18473 INFO spike.ui bank created model 602748 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+31847 STATUS bike-rack DISCOVERED discovered
+31847 STATUS crashy DISCOVERED discovered
+31847 STATUS daemon-status DISCOVERED discovered
+31847 STATUS hello-menu DISCOVERED discovered
+31847 STATUS hello DISCOVERED discovered
+31847 INFO bike-rack waiting for parking value
+31847 STATUS bike-rack ENABLED enabled
+31847 INFO crashy mode=
+31847 INFO crashy no crash mode set; idle
+31847 STATUS crashy ENABLED enabled
+31847 STATUS daemon-status ENABLED enabled
+31847 STATUS hello-menu ENABLED enabled
+31847 INFO hello hello enabled
+31847 STATUS hello ENABLED enabled
+91899 INFO mibsdk boot healthy: 5 plugin(s) enabled for 60000 ms
+93901 INFO spike.ui page-show cmd from current=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO previous=id=600109 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO saveFrom=true thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+93901 INFO spike.ui page built id=609500 ownBack=true labelRow=false recordSet=true typedRows=true
+93901 INFO spike.ui page-show done build+show=10ms now=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO
+93901 INFO spike.ui bank created model 602749 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+93901 INFO spike.ui bank created model 602754 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+93901 INFO spike.ui bank created model 602755 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+93901 INFO spike.ui bank created model 602756 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+93901 INFO spike.ui items createListItem kind=0
+93901 INFO spike.ui items createListItem kind=1
+93901 INFO spike.ui page-focus row=0
+93901 INFO spike.ui items createListItem kind=0
+93901 INFO spike.ui items createListItem kind=1
+93901 INFO spike.ui items createListItem kind=0
+93901 INFO spike.ui items createListItem kind=1
+93901 INFO spike.ui page connected id=609500
+93901 INFO spike.ui items createListItem kind=0
+93901 INFO spike.ui items createListItem kind=0
+93901 INFO spike.ui items createListItem kind=1
+93901 INFO spike.ui items createListItem kind=1
+93901 INFO spike.ui items createListItem kind=1
+93901 INFO spike.ui items createListItem kind=1
+93901 INFO spike.ui items createListItem kind=2
+93901 INFO spike.ui items createListItem kind=3
+93901 INFO spike.ui items createListItem kind=4
+93901 INFO spike.ui items createListItem kind=5
+93901 INFO spike.ui getImagePath 609110 -> ../mibsdk-spike/icons/609110.png thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+125905 INFO spike.ui page-focus row=2
+133906 INFO spike.ui page-key press code=17 ownBack=true
+133906 INFO spike.ui page-select row=2 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+133906 INFO spike.ui page-toggle row=2 value=1
+136906 INFO spike.ui page-key press code=17 ownBack=true
+136906 INFO spike.ui page-select row=2 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+136906 INFO spike.ui page-toggle row=2 value=0
+149908 INFO spike.ui cmd cb-set row=2 value=1 model=true thread=mibsdk-spike-ui
+158909 INFO spike.ui page-focus row=5
+165910 INFO spike.ui page-key press code=17 ownBack=true
+165910 INFO spike.ui page-select row=5 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+165910 INFO spike.ui page-toggle row=5 value=1
+174913 INFO spike.ui page-key press code=17 ownBack=true
+174913 INFO spike.ui page-select row=5 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+174913 INFO spike.ui page-toggle row=5 value=0
+175913 INFO spike.ui items createListItem kind=2
+175913 INFO spike.ui page-focus row=6
+178913 INFO spike.ui items createListItem kind=2
+178913 INFO spike.ui items createListItem kind=2
+179913 INFO spike.ui page-focus row=8
+185914 INFO spike.ui page-key press code=17 ownBack=true
+185914 INFO spike.ui page-select row=8 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+185914 INFO spike.ui page-radio row=8 selected
+193915 INFO spike.ui items createListItem kind=3
+194915 INFO spike.ui page-focus row=9
+197916 INFO spike.ui items createListItem kind=4
+197916 INFO spike.ui items createListItem kind=5
+197916 INFO spike.ui page-focus row=11
+207917 INFO spike.ui page-progress cmd 60 -> 80 thread=mibsdk-spike-ui
+210919 INFO spike.ui page-key press code=17 ownBack=true
+210919 INFO spike.ui page-select row=11 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+210919 INFO spike.ui page-icon row=11 index=1 bitmap=609111
+210919 INFO spike.ui getImagePath 609111 -> ../mibsdk-spike/icons/609111.png thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+220920 INFO spike.ui page-key press code=17 ownBack=true
+220920 INFO spike.ui page-select row=11 x=0 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+220920 INFO spike.ui page-icon row=11 index=2 bitmap=609100
+220920 INFO spike.ui getImagePath 609100 -> ../mibsdk-spike/icons/609100.png thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+224920 INFO spike.ui page-focus row=-1
+234922 INFO spike.ui page-key press code=17 ownBack=true
+234922 INFO spike.ui choice 602754 itemSelected value=1 -> toggle 1 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+235922 INFO spike.ui choice row8 602754 keyReleased key=0
+248924 INFO spike.ui page-key press code=17 ownBack=true
+248924 INFO spike.ui choice combo 602755 itemFocused value=0
+259925 INFO spike.ui choice combo 602755 itemFocused value=2
+261925 INFO spike.ui page-key press code=17 ownBack=true
+261925 INFO spike.ui choice 602755 value=2 terminal=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+261925 INFO spike.ui choice combo 602755 itemFocused value=-1
+279930 INFO spike.ui page-key press code=17 ownBack=true
+279930 INFO spike.ui row128-press thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+279930 INFO spike.ui slider built
+279930 INFO spike.ui screen-show 609501 (row128) build+show=7ms thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+279930 INFO spike.ui slider-rotary connected state=615 has36=true model=de.audi.atip.hmi.model.RangeModel
+279930 INFO spike.ui slider connected id=609501
+288931 INFO spike.ui slider-rotary keyTurned code=17 dir=0 clicks=3 state=551 has36=true
+288931 INFO spike.ui range 602756 increment n=3 -> 3 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+288931 INFO spike.ui slider-rotary keyTurned consumed=true value=0
+297932 INFO spike.ui slider-screen key press code=15
+297932 INFO spike.ui screen-back slider-back -> page
+297932 INFO spike.ui page-show slider-back from current=id=609501 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen previous=id=609500 screen=mibsdk.spike.ui.SpikePage$PageScreen saveFrom=false thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+297932 INFO spike.ui page built id=609500 ownBack=true labelRow=false recordSet=true typedRows=true
+297932 INFO spike.ui page-show done build+show=2ms now=id=609501 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen
+298933 INFO spike.ui items createListItem kind=0
+298933 INFO spike.ui items createListItem kind=1
+298933 INFO spike.ui page-focus row=0
+298933 INFO spike.ui items createListItem kind=0
+298933 INFO spike.ui items createListItem kind=1
+298933 INFO spike.ui items createListItem kind=0
+298933 INFO spike.ui items createListItem kind=1
+298933 INFO spike.ui page connected id=609500
+298933 INFO spike.ui items createListItem kind=0
+298933 INFO spike.ui items createListItem kind=0
+298933 INFO spike.ui items createListItem kind=1
+298933 INFO spike.ui items createListItem kind=1
+298933 INFO spike.ui items createListItem kind=1
+298933 INFO spike.ui items createListItem kind=1
+298933 INFO spike.ui items createListItem kind=2
+298933 INFO spike.ui items createListItem kind=3
+298933 INFO spike.ui items createListItem kind=4
+298933 INFO spike.ui items createListItem kind=5
+307949 INFO spike.ui items createListItem kind=2
+307949 INFO spike.ui items createListItem kind=2
+307949 INFO spike.ui items createListItem kind=2
+307949 INFO spike.ui items createListItem kind=3
+307949 INFO spike.ui items createListItem kind=4
+307949 INFO spike.ui items createListItem kind=5
+309949 INFO spike.ui page-focus row=-1
+326951 INFO spike.ui confirm built
+326951 INFO spike.ui screen-show 609502 (cmd) build+show=2ms thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+326951 INFO spike.ui bank created model 602758 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+326951 INFO spike.ui items createListItem kind=0
+326951 INFO spike.ui confirm focus row=0
+326951 INFO spike.ui items createListItem kind=0
+326951 INFO spike.ui confirm connected id=609502
+326951 INFO spike.ui items createListItem kind=0
+326951 INFO spike.ui items createListItem kind=0
+337953 INFO spike.ui confirm focus row=1
+340954 INFO spike.ui confirm-screen key press code=17
+340954 INFO spike.ui confirm-key press code=17 ownBack=true
+340954 INFO spike.ui confirm row=1 (No) thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+340954 INFO spike.ui screen-back confirm-select -> page
+340954 INFO spike.ui page-show confirm-select from current=id=609502 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen previous=id=609500 screen=mibsdk.spike.ui.SpikePage$PageScreen saveFrom=false thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+340954 INFO spike.ui page built id=609500 ownBack=true labelRow=false recordSet=true typedRows=true
+340954 INFO spike.ui page-show done build+show=2ms now=id=609502 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen
+340954 INFO spike.ui items createListItem kind=0
+340954 INFO spike.ui items createListItem kind=1
+340954 INFO spike.ui page-focus row=0
+340954 INFO spike.ui items createListItem kind=0
+340954 INFO spike.ui items createListItem kind=1
+340954 INFO spike.ui items createListItem kind=0
+340954 INFO spike.ui items createListItem kind=1
+340954 INFO spike.ui page connected id=609500
+340954 INFO spike.ui items createListItem kind=0
+340954 INFO spike.ui items createListItem kind=0
+340954 INFO spike.ui items createListItem kind=1
+340954 INFO spike.ui items createListItem kind=1
+340954 INFO spike.ui items createListItem kind=1
+340954 INFO spike.ui items createListItem kind=1
+340954 INFO spike.ui items createListItem kind=2
+340954 INFO spike.ui items createListItem kind=3
+340954 INFO spike.ui items createListItem kind=4
+340954 INFO spike.ui items createListItem kind=5
+352956 INFO spike.ui confirm built
+352956 INFO spike.ui screen-show 609502 (cmd) build+show=1ms thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+352956 INFO spike.ui items createListItem kind=0
+352956 INFO spike.ui confirm focus row=0
+352956 INFO spike.ui items createListItem kind=0
+352956 INFO spike.ui confirm connected id=609502
+352956 INFO spike.ui items createListItem kind=0
+352956 INFO spike.ui items createListItem kind=0
+354956 INFO spike.ui confirm-screen key press code=15
+354956 INFO spike.ui screen-back confirm-back -> page
+354956 INFO spike.ui page-show confirm-back from current=id=609502 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen previous=id=609500 screen=mibsdk.spike.ui.SpikePage$PageScreen saveFrom=false thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+354956 INFO spike.ui page built id=609500 ownBack=true labelRow=false recordSet=true typedRows=true
+354956 INFO spike.ui page-show done build+show=1ms now=id=609502 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen
+354956 INFO spike.ui items createListItem kind=0
+354956 INFO spike.ui items createListItem kind=1
+354956 INFO spike.ui page-focus row=0
+354956 INFO spike.ui items createListItem kind=0
+354956 INFO spike.ui items createListItem kind=1
+354956 INFO spike.ui items createListItem kind=0
+354956 INFO spike.ui items createListItem kind=1
+354956 INFO spike.ui page connected id=609500
+354956 INFO spike.ui items createListItem kind=0
+354956 INFO spike.ui items createListItem kind=0
+354956 INFO spike.ui items createListItem kind=1
+354956 INFO spike.ui items createListItem kind=1
+354956 INFO spike.ui items createListItem kind=1
+354956 INFO spike.ui items createListItem kind=1
+354956 INFO spike.ui items createListItem kind=2
+354956 INFO spike.ui items createListItem kind=3
+354956 INFO spike.ui items createListItem kind=4
+354956 INFO spike.ui items createListItem kind=5
+359965 INFO spike.ui confirm built
+359965 INFO spike.ui screen-show 609502 (cmd) build+show=1ms thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+359965 INFO spike.ui items createListItem kind=0
+359965 INFO spike.ui confirm focus row=0
+359965 INFO spike.ui items createListItem kind=0
+359965 INFO spike.ui confirm connected id=609502
+359965 INFO spike.ui items createListItem kind=0
+359965 INFO spike.ui items createListItem kind=0
+361966 INFO spike.ui confirm-screen key press code=17
+361966 INFO spike.ui confirm-key press code=17 ownBack=true
+361966 INFO spike.ui confirm row=0 (Yes) thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+361966 INFO spike.ui screen-back confirm-select -> page
+361966 INFO spike.ui page-show confirm-select from current=id=609502 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen previous=id=609500 screen=mibsdk.spike.ui.SpikePage$PageScreen saveFrom=false thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+361966 INFO spike.ui page built id=609500 ownBack=true labelRow=false recordSet=true typedRows=true
+361966 INFO spike.ui page-show done build+show=2ms now=id=609502 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen
+361966 INFO spike.ui items createListItem kind=0
+361966 INFO spike.ui items createListItem kind=1
+361966 INFO spike.ui page-focus row=0
+361966 INFO spike.ui items createListItem kind=0
+361966 INFO spike.ui items createListItem kind=1
+361966 INFO spike.ui items createListItem kind=0
+361966 INFO spike.ui items createListItem kind=1
+361966 INFO spike.ui page connected id=609500
+361966 INFO spike.ui items createListItem kind=0
+361966 INFO spike.ui items createListItem kind=0
+361966 INFO spike.ui items createListItem kind=1
+361966 INFO spike.ui items createListItem kind=1
+361966 INFO spike.ui items createListItem kind=1
+361966 INFO spike.ui items createListItem kind=1
+361966 INFO spike.ui items createListItem kind=2
+361966 INFO spike.ui items createListItem kind=3
+361966 INFO spike.ui items createListItem kind=4
+361966 INFO spike.ui items createListItem kind=5
+401972 INFO spike.ui bank created model 602753 on mibsdk-spike-ui
+401972 INFO spike.ui cmd popup 609600 visibility 602751 := 1 model=true
+401972 INFO spike.ui cmd toast 'Saved' shown, hide in 3000 ms (slot 7)
+401972 INFO spike.ui getPartialPopup 609600 built thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+401972 INFO spike.ui bank created model 602752 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+404972 INFO spike.ui cmd popup 609600 visibility 602751 := 0 model=true
+404972 INFO spike.ui toast hidden by timer
+414974 INFO spike.ui speller built
+414974 INFO spike.ui screen-show 609503 (cmd) build+show=26ms thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+414974 INFO spike.ui bank created model 602759 on fw[HMIThreadPool:5]Dispatcher-HMIEvent
+414974 INFO spike.ui speller connected id=609503
+423975 INFO spike.ui speller-screen key press code=17
+423975 INFO spike.ui speller-key press code=17 ownBack=true
+423975 INFO spike.ui speller 602759 focusedCharacter char=0
+423975 INFO spike.ui speller 602759 commandPressed command=4711 modelText='' thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+433987 INFO spike.ui speller 602759 focusedCharacter char=0
+434987 INFO spike.ui speller 602759 focusedCharacter char=66
+441988 INFO spike.ui speller-screen key press code=17
+441988 INFO spike.ui speller-key press code=17 ownBack=true
+441988 INFO spike.ui speller 602759 textChanged text='B' char=66 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+444990 INFO spike.ui speller 602759 focusedCharacter char=0
+445990 INFO spike.ui speller 602759 focusedCharacter char=0
+446990 INFO spike.ui speller-screen key press code=17
+446990 INFO spike.ui speller-key press code=17 ownBack=true
+446990 INFO spike.ui speller 602759 textChanged text='' char=8 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+456991 INFO spike.ui speller 602759 focusedCharacter char=0
+456991 INFO spike.ui speller 602759 focusedCharacter char=66
+463992 INFO spike.ui speller-screen key press code=17
+463992 INFO spike.ui speller-key press code=17 ownBack=true
+463992 INFO spike.ui speller 602759 textChanged text='B' char=66 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+466993 INFO spike.ui speller 602759 focusedCharacter char=0
+467993 INFO spike.ui speller 602759 focusedCharacter char=67
+476994 INFO spike.ui speller-screen key press code=17
+476994 INFO spike.ui speller-key press code=17 ownBack=true
+476994 INFO spike.ui speller 602759 textChanged text='BC' char=67 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+480995 INFO spike.ui speller 602759 focusedCharacter char=0
+480995 INFO spike.ui speller 602759 focusedCharacter char=0
+491996 INFO spike.ui speller 602759 focusedCharacter char=0
+491996 INFO spike.ui speller 602759 focusedCharacter char=0
+498997 INFO spike.ui speller-screen key press code=17
+498997 INFO spike.ui speller-key press code=17 ownBack=true
+498997 INFO spike.ui speller 602759 focusedCharacter char=0
+498997 INFO spike.ui speller 602759 commandPressed command=4712 modelText='BC' thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+542004 INFO spike.ui speller-screen key press code=17
+542004 INFO spike.ui speller-key press code=17 ownBack=true
+542004 INFO spike.ui speller 602759 focusedCharacter char=0
+542004 INFO spike.ui speller 602759 commandPressed command=4711 modelText='BC' thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+547005 INFO spike.ui speller 602759 focusedCharacter char=0
+547005 INFO spike.ui speller 602759 focusedCharacter char=0
+554006 INFO spike.ui speller 602759 focusedCharacter char=0
+555006 INFO spike.ui speller 602759 focusedCharacter char=0
+561010 INFO spike.ui speller-screen key press code=17
+561010 INFO spike.ui speller-key press code=17 ownBack=true
+561010 INFO spike.ui speller 602759 focusedCharacter char=0
+561010 INFO spike.ui speller 602759 commandPressed command=4712 modelText='BC' thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+563011 INFO spike.ui speller-screen key press code=15
+563011 INFO spike.ui screen-back speller-back -> page
+563011 INFO spike.ui page-show speller-back from current=id=609503 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen previous=id=609500 screen=mibsdk.spike.ui.SpikePage$PageScreen saveFrom=false thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+563011 INFO spike.ui page built id=609500 ownBack=true labelRow=false recordSet=true typedRows=true
+563011 INFO spike.ui page-show done build+show=1ms now=id=609503 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen
+563011 INFO spike.ui speller 602759 focusedCharacter char=0
+563011 INFO spike.ui items createListItem kind=0
+563011 INFO spike.ui items createListItem kind=1
+563011 INFO spike.ui page-focus row=0
+563011 INFO spike.ui items createListItem kind=0
+563011 INFO spike.ui items createListItem kind=1
+563011 INFO spike.ui items createListItem kind=0
+563011 INFO spike.ui items createListItem kind=1
+563011 INFO spike.ui page connected id=609500
+563011 INFO spike.ui items createListItem kind=0
+563011 INFO spike.ui items createListItem kind=0
+563011 INFO spike.ui items createListItem kind=1
+563011 INFO spike.ui items createListItem kind=1
+563011 INFO spike.ui items createListItem kind=1
+563011 INFO spike.ui items createListItem kind=1
+563011 INFO spike.ui items createListItem kind=2
+563011 INFO spike.ui items createListItem kind=3
+563011 INFO spike.ui items createListItem kind=4
+563011 INFO spike.ui items createListItem kind=5
+575013 INFO spike.ui cmd kind-swap row=1 kind 0 -> 1
+575013 INFO spike.ui items createListItem kind=1
+580014 INFO spike.ui dump r0=0/0 r1=0/1 r2=1/1 r3=0/1 r4=1/1 r5=0/1 r6=0/2 r7=0/2 r8=1/2 r9=80/3 r10=0/4 r11=2/5 row8=1 combo=2 range=3 speller='BC'
+590030 INFO spike.ui cmd kind-swap row=1 kind 1 -> 0
+592030 INFO spike.ui cmd recordSet=false (next page build)
+593030 INFO spike.ui confirm built
+593030 INFO spike.ui screen-show 609502 (cmd) build+show=1ms thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+593030 INFO spike.ui items createListItem kind=0
+593030 INFO spike.ui confirm focus row=0
+593030 INFO spike.ui items createListItem kind=0
+593030 INFO spike.ui confirm connected id=609502
+593030 INFO spike.ui items createListItem kind=0
+593030 INFO spike.ui items createListItem kind=0
+595030 INFO spike.ui confirm-screen key press code=15
+595030 INFO spike.ui screen-back confirm-back -> page
+595030 INFO spike.ui page-show confirm-back from current=id=609502 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen previous=id=609500 screen=mibsdk.spike.ui.SpikePage$PageScreen saveFrom=false thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+595030 INFO spike.ui page built id=609500 ownBack=true labelRow=false recordSet=false typedRows=true
+595030 INFO spike.ui page-show done build+show=1ms now=id=609502 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen
+596031 INFO spike.ui items createListItem kind=0
+596031 INFO spike.ui page-focus row=0
+596031 INFO spike.ui items createListItem kind=0
+596031 INFO spike.ui items createListItem kind=0
+596031 INFO spike.ui page connected id=609500
+596031 INFO spike.ui items createListItem kind=0
+596031 INFO spike.ui items createListItem kind=0
+596031 INFO spike.ui items createListItem kind=0
+596031 INFO spike.ui items createListItem kind=0
+596031 INFO spike.ui items createListItem kind=0
+596031 INFO spike.ui items createListItem kind=0
+601031 INFO spike.ui cmd recordSet=true (next page build)
+602032 INFO spike.ui confirm built
+602032 INFO spike.ui screen-show 609502 (cmd) build+show=2ms thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+602032 INFO spike.ui items createListItem kind=0
+602032 INFO spike.ui confirm focus row=0
+602032 INFO spike.ui items createListItem kind=0
+602032 INFO spike.ui confirm connected id=609502
+602032 INFO spike.ui items createListItem kind=0
+602032 INFO spike.ui items createListItem kind=0
+604033 INFO spike.ui confirm-screen key press code=15
+604033 INFO spike.ui screen-back confirm-back -> page
+604033 INFO spike.ui page-show confirm-back from current=id=609502 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen previous=id=609500 screen=mibsdk.spike.ui.SpikePage$PageScreen saveFrom=false thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent
+604033 INFO spike.ui page built id=609500 ownBack=true labelRow=false recordSet=true typedRows=true
+604033 INFO spike.ui page-show done build+show=2ms now=id=609502 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen
+605033 INFO spike.ui items createListItem kind=0
+605033 INFO spike.ui items createListItem kind=1
+605033 INFO spike.ui page-focus row=0
+605033 INFO spike.ui items createListItem kind=0
+605033 INFO spike.ui items createListItem kind=1
+605033 INFO spike.ui items createListItem kind=0
+605033 INFO spike.ui items createListItem kind=1
+605033 INFO spike.ui page connected id=609500
+605033 INFO spike.ui items createListItem kind=0
+605033 INFO spike.ui items createListItem kind=0
+605033 INFO spike.ui items createListItem kind=1
+605033 INFO spike.ui items createListItem kind=1
+605033 INFO spike.ui items createListItem kind=1
+605033 INFO spike.ui items createListItem kind=1
+605033 INFO spike.ui items createListItem kind=2
+605033 INFO spike.ui items createListItem kind=3
+605033 INFO spike.ui items createListItem kind=4
+605033 INFO spike.ui items createListItem kind=5
+615034 INFO spike.ui page-key press code=15 ownBack=true
+615034 INFO spike.ui page-back mode=reshow current=id=609500 screen=mibsdk.spike.ui.SpikePage$PageScreen previous=id=609502 screen=mibsdk.spike.ui.SpikeScreens$OwnScreen target=id=600044 screen=de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO
