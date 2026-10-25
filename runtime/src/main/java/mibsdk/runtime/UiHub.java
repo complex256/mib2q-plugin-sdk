@@ -128,6 +128,11 @@ final class UiHub {
         this.publishMinMs = Math.max(0, publishMinMs);
     }
 
+    /** A WARN on behalf of {@code owner}'s UI calls ({@link UiImpl} has no log of its own). */
+    void warn(String owner, String msg) {
+        log.append("WARN", owner, msg);
+    }
+
     // ---- plugin contributions (called on the plugin's thread through UiImpl) ----
 
     /**

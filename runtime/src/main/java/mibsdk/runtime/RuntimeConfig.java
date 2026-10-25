@@ -37,7 +37,7 @@ import mibsdk.platform.SdkRoots;
  * ui.enabled                         true   SDK HMI UI (Car drawer rows, pages, status line); only "false" turns it off
  * </pre>
  * Files: read-only at runtime, under {@link SdkRoots#install()}: sdk.properties, grants.properties, SAFE_MODE,
- * plugins/; writable and persistent, under {@link SdkRoots#persist()}: boot.state, ledger.properties, data/,
+ * plugins/, icons/&lt;id&gt;/, icons-sdk/; writable and persistent, under {@link SdkRoots#persist()}: boot.state, ledger.properties, data/,
  * plugins.properties (the user's on/off choices); in RAM, under {@link SdkRoots#ram()}: cache/.
  * Never put these in {@code bundles.properties}: every unknown key there is a bundle definition.
  */
@@ -135,6 +135,16 @@ public final class RuntimeConfig {
     /** Read-only. */
     public File grantsFile() {
         return new File(roots.install(), "grants.properties");
+    }
+
+    /** Read-only, written by mibpkg: a plugin's installed icons ({@code <sha16>.png} plus {@code index.properties}). */
+    public File pluginIconDir(String id) {
+        return new File(new File(roots.install(), "icons"), id);
+    }
+
+    /** Read-only, written by mibpkg: the SDK's built-in icons, in the same format. */
+    public File sdkIconDir() {
+        return new File(roots.install(), "icons-sdk");
     }
 
     /** Persistent: {@code <id>.properties} per plugin. */

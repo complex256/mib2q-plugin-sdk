@@ -12,6 +12,9 @@ package mibsdk.api;
  */
 public interface Ui {
 
+    /** The largest Car-row icon, in pixels, either way. A package's icons are at most this size. */
+    int ROW_ICON_MAX_PX = 72;
+
     /**
      * Registers a page under this plugin's Plugins-menu entry; actions arrive on the plugin's executor. Inert without
      * Features.UI_PAGES.
@@ -23,6 +26,15 @@ public interface Ui {
      * without Features.SLOT_CAR_MENU or when {@code opens} is inert.
      */
     Subscription carMenuRow(String label, Page opens);
+
+    /**
+     * {@link #carMenuRow(String, Page)} with an icon; a null icon means none. The icon must come from this plugin's
+     * {@link #icon} or {@link #stockIcon}. Without Features.UI_ICONS the row shows without it. The Car screen reads its
+     * rows when it opens, so an icon change shows the next time the Car screen opens.
+     *
+     * @since api 3
+     */
+    Subscription carMenuRow(String label, Page opens, Icon icon);
 
     /**
      * One short status-line item; set(null|"") hides it. Needs ui.slot.statusbar; inert without SLOT_STATUS_BAR.
@@ -37,4 +49,32 @@ public interface Ui {
      * {@link StatusItem#set} keeps working and never fails because the item is hidden or cut.
      */
     StatusItem statusItem(String text);
+
+    /**
+     * {@link #statusItem(String)} with an icon; a null icon means none. An installed icon larger than
+     * {@link StatusItem#ICON_MAX_PX} throws {@link IllegalArgumentException}. Without Features.UI_ICONS the item shows
+     * without it; the checks are the same either way.
+     *
+     * @since api 3
+     */
+    StatusItem statusItem(String text, Icon icon);
+
+    /**
+     * An icon this plugin declared by name in its manifest's {@code "icons"} (needs {@code "api": 3}); the package
+     * installs it as {@code icons/<name>.png}. An undeclared name throws {@link IllegalArgumentException}. Icons are
+     * static per installed package version: a new picture needs a new package. A declared icon that is not installed
+     * (the jar was pushed without installing its package) gives an inert icon: rows and items show without it, and
+     * the runtime logs one WARN.
+     *
+     * @since api 3
+     */
+    Icon icon(String name);
+
+    /**
+     * One of the SDK's built-in icons, named by a {@link StockIcons} constant; any other name throws
+     * {@link IllegalArgumentException}.
+     *
+     * @since api 3
+     */
+    Icon stockIcon(String name);
 }

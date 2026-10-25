@@ -16,14 +16,18 @@ final class PluginJson {
     final int api;
     final String main;
     final List<String> permissions;
+    /** Icon names ({@code "icons"}, api 3), in manifest order; empty if none. */
+    final List<String> icons;
 
-    private PluginJson(String id, String name, String version, int api, String main, List<String> permissions) {
+    private PluginJson(String id, String name, String version, int api, String main, List<String> permissions,
+            List<String> icons) {
         this.id = id;
         this.name = name;
         this.version = version;
         this.api = api;
         this.main = main;
         this.permissions = Collections.unmodifiableList(permissions);
+        this.icons = Collections.unmodifiableList(icons);
     }
 
     boolean unrestricted() {
@@ -33,7 +37,10 @@ final class PluginJson {
     // Mirrors mibsdk.api.SdkInfo.MIN_API_VERSION / API_VERSION (build-logic cannot depend on :api); the runtime's
     // ManifestParser enforces the same range and wording.
     static final int MIN_API = 1;
-    static final int MAX_API = 2;
+    static final int MAX_API = 3;
+    // Mirrors the runtime's ManifestParser: icons arrived with api 3; at most 8 per plugin.
+    static final int ICONS_API = 3;
+    static final int MAX_ICONS = 8;
 
     /**
      * Like the runtime, only an integral JSON number (no fraction, no exponent) is an api level. JsonSlurper gives
@@ -96,7 +103,34 @@ final class PluginJson {
                 permissions.add(String.valueOf(p));
             }
         }
-        return new PluginJson(id, name, version, api, main, permissions);
+        return new PluginJson(id, name, version, api, main, permissions, icons(file, m.get("icons"), api));
+    }
+
+    private static List<String> icons(File file, Object v, int api) {
+        List<String> icons = new ArrayList<String>();
+        if (v == null) {
+            return icons;
+        }
+        if (!(v instanceof List)) {
+            throw new GradleException("mibsdk.plugin: " + file + ": \"icons\" must be an array of icon names");
+        }
+        for (Object o : (List<?>) v) {
+            if (!(o instanceof String) || !((String) o).matches("[a-z0-9-]{1,32}")) {
+                throw new GradleException("mibsdk.plugin: " + file + ": invalid icon name " + o
+                        + ": must match [a-z0-9-]{1,32} (it names icons/<name>.png)");
+            }
+            if (icons.contains(o)) {
+                throw new GradleException("mibsdk.plugin: " + file + ": duplicate icon '" + o + "'");
+            }
+            icons.add((String) o);
+        }
+        if (!icons.isEmpty() && api < ICONS_API) {
+            throw new GradleException("mibsdk.plugin: " + file + ": \"icons\" needs \"api\": " + ICONS_API);
+        }
+        if (icons.size() > MAX_ICONS) {
+            throw new GradleException("mibsdk.plugin: " + file + ": at most " + MAX_ICONS + " icons");
+        }
+        return icons;
     }
 
     private static String string(File file, Map<?, ?> m, String key) {

@@ -93,7 +93,7 @@ class UiHubTest {
     private UiImpl ui(String id, UiHub hub) {
         return new UiImpl(id, hub, new LiveFeatures(UiTestRuntime.UI_FEATURES),
                 new HashSet<String>(Arrays.asList(Permissions.UI_SLOT_CAR_MENU, Permissions.UI_SLOT_STATUS_BAR)),
-                executor("plugin-" + id), new Registrations());
+                executor("plugin-" + id), new Registrations(), java.util.Collections.<String>emptyList(), null);
     }
 
     private UiSnapshot await(java.util.function.Predicate<UiSnapshot> p) throws InterruptedException {

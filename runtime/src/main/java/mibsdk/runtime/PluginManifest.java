@@ -1,5 +1,6 @@
 package mibsdk.runtime;
 
+import java.util.Collections;
 import java.util.List;
 
 /** Parsed and validated plugin.json. */
@@ -13,9 +14,15 @@ public final class PluginManifest {
     private final String main;
     private final List<String> permissions;
     private final List<String> dependencies;
+    private final List<String> icons;
 
     PluginManifest(String id, String name, String version, String author, int api, String main,
             List<String> permissions, List<String> dependencies) {
+        this(id, name, version, author, api, main, permissions, dependencies, Collections.<String>emptyList());
+    }
+
+    PluginManifest(String id, String name, String version, String author, int api, String main,
+            List<String> permissions, List<String> dependencies, List<String> icons) {
         this.id = id;
         this.name = name;
         this.version = version;
@@ -24,6 +31,7 @@ public final class PluginManifest {
         this.main = main;
         this.permissions = permissions;
         this.dependencies = dependencies;
+        this.icons = icons;
     }
 
     public String id() {
@@ -56,5 +64,10 @@ public final class PluginManifest {
 
     public List<String> dependencies() {
         return dependencies;
+    }
+
+    /** The icon names the package declares ({@code "icons"}, api 3); empty if none. */
+    public List<String> icons() {
+        return icons;
     }
 }

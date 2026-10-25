@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -15,13 +17,16 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import mibsdk.api.Features;
+import mibsdk.api.Icon;
 import mibsdk.api.Page;
 import mibsdk.api.PageSpec;
 import mibsdk.api.PermissionDeniedException;
 import mibsdk.api.Permissions;
 import mibsdk.api.StatusItem;
+import mibsdk.api.StockIcons;
 import mibsdk.api.Subscription;
 import mibsdk.platform.UiEntry;
+import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiSnapshot;
 import mibsdk.platform.UiTable;
@@ -51,12 +56,13 @@ class UiImplTest {
     private final FakeClock clock = new FakeClock();
     private final UiTable table = new UiTable(64);
     private final List<SerialExecutor> executors = new ArrayList<SerialExecutor>();
+    private final RingLog log = new RingLog(100);
     private final UiHub hub;
     private UiTestRuntime rtx;
 
     UiImplTest() {
         SerialExecutor e = executor("ui-publish");
-        hub = new UiHub(table, new RingLog(100), clock, new PluginScheduler(e, clock), 0);
+        hub = new UiHub(table, log, clock, new PluginScheduler(e, clock), 0);
     }
 
     @AfterEach
@@ -76,7 +82,13 @@ class UiImplTest {
     }
 
     private UiImpl ui(String id, Set<String> features, Set<String> perms, Registrations regs) {
-        return new UiImpl(id, hub, new LiveFeatures(features), perms, executor("plugin-" + id), regs);
+        return ui(id, features, perms, regs, Collections.<String>emptyList(), new File(tmp, "icons/" + id));
+    }
+
+    private UiImpl ui(String id, Set<String> features, Set<String> perms, Registrations regs,
+            List<String> declaredIcons, File iconDir) {
+        return new UiImpl(id, hub, new LiveFeatures(features), perms, executor("plugin-" + id), regs,
+                declaredIcons, iconDir);
     }
 
     private UiImpl ui(String id) {
@@ -395,5 +407,137 @@ class UiImplTest {
         assertEquals("New", s.carRows().get(1).label());
         assertEquals("new", s.statusLine());
         assertNull(s.openPageKey(), "a stray open() requests nothing");
+    }
+
+    // ---- icons ----
+
+    private static final List<String> DECLARED = Arrays.asList("hello", "hello-20", "big", "tall");
+
+    private static Set<String> withIcons(Set<String> features) {
+        Set<String> s = new HashSet<String>(features);
+        s.add(Features.UI_ICONS);
+        return s;
+    }
+
+    private File installIcons(String id, String index) throws IOException {
+        File dir = new File(tmp, "icons/" + id);
+        dir.mkdirs();
+        FileOutputStream out = new FileOutputStream(new File(dir, "index.properties"));
+        try {
+            out.write(index.getBytes("ISO-8859-1"));
+        } finally {
+            out.close();
+        }
+        return dir;
+    }
+
+    private static UiIcon held(Icon i) {
+        return ((UiImpl.IconHandle) i).icon;
+    }
+
+    private int warnings(String what) {
+        int n = 0;
+        for (String line : log.snapshot()) {
+            if (line.contains(" WARN ") && line.contains(what)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    @Test
+    void declaredButNotInstalledIconIsInert() throws Exception {
+        // a "sdk push" plugin: the jar is there, its icon dir is not
+        UiImpl a = ui("a", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED,
+                new File(tmp, "icons/a"));
+        Icon hello = a.icon("hello");
+        assertNotNull(hello);
+        assertNull(held(hello), "inert: nothing for the HMI to load");
+        assertEquals(1, warnings("hello"));
+        a.icon("hello");
+        assertEquals(1, warnings("hello"), "one WARN per name, not per call");
+
+        Page p = a.page(PageSpec.of("main", "A"), null);
+        Subscription row = a.carMenuRow("A", p, hello);
+        assertNull(((UiImpl.RowHandle) row).icon, "the row shows without the icon");
+        StatusItem item = a.statusItem("x", hello);
+        item.set("y", hello);
+        assertNull(((UiImpl.StatusHandle) item).icon);
+        UiSnapshot s = published();
+        assertEquals(2, s.carRows().size(), "the row is live");
+        assertEquals("y", s.statusLine());
+
+        // installed, but one declared name is missing from the index
+        File dir = installIcons("b", "hello=0123456789abcdef,72,72\n");
+        UiImpl b = ui("b", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        assertEquals(new File(dir, "0123456789abcdef.png").getPath(), held(b.icon("hello")).path());
+        assertEquals("b", held(b.icon("hello")).owner());
+        assertNull(held(b.icon("hello-20")));
+        assertEquals(1, warnings("hello-20"));
+    }
+
+    @Test
+    void undeclaredOrForeignIconThrows() throws Exception {
+        File dir = installIcons("a", "hello=0123456789abcdef,20,20\nother=fedcba9876543210,20,20\n");
+        UiImpl a = ui("a", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        UiImpl b = ui("b", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        assertThrows(IllegalArgumentException.class, () -> a.icon("other"), "installed but not declared");
+        assertThrows(IllegalArgumentException.class, () -> a.icon("nope"));
+        assertThrows(IllegalArgumentException.class, () -> a.icon(null));
+        assertThrows(IllegalArgumentException.class, () -> a.stockIcon("nope"));
+        assertThrows(IllegalArgumentException.class, () -> a.stockIcon(null));
+        assertEquals(UiIcon.stock(StockIcons.STAR), held(a.stockIcon(StockIcons.STAR)));
+        for (String n : new String[] {StockIcons.DOT, StockIcons.CIRCLE, StockIcons.STAR, StockIcons.TRIANGLE,
+                StockIcons.SQUARE, StockIcons.CHECK, StockIcons.CROSS, StockIcons.PLUG}) {
+            assertTrue(StockIcons.isKnown(n), n);
+        }
+        assertFalse(StockIcons.isKnown("nope"));
+        assertFalse(StockIcons.isKnown(null));
+
+        final Page p = a.page(PageSpec.of("main", "A"), null);
+        final Icon foreign = b.icon("hello");
+        final Icon made = new Icon() {
+        };
+        for (final Icon bad : new Icon[] {foreign, made, b.stockIcon(StockIcons.DOT)}) {
+            assertThrows(IllegalArgumentException.class, () -> a.carMenuRow("A", p, bad));
+            assertThrows(IllegalArgumentException.class, () -> a.statusItem("x", bad));
+        }
+        StatusItem item = a.statusItem("x", a.icon("hello"));
+        assertThrows(IllegalArgumentException.class, () -> item.set("y", foreign));
+        assertThrows(IllegalArgumentException.class, () -> item.set("y", made));
+        a.carMenuRow("A1", p, a.icon("hello"));
+        a.carMenuRow("A2", p, null);
+        assertThrows(IllegalStateException.class, () -> a.carMenuRow("A3", p), "refused rows held no count slot");
+        assertEquals(0, warnings("WARN"), "nothing was inert");
+    }
+
+    @Test
+    void bigIconOnAStatusItemThrows() throws Exception {
+        String index = "big=0123456789abcdef,72,72\nhello-20=fedcba9876543210,20,20\ntall=00112233445566ff,20,21\n";
+        List<Set<String>> runs = Arrays.asList(withIcons(UiTestRuntime.UI_FEATURES), UiTestRuntime.UI_FEATURES);
+        for (int r = 0; r < runs.size(); r++) {
+            String id = "p" + r;
+            boolean drawn = runs.get(r).contains(Features.UI_ICONS);
+            UiImpl u = ui(id, runs.get(r), ALL_PERMS, new Registrations(), DECLARED, installIcons(id, index));
+            final Icon big = u.icon("big");
+            final Icon tall = u.icon("tall");
+            Icon small = u.icon("hello-20");
+            assertThrows(IllegalArgumentException.class, () -> u.statusItem("x", big), "run " + r);
+            assertThrows(IllegalArgumentException.class, () -> u.statusItem("x", tall), "run " + r);
+            final StatusItem item = u.statusItem("x", small); // the refused calls held no count slot
+            assertThrows(IllegalArgumentException.class, () -> item.set("y", big), "run " + r);
+            item.set("y", u.stockIcon(StockIcons.CHECK));
+            assertEquals(drawn ? UiIcon.stock(StockIcons.CHECK) : null, ((UiImpl.StatusHandle) item).icon);
+            item.set("z");
+            assertEquals(drawn ? UiIcon.stock(StockIcons.CHECK) : null, ((UiImpl.StatusHandle) item).icon,
+                    "set(text) keeps the icon");
+            item.set("z", null);
+            assertNull(((UiImpl.StatusHandle) item).icon);
+
+            Page p = u.page(PageSpec.of("main", "P"), null);
+            Subscription row = u.carMenuRow("P", p, big); // a row takes up to Ui.ROW_ICON_MAX_PX
+            assertEquals(drawn ? held(big) : null, ((UiImpl.RowHandle) row).icon, "run " + r);
+            assertEquals(72, held(big).width());
+        }
     }
 }
