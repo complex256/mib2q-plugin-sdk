@@ -172,7 +172,8 @@ case "$CMD" in
     rw_begin
     push_bundles "$TMP/backup"
     fetch "$BUNDLES" "$TMP/after" && cmp "$TMP/backup" "$TMP/after" || die "bundles file differs from $BACKUP after restore"
-    rsh "rm -f '$JAR_DST' '$ICONS_DST'/*.png '$ICONS_DST/.push.tmp'; rmdir '$ICONS_DST' '$LSD/mibsdk-spike' 2>/dev/null; true" \
+    # No rmdir on the unit: remove the spike's own fixed dir with rm -rf.
+    rsh "rm -f '$JAR_DST'; rm -rf '$LSD/mibsdk-spike'" \
       || die "cannot remove $JAR_DST / $ICONS_DST"
     rw_end
     rsh "[ ! -e '$JAR_DST' ] && [ ! -e '$LSD/mibsdk-spike' ]" || die "jar or icons dir still present"

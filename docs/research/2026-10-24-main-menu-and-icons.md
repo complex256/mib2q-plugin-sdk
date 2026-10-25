@@ -478,33 +478,67 @@ Other observations:
 - **Glyphs** (zero-risk stopgap): `● ○ ★ ▲ ■ □ ◆ ◊ ♪ ☎ ← ↑ → ↓ • ∞ √` are usable in status text. `✓` and `⚠` are not.
 - **Provider logo (3838)** is not a usable SDK surface.
 
-## 10. Spike C, Boot B results: BLOCKED, the unit did not come back
+## 10. Spike C, Boot B results
 
-Date: 2026-10-24. Boot B = Boot A plus `run.sh add-system` (live lines `HMICar=mibsdk.spike.ui.SpikeCarActivator`,
-`HMISystem=mibsdk.spike.ui.SpikeSystemActivator`). Before the restart, the jar was replaced with `push-jar` (commit
-`0ad96fc`, which adds the `pop-slot` and `glyphs3` probes) and `cmp`-verified on the unit. `/mnt/app` was read-only.
-`bundles.before` was the pre-spike SDK copy.
+Date: 2026-10-24. Boot B = Boot A plus `run.sh add-system`. The live lines were
+`HMICar=mibsdk.spike.ui.SpikeCarActivator` and `HMISystem=mibsdk.spike.ui.SpikeSystemActivator`. Before the boot, the
+jar was replaced with `push-jar` (commit `0ad96fc`, which adds the `pop-slot` and `glyphs3` probes).
 
-- 16:23:44 (host time): `installer/mibsdk-dev restart` (`slay -s11 j9`). SSH stayed up for about 65 s, then dropped.
-  That is the normal unit reset.
-- 16:27: `keypanel up` (try 1): "no answer - kicking DHCP … still unreachable".
-- 16:27–16:33: SSH polled every 10 s, with no answer.
-- 16:35: `keypanel up` (try 2): the same. `keypanel status`: `kl15 active`, `mmx UNREACHABLE`, daemon down, and ping
-  100 % loss.
+**The restart hang was not caused by the spike.**
+- At 16:23:44 (host time), `installer/mibsdk-dev restart` (`slay -s11 j9`) reset the unit. It then stayed off the
+  network: two `keypanel up` tries failed, and the run stopped as BLOCKED.
+- The owner power-cycled the unit, and `keypanel up` at 16:40 brought it back. That power-cycle boot is Boot B.
+- Its log starts with `system activator constructed thread=…Dispatcher-Startup configuratorSeen=true runMode=normal`,
+  `factory: SpikeSystemFactory`, then the Car spike factory and `getPartialPopupStubs … + 609600`. So the spike System
+  activator loaded and ran normally.
+- The hang matches the earlier P3-F12 bench hang (RCC console silent, CAN live). It was a unit-reset problem, not an
+  HMI one.
+- The power cut wiped `/tmp`. The revert restart below came back with `/tmp/mibpkg` present again, restored at boot.
 
-The bench rule (two failed `keypanel up` tries) says stop, so the run stopped there. **No Boot B check ran.** C0–C5,
-wrench, relabel/hide, the stock rows and the slot test are all **not run**. The §8.4 emergency revert needs SSH, so it
-could not be applied. For comparison, Boot A's reset also needed a DHCP kick and came back after about 8 min. This
-unit was still unreachable 12 min after the slay.
+Log: the second section of `ui-spike-c-log.txt`. Frames: `ui-spike-c-b-*.jpg`, `-ring-*.jpg`, `-page-from-menu.jpg`,
+`-back-to-ring.jpg`, `-menu-*.jpg`, `-stock-*.jpg`, `-popup609600-slot7-*.jpg`, `-glyphs3*`,
+`-after-uninstall-*.jpg`.
 
-It is not known whether the unreachable unit is caused by the `HMISystem=` spike. A blank or crashing HMI alone
-should not take the unit's network down, and the Boot A reset already took unusually long. A unit that stays off the
-network after a reset is what §2.3 calls the worst case, though, so the owner should treat it as possibly caused by
-the spike.
+| # | Result | Evidence |
+|---|---|---|
+| C0 | **go.** The spike System activator boots like stock. It booted to the last app (navigation map) with the status bar and clock. `vol_up` shows the stock volume popup ("Currently unavailable" on the bench), and the SDK status line shows. The constructor log has `configuratorSeen=true` (the SDK configurator had already run) and `runMode=normal`. | `0 system activator constructed … configuratorSeen=true runMode=normal`, `0 factory: SpikeSystemFactory`. Frames `ui-spike-c-b-home.jpg`, `-b-volume.jpg` |
+| C1 | **go.** On the first MENU, `createScreen(46)` logged all 16 stock rows (visible=true at build time; the conditions are applied later) and appended 4. **On screen, the SDK rows come after Settings, in add order**: "SDK w10" (warning triangle), "SDK w11 wrench" (night vision), "SDK w12" (Audi headset), "SDK w14" (Audi flower). Each takes focus with its highlighted atlas cell and colour (red, red, green, blue) and the car glow. The ring still does not wrap; it now ends at SDK w14. | `153425 wizard row 0..15 …`, `wizard rows appended n=4 children=20`. Frames `ui-spike-c-ring-sdk-rows.jpg`, `-ring-sdk-focus.jpg` (w10), `-ring-sdk-focus-w11.jpg`, `-ring-sdk-focus-w12.jpg` |
+| C2 | **go.** SELECT on "SDK w10" reaches `SpikeWizardKeyHandler` on HMIEvent, no SMM event is fired, and the page opens from screen 46. Three presses, all handled. | `212434`/`229437`/`329471 wizard-press n=0 thread=fw[HMIThreadPool:5]Dispatcher-HMIEvent`, `page-show S2a from current=id=46` |
+| C3 | **go.** The SDK page renders from the menu (title, LABEL row, 5 list rows, in the last app's colour). BACK re-shows screen 46, the ring comes back with the focus on "SDK w10", and the ring animates in as usual. | `page-key press code=15`, `page-back mode=reshow … target=id=46`. Frames `ui-spike-c-page-from-menu.jpg`, `-back-to-ring.jpg` |
+| C4 | **MENU is a no-op both on the SDK page and on the ring (stock behaviour); nothing gets stuck.** MENU on the SDK page (twice): the page stays. The SMM is still in state 94, which is the ring state, so MENU changes nothing. BACK then returns to the ring. MENU on the ring with focus on an SDK row (widgetID 10, the guard 509 default) does nothing, and neither does MENU on the ring with focus on Settings (stock). App hard keys leave the SDK page normally: MEDIA from the page opened Media, and MENU after that showed the ring on Media. | Frames `ui-spike-c-menu-from-page.jpg`, `-menu-on-sdk-focus.jpg`, `-menu-on-stock-focus.jpg`, `-media-key-from-page.jpg` |
+| Wrench | **go, live.** `wrench` changed `mapping[11]` from {11, 11} to {16, 9}. The "SDK w11 wrench" row showed the unused wrench cell (grey) at the next ring redraw, without a reopen; focused, it is the red wrench. | `355475 cmd wrench mapping[11] 11,11 -> 16,9 (length 20)`. Frames `ui-spike-c-ring-wrench-live.jpg`, `-ring-wrench.jpg` |
+| C5 relabel/hide | **go, at the next ring re-layout (a knob turn or reopen), not instantly.** `wz-label` (factory text 90000) did not change the label while the ring sat still. `wz-hide` (`setVisible(false)`) did not change the ring either until the knob turned; after that, "SDK w10" was gone (ASI → Settings → SDK w11). `wz-show` likewise brought the row back after the next turn, now as "SDK w10 relabelled". | `379479 cmd wz-label`, `384479 cmd wz-hide rows=true`, `393482 cmd wz-show rows=true`. Frames `ui-spike-c-ring-relabel-not-live.jpg`, `-ring-hidden.jpg`, `-ring-relabel.jpg` |
+| Stock rows | **go.** From the ring with the SDK rows present, Radio opened Radio: Presets, Navigation opened Navigation: Enter destination, and Audi smartphone interface opened its stock note screen. The NAV and MEDIA hard keys worked. | Frames `ui-spike-c-stock-radio.jpg`, `-stock-nav.jpg` |
+| Popup slot | **go: in slot 7, popup 609600 and popup 65 show side by side.** `pop-slot 7` set the slot on the stub and the popup (the popup had not been built yet this boot, so it was built with slot 7). After `pop-on`, 609600 (icons plus label at x=514) and the SDK status line in popup 65 (x=769) were visible together on the ring and on Car drive select, through the screen change. | `461501 cmd pop-slot stub 5 -> 7`, `464501 getPartialPopup 609600 built`. Frames `ui-spike-c-popup609600-slot7-home.jpg`, `-slot7-car.jpg` |
+| S4 re-read | `glyphs3` `▪ ► ◀ ⌀ ◊ ✓ ⚠` (spaced): ▪, ►, ◀, ⌀ and ◊ are drawn as small glyphs. ✓ and ⚠ are not drawn (boxes or bars), which confirms Boot A. | Frames `ui-spike-c-glyphs3.jpg`, `-glyphs3-zoom.png` |
 
-Recovery (owner):
-1. Power-cycle the unit if it does not answer.
-2. As soon as SSH answers, run the §8.4 revert from `/mnt/persist/mibsdk-spike/bundles.before` (10231 bytes, md5
-   `d9c74323f707fb44e73f9c4b286d7589`, the SDK state).
-3. Run `slay -s11 j9`.
-4. Run `spikes/hmi-ui/run.sh uninstall` to remove the jar and icons and to re-check the bundles file with `cmp`.
+**Revert (step 19).**
+- `run.sh uninstall` wrote `bundles.before` back. The live file was `cmp`-identical to it and to the host snapshot
+  taken before Boot A.
+- It removed the jar and the PNGs. The unit has no `rmdir` on PATH (it is at `/mnt/app/armle/usr/bin`), so the empty
+  `lsd/mibsdk-spike/icons` dirs stayed. `run.sh` now removes the spike dir with `rm -rf`, and a second `uninstall`
+  cleaned it.
+- `/mnt/app` was read-only afterwards.
+- 16:48:50: restart. The first `keypanel up` (17:00, DHCP kick) brought the unit back, and the bridge connected at
+  17:00:56.
+- `mibsdk-dev status`: `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator`, running, `ui car=sdk`, 5 plugins ENABLED.
+- `run.sh status`: the stock `HMISystem=` line, no jar, no icons.
+- The Car drawer ends with Plugins, Bike rack and Hello, and the MENU ring ends at Settings (stock). Frames
+  `ui-spike-c-after-uninstall-drawer.jpg`, `-after-uninstall-ring.jpg`.
+
+### What Boot B means for the SDK
+
+- **A main-menu Plugins entry through the `HMISystem=` takeover works on this build.**
+  - The row is appended after Settings and is reachable at the end of the ring.
+  - It carries a stock atlas icon: the free widgetIDs 10/11/12/14 all map cleanly, and the wrench (mapping[11] :=
+    {16, 9}) also works.
+  - It opens an SDK page with its own key handler and no SMM event, and BACK returns to the ring.
+- **Hide and relabel happen at the next ring re-layout, not instantly.** Changing visibility when the snapshot changes
+  is acceptable, since the user sees it the next time they move the knob or open the menu.
+- **MENU and the 138 default are harmless.** MENU does not leave an SDK page opened from the ring (it is a no-op in
+  state 94), but BACK and the app keys do.
+- The blast-radius risk of §2.3 stands. This boot proved the happy path, not the failure modes. The hang came from
+  the unit reset, not the spike, but it shows that a restart can leave the bench unreachable. mibpkg's `HMISystem=`
+  management (stock-value check, byte-identical restore, swdl fallback) remains a prerequisite.
+- **Status popup:** put the SDK's popup 609600 in **slot 7**. It then coexists with popup 65, the engineering and DAB
+  users of label 416 stay untouched, and the SDK can move its whole status line (icons plus text) there.
