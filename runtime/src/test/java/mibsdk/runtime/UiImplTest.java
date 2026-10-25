@@ -419,14 +419,28 @@ class UiImplTest {
         return s;
     }
 
+    private static void writeFile(File f, String s) throws IOException {
+        FileOutputStream out = new FileOutputStream(f);
+        try {
+            out.write(s.getBytes("ISO-8859-1"));
+        } finally {
+            out.close();
+        }
+    }
+
+    /** Writes the index and, for every line, its {@code <sha16>.png} (the content is not read). */
     private File installIcons(String id, String index) throws IOException {
         File dir = new File(tmp, "icons/" + id);
         dir.mkdirs();
-        FileOutputStream out = new FileOutputStream(new File(dir, "index.properties"));
-        try {
-            out.write(index.getBytes("ISO-8859-1"));
-        } finally {
-            out.close();
+        writeFile(new File(dir, "index.properties"), index);
+        for (int at = 0; at < index.length();) {
+            int nl = index.indexOf('\n', at);
+            String line = index.substring(at, nl < 0 ? index.length() : nl);
+            int eq = line.indexOf('=');
+            if (eq > 0 && line.length() >= eq + 17) {
+                writeFile(new File(dir, line.substring(eq + 1, eq + 17) + ".png"), "png");
+            }
+            at = nl < 0 ? index.length() : nl + 1;
         }
         return dir;
     }
@@ -474,6 +488,20 @@ class UiImplTest {
         assertEquals("b", held(b.icon("hello")).owner());
         assertNull(held(b.icon("hello-20")));
         assertEquals(1, warnings("hello-20"));
+    }
+
+    @Test
+    void indexedIconWithoutItsPngIsInert() throws Exception {
+        File dir = new File(tmp, "icons/a");
+        dir.mkdirs();
+        writeFile(new File(dir, "index.properties"), "hello=0123456789abcdef,20,20\n"); // no 0123456789abcdef.png
+        UiImpl a = ui("a", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        Icon hello = a.icon("hello");
+        assertNull(held(hello), "the HMI must never be asked for a path that does not exist");
+        a.icon("hello");
+        assertEquals(1, warnings("hello"));
+        StatusItem item = a.statusItem("x", hello);
+        assertNull(((UiImpl.StatusHandle) item).icon);
     }
 
     @Test

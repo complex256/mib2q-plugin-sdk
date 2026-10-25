@@ -13,7 +13,8 @@ import mibsdk.api.Ui;
  * The installed icons of one package: {@code <dir>/index.properties}, written by mibpkg, with lines
  * {@code <name>=<sha16>,<w>,<h>} for files {@code <dir>/<sha16>.png}. Reading never throws: a missing, unreadable or
  * malformed file is an empty index, and a bad line (a name outside {@code [a-z0-9-]{1,32}}, a key that is not 16
- * lowercase hex characters, a size outside 1..72) is left out. No java.util.regex: the car has none.
+ * lowercase hex characters, a size outside 1..72, or no {@code <sha16>.png} file) is left out. No java.util.regex:
+ * the car has none.
  */
 public final class IconIndex {
 
@@ -88,7 +89,11 @@ public final class IconIndex {
         if (!isKey(key) || w < 0 || h < 0) {
             return null;
         }
-        return UiIcon.file(owner, new File(dir, key + ".png").getPath(), key, w, h);
+        File png = new File(dir, key + ".png");
+        if (!png.isFile()) { // the HMI must never be asked for a path that does not exist
+            return null;
+        }
+        return UiIcon.file(owner, png.getPath(), key, w, h);
     }
 
     /** Whether {@code s} is a valid icon name, {@code [a-z0-9-]{1,32}}; the manifest parser checks the same. */
