@@ -27,9 +27,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 cmd="$*"
+printf '%s\n' "$cmd" >>"$FAKE_UNIT/ssh.cmds"
 # Test hook: a file that changes on disk once the tool has connected (after it took its snapshot).
 if [ -n "$FAKE_REWRITE" ] && [ "$cmd" = "echo ok" ]; then printf tampered >"$FAKE_REWRITE"; fi
 cmd="${cmd//\/tmp\//$FAKE_UNIT/tmp/}"
+cmd="${cmd//\/mnt\/persist\//$FAKE_UNIT/mnt/persist/}"
 # Test hook: an upload whose target contains $FAKE_CORRUPT_UPLOAD arrives damaged (a cut link): one extra byte lands.
 if [ -n "$FAKE_CORRUPT_UPLOAD" ]; then
   case "$cmd" in "cat > "*"$FAKE_CORRUPT_UPLOAD"*) cmd="{ cat; printf X; } ${cmd#cat }" ;; esac
@@ -125,6 +127,11 @@ class FakeUnit(object):
 
     def uploads(self):
         return sorted(n for n in os.listdir(self.tmp) if n.startswith("mibpkg.") and n != "mibpkg")
+
+    def ssh_cmds(self):
+        """Every remote command line, as sent (before the fake rewrites paths into the tree)."""
+        path = os.path.join(self.unit, "ssh.cmds")
+        return read(path).decode("utf-8").splitlines() if os.path.exists(path) else []
 
     def hosts(self):
         path = os.path.join(self.unit, "ssh.hosts")
@@ -401,14 +408,60 @@ class SdkVerbTest(FakeUnitTestCase):
 
     def test_status_is_mibpkg_sdk_status_alone(self):
         write(os.path.join(self.u.tmp, "mibsdk.log"), b"1 STATUS hello ENABLED ok\n")
-        r = self.ok(self.u.run("status", status_out="HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\nsdk: 0.1.0"))
-        self.assertEqual(b"HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\nsdk: 0.1.0\n", r.stdout)
+        lines = ("HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\n"
+                 "HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator\nsdk: 0.1.0")
+        r = self.ok(self.u.run("status", status_out=lines))
+        self.assertEqual(lines.encode() + b"\n", r.stdout)
         self.assertEqual([["sdk", "status"]], self.u.calls())
 
     def test_script_has_no_remote_mount_calls(self):
         text = read(TOOL).decode("utf-8")
         self.assertNotIn("mount -u", text)
         self.assertIsNone(re.search(r"python3 .*(STAMP|GRANTS|LEDGER)_PY", text))
+
+
+class UiForceFailTest(FakeUnitTestCase):
+    FILE = "/mnt/persist/mibsdk/dev/ui.forcefail"
+
+    def forcefail(self):
+        path = os.path.join(self.u.unit, "mnt/persist/mibsdk/dev/ui.forcefail")
+        return read(path) if os.path.exists(path) else None
+
+    def clear_cmds(self):
+        path = os.path.join(self.u.unit, "ssh.cmds")
+        if os.path.exists(path):
+            os.remove(path)
+
+    def test_ssh_command_lines_for_each_argument(self):
+        for value in ("factory", "screen"):
+            self.clear_cmds()
+            r = self.ok(self.u.run("ui-forcefail", value))
+            self.assertEqual(["echo ok", "mkdir -p /mnt/persist/mibsdk/dev && echo " + value + " > " + self.FILE],
+                             self.u.ssh_cmds())
+            self.assertEqual(value.encode() + b"\n", self.forcefail())
+            self.assertIn("restart", r.stdout.decode())
+        self.clear_cmds()
+        r = self.ok(self.u.run("ui-forcefail", "off", "10.1.2.3"))
+        self.assertEqual(["echo ok", "rm -f " + self.FILE], self.u.ssh_cmds())
+        self.assertIsNone(self.forcefail())
+        self.assertIn("restart", r.stdout.decode())
+        self.assertEqual({"10.20.0.23", "10.1.2.3"}, self.u.hosts())
+        self.assertEqual([], self.u.calls())       # no mibpkg verb, no remount
+        self.assertFalse(any("mount" in c for c in self.u.ssh_cmds()))
+
+    def test_remote_commands_use_no_printf(self):
+        # The unit's shell has no printf ("sh: printf: cannot execute", bench Task 12 R2): the write failed there.
+        for value in ("factory", "screen", "off"):
+            self.ok(self.u.run("ui-forcefail", value))
+        self.assertFalse([c for c in self.u.ssh_cmds() if "printf" in c])
+
+    def test_a_bad_argument_exits_2_and_sends_nothing(self):
+        for args in (("ui-forcefail",), ("ui-forcefail", "on"), ("ui-forcefail", "Factory"),
+                     ("ui-forcefail", "factory;reboot"), ("ui-forcefail", "factory", "h", "extra")):
+            err = self.failed(self.u.run(*args), 2)
+            self.assertNotIn("unbound", err)
+        self.assertEqual([], self.u.ssh_cmds())
+        self.assertEqual(set(), self.u.hosts())
 
 
 if __name__ == "__main__":

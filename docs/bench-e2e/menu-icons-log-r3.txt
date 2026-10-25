@@ -1,0 +1,39 @@
+0 INFO mibsdk.hqc configurator: hmi=HMI_AU_MIB2_HQC_NAR_G22_C10_180803 safeMode=false wrapLoop=false wrappingEnabled=true uiEnabled=true hookServices=[org.dsi.ifc.carparkingsystem.DSICarParkingSystem]
+0 INFO mibsdk.hqc configurator: chain=de.audi.tghu.dsitrace.TraceConfigurator
+0 STATUS mibsdk ui system=sdk
+0 INFO mibsdk.hqc activator: hmi=HMI_AU_MIB2_HQC_NAR_G22_C10_180803 adapter=hqc-nar-g22-c10
+0 STATUS mibsdk seam configurator=seen wrapping=true raw.parking=true
+0 INFO mibsdk.hqc wrapped org.dsi.ifc.carparkingsystem.DSICarParkingSystem chain=TraceConfigurator
+0 STATUS mibsdk state persist=/mnt/persist/mibsdk ok ram=/ramdisk/mibsdk ok bootGuard=armed
+0 STATUS mibsdk durability persist=/mnt/persist/mibsdk fileSync=ok dirSync=unsupported (java.io.FileNotFoundException: /mnt/persist/mibsdk at java.io.RandomAccessFile.<init>(Unknown Source)) fsyncMs=0
+0 INFO mibsdk.hqc org.dsi.ifc.carparkingsystem.DSICarParkingSystem available after 0 ms (1 lookups)
+0 INFO mibsdk.hqc org.dsi.ifc.powermanagement.DSIPowerManagement available after 0 ms (1 lookups)
+0 STATUS mibsdk seam configurator=seen wrapping=true raw.parking=true
+0 STATUS mibsdk features=[hook.parking, slot.carmenu, slot.statusbar, ui.icons, ui.pages, vehicle.ignition, vehicle.parking]
+1021 STATUS mibsdk features=[hook.parking, slot.carmenu, slot.statusbar, ui.icons, ui.pages, vehicle.ignition, vehicle.parking]
+1021 INFO mibsdk.hqc de.audi.atip.base.IFrameworkAccess available after 0 ms (1 lookups)
+1021 STATUS mibsdk runtime started adapter=hqc-nar-g22-c10 safeMode=false
+1021 STATUS mibsdk heap free=50294800 total=62914560
+1021 INFO mibsdk plugins load in 30000 ms
+5022 STATUS mibsdk ui car=sdk
+5022 STATUS mibsdk ui status popup 609600 registered
+31748 STATUS bike-rack DISCOVERED discovered
+31748 STATUS crashy DISCOVERED discovered
+31748 STATUS daemon-status DISCOVERED discovered
+31748 STATUS hello-menu DISCOVERED discovered
+31748 STATUS hello DISCOVERED discovered
+31748 INFO bike-rack waiting for parking value
+31748 STATUS bike-rack ENABLED enabled
+31748 INFO crashy mode=
+31748 INFO crashy no crash mode set; idle
+31748 STATUS crashy ENABLED enabled
+31748 STATUS daemon-status ENABLED enabled
+31748 STATUS hello-menu ENABLED enabled
+31748 INFO hello hello enabled
+31748 STATUS hello ENABLED enabled
+32748 STATUS mibsdk ui status popup 609600 built
+32748 INFO mibsdk getImagePath 609101 -> ../mibsdk/icons-sdk/b22e926cb7632baa.png
+91756 INFO mibsdk boot healthy: 5 plugin(s) enabled for 60000 ms
+331791 INFO mibsdk getImagePath 609100 -> ../mibsdk/icons/hello-menu/e95717048223f737.png
+385800 INFO mibsdk getImagePath 609102 -> ../mibsdk/icons-sdk/966b026bec63dfd5.png
+399802 INFO mibsdk getImagePath 609103 -> ../mibsdk/icons-sdk/41a75fb1f2765d90.png

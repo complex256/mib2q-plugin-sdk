@@ -103,12 +103,14 @@ listOf(runtimeJar, adapterJar, retrotranslatorJar).forEach {
 tasks.named("assemble") { dependsOn("assembleUnit") }
 tasks.named("check") { dependsOn(distLinkCheck, unitStamp) }
 
-// The SDK package: the three stamped unit jars, the permission catalog and the [sdk] manifest.
+// The SDK package: the three stamped unit jars, the permission catalog, the built-in icon set (dist/icons/*.png,
+// staged as icons/<name>.png after PngCheck) and the [sdk] manifest.
 val sdkVersion = providers.gradleProperty("mibsdk.version").get()
 val sdkStageDir = layout.buildDirectory.dir("mibpkg-stage")
+val sdkIconsDir = layout.projectDirectory.dir("icons")
 
 val mibpkgStage = tasks.register<Sync>("mibpkgStage") {
-    description = "Stages manifest.toml, the three unit jars, mibsdk-unit.stamp and permissions.json for mibpkg."
+    description = "Stages manifest.toml, the three unit jars, mibsdk-unit.stamp, permissions.json and icons/ for mibpkg."
     dependsOn(unitStamp)
     from(runtimeJar.flatMap { it.archiveFile }, adapterJar.flatMap { it.archiveFile },
         retrotranslatorJar.map { distDir.get().file("mibsdk-rt-retrotranslator.jar") })
@@ -116,13 +118,16 @@ val mibpkgStage = tasks.register<Sync>("mibpkgStage") {
     from(rootProject.layout.projectDirectory.file("api/permissions.json"))
     into(sdkStageDir)
     inputs.property("sdkVersion", sdkVersion)
+    inputs.files(fileTree(sdkIconsDir)).withPropertyName("icons").withPathSensitivity(PathSensitivity.RELATIVE)
     doFirst {
         if (!distDir.get().file("mibsdk-unit.stamp").asFile.isFile) {
             throw GradleException("dist: mibsdk-unit.stamp is missing: a dist check did not run, so the SDK is not packaged")
         }
     }
     doLast {
-        sdkStageDir.get().file("manifest.toml").asFile.writeText(mibsdk.build.MpkStage.sdkManifest(sdkVersion))
+        val icons = mibsdk.build.MpkStage.iconNames(sdkIconsDir.asFile)
+        mibsdk.build.MpkStage.stageIcons(icons, sdkIconsDir.asFile, sdkStageDir.get().asFile)
+        sdkStageDir.get().file("manifest.toml").asFile.writeText(mibsdk.build.MpkStage.sdkManifest(sdkVersion, icons))
     }
 }
 

@@ -33,3 +33,35 @@ Same install/uninstall. Drawer row 0 shows `SpikePage` with `FwHMI.showScreen` (
 probe sequence no longer runs by itself; `SpikeProbes` polls command files `/tmp/mibsdk-spike-ui.<cmd>` every 100 ms:
 `rerun`, `row1-show`, `row1-hide`, `back-reshow`, `back-event`, `back-stock`, `reset-sel-on`, `reset-sel-off`,
 `nolabel-on`, and `hijack` (the file holds an event id).
+
+## Spike C: row icons, SDK status popup, glyphs, main menu
+
+Plan: `docs/research/2026-10-24-main-menu-and-icons.md` §8. `run.sh` now works on a unit whose SDK was installed by
+mibpkg (there is no `mibsdk/stock/` any more): it expects `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator` and the stock
+`HMISystem=` line, saves a byte copy of the live bundles file to `/mnt/persist/mibsdk-spike/bundles.before`, and
+`uninstall` writes that copy back (`cmp`-checked).
+After the main-menu feature (`2026-10-24-menu-and-icons`), `run.sh install` refuses by design on a unit with the SDK
+installed, because the SDK package now owns `HMISystem=` and the line is no longer stock.
+
+```
+./gradlew :spikes:hmi-ui:carJar && python3 -I spikes/hmi-ui/icons/make_icons.py
+spikes/hmi-ui/run.sh install --car-only   # Boot A: HMICar= only (drawer icons, popup 609600, glyphs, logo)
+spikes/hmi-ui/run.sh add-system           # Boot B on top of A: HMISystem= -> SpikeSystemActivator (main menu)
+spikes/hmi-ui/run.sh install              # or both lines at once
+spikes/hmi-ui/run.sh status
+spikes/hmi-ui/run.sh uninstall && installer/mibsdk-dev restart
+```
+
+- Car side (`SpikeFactory`): drawer row 0 has bitmaps `{609100, 609101}`, served by `getImagePath` from
+  `lsd/mibsdk-spike/icons/` (I1); row 1 has System stock `{422, 423}` (I2); row 2 none. `getPartialPopupStubs` adds
+  popup 609600 (model 602751), built by `SpikePopup`: backdrop, icons `{609110}`, `{609111}`, one on the
+  `ResourceLocatorModel` 602752, and a label on 602753.
+- System side (`SpikeSystemActivator`, `SpikeSystemFactory`, `SpikeWizardKeyHandler`): appends rows "SDK w10",
+  "SDK w11 wrench", "SDK w12", "SDK w14" (widgetIDs 10, 11, 12, 14) to the main-menu ring (screen 46); SELECT opens
+  the spike page. Stock factory in `RUN_MODE=swdl` and on any `Throwable`. Popup 65 gets two icons only when
+  `/tmp/mibsdk-spike-ui.p65icons` exists when it is built.
+- Command files `/tmp/mibsdk-spike-ui.<cmd>`: `pop-on`, `pop-off`, `pop-file`, `icon-next`, `glyphs1`, `glyphs2`,
+  `glyph-off`, `logo-on`, `logo-off`; Boot B: `wrench` (atlas mapping of widgetID 11 := `{16, 9}`), `wz-hide`,
+  `wz-show`, `wz-label`.
+- Emergency revert (blank HMI): `mount -uw /mnt/app; cp /mnt/persist/mibsdk-spike/bundles.before
+  /mnt/app/eso/hmi/lsd/bundles_dsitracer_enabled.properties; chmod 777 …; sync; mount -ur /mnt/app; slay -s11 j9`.

@@ -16,7 +16,7 @@ class TextIdsTest {
         List<UiRow> rows = new ArrayList<UiRow>();
         rows.add(new UiRow("mibsdk.plugins", "Plugins", "mibsdk.plugins"));
         rows.add(new UiRow("hello.row", "Hello", "hello.page"));
-        DrawerAssignment a = DrawerSlots.assign(DrawerAssignment.EMPTY, rows, HqcUiIds.PLUGIN_ROW_SLOTS);
+        DrawerAssignment a = DrawerSlots.assign(DrawerAssignment.EMPTY, rows, HqcUiIds.PLUGIN_ROW_SLOTS, null, null);
 
         assertEquals(609000, ids.idFor(0));
         assertEquals(609008, ids.idFor(8));
@@ -40,7 +40,7 @@ class TextIdsTest {
         assertEquals("Plugins", ids.textFor(609000, null));
         assertEquals("", ids.textFor(609001, DrawerAssignment.EMPTY), "plugin slots stay blank");
         DrawerAssignment named = DrawerSlots.assign(DrawerAssignment.EMPTY,
-                java.util.Collections.singletonList(new UiRow("mibsdk.plugins", "Plugins (safe mode)", "p")), 8);
+                java.util.Collections.singletonList(new UiRow("mibsdk.plugins", "Plugins (safe mode)", "p")), 8, null, null);
         assertEquals("Plugins (safe mode)", ids.textFor(609000, named), "the published label wins");
     }
 }

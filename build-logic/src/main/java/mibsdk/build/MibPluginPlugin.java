@@ -30,7 +30,8 @@ import org.gradle.api.tasks.bundling.Jar;
  * → {@code linkCheck} (car JCL + api + compat car jars; the Retrotranslator runtime followed transitively;
  * nothing else: the plugin class loader hides platform, runtime and stock classes) → {@code permissionScan}
  * (fails unless {@code plugin.json} lists {@code platform.unrestricted}) → {@code mibPluginJar} =
- * {@code build/mibsdk/<id>.jar} with {@code plugin.json} at the root.
+ * {@code build/mibsdk/<id>.jar} with {@code plugin.json} at the root. {@code mibPluginJar} also refuses the build
+ * unless every icon {@code plugin.json} declares is a {@code src/main/icons/<name>.png} that passes {@link PngCheck}.
  *
  * <p>Kotlin ({@code org.jetbrains.kotlin.jvm} applied): {@link Toolchain#KOTLIN_FLAGS}, {@code jvmTarget=1.8},
  * and {@code kotlinShrink} ({@link KotlinShrinkTask}) between the compile and {@code backport}.
@@ -39,6 +40,9 @@ public class MibPluginPlugin implements Plugin<Project> {
 
     /** Where the plugin's manifest lives; processResources puts it at the jar root. */
     public static final String MANIFEST = "src/main/resources/plugin.json";
+
+    /** Where a plugin's declared icons live: {@code <name>.png} for each name in the manifest's {@code "icons"}. */
+    public static final String ICONS = "src/main/icons";
 
     private static final String KOTLIN_PLUGIN_ID = "org.jetbrains.kotlin.jvm";
 
@@ -81,6 +85,10 @@ public class MibPluginPlugin implements Plugin<Project> {
             t.setPreserveFileTimestamps(false);
             t.setReproducibleFileOrder(true);
             t.dependsOn("classVersionCheck", "linkCheck", "permissionScan");
+            File iconsDir = project.file(ICONS);
+            t.getInputs().files(project.fileTree(iconsDir)).withPropertyName("icons")
+                    .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE);
+            t.doFirst("check icons", task -> checkIcons(PluginJson.read(manifestFile), iconsDir));
             Provider<Directory> classes = backport.flatMap(BackportTask::getOutputDir);
             t.getOutputs().file(t.getDestinationDirectory().zip(manifest, (d, m) -> new File(d.getAsFile(), m.id + ".jar.stamp")));
             List<TaskProvider<? extends Task>> required = Arrays.asList(
@@ -123,27 +131,33 @@ public class MibPluginPlugin implements Plugin<Project> {
         });
         project.getTasks().named("assemble").configure(t -> t.dependsOn(pluginJar));
 
-        // mibPackage: <id>-<version>.mpk from the checked jar and its stamp (mibpkg re-checks the stamp).
+        // mibPackage: <id>-<version>.mpk from the checked jar and its stamp (mibpkg re-checks the stamp), plus the
+        // declared icons as icons/<name>.png, checked again with PngCheck as they are staged.
         Provider<Directory> mibsdkDir = project.getLayout().getBuildDirectory().dir("mibsdk");
         Provider<File> stamp = mibsdkDir.zip(manifest, (d, m) -> new File(d.getAsFile(), m.id + ".jar.stamp"));
         Provider<Directory> stageDir = project.getLayout().getBuildDirectory().dir("mibpkg-stage");
         TaskProvider<Sync> stage = project.getTasks().register("mibPackageStage", Sync.class, t -> {
-            t.setDescription("Stages manifest.toml, the plugin jar and its check stamp for mibpkg.");
+            t.setDescription("Stages manifest.toml, the plugin jar, its check stamp and its icons for mibpkg.");
             t.from(pluginJar.flatMap(Jar::getArchiveFile));
             t.from(stamp);
             t.into(stageDir);
             t.dependsOn(pluginJar);
             t.getInputs().property("manifest", manifest.map(MpkStage::pluginManifest));
+            File iconsDir = project.file(ICONS);
+            t.getInputs().files(project.fileTree(iconsDir)).withPropertyName("icons")
+                    .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE);
             t.doFirst("require stamp", task -> {
                 if (!stamp.get().isFile()) {
                     throw new GradleException("mibsdk.plugin: " + stamp.get() + " is missing: a check did not run,"
                             + " so the plugin is not packaged");
                 }
             });
-            t.doLast("write manifest.toml", task -> {
+            t.doLast("write icons and manifest.toml", task -> {
+                PluginJson m = PluginJson.read(manifestFile);
+                MpkStage.stageIcons(m.icons, iconsDir, t.getDestinationDir());
                 try {
                     java.nio.file.Files.write(new File(t.getDestinationDir(), "manifest.toml").toPath(),
-                            MpkStage.pluginManifest(PluginJson.read(manifestFile)).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                            MpkStage.pluginManifest(m).getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 } catch (java.io.IOException e) {
                     throw new GradleException("mibsdk.plugin: cannot write manifest.toml: " + e, e);
                 }
@@ -161,6 +175,24 @@ public class MibPluginPlugin implements Plugin<Project> {
 
         project.getPluginManager().withPlugin(KOTLIN_PLUGIN_ID, applied ->
                 configureKotlin(project, main, manifest, backport));
+    }
+
+    /** Every declared icon exists as {@code <iconsDir>/<name>.png} and passes {@link PngCheck}; else the build fails. */
+    static void checkIcons(PluginJson manifest, File iconsDir) {
+        for (String name : manifest.icons) {
+            File png = new File(iconsDir, name + ".png");
+            if (!png.isFile()) {
+                throw new GradleException("mibsdk.plugin: icon '" + name + "' is declared in plugin.json but "
+                        + ICONS + "/" + name + ".png does not exist");
+            }
+            try {
+                PngCheck.check(java.nio.file.Files.readAllBytes(png.toPath()), PngCheck.MAX_PX);
+            } catch (IllegalArgumentException e) {
+                throw new GradleException("mibsdk.plugin: " + png + ": " + e.getMessage(), e);
+            } catch (java.io.IOException e) {
+                throw new GradleException("mibsdk.plugin: cannot read " + png + ": " + e, e);
+            }
+        }
     }
 
     private static void configureKotlin(Project project, SourceSet main, Provider<PluginJson> manifest,

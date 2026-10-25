@@ -153,6 +153,25 @@ class DaemonStatusPluginTest {
         }
     }
 
+    /** Stock icons need no installed files: DOT while every daemon is up, CROSS for a dn or a ?. */
+    @Test
+    void statusIconFollowsDaemonState() throws Exception {
+        String tsDown = TS.replace("state=Running", "state=down");
+        try (FakeDaemon ts = new FakeDaemon(TS); FakeDaemon mq = new FakeDaemon(MQ)) {
+            start(ts.port(), mq.port(), Features.SLOT_STATUS_BAR, Features.UI_PAGES, Features.UI_ICONS);
+            await(() -> ui.statusParts().contains("[dot] TS up MQ up"), "dot: " + ui.statusParts());
+            ts.reply = tsDown;
+            ui.select(PAGE, "refresh");
+            await(() -> ui.statusParts().contains("[cross] TS dn MQ up"), "cross for dn: " + ui.statusParts());
+            ts.reply = TS;
+            ui.select(PAGE, "refresh");
+            await(() -> ui.statusParts().contains("[dot] TS up MQ up"), "dot again: " + ui.statusParts());
+            mq.reply = "";
+            ui.select(PAGE, "refresh");
+            await(() -> ui.statusParts().contains("[cross] TS up MQ ?"), "cross for ?: " + ui.statusParts());
+        }
+    }
+
     @Test
     void daemonDownAndErrorShown() throws Exception {
         String down = "v=1\ndaemon=tailscale\nstate=down\nip=\ntailnet=\npeers=0\npeers_online=0\n";

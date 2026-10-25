@@ -1,5 +1,7 @@
 package mibsdk.runtime;
 
+import java.io.File;
+import java.util.List;
 import java.util.Set;
 import mibsdk.api.Events;
 import mibsdk.api.Features;
@@ -176,11 +178,13 @@ final class PluginContextImpl implements PluginContext {
     /**
      * @param granted the effective permissions (manifest permissions that are also granted)
      * @param parking asked for the adapter's parking I/O on each {@code vehicle().parking()} until it has one
+     * @param declaredIcons the manifest's {@code icons}
+     * @param iconDir where the plugin's icons are installed ({@link RuntimeConfig#pluginIconDir})
      */
     PluginContextImpl(String id, RingLog ringLog, PluginStorage storage, EventBus bus, SerialExecutor exec,
             PluginScheduler pluginScheduler, Registrations registrations, LiveFeatures features,
             Set<String> granted, HookTable hookTable, ParkingSource parking, OverrideLedger ledger, UiHub uiHub,
-            Clock clock) {
+            Clock clock, List<String> declaredIcons, File iconDir) {
         this.id = id;
         this.ringLog = ringLog;
         this.storage = storage;
@@ -194,7 +198,7 @@ final class PluginContextImpl implements PluginContext {
         this.parkingSource = parking;
         this.ledger = ledger;
         this.net = new NetImpl(granted, clock);
-        this.ui = new UiImpl(id, uiHub, features, granted, exec, registrations);
+        this.ui = new UiImpl(id, uiHub, features, granted, exec, registrations, declaredIcons, iconDir);
         this.vehicle = new Vehicle() {
             @Override
             public Parking parking() {

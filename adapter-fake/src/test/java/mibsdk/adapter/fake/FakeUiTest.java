@@ -9,10 +9,12 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import mibsdk.platform.UiEntry;
+import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiRow;
 import mibsdk.platform.UiSnapshot;
+import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiTable;
 import org.junit.jupiter.api.Test;
 
@@ -170,5 +172,20 @@ class FakeUiTest {
         assertEquals("mibsdk/plugins", ui.openPageKey());
         ui.back();
         assertNull(ui.openPageKey());
+    }
+
+    @Test
+    void rendersIconTags() {
+        UiIcon png = UiIcon.file("fruit", "/icons/fruit/0123456789abcdef.png", "0123456789abcdef", 20, 20);
+        table.publish(new UiSnapshot(1, Arrays.asList(
+                new UiRow("mibsdk/plugins", "Plugins", "mibsdk/plugins"),
+                new UiRow("fruit/r1", "Label", "fruit/p", UiIcon.stock("star")),
+                new UiRow("fruit/r2", "Fruit", "fruit/p", png)),
+                "SAFE FR ok", new HashMap<String, UiPage>(), 0, null, Arrays.asList(
+                        new UiStatusPart("SAFE", null, true),
+                        new UiStatusPart("FR ok", png, false))));
+        assertEquals(Arrays.asList("Plugins", "[star] Label", "[png:0123456789abcdef] Fruit"), ui.carRows());
+        assertEquals(Arrays.asList("SAFE", "[png:0123456789abcdef] FR ok"), ui.statusParts());
+        assertEquals("SAFE FR ok", ui.statusLine(), "the text-only line");
     }
 }

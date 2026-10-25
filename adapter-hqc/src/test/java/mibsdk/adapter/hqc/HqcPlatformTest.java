@@ -25,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import mibsdk.adapter.hqc.Fakes.Recorder;
 import mibsdk.adapter.hqc.Fakes.RecordingHost;
+import mibsdk.adapter.hqc.ui.HqcUiIds;
 import mibsdk.api.Features;
 import mibsdk.api.IgnitionChanged;
 import mibsdk.api.ParkingSoundChanged;
@@ -185,6 +186,52 @@ class HqcPlatformTest {
             SdkGlobals.wrappingEnabled = wrapping;
             SdkGlobals.uiEnabled = ui;
             RawServices.clear();
+        }
+    }
+
+    @Test
+    void uiFeaturesIncludeIcons() {
+        boolean wrapping = SdkGlobals.wrappingEnabled;
+        boolean ui = SdkGlobals.uiEnabled;
+        try {
+            HqcPlatform p = new HqcPlatform(new Ctx().context());
+            for (boolean hooked : new boolean[] {false, true}) {
+                RawServices.clear();
+                SdkGlobals.wrappingEnabled = hooked;
+                if (hooked) {
+                    RawServices.record(PARKING, new Object());
+                }
+                SdkGlobals.uiEnabled = true;
+                assertTrue(p.features().contains(Features.UI_ICONS), "ui on, hooked=" + hooked);
+                SdkGlobals.uiEnabled = false;
+                assertFalse(p.features().contains(Features.UI_ICONS), "ui off, hooked=" + hooked);
+            }
+        } finally {
+            SdkGlobals.wrappingEnabled = wrapping;
+            SdkGlobals.uiEnabled = ui;
+            RawServices.clear();
+        }
+    }
+
+    /** With the UI on, start reads the installed built-in icon set (on the calling SDK thread). */
+    @Test
+    void startReadsTheBuiltinIcons() throws Exception {
+        boolean ui = SdkGlobals.uiEnabled;
+        mibsdk.adapter.hqc.ui.BuiltinIcons before = SdkGlobals.builtinIcons;
+        try {
+            File icons = new File(dir, "icons-sdk");
+            icons.mkdirs();
+            java.nio.file.Files.write(new File(icons, "aaaa000000000000.png").toPath(), new byte[] {1});
+            java.nio.file.Files.write(new File(icons, "index.properties").toPath(),
+                    "plug-72=aaaa000000000000,72,72\n".getBytes(StandardCharsets.ISO_8859_1));
+            SdkGlobals.uiEnabled = true;
+            HqcPlatform p = new HqcPlatform(new Ctx().context(), () -> 0L, HqcUiIds.STATUS_MAX_CHARS, icons);
+            p.start(new RecordingHost());
+            assertEquals("aaaa000000000000", SdkGlobals.builtinIcons.get("plug", 72, false).key());
+            p.stop();
+        } finally {
+            SdkGlobals.uiEnabled = ui;
+            SdkGlobals.builtinIcons = before;
         }
     }
 

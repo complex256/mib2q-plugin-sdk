@@ -1,10 +1,17 @@
 package mibsdk.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import mibsdk.api.OverrideScope;
+import mibsdk.platform.UiIcon;
+import mibsdk.platform.UiStatusPart;
 import org.junit.jupiter.api.Test;
 
 class StatusLineTest {
@@ -158,5 +165,94 @@ class StatusLineTest {
                 Arrays.asList("TS up MQ up", "RACK"), 24), "OVR fan does not fit the budget");
         assertEquals("SAFE PDC R OFF OVR fan RACK", StatusLine.compose(Arrays.asList("SAFE", "PDC R OFF", "OVR fan"),
                 Arrays.asList("RACK"), 40), "it does when the items are short");
+    }
+
+    @Test
+    void iconCountsTowardTheFairShareAndIsDroppedBeforeTheTextGetsTooShort() {
+        UiIcon i = UiIcon.stock("star");
+        List<StatusLine.Item> items = Arrays.asList(new StatusLine.Item("a", "ABCDEFGHIJ", i),
+                new StatusLine.Item("b", "XYZ", null));
+        List<UiStatusPart> p = StatusLine.parts(Collections.<String>emptyList(), items, 24);
+        assertEquals("ABCDEFGHIJ", p.get(0).text()); assertSame(i, p.get(0).icon());   // 12 + 1 + 3 <= 24
+        List<String> must = Arrays.asList("SAFE", "PDC R OFF");
+        List<UiStatusPart> five = StatusLine.parts(must, items, 24);                    // room 9: b 3, a 5
+        assertEquals("SAFE PDC R OFF", five.get(0).text());                             // must-show kept whole
+        assertSame(i, five.get(1).icon()); assertEquals("ABC", five.get(1).text());     // 5 >= 2 + 3
+        List<UiStatusPart> four = StatusLine.parts(must, items, 23);                    // room 8: b 3, a 4
+        assertNull(four.get(1).icon()); assertEquals("ABCD", four.get(1).text());       // 4 < 2 + 3
+    }
+
+    @Test
+    void partsAreTheIndicatorsAsOnePartThenOnePerItemShown() {
+        UiIcon i = UiIcon.stock("star");
+        List<UiStatusPart> p = StatusLine.parts(Arrays.asList("SAFE"),
+                Arrays.asList(new StatusLine.Item("a", "", i), new StatusLine.Item("b", "XYZ", i)), 24);
+        assertEquals(2, p.size(), "an empty text hides the item, icon or not");
+        assertTrue(p.get(0).indicator());
+        assertNull(p.get(0).icon());
+        assertEquals("XYZ", p.get(1).text());
+        assertFalse(p.get(1).indicator());
+        assertSame(i, p.get(1).icon());
+        List<UiStatusPart> none = StatusLine.parts(null, Arrays.asList(new StatusLine.Item("b", "XYZ", null)), 24);
+        assertEquals(1, none.size(), "no indicator part without indicators");
+        assertFalse(none.get(0).indicator());
+    }
+
+    @Test
+    void shortTextKeepsItsIcon() {
+        UiIcon i = UiIcon.stock("star");
+        StatusLine.Item ok = new StatusLine.Item("a", "OK", i);
+        assertEquals(4, ok.width());
+        assertSame(i, ok.iconAt(4), "the whole text fits beside the icon");
+        assertEquals("OK", ok.render(4));
+        assertNull(ok.iconAt(3));
+        assertEquals("OK", ok.render(3));
+        StatusLine.Item longer = new StatusLine.Item("a", "ABCDEFGH", i);
+        assertSame(i, longer.iconAt(5));
+        assertEquals("ABC", longer.render(5));
+        assertNull(longer.iconAt(4));
+        assertEquals("ABCD", longer.render(4));
+    }
+
+    @Test
+    void lineWithoutIconsIsUnchanged() {
+        UiIcon i = UiIcon.stock("star");
+        List<String> ind = Arrays.asList("SAFE", "OVR alpha");
+        List<StatusLine.Item> with = Arrays.asList(new StatusLine.Item("a", "TS up MQ up", i),
+                new StatusLine.Item("b", "RACK", i));
+        List<StatusLine.Item> without = Arrays.asList(new StatusLine.Item("a", "TS up MQ up"),
+                new StatusLine.Item("b", "RACK"));
+        assertEquals("SAFE TS up MQ up RACK", StatusLine.line(ind, without, 24));
+        assertEquals(StatusLine.line(ind, without, 24), StatusLine.line(ind, with, 24), "icons are not in the line");
+        assertEquals(StatusLine.line(ind, without, 16), StatusLine.line(ind, with, 16));
+        assertEquals("SAFE TS... RACK", StatusLine.line(Arrays.asList("SAFE"), with, 16));
+    }
+
+    /** Fix round 1 (Task 3): an icon never costs an indicator; parts and line keep the same indicators. */
+    @Test
+    void iconsNeverChangeWhichIndicatorsShow() {
+        UiIcon i = UiIcon.stock("star");
+        List<String> ind = Arrays.asList("SAFE", "OVR fan");
+        List<StatusLine.Item> one = Arrays.asList(new StatusLine.Item("a", "RACKSX", i));
+        assertEquals("SAFE OVR fan RACKSX", StatusLine.line(ind, one, 20));
+        assertEquals("SAFE OVR fan", StatusLine.parts(ind, one, 20).get(0).text());
+        List<String> many = Arrays.asList("SAFE", "PDC R OFF", "OVR alpha", "OVR fan", "OVR seat");
+        List<StatusLine.Item> two = Arrays.asList(new StatusLine.Item("a", "TS up", i),
+                new StatusLine.Item("b", "RACK up MQ", i));
+        for (int max = StatusLine.MIN_LINE_CHARS; max <= 40; max++) {
+            for (List<String> d : Arrays.asList(ind, many)) {
+                for (List<StatusLine.Item> items : Arrays.asList(one, two)) {
+                    List<StatusLine.Item> plain = new java.util.ArrayList<StatusLine.Item>();
+                    for (StatusLine.Item it : items) {
+                        plain.add(new StatusLine.Item(it.owner, it.text));
+                    }
+                    List<UiStatusPart> p = StatusLine.parts(d, items, max);
+                    List<UiStatusPart> lineParts = StatusLine.parts(d, plain, max); // what line() joins
+                    assertTrue(p.get(0).indicator() && lineParts.get(0).indicator(), "max " + max);
+                    assertEquals(lineParts.get(0).text(), p.get(0).text(), "max " + max);
+                    assertTrue(StatusLine.line(d, items, max).startsWith(p.get(0).text()), "max " + max);
+                }
+            }
+        }
     }
 }

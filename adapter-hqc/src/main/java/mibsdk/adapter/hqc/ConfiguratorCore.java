@@ -2,7 +2,11 @@ package mibsdk.adapter.hqc;
 
 import de.dreisoft.lsd.IServiceDelegateConfigurator;
 import de.dreisoft.lsd.IServiceDelegator;
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.Dictionary;
 import java.util.Enumeration;
 import java.util.Hashtable;
@@ -66,6 +70,7 @@ final class ConfiguratorCore {
     private void configure(SdkRoots roots, File versionInfo) {
         SdkGlobals.configuratorSeen = true;
         SdkGlobals.uiEnabled = false; // decided below; off until then
+        SdkGlobals.uiForceFail = null;
         boolean on = false;
         String reason = null;
         boolean ui = false;
@@ -73,6 +78,11 @@ final class ConfiguratorCore {
         try {
             String version = AdapterSelector.readHmiVersion(versionInfo);
             RuntimeConfig cfg = RuntimeConfig.load(roots);
+            String forceFail = readForceFail(cfg.uiForceFailFile());
+            SdkGlobals.uiForceFail = forceFail;
+            if (forceFail != null) {
+                warn("configurator: ui.forcefail=" + forceFail);
+            }
             int threshold = cfg.safeModeAfterUnhealthyBoots();
             boolean safeMode = BootGuard.wouldEnterSafeMode(cfg.bootStateFile(), cfg.safeModeMarker(), threshold);
             boolean wrapLoop = BootGuard.wrapLoopDetected(cfg.bootStateFile(), threshold);
@@ -122,6 +132,39 @@ final class ConfiguratorCore {
         SdkGlobals.wrappingEnabled = on;
         SdkGlobals.uiOffReason = ui ? null : uiReason;
         SdkGlobals.uiEnabled = ui;
+    }
+
+    /**
+     * The first line of {@code f}, trimmed, if it is {@code factory} or {@code screen}; else (or if it cannot be read)
+     * null. Any Throwable while reading this developer-only file is "no forced failure" with one log line: it never
+     * reaches {@code configure}'s catch, which would turn the SDK off for the boot.
+     */
+    static String readForceFail(File f) {
+        BufferedReader r = null;
+        try {
+            if (!f.isFile()) {
+                return null;
+            }
+            r = new BufferedReader(new InputStreamReader(new FileInputStream(f), "ISO-8859-1"));
+            String line = r.readLine();
+            String v = line == null ? null : line.trim();
+            return "factory".equals(v) || "screen".equals(v) ? v : null;
+        } catch (Throwable t) {
+            try {
+                SdkGlobals.LOG.append("WARN", SOURCE, "configurator: ui.forcefail unreadable, no forced failure: " + t);
+            } catch (Throwable ignored) {
+                // still no forced failure
+            }
+            return null;
+        } finally {
+            if (r != null) {
+                try {
+                    r.close();
+                } catch (Throwable ignored) {
+                    // read already done
+                }
+            }
+        }
     }
 
     private void loadChain(String className) {

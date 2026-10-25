@@ -48,7 +48,7 @@ class HelloMenuPluginTest {
     }
 
     private FakePlatform start(String... features) throws IOException {
-        return startGranting("ui.slot.carmenu", features);
+        return startGranting("ui.slot.carmenu,ui.slot.statusbar", features);
     }
 
     private FakePlatform startGranting(String grants, String... features) throws IOException {
@@ -62,6 +62,7 @@ class HelloMenuPluginTest {
         write(new File(base, "sdk.properties"), "plugin.start.delay.ms=0\nheap.low.bytes=0\nui.publish.min.ms=0\n"
                 + "log.file=" + new File(tmp, "mibsdk.log").getPath() + "\n");
         write(new File(base, "grants.properties"), "hello-menu=" + grants + "\n");
+        installIcons(base);
         Clock clock = new Clock() {
             public long uptimeMs() {
                 return System.nanoTime() / 1000000L;
@@ -72,6 +73,19 @@ class HelloMenuPluginTest {
         PluginState want = grants.isEmpty() ? PluginState.BLOCKED_PERMISSIONS : PluginState.ENABLED;
         await(() -> rt.statuses().size() == 1 && rt.statuses().get(0).state() == want, want.name());
         return fake;
+    }
+
+    private static final String BIG_SHA = "0123456789abcdef";
+    private static final String SMALL_SHA = "fedcba9876543210";
+
+    /** What mibpkg installs for the package: index.properties and each PNG under its sha16 name. */
+    private static void installIcons(File base) throws IOException {
+        File dir = new File(base, "icons/hello-menu");
+        write(new File(dir, "index.properties"), "hello=" + BIG_SHA + ",72,72\nhello-20=" + SMALL_SHA + ",20,20\n");
+        Files.copy(new File("src/main/icons/hello.png").toPath(), new File(dir, BIG_SHA + ".png").toPath(),
+                StandardCopyOption.REPLACE_EXISTING);
+        Files.copy(new File("src/main/icons/hello-20.png").toPath(), new File(dir, SMALL_SHA + ".png").toPath(),
+                StandardCopyOption.REPLACE_EXISTING);
     }
 
     private void await(java.util.function.BooleanSupplier c, String what) {
@@ -99,19 +113,22 @@ class HelloMenuPluginTest {
     }
 
     private static final String PAGE = "hello-menu/fruits";
+    private static final String ROW = "[png:" + BIG_SHA + "] Hello";
+    private static final String ROW_STAR = "[star] Hello";
+    private static final String STATUS_PNG = "[png:" + SMALL_SHA + "] Hello";
 
     @Test
     void carRowOpensListPage() throws Exception {
-        start(Features.SLOT_CAR_MENU, Features.UI_PAGES);
-        await(() -> ui.carRows().contains("Hello"), "Hello car row");
-        ui.selectRow(ui.carRows().indexOf("Hello"));
+        start(Features.SLOT_CAR_MENU, Features.UI_PAGES, Features.UI_ICONS);
+        await(() -> ui.carRows().contains(ROW), "Hello car row");
+        ui.selectRow(ui.carRows().indexOf(ROW));
         await(() -> PAGE.equals(ui.openPageKey()), "page open");
         List<String> lines = ui.render(PAGE);
-        assertEquals(4, lines.size(), lines.toString());
+        assertEquals(6, lines.size(), lines.toString());
         assertTrue(lines.get(0).contains("Apple"), lines.toString());
         assertTrue(lines.get(1).contains("Pear"), lines.toString());
         assertTrue(lines.get(2).contains("Plum"), lines.toString());
-        assertTrue(lines.get(3).contains("Selected: <none>"), lines.toString());
+        assertTrue(lines.get(5).contains("Selected: <none>"), lines.toString());
     }
 
     @Test
@@ -119,7 +136,7 @@ class HelloMenuPluginTest {
         start(Features.SLOT_CAR_MENU, Features.UI_PAGES);
         await(() -> !ui.render(PAGE).isEmpty(), "page registered");
         ui.select(PAGE, "pear");
-        await(() -> ui.render(PAGE).get(3).contains("Selected: Pear"), "Selected: Pear");
+        await(() -> ui.render(PAGE).get(5).contains("Selected: Pear"), "Selected: Pear");
         rt.stop(); // flushes storage
         rt = null;
         Properties p = new Properties();
@@ -137,7 +154,7 @@ class HelloMenuPluginTest {
         start(Features.UI_PAGES);
         await(() -> !ui.render(PAGE).isEmpty(), "page registered");
         await(this::linked, "Plugins-menu page links to " + PAGE); // the SDK pages refresh after the plugin's page
-        assertFalse(ui.carRows().contains("Hello"), ui.carRows().toString());
+        assertFalse(ui.carRows().contains(ROW), ui.carRows().toString());
     }
 
     /** UI off (wrap-loop latch, ui.enabled=false, count or init failure): inert UI handles, still ENABLED. */
@@ -145,14 +162,14 @@ class HelloMenuPluginTest {
     void uiOffStillEnables() throws Exception {
         start(); // start() awaits ENABLED
         assertFalse(table.snapshot().pages().containsKey(PAGE), table.snapshot().pages().keySet().toString());
-        assertFalse(ui.carRows().contains("Hello"), ui.carRows().toString());
+        assertFalse(ui.carRows().contains(ROW), ui.carRows().toString());
     }
 
     /** The runtime blocks a plugin whose declared permission is not granted: it never runs, so it adds no Car row. */
     @Test
     void ungrantedCarMenuPermissionBlocksPluginWithoutCarRow() throws Exception {
         startGranting("", Features.SLOT_CAR_MENU, Features.UI_PAGES);
-        assertFalse(ui.carRows().contains("Hello"), ui.carRows().toString());
+        assertFalse(ui.carRows().contains(ROW), ui.carRows().toString());
         assertTrue(ui.render(PAGE).isEmpty());
     }
 
@@ -160,8 +177,40 @@ class HelloMenuPluginTest {
     void lastSelectionIsRestoredFromStorage() throws Exception {
         write(new File(FakePlatform.roots(tmp).persist(), "data/hello-menu.properties"), "last=plum\n");
         start(Features.SLOT_CAR_MENU, Features.UI_PAGES);
-        await(() -> ui.render(PAGE).size() > 3 && ui.render(PAGE).get(3).contains("Selected: Plum"),
+        await(() -> ui.render(PAGE).size() > 5 && ui.render(PAGE).get(5).contains("Selected: Plum"),
                 "Selected: Plum, restored: " + ui.render(PAGE));
+    }
+
+    @Test
+    void rowAndStatusCarryIcons() throws Exception {
+        start(Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR, Features.UI_PAGES, Features.UI_ICONS);
+        await(() -> ui.carRows().contains(ROW), "Hello row with the png icon: " + ui.carRows());
+        await(() -> ui.statusParts().contains(STATUS_PNG), "status part with the png icon: " + ui.statusParts());
+        ui.select(PAGE, "next-icon");
+        await(() -> ui.carRows().contains(ROW_STAR), "star row: " + ui.carRows());
+    }
+
+    @Test
+    void nextStatusIconCycles() throws Exception {
+        start(Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR, Features.UI_PAGES, Features.UI_ICONS);
+        await(() -> ui.statusParts().contains(STATUS_PNG), "png status: " + ui.statusParts());
+        ui.select(PAGE, "next-status-icon");
+        await(() -> ui.statusParts().contains("[star] Hello"), "star status: " + ui.statusParts());
+        ui.select(PAGE, "next-status-icon");
+        await(() -> ui.statusParts().contains("[dot] Hello"), "dot status: " + ui.statusParts());
+        ui.select(PAGE, "next-status-icon");
+        await(() -> ui.statusParts().contains(STATUS_PNG), "png status again: " + ui.statusParts());
+        assertEquals("Hello", ui.statusLine());
+    }
+
+    @Test
+    void manifestDeclaresTheStatusbarPermission() throws Exception {
+        try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(System.getProperty("mibsdk.pluginJar"))) {
+            java.io.InputStream in = z.getInputStream(z.getEntry("plugin.json"));
+            String json = new String(in.readAllBytes(), "UTF-8");
+            assertTrue(json.contains("\"ui.slot.statusbar\""), json);
+            assertTrue(json.contains("\"api\":3"), json);
+        }
     }
 
     private boolean linked() {

@@ -5,6 +5,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import mibsdk.platform.UiIcon;
+import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiText;
 
 /**
@@ -14,9 +16,10 @@ import mibsdk.platform.UiText;
  * <p>Priority: {@code SAFE} first, then {@code PDC R OFF}, then the other overrides. {@code SAFE} and
  * {@code PDC R OFF} are safety indicators and must show ({@link #isMustShow}): they are never dropped for plugin items
  * and never hide each other. The other ({@code OVR ...}) indicators never crowd out the plugin items: while there are
- * items, all indicators together get at most the line minus the items' reserve (the items' joined length plus a
- * space, at most half the line), and an {@code OVR} one that would exceed that is dropped (the SDK page lists every
- * override).
+ * items, all indicators together get at most the line minus the items' reserve (the items' joined text length,
+ * icons not counted, plus a space, at most half the line), and an {@code OVR} one that would exceed that is dropped
+ * (the SDK page lists every override). So an icon never changes which indicators show: {@link #parts} keeps the same
+ * ones as {@link #line}.
  *
  * <p>Fair share: the items share what the indicators leave (if nothing is left, no item shows), max-min fair ({@link #shares}), so no plugin's item
  * crowds out another's. The caller passes them in the user's order ({@link #order}) with hidden ones left out.
@@ -42,33 +45,55 @@ final class StatusLine {
     /** A cut item narrower than this is cut hard, without {@code ...}. */
     static final int ELLIPSIS_MIN_CHARS = 6;
 
+    /** What an icon takes of its item's width on the line, in characters. */
+    static final int ICON_CHARS = 2;
+
     /**
-     * One plugin's status item as a unit: its owner and cleaned text. The fair share is computed on {@link #width},
-     * so a later optional icon only has to add its width here and draw itself in {@link #render}.
+     * One plugin's status item as a unit: its owner, cleaned text and optional icon. The fair share is computed on
+     * {@link #width}, which counts the icon as {@link #ICON_CHARS}; {@link #render} and {@link #iconAt} draw it in a
+     * share. An item with an empty text is hidden, icon or not.
      */
     static final class Item {
         /** The plugin id, or null (tests, runtime-made items). */
         final String owner;
         final String text;
+        /** Null for none. */
+        final UiIcon icon;
 
         Item(String owner, String text) {
+            this(owner, text, null);
+        }
+
+        Item(String owner, String text, UiIcon icon) {
             this.owner = owner;
             this.text = text == null ? "" : text;
+            this.icon = icon;
         }
 
-        /** Characters the item wants on the line. */
+        /** Characters the item wants on the line, its icon included. */
         int width() {
-            return text.length();
+            return text.length() + (icon != null ? ICON_CHARS : 0);
         }
 
-        /** The item in at most {@code width} characters ({@link StatusLine#cut}). */
+        /**
+         * The icon, if it is kept in {@code width} characters: only while the text beside it still gets
+         * {@link #MIN_ITEM_CHARS} (or all of a shorter text); else null, and the text takes the whole share.
+         */
+        UiIcon iconAt(int width) {
+            return icon != null && width >= ICON_CHARS + Math.min(text.length(), MIN_ITEM_CHARS) ? icon : null;
+        }
+
+        /**
+         * The item's text in {@code width} characters, less {@link #ICON_CHARS} when its icon is kept
+         * ({@link StatusLine#cut}).
+         */
         String render(int width) {
-            return cut(text, width);
+            return cut(text, iconAt(width) != null ? width - ICON_CHARS : width);
         }
 
         @Override
         public String toString() {
-            return owner + ":" + text;
+            return owner + ":" + (icon != null ? "[" + icon + "]" : "") + text;
         }
     }
 
@@ -111,21 +136,50 @@ final class StatusLine {
     /**
      * Indicators (the must-show ones always; the others while they fit their budget, see the class comment), then
      * the items in the given order (empty ones skipped), each cut to its fair share (see {@link #shares}), joined by
-     * one space and cleaned to {@code maxChars}.
+     * one space and cleaned to {@code maxChars}. Text only: composed as if no item had an icon (the popup-65 line).
      */
     static String line(List<String> indicators, List<Item> items, int maxChars) {
+        List<Item> plain = new ArrayList<Item>();
+        if (items != null) {
+            for (int i = 0; i < items.size(); i++) {
+                Item s = items.get(i);
+                plain.add(s == null ? null : new Item(s.owner, s.text));
+            }
+        }
+        List<UiStatusPart> parts = layout(indicators, plain, maxChars);
+        StringBuffer b = new StringBuffer();
+        for (int i = 0; i < parts.size(); i++) {
+            if (i > 0) {
+                b.append(' ');
+            }
+            b.append(parts.get(i).text());
+        }
+        return UiText.clean(b.toString(), maxChars);
+    }
+
+    /**
+     * The same line as parts, icons kept: the indicators {@link #line} keeps, joined by one space into one part
+     * marked as indicators (none if no indicator shows), then one part per item shown, its text cut to its share and
+     * its icon kept only where {@link Item#iconAt} allows.
+     */
+    static List<UiStatusPart> parts(List<String> indicators, List<Item> items, int maxChars) {
+        return layout(indicators, items, maxChars);
+    }
+
+    /** {@link #line} and {@link #parts}: the indicator budget, then each shown item's fair share. */
+    private static List<UiStatusPart> layout(List<String> indicators, List<Item> items, int maxChars) {
         List<Item> it = new ArrayList<Item>();
         if (items != null) {
             for (int i = 0; i < items.size(); i++) {
                 Item s = items.get(i);
-                if (s != null && s.width() > 0) {
+                if (s != null && s.text.length() > 0) {
                     it.add(s);
                 }
             }
         }
         int joined = 0;
         for (int i = 0; i < it.size(); i++) {
-            joined += (i > 0 ? 1 : 0) + it.get(i).width();
+            joined += (i > 0 ? 1 : 0) + it.get(i).text.length(); // icons not counted: they never cost an indicator
         }
         int reserve = it.isEmpty() ? 0 : Math.min(joined + 1, maxChars / 2);
         int budget = maxChars - reserve;
@@ -146,15 +200,17 @@ final class StatusLine {
                 b.append(s);
             }
         }
+        List<UiStatusPart> out = new ArrayList<UiStatusPart>();
+        if (b.length() > 0) {
+            out.add(new UiStatusPart(b.toString(), null, true));
+        }
         int room = maxChars - b.length() - (b.length() > 0 ? 1 : 0);
         int[] w = shares(it, room);
         for (int i = 0; i < w.length; i++) {
-            if (b.length() > 0) {
-                b.append(' ');
-            }
-            b.append(it.get(i).render(w[i]));
+            Item s = it.get(i);
+            out.add(new UiStatusPart(s.render(w[i]), s.iconAt(w[i]), false));
         }
-        return UiText.clean(b.toString(), maxChars);
+        return out;
     }
 
     /** {@link #line} for plain texts without owners. */

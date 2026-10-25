@@ -725,4 +725,26 @@ class ChainingConfiguratorTest {
         assertFalse(SdkGlobals.wrappingEnabled);
         assertNull(c.getServiceRegistration(d, new String[] {PARKING}, service, props()));
     }
+
+    /**
+     * The developer-only {@code ui.forcefail} file can't turn the SDK off for the boot: a RuntimeException while
+     * reading it is "no forced failure" with one log line, never a throw into {@code configure} (init-failed).
+     */
+    @Test
+    void forceFailReadRuntimeExceptionIsNoForcedFailure() {
+        File broken = new File("ui.forcefail") {
+            public boolean isFile() {
+                return true;
+            }
+
+            public String getPath() {
+                throw new IllegalStateException("broken forcefail path");
+            }
+        };
+        long before = SdkGlobals.LOG.sequence();
+        assertNull(assertDoesNotThrow(() -> ConfiguratorCore.readForceFail(broken)));
+        assertEquals(before + 1, SdkGlobals.LOG.sequence(), "one log line");
+        assertTrue(lastLog().indexOf("ui.forcefail unreadable, no forced failure") >= 0, lastLog());
+        assertNull(assertDoesNotThrow(() -> ConfiguratorCore.readForceFail(null)), "no file at all");
+    }
 }

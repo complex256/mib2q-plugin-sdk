@@ -5,12 +5,16 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import mibsdk.api.SdkInfo;
+import mibsdk.platform.IconIndex;
 
 /** Parses and validates plugin.json. No java.util.regex: the car has none. */
 public final class ManifestParser {
 
     /** Runtime-owned UI pages use this owner, so no plugin may take it. */
     static final String RESERVED_ID = "mibsdk";
+    /** The api level that introduced {@code "icons"}. */
+    static final int ICONS_API = 3;
+    static final int MAX_ICONS = 8;
 
     private ManifestParser() {
     }
@@ -48,8 +52,33 @@ public final class ManifestParser {
             throw new ManifestException("main must not be empty");
         }
 
+        List<String> icons = stringList(m, "icons");
+        checkIcons(icons, (int) api);
+
         return new PluginManifest(id, name, version, author, (int) api, main,
-                stringList(m, "permissions"), stringList(m, "dependencies"));
+                stringList(m, "permissions"), stringList(m, "dependencies"), icons);
+    }
+
+    /** The build's PluginJson checks the same rules with the same limits. */
+    private static void checkIcons(List<String> icons, int api) throws ManifestException {
+        if (icons.isEmpty()) {
+            return;
+        }
+        if (api < ICONS_API) {
+            throw new ManifestException("icons need api " + ICONS_API);
+        }
+        if (icons.size() > MAX_ICONS) {
+            throw new ManifestException("at most " + MAX_ICONS + " icons");
+        }
+        for (int i = 0; i < icons.size(); i++) {
+            String n = (String) icons.get(i);
+            if (!IconIndex.isName(n)) {
+                throw new ManifestException("invalid icon name '" + n + "': must match [a-z0-9-]{1,32}");
+            }
+            if (icons.indexOf(n) < i) {
+                throw new ManifestException("duplicate icon '" + n + "'");
+            }
+        }
     }
 
     /** Equivalent of ^[a-z0-9][a-z0-9-]{1,40}$ (total length 2..41). */

@@ -10,6 +10,10 @@ import java.util.Map;
  * Everything the adapter draws, published whole by the runtime. Immutable: lists and maps are
  * unmodifiable copies. {@code carRows.get(0)} is the Plugins row (except in {@link #EMPTY}).
  * {@code openSeq} increases each time the runtime asks the adapter to open {@code openPageKey}.
+ *
+ * <p>The status line comes twice: {@link #statusParts} (indicators, then each item with its icon, each already cut to
+ * its share) for a popup that draws icons, and {@link #statusLine}, the same items composed as text only, without
+ * icons, for the text-only popup-65 fallback.
  */
 public final class UiSnapshot {
 
@@ -19,6 +23,7 @@ public final class UiSnapshot {
     private final long version;
     private final List<UiRow> carRows;
     private final String statusLine;
+    private final List<UiStatusPart> statusParts;
     private final Map<String, UiPage> pages;
     private final long openSeq;
     private final String openPageKey;
@@ -26,16 +31,25 @@ public final class UiSnapshot {
 
     public UiSnapshot(long version, List<UiRow> carRows, String statusLine,
                       Map<String, UiPage> pages, long openSeq, String openPageKey) {
-        this(version, carRows, statusLine, pages, openSeq, openPageKey, false);
+        this(version, carRows, statusLine, pages, openSeq, openPageKey, textPart(statusLine), false);
     }
 
-    private UiSnapshot(long version, List<UiRow> carRows, String statusLine,
-                       Map<String, UiPage> pages, long openSeq, String openPageKey, boolean down) {
+    /** @param statusParts the status line with icons; null is none. {@code statusLine} is the text-only line. */
+    public UiSnapshot(long version, List<UiRow> carRows, String statusLine,
+                      Map<String, UiPage> pages, long openSeq, String openPageKey, List<UiStatusPart> statusParts) {
+        this(version, carRows, statusLine, pages, openSeq, openPageKey, statusParts, false);
+    }
+
+    private UiSnapshot(long version, List<UiRow> carRows, String statusLine, Map<String, UiPage> pages,
+                       long openSeq, String openPageKey, List<UiStatusPart> statusParts, boolean down) {
         this.version = version;
         this.carRows = carRows == null
                 ? Collections.<UiRow>emptyList()
                 : Collections.unmodifiableList(new ArrayList<UiRow>(carRows));
         this.statusLine = statusLine == null ? "" : statusLine;
+        this.statusParts = statusParts == null
+                ? Collections.<UiStatusPart>emptyList()
+                : Collections.unmodifiableList(new ArrayList<UiStatusPart>(statusParts));
         this.pages = pages == null
                 ? Collections.<String, UiPage>emptyMap()
                 : Collections.unmodifiableMap(new HashMap<String, UiPage>(pages));
@@ -49,7 +63,14 @@ public final class UiSnapshot {
      * screen (an open SDK page returns to the stock screen it came from, not to the stopped notice).
      */
     public static UiSnapshot down(long version) {
-        return new UiSnapshot(version, null, "", null, 0L, null, true);
+        return new UiSnapshot(version, null, "", null, 0L, null, null, true);
+    }
+
+    /** One text part, not marked as indicators, for a non-empty line; none otherwise. */
+    private static List<UiStatusPart> textPart(String statusLine) {
+        return statusLine == null || statusLine.length() == 0
+                ? null
+                : Collections.singletonList(new UiStatusPart(statusLine, null, false));
     }
 
     /** True for {@link #down}. */
@@ -66,8 +87,14 @@ public final class UiSnapshot {
         return carRows;
     }
 
+    /** The text-only line, composed without icons (the popup-65 fallback). */
     public String statusLine() {
         return statusLine;
+    }
+
+    /** Unmodifiable. The status line with icons: the indicators as one part, then one part per item shown. */
+    public List<UiStatusPart> statusParts() {
+        return statusParts;
     }
 
     /** Unmodifiable; keyed by page key. */

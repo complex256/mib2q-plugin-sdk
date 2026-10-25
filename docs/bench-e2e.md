@@ -386,9 +386,10 @@ approve, with an `approve with:` line; 2: bad usage; 1: failed or busy).
 | `safe-mode on\|off` | `/tmp/mibpkg sdk safe-mode on\|off`; `off` also resets `boot.state` |
 | `boot-state set-wrap <n>` | `/tmp/mibpkg sdk boot-state set-wrap <n>` |
 | `data-clear <id>` | `/tmp/mibpkg sdk data-clear <id>`; restart afterwards, since the storage cap counts files on disk from the runtime's start and a running plugin may write its data back |
-| `status` | `/tmp/mibpkg sdk status`: the `HMICar=` line, the SDK, its plugins, the ledger, then the runtime's STATUS lines |
+| `status` | `/tmp/mibpkg sdk status`: the `HMICar=` and `HMISystem=` lines (mibpkg 0.9.0), the SDK, its plugins, the ledger, then the runtime's STATUS lines |
 | `log` | print `/tmp/mibsdk.log` (no mibpkg needed) |
 | `restart` | `slay -s11 j9` (no mibpkg needed) |
+| `ui-forcefail factory\|screen\|off` | write `factory` or `screen` to `/mnt/persist/mibsdk/dev/ui.forcefail`, or remove it (`off`); persist is read-write, so no remount and no mibpkg. Read at boot: restart afterwards |
 
 ## Car-readiness gates (Plan 4 prerequisites)
 

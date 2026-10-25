@@ -2,6 +2,7 @@ package mibsdk.adapter.hqc.ui;
 
 import java.util.ArrayList;
 import java.util.List;
+import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiRow;
 
 /**
@@ -9,6 +10,9 @@ import mibsdk.platform.UiRow;
  * row + {@link HqcUiIds#PLUGIN_ROW_SLOTS} plugin rows). Pure: run on the {@code mibsdk-ui} thread.
  */
 final class DrawerSlots {
+
+    /** Drawer rows use the built-ins' 72-px size and its reflection. */
+    private static final int ROW_ICON_PX = 72;
 
     private DrawerSlots() {
     }
@@ -18,8 +22,12 @@ final class DrawerSlots {
      * slot in {@code prev} keeps it; new keys take the lowest free slot in row order; the rest go to
      * {@link DrawerAssignment#overflow()} in row order. Null rows, null keys and repeated keys are skipped, so no key
      * is ever in two slots. {@code pluginSlots} is clamped to [0, {@link HqcUiIds#PLUGIN_ROW_SLOTS}].
+     *
+     * <p>Each placed row's {@link UiRow#icon()} becomes its bitmaps ({@link #bitmaps}), giving image ids from
+     * {@code ids} (so this is where they are allocated, on {@code mibsdk-ui}).
      */
-    static DrawerAssignment assign(DrawerAssignment prev, List<UiRow> carRows, int pluginSlots) {
+    static DrawerAssignment assign(DrawerAssignment prev, List<UiRow> carRows, int pluginSlots, IconIds ids,
+                                   BuiltinIcons builtins) {
         if (carRows == null || carRows.isEmpty() || carRows.get(0) == null || carRows.get(0).key() == null) {
             return DrawerAssignment.EMPTY;
         }
@@ -74,13 +82,45 @@ final class DrawerSlots {
         String[] keys = new String[HqcUiIds.ROW_SLOTS];
         String[] labels = new String[HqcUiIds.ROW_SLOTS];
         String[] pageKeys = new String[HqcUiIds.ROW_SLOTS];
+        int[][] bitmaps = new int[HqcUiIds.ROW_SLOTS][];
         for (int s = 0; s < HqcUiIds.ROW_SLOTS; s++) {
             if (bySlot[s] != null) {
                 keys[s] = bySlot[s].key();
                 labels[s] = bySlot[s].label();
                 pageKeys[s] = bySlot[s].pageKey();
+                bitmaps[s] = bitmaps(bySlot[s].icon(), ids, builtins);
             }
         }
-        return new DrawerAssignment(keys, labels, pageKeys, overflow);
+        return new DrawerAssignment(keys, labels, pageKeys, bitmaps, overflow);
+    }
+
+    /**
+     * A row icon's drawer bitmaps: a built-in ({@link UiIcon#STOCK}) is {@code {id(<name>-72), id(<name>-72r)}}, an
+     * installed file {@code {id, id}}. Null for no icon, an unknown built-in, a missing ids table, or a spent range.
+     */
+    static int[] bitmaps(UiIcon icon, IconIds ids, BuiltinIcons builtins) {
+        if (icon == null || ids == null) {
+            return null;
+        }
+        if (icon.kind() == UiIcon.STOCK) {
+            if (builtins == null) {
+                return null;
+            }
+            int a = id(builtins.get(icon.name(), ROW_ICON_PX, false), ids);
+            int r = a < 0 ? -1 : id(builtins.get(icon.name(), ROW_ICON_PX, true), ids);
+            return r < 0 ? null : new int[] {a, r};
+        }
+        int f = id(icon, ids);
+        return f < 0 ? null : new int[] {f, f};
+    }
+
+    /** The id of an installed file icon (keyed by its owner and content key); -1 if none can be given. */
+    static int id(UiIcon file, IconIds ids) {
+        if (file == null || file.kind() != UiIcon.FILE || file.owner() == null || file.key() == null
+                || file.path() == null) {
+            return -1;
+        }
+        String rel = ImagePaths.relative(ImagePaths.imageRoot(HqcUiIds.INSTALL_ROOT), file.path());
+        return rel == null ? -1 : ids.idFor(file.owner(), file.key(), file.path(), rel);
     }
 }

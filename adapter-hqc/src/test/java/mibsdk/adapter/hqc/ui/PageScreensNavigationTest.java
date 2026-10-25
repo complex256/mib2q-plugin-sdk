@@ -459,6 +459,38 @@ class PageScreensNavigationTest {
         assertTrue(calls().contains("show screen2:b/p"));
     }
 
+    /**
+     * Task 7: the main menu (screen 46) is an origin like a Car screen, under the same recent-press rule; BACK returns
+     * to the saved screen-46 data. Screen 45 is not an origin.
+     */
+    @Test
+    void openFromTheMainMenuNeedsARecentPress() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("x", "X")));
+        UiInputs.forgetForTests(); // no press yet
+        UiInputs.clock = () -> now;
+        hmi.currentId = HqcUiIds.SYS_SCREEN_MAINWIZARD;
+        hmi.current = "stock:46";
+        pages.open("a/p", s, 0);
+        assertEquals(Collections.emptyList(), calls(), "screen 46 with no press: dropped");
+        assertEquals(Collections.singletonList("closed a/p"), inputs());
+
+        hmi.currentId = HqcUiIds.SYS_SCREEN_MAINWIZARD - 1;
+        UiInputs.userPressed();
+        now += 500;
+        pages.open("a/p", s, 0);
+        assertEquals(Collections.emptyList(), calls(), "screen 45: dropped");
+        assertEquals(Collections.singletonList("closed a/p"), inputs());
+
+        hmi.currentId = HqcUiIds.SYS_SCREEN_MAINWIZARD;
+        pages.open("a/p", s, 0); // the press was 500 ms ago
+        assertTrue(calls().contains("show screen1:a/p"));
+        assertEquals(Collections.singletonList("shown a/p"), inputs());
+
+        pages.backPressed();
+        runJobs();
+        assertEquals(Collections.singletonList("stock stock:46"), calls(), "BACK: the saved screen-46 data");
+    }
+
     /** Important 3: selecting an entry on an SDK page counts as an SDK press. */
     @Test
     void anEntryPressCountsAsAnSdkPress() throws Exception {
@@ -570,13 +602,14 @@ class PageScreensNavigationTest {
         PageStack stack = new PageStack(new PageEvents(table), PageScreens.failuresTo(log));
         pages = new PageScreens(hmi, stack, table, p, log);
         StatusLineSink noStatus = new StatusLineSink() {
-            public void show(String text) {
+            public void show(java.util.List<mibsdk.platform.UiStatusPart> parts, String text) {
             }
 
             public void hide() {
             }
         };
-        self[0] = new UiApplier(table, (slot, visible) -> { }, noStatus, pages, p, () -> now, log);
+        self[0] = new UiApplier(table, (slot, visible) -> { }, noStatus, pages, p, () -> now, log,
+                new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST), BuiltinIcons.NONE, new HmiWidgets());
         self[0].claimLive();
         return self[0];
     }

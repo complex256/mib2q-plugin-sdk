@@ -8,7 +8,9 @@ import mibsdk.api.PageSpec;
 import mibsdk.api.Scheduler;
 import mibsdk.api.PluginContext;
 import mibsdk.api.StatusItem;
+import mibsdk.api.StockIcons;
 import mibsdk.api.Storage;
+import mibsdk.api.Ui;
 import mibsdk.api.UiAction;
 
 /**
@@ -31,6 +33,7 @@ public class DaemonStatusPlugin extends MibPlugin {
     private Scheduler scheduler;
     private volatile boolean queued;
     private Page page;
+    private Ui ui;
     private StatusItem item;
     private int tsPort;
     private int mqPort;
@@ -44,8 +47,9 @@ public class DaemonStatusPlugin extends MibPlugin {
         // is BLOCKED and never runs), so both are held here. UI handles are inert while the SDK UI is off.
         net = ctx.net();
         scheduler = ctx.scheduler();
-        page = ctx.ui().page(spec(null, null), this::onAction);
-        item = ctx.ui().statusItem(null);
+        ui = ctx.ui();
+        page = ui.page(spec(null, null), this::onAction);
+        item = ui.statusItem(null);
         scheduler.after(0, this::refresh);
         scheduler.every(POLL_MS, this::refresh);
     }
@@ -63,7 +67,10 @@ public class DaemonStatusPlugin extends MibPlugin {
         Map<String, String> ts = query(tsPort, "tailscale");
         Map<String, String> mq = query(mqPort, "carmqtt");
         page.update(spec(ts, mq));
-        item.set("TS " + tsWord(ts) + " MQ " + mqWord(mq));
+        String t = tsWord(ts);
+        String m = mqWord(mq);
+        boolean allUp = "up".equals(t) && "up".equals(m);
+        item.set("TS " + t + " MQ " + m, ui.stockIcon(allUp ? StockIcons.DOT : StockIcons.CROSS));
     }
 
     /** The daemon's parsed reply; empty when it is unreachable, silent, another daemon or an unknown version. */

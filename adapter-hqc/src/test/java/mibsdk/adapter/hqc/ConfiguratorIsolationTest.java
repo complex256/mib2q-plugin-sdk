@@ -1,6 +1,7 @@
 package mibsdk.adapter.hqc;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -144,5 +145,46 @@ class ConfiguratorIsolationTest {
             assertNotNull(r);
             assertSame(registration, r);
         }
+    }
+
+    /** What the configurator read into SdkGlobals.uiForceFail, and its log, with {@code dev/ui.forcefail} holding this. */
+    private Object[] forceFailWith(String content) throws Exception {
+        File dev = new File(new File(base, "persist"), "dev");
+        File f = new File(dev, "ui.forcefail");
+        if (content == null) {
+            f.delete();
+        } else {
+            dev.mkdirs();
+            try (FileOutputStream out = new FileOutputStream(f)) {
+                out.write(content.getBytes(StandardCharsets.ISO_8859_1));
+            }
+        }
+        try (URLClassLoader l = isolated(HookTable.class, RingLog.class, HookPoint.class)) {
+            Object c = construct(l);
+            c.getClass().getMethod("initConfigurator").invoke(c);
+            Class<?> g = Class.forName(SdkGlobals.class.getName(), true, l);
+            Object log = g.getField("LOG").get(null);
+            List<?> lines = (List<?>) log.getClass().getMethod("snapshot").invoke(log);
+            return new Object[] {g.getField("uiForceFail").get(null), lines.toString()};
+        }
+    }
+
+    @Test
+    void forceFailFileIsRead() throws Exception {
+        Object[] r = forceFailWith(" screen \r\nfactory\n");
+        assertEquals("screen", r[0], "the first line, trimmed");
+        assertTrue(((String) r[1]).contains("configurator: ui.forcefail=screen"), (String) r[1]);
+
+        r = forceFailWith("factory");
+        assertEquals("factory", r[0]);
+        assertTrue(((String) r[1]).contains("configurator: ui.forcefail=factory"), (String) r[1]);
+
+        for (String other : new String[] {"bogus\n", "", "\nscreen\n", "Factory\n"}) {
+            r = forceFailWith(other);
+            assertNull(r[0], "only factory or screen count: '" + other + "'");
+            assertFalse(((String) r[1]).contains("ui.forcefail"), (String) r[1]);
+        }
+        r = forceFailWith(null);
+        assertNull(r[0], "no file");
     }
 }

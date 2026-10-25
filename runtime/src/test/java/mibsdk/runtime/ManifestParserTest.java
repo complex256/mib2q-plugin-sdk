@@ -53,13 +53,44 @@ class ManifestParserTest {
     }
 
     @Test
-    void acceptsApi1And2RejectsApi3() throws Exception {
+    void acceptsApi1To3AndIconsOnlyWithApi3() throws Exception {
         assertEquals(1, ManifestParser.parse(manifest("bike-rack", "1", "")).api());
         assertEquals(2, ManifestParser.parse(manifest("bike-rack", "2", "")).api());
-        for (String bad : new String[] {"3", "0"}) {
+        assertEquals(3, ManifestParser.parse(manifest("bike-rack", "3", "")).api());
+        for (String bad : new String[] {"4", "0"}) {
             ManifestException e = assertThrows(ManifestException.class,
                     () -> ManifestParser.parse(manifest("bike-rack", bad, "")), bad);
-            assertEquals("unsupported api " + bad + ", this SDK implements api 1..2", e.getMessage());
+            assertEquals("unsupported api " + bad + ", this SDK implements api 1..3", e.getMessage());
+        }
+
+        assertEquals(Collections.emptyList(), ManifestParser.parse(manifest("bike-rack", "3", "")).icons());
+        assertEquals(Collections.emptyList(), ManifestParser.parse(manifest("bike-rack", "2", "")).icons());
+        assertEquals(Arrays.asList("hello", "hello-20"),
+                ManifestParser.parse(manifest("bike-rack", "3", ",\"icons\":[\"hello\",\"hello-20\"]")).icons());
+        String max = "abcdefghijabcdefghijabcdefghij-2"; // 32 characters
+        assertEquals(Arrays.asList(max),
+                ManifestParser.parse(manifest("bike-rack", "3", ",\"icons\":[\"" + max + "\"]")).icons());
+        assertEquals(8, ManifestParser.parse(manifest("bike-rack", "3",
+                ",\"icons\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\"]")).icons().size());
+
+        ManifestException e = assertThrows(ManifestException.class,
+                () -> ManifestParser.parse(manifest("bike-rack", "2", ",\"icons\":[\"hello\"]")));
+        assertEquals("icons need api 3", e.getMessage());
+        e = assertThrows(ManifestException.class,
+                () -> ManifestParser.parse(manifest("bike-rack", "3", ",\"icons\":[\"hello\",\"hello\"]")));
+        assertEquals("duplicate icon 'hello'", e.getMessage());
+        e = assertThrows(ManifestException.class, () -> ManifestParser.parse(manifest("bike-rack", "3",
+                ",\"icons\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]")));
+        assertEquals("at most 8 icons", e.getMessage());
+        for (String bad : new String[] {"", "Hello", "a_b", "a.png", max + "x"}) {
+            e = assertThrows(ManifestException.class, () -> ManifestParser.parse(
+                    manifest("bike-rack", "3", ",\"icons\":[\"" + bad + "\"]")), bad);
+            assertEquals("invalid icon name '" + bad + "': must match [a-z0-9-]{1,32}", e.getMessage());
+        }
+        for (String bad : new String[] {"\"hello\"", "[1]", "[null]"}) {
+            e = assertThrows(ManifestException.class,
+                    () -> ManifestParser.parse(manifest("bike-rack", "3", ",\"icons\":" + bad)), bad);
+            assertEquals("icons must be an array of strings", e.getMessage());
         }
     }
 

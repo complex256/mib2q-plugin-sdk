@@ -1,6 +1,12 @@
 package mibsdk.build;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import org.gradle.api.GradleException;
 
 /** The {@code manifest.toml} texts of the two kinds of mibpkg package the build produces. */
 public final class MpkStage {
@@ -26,10 +32,15 @@ public final class MpkStage {
                 + "[plugin]\n"
                 + "jar = " + str(p.id + ".jar") + "\n"
                 + "api = " + p.api + "\n"
-                + "permissions = " + array(p.permissions) + "\n";
+                + "permissions = " + array(p.permissions) + "\n"
+                + (p.icons.isEmpty() ? "" : "icons = " + array(p.icons) + "\n");
     }
 
-    public static String sdkManifest(String version) {
+    /**
+     * The SDK package's manifest. {@code icons} names the built-in set, staged as {@code icons/<name>.png}
+     * ({@link #stageIcons}); mibpkg 0.9.0 needs {@code hmisystem_stock} and {@code hmisystem} together.
+     */
+    public static String sdkManifest(String version, List<String> icons) {
         return "[package]\n"
                 + "name = \"mibsdk\"\n"
                 + "version = " + str(version) + "\n"
@@ -49,10 +60,65 @@ public final class MpkStage {
                 + "tracer_configurator = " + str("de.audi.tghu.dsitrace.TraceConfigurator") + "\n"
                 + "hmicar_stock = " + str("de.audi.tghu.car.hmi.Activator") + "\n"
                 + "hmicar = " + str("mibsdk.adapter.hqc.ui.SdkCarActivator") + "\n"
-                + "owned = " + array(List.of("de/audi/tghu/car/hmi/", "de/audi/atip/model/CarModelBank")) + "\n"
+                + "hmisystem_stock = " + str("de.audi.tghu.system.hmi.Activator") + "\n"
+                + "hmisystem = " + str("mibsdk.adapter.hqc.ui.SdkSystemActivator") + "\n"
+                + "owned = " + array(List.of("de/audi/tghu/car/hmi/", "de/audi/atip/model/CarModelBank",
+                        "de/audi/tghu/system/hmi/")) + "\n"
                 + "properties = " + array(List.of(
                         "hook.services=org.dsi.ifc.carparkingsystem.DSICarParkingSystem", "ui.enabled=true")) + "\n"
-                + "permissions = " + str(PERMISSIONS) + "\n";
+                + "permissions = " + str(PERMISSIONS) + "\n"
+                + "icons = " + array(icons) + "\n";
+    }
+
+    /** The names of the {@code <name>.png} files in {@code dir}, sorted (none if it does not exist). */
+    public static List<String> iconNames(File dir) {
+        List<String> names = new ArrayList<String>();
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isFile() && f.getName().endsWith(".png")) {
+                    names.add(f.getName().substring(0, f.getName().length() - ".png".length()));
+                }
+            }
+        }
+        Collections.sort(names);
+        return names;
+    }
+
+    /**
+     * Copies {@code <from>/<name>.png} to {@code <stage>/icons/<name>.png} for each name, after every one has passed
+     * {@link PngCheck}: a missing or refused file fails the build and stages none of them. The bytes written are the
+     * bytes checked.
+     */
+    public static void stageIcons(List<String> names, File from, File stage) {
+        List<byte[]> checked = new ArrayList<byte[]>();
+        for (String name : names) {
+            File png = new File(from, name + ".png");
+            byte[] bytes;
+            try {
+                bytes = Files.readAllBytes(png.toPath());
+            } catch (IOException e) {
+                throw new GradleException("mibpkg stage: cannot read icon " + png + ": " + e, e);
+            }
+            try {
+                PngCheck.check(bytes, PngCheck.MAX_PX);
+            } catch (IllegalArgumentException e) {
+                throw new GradleException("mibpkg stage: " + png + ": " + e.getMessage(), e);
+            }
+            checked.add(bytes);
+        }
+        if (names.isEmpty()) {
+            return;
+        }
+        File dir = new File(stage, "icons");
+        try {
+            Files.createDirectories(dir.toPath());
+            for (int i = 0; i < names.size(); i++) {
+                Files.write(new File(dir, names.get(i) + ".png").toPath(), checked.get(i));
+            }
+        } catch (IOException e) {
+            throw new GradleException("mibpkg stage: cannot write " + dir + ": " + e, e);
+        }
     }
 
     private static String array(List<String> items) {

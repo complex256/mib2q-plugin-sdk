@@ -1,5 +1,6 @@
 package mibsdk.adapter.hqc.ui;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -12,17 +13,25 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
+import de.esolutions.hmi.widgets.audi.evo.widgets.IconController;
+import de.esolutions.hmi.widgets.audi.base.InitializationContext;
+import de.esolutions.hmi.widgets.audi.evo.widgets.LabelController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.MainWizardController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import mibsdk.adapter.hqc.SdkGlobals;
 import mibsdk.platform.UiEntry;
+import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiRow;
 import mibsdk.platform.UiSnapshot;
+import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiTable;
 import mibsdk.runtime.Clock;
 import mibsdk.runtime.RingLog;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** The applier driven one pass at a time ({@code step(0)}), with fake rows, status line, pages, sink and clock. */
 class UiApplierTest {
@@ -35,11 +44,12 @@ class UiApplierTest {
     private Runnable onOpen = () -> { };
     private final List<Long> ages = Collections.synchronizedList(new ArrayList<Long>());
     private UiApplier applier;
+    private final IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
     private long version;
 
     private final RowModels rows = (slot, visible) -> writes.add("row" + slot + "=" + (visible ? "on" : "off"));
     private final StatusLineSink status = new StatusLineSink() {
-        public void show(String text) {
+        public void show(List<UiStatusPart> parts, String text) {
             writes.add("show:" + text);
         }
 
@@ -74,6 +84,14 @@ class UiApplierTest {
         SdkGlobals.uiSlots = DrawerAssignment.EMPTY;
         SdkGlobals.uiRowModels = null;
         SdkGlobals.uiDown = false;
+        SdkCarScreenFactory.sdkRows = null;
+        SdkStatusPopup.current = null;
+        SdkStatusPopup.wanted = StatusLayout.EMPTY;
+        SdkGlobals.statusPopup = 0;
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_OFF;
+        SdkGlobals.mainMenuRow = null;
+        SdkGlobals.mainMenuWizard = null;
+        MainMenuWrench.forgetForTests();
     }
 
     @BeforeEach
@@ -85,9 +103,21 @@ class UiApplierTest {
     }
 
     private UiApplier newApplier(UiApplier[] self) {
+        return newApplier(self, status, BuiltinIcons.NONE);
+    }
+
+    private UiApplier newApplier(UiApplier[] self, StatusLineSink s, BuiltinIcons builtins) {
         Clock clock = () -> now;
         HmiPoster poster = new HmiPoster(sink, () -> self[0].wake(), clock, HmiPoster.PENDING_DEADLINE_MS);
-        return new UiApplier(table, rows, status, pages, poster, clock, log);
+        return new UiApplier(table, rows, s, pages, poster, clock, log, ids, builtins, new HmiWidgets());
+    }
+
+    /** A live applier over {@code s} and {@code builtins}, replacing the default one. */
+    private UiApplier applierWith(StatusLineSink s, BuiltinIcons builtins) {
+        UiApplier[] self = new UiApplier[1];
+        self[0] = newApplier(self, s, builtins);
+        self[0].claimLive();
+        return self[0];
     }
 
     private void publish(String status, List<String> rowKeys, Map<String, UiPage> pageMap, long openSeq,
@@ -421,14 +451,15 @@ class UiApplierTest {
             throw new IllegalStateException("row model gone");
         };
         StatusLineSink failingStatus = new StatusLineSink() {
-            public void show(String text) {
+            public void show(List<UiStatusPart> parts, String text) {
                 throw new IllegalStateException("popup gone");
             }
 
             public void hide() {
             }
         };
-        self[0] = new UiApplier(table, failing, failingStatus, pages, poster, clock, log);
+        self[0] = new UiApplier(table, failing, failingStatus, pages, poster, clock, log, ids, BuiltinIcons.NONE,
+                new HmiWidgets());
         self[0].claimLive();
         publish("S", Arrays.asList("plugins", "a"), pages("p1"), 1, "p1");
         self[0].step(0);
@@ -569,5 +600,366 @@ class UiApplierTest {
         closePending = false;
         applier.step(0);
         assertEquals(0, sink.size(), "done");
+    }
+
+    private static UiIcon icon(String sha16) {
+        return UiIcon.file("hello", HqcUiIds.INSTALL_ROOT + "/icons/hello/" + sha16 + ".png", sha16, 72, 72);
+    }
+
+    private void publishIcon(UiIcon icon) {
+        List<UiRow> r = new ArrayList<UiRow>();
+        r.add(new UiRow("plugins", "PLUGINS", "plugins.page"));
+        r.add(new UiRow("a", "A", "a.page", icon));
+        table.publish(new UiSnapshot(++version, r, "", null, 0, null));
+    }
+
+    /**
+     * Task 4: a row's new icon content posts one HMI job (no pages to render), which sets that row's bitmaps once; an
+     * unchanged snapshot posts nothing, and the new content gets a new id.
+     */
+    @Test
+    void slotIconChangePostsOneJobAndAppliesBitmapsOnce() throws Exception {
+        List<String> set = Collections.synchronizedList(new ArrayList<String>());
+        MenuItemController[] drawer = new MenuItemController[HqcUiIds.ROW_SLOTS];
+        for (int i = 0; i < drawer.length; i++) {
+            final int slot = i;
+            drawer[i] = new MenuItemController() {
+                public void setBitmaps(int[] b) {
+                    set.add(slot + "=" + Arrays.toString(b));
+                    super.setBitmaps(b);
+                }
+            };
+        }
+        SdkCarScreenFactory.sdkRows = drawer;
+        SdkGlobals.uiRowModels = rows;
+
+        publishIcon(icon("aaaa000000000000"));
+        applier.step(0);
+        assertEquals(1, sink.size(), "one job");
+        sink.runHeld();
+        assertEquals(Collections.singletonList("1=[609100, 609100]"), set);
+        assertEquals(Collections.emptyList(), drain().stream().filter(w -> !w.startsWith("row")).collect(
+                java.util.stream.Collectors.toList()), "no page render");
+
+        publishIcon(icon("aaaa000000000000")); // same content, new snapshot
+        applier.step(0);
+        assertEquals(0, sink.size(), "nothing changed: no job");
+
+        publishIcon(icon("bbbb000000000000"));
+        applier.step(0);
+        assertEquals(1, sink.size());
+        sink.runHeld();
+        assertEquals(0, sink.size(), "the after-hook posts nothing more");
+        assertEquals(Arrays.asList("1=[609100, 609100]", "1=[609101, 609101]"), set);
+        assertArrayEquals(new int[] {609101, 609101}, drawer[1].getBitmapIndices());
+        assertEquals(HqcUiIds.INSTALL_ROOT + "/icons/hello/aaaa000000000000.png", ids.fileFor(609100),
+                "the old id keeps its file");
+
+        publishIcon(null); // the icon goes away
+        applier.step(0);
+        sink.runHeld();
+        assertEquals("1=null", set.get(set.size() - 1));
+    }
+
+    /** No drawer yet: the wanted icons are not posted (the StartupFilter would discard the job). */
+    @Test
+    void noIconJobBeforeTheDrawerExists() throws Exception {
+        publishIcon(icon("cccc000000000000"));
+        applier.step(0);
+        assertEquals(0, sink.size());
+    }
+
+    // ---- Task 5: the status popup 609600 ----
+
+    @TempDir
+    java.io.File iconDir;
+
+    private final List<String> popupCalls = Collections.synchronizedList(new ArrayList<String>());
+
+    /** A built status popup whose widgets record their bounds and bitmaps. */
+    private SdkStatusPopup recordingPopup() {
+        HostWidgets.init();
+        LabelController[] labels = new LabelController[HqcUiIds.STATUS_CELLS + 1];
+        IconController[] idIcons = new IconController[HqcUiIds.STATUS_CELLS];
+        IconController[] fileIcons = new IconController[HqcUiIds.STATUS_CELLS];
+        for (int i = 0; i < labels.length; i++) {
+            final String n = "label" + i;
+            labels[i] = new LabelController() {
+                public void setBounds(int x, int y, int w, int h) {
+                    popupCalls.add(n + ".bounds");
+                    super.setBounds(x, y, w, h);
+                }
+            };
+        }
+        for (int i = 0; i < HqcUiIds.STATUS_CELLS; i++) {
+            final String n = "id" + i;
+            final String f = "file" + i;
+            idIcons[i] = new IconController() {
+                public void setBounds(int x, int y, int w, int h) {
+                    popupCalls.add(n + ".bounds");
+                    super.setBounds(x, y, w, h);
+                }
+
+                public void setBitmaps(int[] b) {
+                    popupCalls.add(n + ".bitmaps=" + Arrays.toString(b));
+                    super.setBitmaps(b);
+                }
+            };
+            fileIcons[i] = new IconController() {
+                public void setBounds(int x, int y, int w, int h) {
+                    popupCalls.add(f + ".bounds");
+                    super.setBounds(x, y, w, h);
+                }
+            };
+        }
+        SdkStatusPopup p = new SdkStatusPopup(labels, idIcons, fileIcons);
+        SdkStatusPopup.current = p;
+        return p;
+    }
+
+    private void publishParts(String line, UiStatusPart... parts) {
+        List<UiRow> r = Collections.singletonList(new UiRow("plugins", "PLUGINS", "plugins.page"));
+        table.publish(new UiSnapshot(++version, r, line, null, 0, null, Arrays.asList(parts)));
+    }
+
+    private static UiStatusPart item(String text, UiIcon icon) {
+        return new UiStatusPart(text, icon, false);
+    }
+
+    private List<String> drainPopup() {
+        synchronized (popupCalls) {
+            List<String> l = new ArrayList<String>(popupCalls);
+            popupCalls.clear();
+            return l;
+        }
+    }
+
+    private static boolean anyBounds(List<String> calls) {
+        for (String c : calls) {
+            if (c.endsWith(".bounds")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
+    void stockIconSwapOfSameLengthAppliesBitmaps() throws Exception {
+        UiApplier a = applierWith(status, StatusLayoutTest.builtins(iconDir));
+        recordingPopup();
+        publishParts("TS up", item("TS up", UiIcon.stock("dot")));
+        a.step(0);
+        assertEquals(1, sink.size());
+        sink.runHeld();
+        List<String> first = drainPopup();
+        assertTrue(anyBounds(first), "the first layout places the cells: " + first);
+        assertTrue(first.contains("id0.bitmaps=[609100]"), first.toString());
+
+        publishParts("TS dn", item("TS dn", UiIcon.stock("cross")));
+        a.step(0);
+        assertEquals(1, sink.size(), "one job");
+        sink.runHeld();
+        assertEquals(Collections.singletonList("id0.bitmaps=[609101]"), drainPopup(), "bitmaps, no bounds");
+
+        publishParts("TS dn", item("TS dn", null)); // the icon goes: the label moves left, the id icon is emptied
+        a.step(0);
+        sink.runHeld();
+        List<String> gone = drainPopup();
+        assertTrue(gone.contains("label1.bounds"), gone.toString());
+        assertEquals("id0.bitmaps=[]", gone.get(gone.size() - 1), "an empty array hides it");
+    }
+
+    @Test
+    void sinkSwitchReshowsWithinOnePass() throws Exception {
+        StatusSinksTest.RecordingSink sdk = new StatusSinksTest.RecordingSink();
+        StatusSinksTest.RecordingSink p65 = new StatusSinksTest.RecordingSink();
+        int[] state = {2};
+        UiApplier a = applierWith(new StatusSinks(sdk, p65, () -> state[0]), BuiltinIcons.NONE);
+        publishParts("TS up", item("TS up", null));
+        a.step(0);
+        assertEquals(Arrays.asList("show TS up"), sdk.calls);
+        a.step(0);
+        assertEquals(1, sdk.calls.size(), "unchanged: no re-show");
+
+        state[0] = -1; // the build failed
+        a.step(0);
+        assertEquals(Arrays.asList("show TS up"), p65.calls, "the next pass, with an unchanged line");
+        assertEquals(Arrays.asList("show TS up", "hide"), sdk.calls);
+        a.step(0);
+        assertEquals(1, p65.calls.size());
+    }
+
+    @Test
+    void layoutChangePostsOneJobTextChangeOnlyWritesModels() throws Exception {
+        recordingPopup();
+        UiStatusPart safe = new UiStatusPart("SAFE", null, true);
+        publishParts("SAFE TS up MQ", safe, item("TS up", null), item("MQ", null));
+        applier.step(0);
+        assertEquals(Collections.singletonList("show:SAFE TS up MQ"), drain());
+        assertEquals(1, sink.size(), "a new layout: one job");
+        sink.runHeld();
+        assertTrue(anyBounds(drainPopup()));
+
+        publishParts("SAFE TS dn MQ", safe, item("TS dn", null), item("MQ", null));
+        applier.step(0);
+        assertEquals(Collections.singletonList("show:SAFE TS dn MQ"), drain(), "the text goes to the models");
+        assertEquals(0, sink.size(), "same geometry: no job");
+
+        publishParts("SAFE TS down MQ", safe, item("TS down", null), item("MQ", null));
+        applier.step(0);
+        assertEquals(Collections.singletonList("show:SAFE TS down MQ"), drain());
+        assertEquals(1, sink.size(), "a longer text moves the next cell: one job");
+        sink.runHeld();
+        List<String> calls = drainPopup();
+        assertTrue(calls.contains("label2.bounds"), calls.toString());
+        assertEquals(0, sink.size(), "the after-hook posts nothing more");
+    }
+
+    @Test
+    void aFileIconChangeWithTheSameTextIsShownAgain() throws Exception {
+        UiIcon a = UiIcon.file("hello", "/i/a.png", "aaaa000000000000", 20, 20);
+        UiIcon b = UiIcon.file("hello", "/i/b.png", "bbbb000000000000", 20, 20);
+        publishParts("TS up", item("TS up", a));
+        applier.step(0);
+        publishParts("TS up", item("TS up", b));
+        applier.step(0);
+        assertEquals(Arrays.asList("show:TS up", "show:TS up"), drain(), "the new path reaches the locator model");
+    }
+
+    // ---- Task 7: the main menu's Plugins row ----
+
+    /** The {@code row…} entries of {@link #writes} (drawer row visibility). */
+    private List<String> rowWrites() {
+        synchronized (writes) {
+            List<String> l = new ArrayList<String>();
+            for (String w : writes) {
+                if (w.startsWith("row")) {
+                    l.add(w);
+                }
+            }
+            return l;
+        }
+    }
+
+    /** A main-menu Plugins row that records its visibility writes into {@link #writes} as {@code menu=on|off}. */
+    private MenuItemController menuRow() {
+        HostWidgets.init();
+        return new MenuItemController() {
+            public void setVisible(boolean v) {
+                writes.add("menu=" + (v ? "on" : "off"));
+                super.setVisible(v);
+            }
+        };
+    }
+
+    /** A main wizard whose connection the test controls; counts what the wrench reads of it. */
+    static final class Wizard extends MainWizardController {
+        volatile boolean connected;
+        int wrenched;
+
+        public boolean isConnected() {
+            return connected;
+        }
+
+        public InitializationContext getInitContext() {
+            wrenched++; // MainMenuWrench.apply reads the layout through it once per call
+            return super.getInitContext();
+        }
+    }
+
+    /** Review Focus 3: screen 46 fails after the drawer hid its Plugins row; the row is back within one pass. */
+    @Test
+    void drawerPluginsRowReturnsWhenTheMainMenuFails() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", "plugins");
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_PENDING;
+        applier.step(0); // snapshot with the Plugins row
+        assertTrue(writes.contains("row0=on"), "PENDING: the drawer keeps it until screen 46 has the row");
+        writes.clear();
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_ACTIVE; // screen 46 built with the SDK row
+        applier.step(0);
+        assertEquals(Arrays.asList("row0=off"), rowWrites()); // hidden: the MENU ring has it
+        sink.runHeld(); // the main-menu row's job
+        writes.clear();
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_FAILED; // screen 46 threw: refs cleared, ring stock
+        applier.step(0); // no new snapshot needed
+        assertEquals(Arrays.asList("row0=on"), rowWrites());
+        assertEquals(0, sink.size(), "no main-menu row to apply: no job");
+    }
+
+    @Test
+    void mainMenuOffKeepsTheDrawerRow() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", "plugins", "a");
+        applier.step(0);
+        assertEquals(allRows(true, true), rowWrites());
+        applier.step(0);
+        assertEquals(allRows(true, true), rowWrites(), "nothing written again");
+        assertEquals(0, sink.size());
+    }
+
+    @Test
+    void wrenchIsAppliedOncePerConnectedWizard() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_ACTIVE;
+        SdkGlobals.mainMenuRow = menuRow();
+        Wizard first = new Wizard();
+        SdkGlobals.mainMenuWizard = first;
+        publish("", "plugins");
+        applier.step(0);
+        assertEquals(1, sink.size(), "the row and the wrench need a job");
+        sink.runHeld();
+        assertEquals(0, first.wrenched, "not connected yet: no wrench");
+        assertTrue(writes.contains("menu=on"));
+        assertEquals(0, sink.size(), "the after-hook does not loop on HMIEvent while the wizard connects");
+
+        applier.step(0);
+        assertEquals(1, sink.size(), "the next pass retries");
+        first.connected = true;
+        sink.runHeld();
+        assertEquals(1, first.wrenched);
+        applier.step(0);
+        assertEquals(0, sink.size(), "applied: no more jobs");
+        sink.runHeld();
+        assertEquals(1, first.wrenched, "once");
+
+        Wizard second = new Wizard(); // screen 46 rebuilt
+        second.connected = true;
+        SdkGlobals.mainMenuWizard = second;
+        applier.step(0);
+        assertEquals(1, sink.size());
+        sink.runHeld();
+        assertEquals(1, second.wrenched, "the new wizard gets its own call");
+        assertEquals(1, first.wrenched);
+        applier.step(0);
+        assertEquals(0, sink.size());
+    }
+
+    @Test
+    void downHidesTheMainMenuRowAndClearsStatusCells() throws Exception {
+        HostWidgets.init();
+        UiApplier a = applierWith(status, StatusLayoutTest.builtins(iconDir));
+        recordingPopup();
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_ACTIVE;
+        SdkGlobals.mainMenuRow = menuRow();
+        publishParts("TS up", item("TS up", UiIcon.stock("dot")));
+        a.step(0);
+        sink.runHeld();
+        assertTrue(drainPopup().contains("id0.bitmaps=[609100]"));
+        assertTrue(drain().contains("menu=on"));
+
+        table.publish(UiSnapshot.down(++version));
+        a.step(0);
+        sink.runHeld();
+        List<String> w = drain();
+        assertTrue(w.contains("menu=off"), w.toString());
+        assertTrue(w.contains("hide"), w.toString());
+        assertTrue(drainPopup().contains("id0.bitmaps=[]"), "the id icon cell is emptied");
+
+        publishParts("TS up", item("TS up", UiIcon.stock("dot"))); // a running runtime resumes
+        a.step(0);
+        sink.runHeld();
+        assertTrue(drain().contains("menu=on"));
+        assertTrue(drainPopup().contains("id0.bitmaps=[609100]"));
     }
 }
