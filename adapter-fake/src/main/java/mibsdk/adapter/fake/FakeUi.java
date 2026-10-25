@@ -4,11 +4,13 @@ import java.util.ArrayList;
 import java.util.List;
 import mibsdk.platform.PageStack;
 import mibsdk.platform.UiEntry;
+import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiPageText;
 import mibsdk.platform.UiRow;
 import mibsdk.platform.UiSnapshot;
+import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiTable;
 
 /** Host-side renderer and driver for the UI snapshot: lets plugins and the runtime be tested without the car. */
@@ -30,17 +32,35 @@ public final class FakeUi {
         this.table = table;
     }
 
-    /** Car drawer labels in order, Plugins row first. */
+    /** Car drawer labels in order, Plugins row first; a row with an icon shows its {@linkplain #tag tag} first. */
     public List<String> carRows() {
         List<String> out = new ArrayList<String>();
         for (UiRow r : table.snapshot().carRows()) {
-            out.add(r.label());
+            out.add(tag(r.icon()) + r.label());
         }
         return out;
     }
 
+    /** The text-only status line (no icons). */
     public String statusLine() {
         return table.snapshot().statusLine();
+    }
+
+    /** The status line with icons: one string per part, an item's icon {@linkplain #tag tag} before its text. */
+    public List<String> statusParts() {
+        List<String> out = new ArrayList<String>();
+        for (UiStatusPart p : table.snapshot().statusParts()) {
+            out.add(tag(p.icon()) + p.text());
+        }
+        return out;
+    }
+
+    /** {@code "[<name>] "} for a stock icon, {@code "[png:<key>] "} for an installed one, {@code ""} for none. */
+    private static String tag(UiIcon i) {
+        if (i == null) {
+            return "";
+        }
+        return "[" + (i.kind() == UiIcon.FILE ? "png:" + i.key() : i.name()) + "] ";
     }
 
     /** {@link UiPageText#line} per entry; empty for an unknown page. */

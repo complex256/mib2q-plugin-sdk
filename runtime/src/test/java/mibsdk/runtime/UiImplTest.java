@@ -568,4 +568,37 @@ class UiImplTest {
             assertEquals(72, held(big).width());
         }
     }
+
+    @Test
+    void handlesPublishTheirIconsWithTheirText() throws Exception {
+        File dir = installIcons("a", "hello-20=fedcba9876543210,20,20\n");
+        UiImpl a = ui("a", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        Icon png = a.icon("hello-20");
+        Page p = a.page(PageSpec.of("main", "A"), null);
+        a.carMenuRow("Row", p, png);
+        StatusItem item = a.statusItem("one", a.stockIcon(StockIcons.STAR));
+        UiSnapshot s = published();
+        assertEquals(held(png), s.carRows().get(1).icon());
+        assertEquals("one", s.statusParts().get(0).text());
+        assertEquals(UiIcon.stock(StockIcons.STAR), s.statusParts().get(0).icon());
+
+        item.set("two", png);
+        s = published();
+        assertEquals("two", s.statusParts().get(0).text());
+        assertEquals(held(png), s.statusParts().get(0).icon(), "text and icon arrive together");
+        item.set("three");
+        assertEquals(held(png), published().statusParts().get(0).icon(), "set(text) keeps the icon");
+        item.set("three", null);
+        s = published();
+        assertEquals("three", s.statusParts().get(0).text());
+        assertNull(s.statusParts().get(0).icon());
+
+        UiImpl b = ui("b", UiTestRuntime.UI_FEATURES, ALL_PERMS, new Registrations(), DECLARED, dir); // no UI_ICONS
+        Page bp = b.page(PageSpec.of("main", "B"), null);
+        b.carMenuRow("Row", bp, b.stockIcon(StockIcons.STAR));
+        b.statusItem("b", b.stockIcon(StockIcons.STAR));
+        s = published();
+        assertNull(s.carRows().get(2).icon(), "not drawn without UI_ICONS");
+        assertNull(s.statusParts().get(1).icon());
+    }
 }

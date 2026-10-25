@@ -147,7 +147,7 @@ final class UiImpl implements Ui {
             reserve(ROWS);
             if (!h.inert) {
                 try {
-                    hub.addCarRow(pluginId, h.rowKey, label, pluginId + "/" + page.pageId);
+                    hub.addCarRow(pluginId, h.rowKey, label, pluginId + "/" + page.pageId, h.icon);
                 } catch (RuntimeException e) {
                     release(ROWS);
                     throw e;
@@ -175,7 +175,7 @@ final class UiImpl implements Ui {
             reserve(STATUS);
             if (!h.inert) {
                 try {
-                    hub.setStatusItem(pluginId, text);
+                    hub.setStatusItem(pluginId, text, h.icon);
                 } catch (RuntimeException e) {
                     release(STATUS);
                     throw e;
@@ -443,19 +443,24 @@ final class UiImpl implements Ui {
             UiIcon shown = shown(ownIcon(icon, true)); // checked even when cancelled or inert, like any argument
             synchronized (hlock) {
                 this.icon = shown;
+                publish(text);
             }
-            set(text);
         }
 
         /** Keeps the item's icon. */
         @Override
         public void set(String text) {
             synchronized (hlock) {
-                if (!cancelled && !inert) {
-                    synchronized (lock) {
-                        if (!closed) {
-                            hub.setStatusItem(pluginId, text);
-                        }
+                publish(text);
+            }
+        }
+
+        /** hlock held. Text and icon reach the hub in one call, so they change together. */
+        private void publish(String text) {
+            if (!cancelled && !inert) {
+                synchronized (lock) {
+                    if (!closed) {
+                        hub.setStatusItem(pluginId, text, icon);
                     }
                 }
             }

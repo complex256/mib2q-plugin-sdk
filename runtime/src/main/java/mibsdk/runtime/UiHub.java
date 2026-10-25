@@ -16,6 +16,7 @@ import mibsdk.api.Scheduler;
 import mibsdk.api.StatusItem;
 import mibsdk.api.UiAction;
 import mibsdk.platform.UiEntry;
+import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiRow;
@@ -81,6 +82,7 @@ final class UiHub {
         final Map<String, PageRec> pages = new LinkedHashMap<String, PageRec>(); // by pageId, registration order
         final Map<String, UiRow> rows = new LinkedHashMap<String, UiRow>(); // by row key (full), registration order
         String status; // cleaned; null when hidden
+        UiIcon statusIcon; // null for none, and while status is null
     }
 
     private final UiTable table;
@@ -198,8 +200,16 @@ final class UiHub {
         changed();
     }
 
-    /** {@code pageKey} must be a registered page of {@code owner}, else {@link IllegalArgumentException}. */
+    /** {@link #addCarRow(String, String, String, String, UiIcon)} without an icon. */
     void addCarRow(String owner, String rowKey, String label, String pageKey) {
+        addCarRow(owner, rowKey, label, pageKey, null);
+    }
+
+    /**
+     * {@code pageKey} must be a registered page of {@code owner}, else {@link IllegalArgumentException}.
+     * {@code icon} is null for none.
+     */
+    void addCarRow(String owner, String rowKey, String label, String pageKey, UiIcon icon) {
         checkOwner(owner);
         String key = owner + "/" + rowKey;
         synchronized (lock) {
@@ -214,7 +224,7 @@ final class UiHub {
             if (o.rows.containsKey(key)) {
                 throw new IllegalArgumentException("row '" + rowKey + "' is already registered");
             }
-            o.rows.put(key, new UiRow(key, UiText.clean(label, PageSpec.MAX_LABEL), pageKey));
+            o.rows.put(key, new UiRow(key, UiText.clean(label, PageSpec.MAX_LABEL), pageKey, icon));
         }
         changed();
     }
@@ -229,11 +239,20 @@ final class UiHub {
         changed();
     }
 
-    /** {@code null} or text that cleans to empty removes the owner's item. */
+    /** {@link #setStatusItem(String, String, UiIcon)} without an icon. */
     void setStatusItem(String owner, String text) {
+        setStatusItem(owner, text, null);
+    }
+
+    /**
+     * Text and icon change together, so no snapshot pairs one's new value with the other's old one. {@code null} or
+     * text that cleans to empty removes the owner's item, icon included; {@code icon} is null for none.
+     */
+    void setStatusItem(String owner, String text, UiIcon icon) {
         checkOwner(owner);
         String clean = UiText.clean(text, StatusItem.MAX_TEXT);
         String value = clean.length() == 0 ? null : clean;
+        UiIcon shown = value == null ? null : icon;
         synchronized (lock) {
             if (removedOwners.contains(owner)) {
                 return;
@@ -246,10 +265,12 @@ final class UiHub {
                 o = new Owner();
                 owners.put(owner, o);
             }
-            if (value == null ? o.status == null : value.equals(o.status)) {
+            if ((value == null ? o.status == null : value.equals(o.status))
+                    && (shown == null ? o.statusIcon == null : shown.equals(o.statusIcon))) {
                 return;
             }
             o.status = value;
+            o.statusIcon = shown;
         }
         changed();
     }
@@ -684,7 +705,7 @@ final class UiHub {
             UiPage p = (UiPage) sdkPages.get(i);
             pages.put(p.key(), p);
         }
-        Map<String, String> status = new HashMap<String, String>();
+        Map<String, Owner> status = new HashMap<String, Owner>();
         for (Iterator e = owners.entrySet().iterator(); e.hasNext();) {
             Map.Entry entry = (Map.Entry) e.next();
             Owner o = (Owner) entry.getValue();
@@ -699,17 +720,19 @@ final class UiHub {
                 }
             }
             if (o.status != null && !statusHidden.contains(entry.getKey())) {
-                status.put((String) entry.getKey(), o.status);
+                status.put((String) entry.getKey(), o);
             }
         }
         List<String> order = StatusLine.order(statusOrder, status.keySet());
         List<StatusLine.Item> items = new ArrayList<StatusLine.Item>();
         for (int i = 0; i < order.size(); i++) {
             String id = order.get(i);
-            items.add(new StatusLine.Item(id, status.get(id)));
+            Owner o = status.get(id);
+            items.add(new StatusLine.Item(id, o.status, o.statusIcon));
         }
+        // one item list, two outputs: the parts with icons, and the text-only line (the items without them)
         return new UiSnapshot(v, rows, StatusLine.line(indicators, items, statusMaxChars), pages, openSeq,
-                openPageKey);
+                openPageKey, StatusLine.parts(indicators, items, statusMaxChars));
     }
 
     /** Asks for one publish, at the earliest publishMinMs after the last one; a pending one absorbs this change. */

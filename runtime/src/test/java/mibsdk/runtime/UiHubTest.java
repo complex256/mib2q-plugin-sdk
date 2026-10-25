@@ -22,10 +22,12 @@ import mibsdk.api.Scheduler;
 import mibsdk.api.Subscription;
 import mibsdk.api.UiAction;
 import mibsdk.platform.UiEntry;
+import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiRow;
 import mibsdk.platform.UiSnapshot;
+import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiTable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -629,5 +631,55 @@ class UiHubTest {
         hub.setStatusPrefs(null, null);
         hub.publishNow();
         assertEquals("A2 M Z", table.snapshot().statusLine(), "shown again with its latest text");
+    }
+
+    @Test
+    void rowsAndStatusPartsCarryIcons() throws Exception {
+        UiHub hub = hub(0);
+        UiIcon star = UiIcon.stock("star");
+        UiIcon png = UiIcon.file("fruit", "/icons/fruit/0123456789abcdef.png", "0123456789abcdef", 20, 20);
+        hub.addPage("fruit", PageSpec.of("p", "F"), null, executor("plugin-fruit"));
+        hub.addCarRow("fruit", "r1", "Fruit", "fruit/p", png);
+        hub.addCarRow("fruit", "r2", "Plain", "fruit/p");
+        hub.setStatusItem("fruit", "FR ok", star);
+        hub.setIndicators(Arrays.asList("SAFE"));
+        hub.publishNow();
+        UiSnapshot s = table.snapshot();
+        assertNull(s.carRows().get(0).icon(), "the Plugins row has none");
+        assertEquals(png, s.carRows().get(1).icon());
+        assertNull(s.carRows().get(2).icon());
+        List<UiStatusPart> parts = s.statusParts();
+        assertEquals(2, parts.size());
+        assertEquals("SAFE", parts.get(0).text());
+        assertTrue(parts.get(0).indicator());
+        assertEquals("FR ok", parts.get(1).text());
+        assertEquals(star, parts.get(1).icon());
+
+        hub.setStatusItem("fruit", "FR ok", null); // same text, icon cleared: still a change
+        hub.publishNow();
+        assertNull(table.snapshot().statusParts().get(1).icon());
+        hub.setStatusItem("fruit", "FR ok", star);
+        hub.publishNow();
+        assertEquals(star, table.snapshot().statusParts().get(1).icon());
+        hub.setStatusItem("fruit", "", star); // an empty text hides the item, icon or not
+        hub.publishNow();
+        assertEquals(1, table.snapshot().statusParts().size());
+        assertEquals("SAFE", table.snapshot().statusLine());
+    }
+
+    @Test
+    void textOnlyLineIgnoresIcons() throws Exception {
+        UiHub hub = hub(0);
+        UiIcon star = UiIcon.stock("star");
+        hub.setStatusItem("a", "AA long text", star);
+        hub.setStatusItem("b", "BB long text", star);
+        hub.setIndicators(Arrays.asList("SAFE"));
+        hub.publishNow();
+        UiSnapshot s = table.snapshot();
+        assertEquals("SAFE AA lon... BB lon...", s.statusLine(), "composed as if no item had an icon");
+        // with icons: room 19, 9 each; 9 >= 2 + 3 keeps both icons, text cut to 7
+        assertEquals("AA l...", s.statusParts().get(1).text());
+        assertEquals(star, s.statusParts().get(1).icon());
+        assertEquals("BB l...", s.statusParts().get(2).text());
     }
 }
