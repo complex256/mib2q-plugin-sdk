@@ -284,6 +284,17 @@ def fixtures():
     f["filter1.png"] = raw_png(ihdr(20, 20, filt=1), rgba20)
     # A 72x72 RGBA header (20808 bytes expected) whose IDAT inflates to 1 MiB of zeros, in a few KiB of file.
     f["idat-bomb.png"] = raw_png(ihdr(72, 72), bytes(1 << 20))
+    # The tightened rules: each file breaks one of them and nothing else.
+    f["ihdr-twice.png"] = head + ihdr(20, 20) + body
+    stream = deflate(rgba20)
+    f["idat-split.png"] = head + chunk(b"IDAT", stream[:40]) + chunk(b"tEXt", b"Comment\x00between") \
+        + chunk(b"IDAT", stream[40:]) + iend
+    last = len(rgba20) - (1 + 20 * 4)  # the filter byte of row 19, the last row
+    f["row-filter5.png"] = raw_png(ihdr(20, 20), rgba20[:last] + b"\x05" + rgba20[last + 1:])
+    f["idat-trailing.png"] = head + chunk(b"IDAT", stream + b"\x00") + iend
+    # Every byte of the image is there, but the stream lacks its adler32, so it never finishes.
+    f["zlib-unfinished.png"] = head + chunk(b"IDAT", stream[:-4]) + iend
+    f["iend-trailing-byte.png"] = ok20 + b"\x00"
     return f
 
 

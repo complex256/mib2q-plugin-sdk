@@ -14,10 +14,11 @@ import java.util.zip.Inflater;
  *   <li>at most {@link #MAX_BYTES} bytes, the PNG signature;</li>
  *   <li>IHDR first (13 bytes): bit depth 8, colour type 6 (RGBA) or 4 (grey + alpha), compression 0, filter 0,
  *       interlace 0, width and height 1..maxPx;</li>
- *   <li>every chunk complete with a correct CRC, no {@code acTL}/{@code fcTL}/{@code fdAT}, IEND last (nothing,
- *       not even a byte, after it);</li>
+ *   <li>every chunk complete with a correct CRC, one IHDR, no {@code acTL}/{@code fcTL}/{@code fdAT}, the IDAT
+ *       chunks consecutive, IEND last (nothing, not even a byte, after it);</li>
  *   <li>the concatenated IDAT data is one complete zlib stream that inflates to exactly
- *       {@code height * (1 + width * channels)} bytes. Inflation stops at expected + 1 bytes, so a small file
+ *       {@code height * (1 + width * channels)} bytes, with no data after the stream's end and every row's filter
+ *       byte 0..4. Inflation stops at expected + 1 bytes, so a small file
  *       that inflates to megabytes costs no more than a valid one.</li>
  * </ul>
  */
@@ -55,6 +56,7 @@ public final class PngCheck {
         Info info = null;
         ByteArrayOutputStream idat = new ByteArrayOutputStream();
         boolean iend = false;
+        int idatRun = 0; // 0: no IDAT yet, 1: in the IDAT run, 2: the run has ended
         int pos = SIGNATURE.length;
         while (pos < png.length) {
             if (iend) {
@@ -74,14 +76,23 @@ public final class PngCheck {
             if (crc.getValue() != u32(png, pos + 8 + n)) {
                 throw refuse("bad CRC in " + type + " chunk at offset " + pos);
             }
+            if (idatRun == 1 && !type.equals("IDAT")) {
+                idatRun = 2;
+            }
             if (info == null) {
                 if (!type.equals("IHDR")) {
                     throw refuse("first chunk is " + type + ", not IHDR");
                 }
                 info = header(png, pos + 8, n, maxPx);
+            } else if (type.equals("IHDR")) {
+                throw refuse("second IHDR chunk at offset " + pos);
             } else if (type.equals("acTL") || type.equals("fcTL") || type.equals("fdAT")) {
                 throw refuse("animated PNG (" + type + " chunk)");
             } else if (type.equals("IDAT")) {
+                if (idatRun == 2) {
+                    throw refuse("IDAT chunks are not consecutive (another IDAT at offset " + pos + ")");
+                }
+                idatRun = 1;
                 idat.write(png, pos + 8, n);
             } else if (type.equals("IEND")) {
                 iend = true;
@@ -92,7 +103,7 @@ public final class PngCheck {
             throw refuse("no IEND chunk");
         }
         int channels = info.colorType == 6 ? 4 : 2;
-        inflateExactly(idat.toByteArray(), info.height * (1 + info.width * channels));
+        inflateExactly(idat.toByteArray(), info.height, 1 + info.width * channels);
         return info;
     }
 
@@ -128,7 +139,9 @@ public final class PngCheck {
         return new Info((int) w, (int) h, colorType);
     }
 
-    private static void inflateExactly(byte[] idat, int expected) {
+    /** IDAT is one complete zlib stream, nothing after it, of exactly height rows of stride bytes, each filter 0..4. */
+    private static void inflateExactly(byte[] idat, int height, int stride) {
+        int expected = height * stride;
         Inflater inflater = new Inflater();
         try {
             inflater.setInput(idat);
@@ -149,6 +162,15 @@ public final class PngCheck {
             }
             if (got != expected) {
                 throw refuse("IDAT inflates to " + got + " bytes, expected " + expected);
+            }
+            if (inflater.getRemaining() > 0) {
+                throw refuse("IDAT has " + inflater.getRemaining() + " bytes of data after the zlib stream end");
+            }
+            for (int y = 0; y < height; y++) {
+                int filter = out[y * stride] & 0xff;
+                if (filter > 4) {
+                    throw refuse("row " + y + " has filter type " + filter + ", must be 0..4");
+                }
             }
         } catch (DataFormatException e) {
             throw refuse("IDAT is not valid zlib data: " + e.getMessage());

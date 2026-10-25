@@ -88,7 +88,8 @@ class MakeBuiltinIconsTest(unittest.TestCase):
             "ok-20.png", "ok-72.png", "empty.png", "too-big.png", "truncated.png", "bad-crc.png", "palette.png",
             "rgb.png", "depth16.png", "interlaced.png", "apng.png", "73x20.png", "1x100000.png",
             "ihdr-not-first.png", "iend-not-last.png", "short-idat.png", "compression1.png", "filter1.png",
-            "idat-bomb.png"]), sorted(os.listdir(FIXTURES)))
+            "idat-bomb.png", "ihdr-twice.png", "idat-split.png", "row-filter5.png", "idat-trailing.png",
+            "zlib-unfinished.png", "iend-trailing-byte.png"]), sorted(os.listdir(FIXTURES)))
         self.assertEqual(32769, os.path.getsize(os.path.join(FIXTURES, "too-big.png")))
         bomb = open(os.path.join(FIXTURES, "idat-bomb.png"), "rb").read()
         self.assertLess(len(bomb), 32768)

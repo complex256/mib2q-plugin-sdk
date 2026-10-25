@@ -34,7 +34,8 @@ class PngCheckTest {
         for (String bad : new String[] {"empty.png", "too-big.png", "truncated.png", "bad-crc.png", "palette.png",
                 "rgb.png", "depth16.png", "interlaced.png", "apng.png", "73x20.png", "1x100000.png",
                 "ihdr-not-first.png", "iend-not-last.png", "short-idat.png", "compression1.png", "filter1.png",
-                "idat-bomb.png"}) {
+                "idat-bomb.png", "ihdr-twice.png", "idat-split.png", "row-filter5.png", "idat-trailing.png",
+                "zlib-unfinished.png", "iend-trailing-byte.png"}) {
             assertThrows(IllegalArgumentException.class, () -> PngCheck.check(fixture(bad), 72), bad);
         }
         assertTrue(fixture("idat-bomb.png").length < 32768);   // the inflate cap, not the size rule, refuses it
@@ -55,12 +56,18 @@ class PngCheckTest {
         rule.put("apng.png", "acTL");
         rule.put("73x20.png", "73x20");
         rule.put("1x100000.png", "1x100000");
-        rule.put("ihdr-not-first.png", "IHDR");
+        rule.put("ihdr-not-first.png", "not IHDR");
         rule.put("iend-not-last.png", "after IEND");
         rule.put("short-idat.png", "inflates to 1619 bytes, expected 1620");
         rule.put("compression1.png", "compression 1");
         rule.put("filter1.png", "filter 1");
         rule.put("idat-bomb.png", "more than the expected 20808");
+        rule.put("ihdr-twice.png", "second IHDR");
+        rule.put("idat-split.png", "IDAT chunks are not consecutive");
+        rule.put("row-filter5.png", "row 19 has filter type 5");
+        rule.put("idat-trailing.png", "data after the zlib stream end");
+        rule.put("zlib-unfinished.png", "not a complete zlib stream (1620 of 1620 bytes)");
+        rule.put("iend-trailing-byte.png", "data after IEND");
         for (Map.Entry<String, String> e : rule.entrySet()) {
             String msg = assertThrows(IllegalArgumentException.class,
                     () -> PngCheck.check(fixture(e.getKey()), 72), e.getKey()).getMessage();
