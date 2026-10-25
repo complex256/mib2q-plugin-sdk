@@ -126,7 +126,7 @@ val mibpkgStage = tasks.register<Sync>("mibpkgStage") {
     }
     doLast {
         val icons = mibsdk.build.MpkStage.iconNames(sdkIconsDir.asFile)
-        mibsdk.build.MpkStage.stageIcons(icons, sdkIconsDir.asFile, sdkStageDir.get().asFile)
+        mibsdk.build.MpkStage.stageIcons(icons, sdkIconsDir.asFile, sdkStageDir.get().asFile, false) // reflect: no; the built-ins ship -72r
         sdkStageDir.get().file("manifest.toml").asFile.writeText(mibsdk.build.MpkStage.sdkManifest(sdkVersion, icons))
     }
 }

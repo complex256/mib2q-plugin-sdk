@@ -65,15 +65,27 @@ public interface Ui {
      * digits of its SHA-256). An undeclared name throws {@link IllegalArgumentException}. Icons are
      * static per installed package version: a new picture needs a new package. A declared icon that is not installed
      * (the jar was pushed without installing its package) gives an inert icon: rows and items show without it, and
-     * the runtime logs one WARN.
+     * the runtime logs one WARN. The icon is {@link Icon#TINTED}: {@code icon(name)} is {@code icon(name, Icon.TINTED)}.
      *
      * @since api 3
      */
     Icon icon(String name);
 
     /**
+     * {@link #icon(String)} drawn either {@link Icon#TINTED} or in its {@link Icon#OWN_COLOURS}; any other
+     * {@code colour} throws {@link IllegalArgumentException}. Needs api 4. Status items honour it. Car rows ignore it:
+     * the drawer draws plugin row icons in their own colours, so ship a white glyph for the stock look. Its
+     * selected-row tint (the current screen's row, multiplied by the app colour) never applies to plugin rows on this
+     * HMI (observed on the bench, C2): a plugin page carries no drawer, so a plugin row is never the drawer's selected row.
+     *
+     * @since api 4
+     */
+    Icon icon(String name, int colour);
+
+    /**
      * One of the SDK's built-in icons, named by a {@link StockIcons} constant; any other name throws
-     * {@link IllegalArgumentException}.
+     * {@link IllegalArgumentException}. Always {@link Icon#TINTED}: the built-ins are white glyphs, so in their own
+     * colours they would only be white.
      *
      * @since api 3
      */

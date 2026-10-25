@@ -53,14 +53,15 @@ class ManifestParserTest {
     }
 
     @Test
-    void acceptsApi1To3AndIconsOnlyWithApi3() throws Exception {
+    void acceptsApi1To4AndIconsOnlyWithApi3() throws Exception {
         assertEquals(1, ManifestParser.parse(manifest("bike-rack", "1", "")).api());
         assertEquals(2, ManifestParser.parse(manifest("bike-rack", "2", "")).api());
         assertEquals(3, ManifestParser.parse(manifest("bike-rack", "3", "")).api());
-        for (String bad : new String[] {"4", "0"}) {
+        assertEquals(4, ManifestParser.parse(manifest("bike-rack", "4", "")).api());
+        for (String bad : new String[] {"5", "0"}) {
             ManifestException e = assertThrows(ManifestException.class,
                     () -> ManifestParser.parse(manifest("bike-rack", bad, "")), bad);
-            assertEquals("unsupported api " + bad + ", this SDK implements api 1..3", e.getMessage());
+            assertEquals("unsupported api " + bad + ", this SDK implements api 1..4", e.getMessage());
         }
 
         assertEquals(Collections.emptyList(), ManifestParser.parse(manifest("bike-rack", "3", "")).icons());

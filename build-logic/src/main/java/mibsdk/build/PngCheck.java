@@ -30,11 +30,26 @@ public final class PngCheck {
 
     static final class Info {
         final int width, height, colorType;
+        /** The inflated IDAT data, still filtered: height rows of 1 + width * channels bytes (null in a bare header). */
+        final byte[] scanlines;
 
-        Info(int width, int height, int colorType) {
+        Info(int width, int height, int colorType, byte[] scanlines) {
             this.width = width;
             this.height = height;
             this.colorType = colorType;
+            this.scanlines = scanlines;
+        }
+    }
+
+    /** Decoded 8-bit RGBA pixels, row by row, 4 bytes each. */
+    static final class Pixels {
+        final int width, height;
+        final byte[] rgba;
+
+        Pixels(int width, int height, byte[] rgba) {
+            this.width = width;
+            this.height = height;
+            this.rgba = rgba;
         }
     }
 
@@ -103,8 +118,52 @@ public final class PngCheck {
             throw refuse("no IEND chunk");
         }
         int channels = info.colorType == 6 ? 4 : 2;
-        inflateExactly(idat.toByteArray(), info.height, 1 + info.width * channels);
-        return info;
+        return new Info(info.width, info.height, info.colorType,
+                inflateExactly(idat.toByteArray(), info.height, 1 + info.width * channels));
+    }
+
+    /**
+     * The pixels of an icon that passes {@link #check} (at {@link #MAX_PX}): its rows un-filtered (types 0..4) and
+     * grey + alpha expanded to (g, g, g, a).
+     */
+    static Pixels rgba(byte[] png) {
+        Info info = check(png, MAX_PX);
+        int channels = info.colorType == 6 ? 4 : 2;
+        int stride = 1 + info.width * channels;
+        int rowBytes = info.width * channels;
+        byte[] raw = info.scanlines;
+        byte[] cur = new byte[rowBytes];
+        byte[] prev = new byte[rowBytes];
+        byte[] out = new byte[info.width * info.height * 4];
+        for (int y = 0; y < info.height; y++) {
+            int type = raw[y * stride] & 0xff;
+            for (int x = 0; x < rowBytes; x++) {
+                int a = x >= channels ? cur[x - channels] & 0xff : 0;
+                int b = prev[x] & 0xff;
+                int c = x >= channels ? prev[x - channels] & 0xff : 0;
+                int pred = type == 1 ? a : type == 2 ? b : type == 3 ? (a + b) >> 1 : type == 4 ? paeth(a, b, c) : 0;
+                cur[x] = (byte) (raw[y * stride + 1 + x] + pred);
+            }
+            for (int x = 0; x < info.width; x++) {
+                int o = (y * info.width + x) * 4;
+                if (channels == 4) {
+                    System.arraycopy(cur, x * 4, out, o, 4);
+                } else {
+                    out[o] = out[o + 1] = out[o + 2] = cur[x * 2];
+                    out[o + 3] = cur[x * 2 + 1];
+                }
+            }
+            byte[] t = prev;
+            prev = cur;
+            cur = t;
+        }
+        return new Pixels(info.width, info.height, out);
+    }
+
+    private static int paeth(int a, int b, int c) {
+        int p = a + b - c;
+        int pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
     }
 
     private static Info header(byte[] png, int at, int len, int maxPx) {
@@ -136,11 +195,14 @@ public final class PngCheck {
         if (w < 1 || h < 1 || w > maxPx || h > maxPx) {
             throw refuse("size " + w + "x" + h + ", width and height must be 1.." + maxPx);
         }
-        return new Info((int) w, (int) h, colorType);
+        return new Info((int) w, (int) h, colorType, null);
     }
 
-    /** IDAT is one complete zlib stream, nothing after it, of exactly height rows of stride bytes, each filter 0..4. */
-    private static void inflateExactly(byte[] idat, int height, int stride) {
+    /**
+     * IDAT is one complete zlib stream, nothing after it, of exactly height rows of stride bytes, each filter 0..4.
+     * Returns those rows.
+     */
+    private static byte[] inflateExactly(byte[] idat, int height, int stride) {
         int expected = height * stride;
         Inflater inflater = new Inflater();
         try {
@@ -172,6 +234,7 @@ public final class PngCheck {
                     throw refuse("row " + y + " has filter type " + filter + ", must be 0..4");
                 }
             }
+            return java.util.Arrays.copyOf(out, expected);
         } catch (DataFormatException e) {
             throw refuse("IDAT is not valid zlib data: " + e.getMessage());
         } finally {

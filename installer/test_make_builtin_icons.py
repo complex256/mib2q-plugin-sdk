@@ -89,11 +89,40 @@ class MakeBuiltinIconsTest(unittest.TestCase):
             "rgb.png", "depth16.png", "interlaced.png", "apng.png", "73x20.png", "1x100000.png",
             "ihdr-not-first.png", "iend-not-last.png", "short-idat.png", "compression1.png", "filter1.png",
             "idat-bomb.png", "ihdr-twice.png", "idat-split.png", "row-filter5.png", "idat-trailing.png",
-            "zlib-unfinished.png", "iend-trailing-byte.png"]), sorted(os.listdir(FIXTURES)))
+            "zlib-unfinished.png", "iend-trailing-byte.png",
+            "reflect-rgba-48x45.png", "reflect-rgba-48x45.r.png", "reflect-la-72.png", "reflect-la-72.r.png",
+            "filters-1234.png", "filters-1234.rgba"]), sorted(os.listdir(FIXTURES)))
         self.assertEqual(32769, os.path.getsize(os.path.join(FIXTURES, "too-big.png")))
         bomb = open(os.path.join(FIXTURES, "idat-bomb.png"), "rb").read()
         self.assertLess(len(bomb), 32768)
         self.assertEqual(1 << 20, len(zlib.decompress(bomb[8 + 25 + 8:-12 - 4])))
+        for name, size in (("reflect-rgba-48x45.r.png", (48, 43)), ("reflect-la-72.r.png", (72, 68))):
+            self.assertEqual(size, decode(open(os.path.join(FIXTURES, name), "rb").read())[:2], name)
+
+
+def load_tool():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("make_builtin_icons", TOOL)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+HELLO_MENU_ICONS = os.path.join(REPO, "plugins", "hello-menu", "src", "main", "icons")
+
+
+class PluginSampleTest(unittest.TestCase):
+    def test_left_white_right_blue(self):
+        out = load_tool().plugin_sample()
+        for name, size, centre in (("hello.png", 72, 36), ("hello-20.png", 20, 9)):
+            w, h, rows = decode(out[name])
+            self.assertEqual((size, size), (w, h), name)
+            opaque = [(x, p) for r in rows for x, p in enumerate(r) if p[3] > 0]
+            self.assertTrue(any(x < centre for x, _ in opaque) and any(x >= centre for x, _ in opaque), name)
+            for x, p in opaque:
+                self.assertEqual((255, 255, 255) if x < centre else (0, 0, 255), p[:3], "%s x=%d" % (name, x))
+            with open(os.path.join(HELLO_MENU_ICONS, name), "rb") as f:
+                self.assertEqual(out[name], f.read(), name + " is stale: rerun --plugin-sample")
 
 
 if __name__ == "__main__":

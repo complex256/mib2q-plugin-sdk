@@ -22,16 +22,22 @@ final class StatusLayout {
         final int labelW;
         /** A built-in icon's image id (its {@code <name>-20}, drawn by id and tinted); -1 for none. */
         final int stockIconId;
-        /** A package icon's absolute installed path (currently tinted with the app colour, bench B10); null for none. */
+        /** A package icon's absolute installed path; null for none. Drawn as {@link #ownColours} says. */
         final String filePath;
+        /**
+         * The cell's icon in its own colours ({@link UiIcon#ownColours()}); false: tinted with the app colour (bench
+         * B10). Applies to the id icon and the file icon alike.
+         */
+        final boolean ownColours;
         final String text;
 
-        Cell(int iconX, int labelX, int labelW, int stockIconId, String filePath, String text) {
+        Cell(int iconX, int labelX, int labelW, int stockIconId, String filePath, boolean ownColours, String text) {
             this.iconX = iconX;
             this.labelX = labelX;
             this.labelW = labelW;
             this.stockIconId = stockIconId;
             this.filePath = filePath;
+            this.ownColours = ownColours;
             this.text = text;
         }
 
@@ -40,7 +46,7 @@ final class StatusLayout {
         }
     }
 
-    private static final Cell NONE = new Cell(0, 0, 0, -1, null, "");
+    private static final Cell NONE = new Cell(0, 0, 0, -1, null, false, "");
 
     /** No line: every cell unused. */
     static final StatusLayout EMPTY = new StatusLayout(NONE, new Cell[0]);
@@ -87,7 +93,8 @@ final class StatusLayout {
             int labelW = Math.max(0, HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX - x);
             x += p.text().length() * HqcUiIds.STATUS_CHAR_PX;
             Cell c = new Cell(iconX, labelX, labelW, stockId(icon, ids, builtins),
-                    icon != null && icon.kind() == UiIcon.FILE ? icon.path() : null, p.text());
+                    icon != null && icon.kind() == UiIcon.FILE ? icon.path() : null,
+                    icon != null && icon.ownColours(), p.text());
             if (ind) {
                 indicators = c;
             } else {
@@ -127,10 +134,10 @@ final class StatusLayout {
         return true;
     }
 
-    /** True if every cell has the same built-in icon id in both. */
+    /** True if every cell has the same built-in icon id and the same colour flag in both. */
     boolean sameIcons(StatusLayout o) {
         for (int i = 0; i < cells.length; i++) {
-            if (cells[i].stockIconId != o.cells[i].stockIconId) {
+            if (cells[i].stockIconId != o.cells[i].stockIconId || cells[i].ownColours != o.cells[i].ownColours) {
                 return false;
             }
         }

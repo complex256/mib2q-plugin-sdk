@@ -147,6 +147,22 @@ class StatusLayoutTest {
         assertTrue(la.sameIcons(StatusLayout.of(a, ids, bi)), "the same content keeps its id");
     }
 
+    @Test
+    void cellCarriesOwnColoursAndSameIconsSeesIt() {
+        List<UiStatusPart> a = new ArrayList<UiStatusPart>();
+        a.add(item("TS up", file("aaaa000000000000")));
+        List<UiStatusPart> b = new ArrayList<UiStatusPart>();
+        b.add(item("TS up", file("aaaa000000000000").withOwnColours(true)));
+        StatusLayout la = StatusLayout.of(a, null, null);
+        StatusLayout lb = StatusLayout.of(b, null, null);
+        assertFalse(la.cell(0).ownColours);
+        assertTrue(lb.cell(0).ownColours);
+        assertEquals(la.cell(0).filePath, lb.cell(0).filePath, "the same file either way");
+        assertTrue(la.sameGeometry(lb));
+        assertFalse(la.sameIcons(lb), "a colour toggle is an icon change");
+        assertTrue(lb.sameIcons(StatusLayout.of(b, null, null)));
+    }
+
     /** The icon cell is the runtime's ICON_CHARS wide (StatusLine is package-private there: read reflectively). */
     @Test
     void iconCellIsTheRuntimesIconChars() throws Exception {

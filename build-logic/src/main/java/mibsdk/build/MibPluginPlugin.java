@@ -72,6 +72,7 @@ public class MibPluginPlugin implements Plugin<Project> {
                 t.getTransitiveLibs().from(retrotranslatorRuntime));
         project.getTasks().named("permissionScan", PermissionScanTask.class).configure(t -> {
             t.getFailOnFindings().set(manifest.map(m -> !m.unrestricted()));
+            t.getDeclaredApi().set(manifest.map(m -> m.api));
             t.getOwnClasses().from(main.getOutput().getClassesDirs());
         });
 
@@ -137,7 +138,7 @@ public class MibPluginPlugin implements Plugin<Project> {
         Provider<File> stamp = mibsdkDir.zip(manifest, (d, m) -> new File(d.getAsFile(), m.id + ".jar.stamp"));
         Provider<Directory> stageDir = project.getLayout().getBuildDirectory().dir("mibpkg-stage");
         TaskProvider<Sync> stage = project.getTasks().register("mibPackageStage", Sync.class, t -> {
-            t.setDescription("Stages manifest.toml, the plugin jar, its check stamp and its icons for mibpkg.");
+            t.setDescription("Stages manifest.toml, the plugin jar, its check stamp, its icons and their reflections for mibpkg.");
             t.from(pluginJar.flatMap(Jar::getArchiveFile));
             t.from(stamp);
             t.into(stageDir);
@@ -154,7 +155,7 @@ public class MibPluginPlugin implements Plugin<Project> {
             });
             t.doLast("write icons and manifest.toml", task -> {
                 PluginJson m = PluginJson.read(manifestFile);
-                MpkStage.stageIcons(m.icons, iconsDir, t.getDestinationDir());
+                MpkStage.stageIcons(m.icons, iconsDir, t.getDestinationDir(), true);
                 try {
                     java.nio.file.Files.write(new File(t.getDestinationDir(), "manifest.toml").toPath(),
                             MpkStage.pluginManifest(m).getBytes(java.nio.charset.StandardCharsets.UTF_8));

@@ -188,4 +188,17 @@ class FakeUiTest {
         assertEquals(Arrays.asList("SAFE", "[png:0123456789abcdef] FR ok"), ui.statusParts());
         assertEquals("SAFE FR ok", ui.statusLine(), "the text-only line");
     }
+
+    @Test
+    void ownColourIconTag() {
+        UiIcon own = UiIcon.file("fruit", "/icons/fruit/0123456789abcdef.png", "0123456789abcdef", 20, 20)
+                .withOwnColours(true);
+        table.publish(new UiSnapshot(1, Arrays.asList(
+                new UiRow("mibsdk/plugins", "Plugins", "mibsdk/plugins"),
+                new UiRow("fruit/r1", "Hello", "fruit/p", own)),
+                "Hello", new HashMap<String, UiPage>(), 0, null, Arrays.asList(
+                        new UiStatusPart("Hello", own, false))));
+        assertEquals(Arrays.asList("[png:0123456789abcdef+own] Hello"), ui.statusParts());
+        assertEquals(Arrays.asList("Plugins", "[png:0123456789abcdef] Hello"), ui.carRows(), "rows ignore it");
+    }
 }

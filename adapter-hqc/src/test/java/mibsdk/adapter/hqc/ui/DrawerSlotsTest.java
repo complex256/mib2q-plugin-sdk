@@ -17,6 +17,7 @@ import java.util.Collections;
 import java.util.List;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiRow;
+import mibsdk.platform.UiStatusPart;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -217,5 +218,88 @@ class DrawerSlotsTest {
         int[] copy = again.iconAt(1);
         copy[0] = 1;
         assertArrayEquals(new int[] {609102, 609102}, again.iconAt(1), "immutable");
+    }
+
+    /** Regression guard (spec 2.2): the drawer draws every icon its own way, so the colour flag changes nothing. */
+    @Test
+    void ownColoursDoesNotChangeBitmaps() {
+        IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
+        UiIcon f = UiIcon.file("hello", HqcUiIds.INSTALL_ROOT + "/icons/hello/0123456789abcdef.png",
+                "0123456789abcdef", 72, 72);
+        int[] tinted = DrawerSlots.bitmaps(f, ids, BuiltinIcons.NONE);
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST}, tinted);
+        assertArrayEquals(tinted, DrawerSlots.bitmaps(f.withOwnColours(true), ids, BuiltinIcons.NONE));
+    }
+
+    /**
+     * Regression guard: the flag is not part of the id key, so both forms share one id (one allocation) and one
+     * file.
+     */
+    @Test
+    void colourDoesNotChangeTheId() {
+        IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
+        String path = HqcUiIds.INSTALL_ROOT + "/icons/hello/0123456789abcdef.png";
+        UiIcon f = UiIcon.file("hello", path, "0123456789abcdef", 20, 20);
+        int id = DrawerSlots.id(f, ids);
+        assertEquals(HqcUiIds.ICON_ID_FIRST, id);
+        assertEquals(id, DrawerSlots.id(f.withOwnColours(true), ids));
+        UiIcon other = UiIcon.file("hello", HqcUiIds.INSTALL_ROOT + "/icons/hello/fedcba9876543210.png",
+                "fedcba9876543210", 20, 20);
+        assertEquals(HqcUiIds.ICON_ID_FIRST + 1, DrawerSlots.id(other, ids), "a single allocation for both");
+
+        List<UiStatusPart> tinted = new ArrayList<UiStatusPart>();
+        tinted.add(new UiStatusPart("x", f, false));
+        List<UiStatusPart> own = new ArrayList<UiStatusPart>();
+        own.add(new UiStatusPart("x", f.withOwnColours(true), false));
+        assertEquals(path, StatusLayout.of(tinted, ids, BuiltinIcons.NONE).cell(0).filePath);
+        assertEquals(path, StatusLayout.of(own, ids, BuiltinIcons.NONE).cell(0).filePath);
+    }
+
+    private static final String HELLO = HqcUiIds.INSTALL_ROOT + "/icons/hello/";
+
+    private static UiIcon withReflection() {
+        return UiIcon.file("hello", HELLO + "0123456789abcdef.png", "0123456789abcdef", 72, 72)
+                .withReflection(UiIcon.file("hello", HELLO + "fedcba9876543210.png", "fedcba9876543210", 72, 68));
+    }
+
+    @Test
+    void fileIconWithReflectionUsesItsOwnId() {
+        IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
+        int[] b = DrawerSlots.bitmaps(withReflection(), ids, BuiltinIcons.NONE);
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST + 1}, b);
+        assertEquals("../mibsdk/icons/hello/0123456789abcdef.png", ids.relPathFor(b[0]));
+        assertEquals("../mibsdk/icons/hello/fedcba9876543210.png", ids.relPathFor(b[1]));
+        assertArrayEquals(b, DrawerSlots.bitmaps(withReflection(), ids, BuiltinIcons.NONE), "ids are kept");
+        assertArrayEquals(b, DrawerSlots.bitmaps(withReflection().withOwnColours(true), ids, BuiltinIcons.NONE));
+    }
+
+    @Test
+    void fileIconWithoutReflectionFallsBackToIdId() {
+        IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
+        UiIcon f = UiIcon.file("hello", HELLO + "0123456789abcdef.png", "0123456789abcdef", 72, 72);
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST},
+                DrawerSlots.bitmaps(f, ids, BuiltinIcons.NONE));
+
+        // Rows of an old package ({id, id}) and a new one ({id, rid}) side by side in one drawer.
+        List<UiRow> l = new ArrayList<UiRow>();
+        l.add(PLUGINS);
+        l.add(new UiRow("old", "Old", "po", f));
+        l.add(new UiRow("new", "New", "pn", withReflection()));
+        DrawerAssignment a = DrawerSlots.assign(DrawerAssignment.EMPTY, l, 8, ids, BuiltinIcons.NONE);
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST}, a.iconAt(1));
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST + 1}, a.iconAt(2),
+                "same base bytes and owner: the base id is shared, the reflection has its own");
+    }
+
+    @Test
+    void spentRangeForTheReflectionFallsBackToIdId() {
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST + 1},
+                DrawerSlots.bitmaps(withReflection(), new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST + 1),
+                        BuiltinIcons.NONE), "the control: room for both");
+        IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST);
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST},
+                DrawerSlots.bitmaps(withReflection(), ids, BuiltinIcons.NONE));
+        assertNull(DrawerSlots.bitmaps(withReflection(), new IconIds(HqcUiIds.ICON_ID_FIRST,
+                HqcUiIds.ICON_ID_FIRST - 1), BuiltinIcons.NONE), "no id for the icon itself: no bitmaps");
     }
 }

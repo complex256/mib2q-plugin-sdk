@@ -46,7 +46,7 @@ class MibPluginPluginFunctionalTest {
         repo = new File(System.getProperty("mibsdk.repoRoot")).getCanonicalFile();
         String r = repo.getPath().replace('\\', '/');
         write("settings.gradle.kts", "rootProject.name = \"tk\"\n"
-                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api4\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\")\n"
+                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api5\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:colour3\", \"plugins:colour4\")\n"
                 + "project(\":compat\").projectDir = file(\"" + r + "/compat\")\n"
                 + "project(\":api\").projectDir = file(\"" + r + "/api\")\n"
                 + "project(\":plugins:hello\").projectDir = file(\"" + r + "/plugins/hello\")\n"
@@ -65,7 +65,7 @@ class MibPluginPluginFunctionalTest {
         javaPlugin("refl", "sample.refl.ReflPlugin", reflBody, "[]");
         javaPlugin("unrestricted", "sample.refl.ReflPlugin", reflBody, "[\"platform.unrestricted\"]");
 
-        for (String[] a : new String[][] {{"api2", "2"}, {"api0", "0"}, {"api4", "4"}, {"apifrac", "1.5"}}) {
+        for (String[] a : new String[][] {{"api2", "2"}, {"api0", "0"}, {"api5", "5"}, {"apifrac", "1.5"}}) {
             javaPlugin(a[0], "sample.refl.ReflPlugin", "package sample.refl;\n"
                     + "import mibsdk.api.*;\n"
                     + "public class ReflPlugin extends MibPlugin {\n"
@@ -90,6 +90,21 @@ class MibPluginPluginFunctionalTest {
         copyFixture("ok-72.png", "plugins/badicon/src/main/icons/row.png");
         copyFixture("interlaced.png", "plugins/badicon/src/main/icons/status.png");
         copyFixture("ok-72.png", "plugins/noicon/src/main/icons/row.png");
+
+        // Ui.icon(String, int) is api 4: the same plugin declaring api 3 and api 4.
+        for (String[] a : new String[][] {{"colour3", "3"}, {"colour4", "4"}}) {
+            javaPlugin(a[0], "sample.colour.ColourPlugin", "package sample.colour;\n"
+                    + "import mibsdk.api.*;\n"
+                    + "public class ColourPlugin extends MibPlugin {\n"
+                    + "  protected void onEnable(PluginContext ctx) throws Exception {\n"
+                    + "    ctx.ui().statusItem(\"x\", ctx.ui().icon(\"status\", Icon.OWN_COLOURS));\n"
+                    + "  }\n"
+                    + "}\n", "[]");
+            write("plugins/" + a[0] + "/src/main/resources/plugin.json",
+                    manifest(a[0], "sample.colour.ColourPlugin", "[\"ui.slot.statusbar\"]")
+                            .replace("\"api\":1", "\"api\":" + a[1] + ",\"icons\":[\"status\"]"));
+            copyFixture("ok-20.png", "plugins/" + a[0] + "/src/main/icons/status.png");
+        }
 
         write("plugins/kt/build.gradle.kts", "plugins {\n"
                 + "    id(\"org.jetbrains.kotlin.jvm\") version \"2.0.21\"\n"
@@ -253,6 +268,27 @@ class MibPluginPluginFunctionalTest {
     }
 
     @Test
+    void mibPackageContainsTheReflection() throws Exception {
+        String mibpkg = System.getProperty("mibsdk.mibpkg", "");
+        org.junit.jupiter.api.Assumptions.assumeTrue(new File(mibpkg).canExecute(), "no host mibpkg: -Pmibsdk.mibpkg");
+        assertSucceeded(runner(":plugins:icons:mibPackage", "-Pmibsdk.mibpkg=" + mibpkg).build(),
+                ":plugins:icons:mibPackage");
+        File mpk = root.resolve("out/plugins_icons/mibsdk/icons-1.0.0.mpk").toFile();
+        Process tar = new ProcessBuilder("tar", "-tzf", mpk.getPath()).redirectErrorStream(true).start();
+        String listing = new String(tar.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, tar.waitFor(), listing);
+        assertTrue(listing.lines().anyMatch(l -> l.endsWith("icons/row.r.png")), listing);
+        assertFalse(listing.contains("status.r.png"), listing);
+        Process x = new ProcessBuilder("tar", "-xzOf", mpk.getPath(), "icons/row.r.png").start();
+        byte[] staged = x.getInputStream().readAllBytes();
+        assertEquals(0, x.waitFor());
+        try (InputStream in = MibPluginPluginFunctionalTest.class.getResourceAsStream("/png/ok-72.png")) {
+            org.junit.jupiter.api.Assertions.assertArrayEquals(
+                    Reflection.encode(Reflection.of(PngCheck.rgba(in.readAllBytes()))), staged);
+        }
+    }
+
+    @Test
     void mibPackageWithoutAHostMibpkgFailsWithAHint() {
         BuildResult result = runner(":plugins:hello:mibPackage", "-Pmibsdk.mibpkg=/nonexistent/mibpkg").buildAndFail();
         assertTrue(result.getOutput().contains("host mibpkg not found: build it (cargo build --release in the mibpkg repo)"
@@ -288,11 +324,31 @@ class MibPluginPluginFunctionalTest {
 
     @Test
     void apiOutOfRangeOrNonIntegerFailsBuild() {
-        for (String id : new String[] {"api0", "api4", "apifrac"}) {
+        for (String id : new String[] {"api0", "api5", "apifrac"}) {
             String out = runner(":plugins:" + id + ":mibPluginJar").buildAndFail().getOutput();
             String want = id.equals("apifrac") ? "api must be an integer" : "unsupported api";
             assertTrue(out.contains(want), id + ": " + out);
         }
+    }
+
+    @Test
+    void colourOverloadNeedsApi4() throws Exception {
+        Path fake = root.resolve("fake-mibpkg-colour.sh");
+        Files.write(fake, "#!/bin/sh\n: > \"$3/colour4-1.0.0.mpk\"\n".getBytes(StandardCharsets.UTF_8));
+        assertTrue(fake.toFile().setExecutable(true));
+        String prop = "-Pmibsdk.mibpkg=" + fake;
+
+        BuildResult refused = runner(":plugins:colour3:mibPackage", prop).buildAndFail();
+        assertTrue(refused.getOutput().contains(
+                "sample/colour/ColourPlugin.onEnable -> Ui.icon(String,int) needs api 4; plugin.json declares api 3"),
+                refused.getOutput());
+        assertEquals(TaskOutcome.FAILED, refused.task(":plugins:colour3:permissionScan").getOutcome());
+        String report = new String(Files.readAllBytes(
+                root.resolve("out/plugins_colour3/reports/mibsdk/permissions.txt")), StandardCharsets.UTF_8);
+        assertEquals("sample/colour/ColourPlugin.onEnable -> Ui.icon(String,int) needs api 4;"
+                + " plugin.json declares api 3\n", report);
+
+        assertSucceeded(runner(":plugins:colour4:mibPackage", prop).build(), ":plugins:colour4:mibPackage");
     }
 
     @Test

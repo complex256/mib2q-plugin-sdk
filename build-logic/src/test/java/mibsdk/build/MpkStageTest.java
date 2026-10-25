@@ -77,7 +77,7 @@ class MpkStageTest {
                 + "units = [\"MHI2Q\"]\n"
                 + "\n"
                 + "[sdk]\n"
-                + "api = 3\n"
+                + "api = 4\n"
                 + "min_api = 1\n"
                 + "hmi = [\"HMI_AU_MIB2_HQC_NAR_G22_C10_180803\"]\n"
                 + "jars = [\"mibsdk-runtime.jar\", \"mibsdk-adapter-hqc.jar\", \"mibsdk-rt-retrotranslator.jar\"]\n"
@@ -116,22 +116,62 @@ class MpkStageTest {
         Files.write(new File(src, "row.png").toPath(), fixture("ok-72.png"));
         Files.write(new File(src, "status.png").toPath(), fixture("ok-20.png"));
         File stage = dir.resolve("stage").toFile();
-        MpkStage.stageIcons(p.icons, src, stage);
+        MpkStage.stageIcons(p.icons, src, stage, true);
         assertArrayEquals(fixture("ok-72.png"), Files.readAllBytes(stage.toPath().resolve("icons/row.png")));
         assertArrayEquals(fixture("ok-20.png"), Files.readAllBytes(stage.toPath().resolve("icons/status.png")));
 
         // A bad PNG fails staging, and nothing of the set is staged.
         Files.write(new File(src, "status.png").toPath(), fixture("interlaced.png"));
         File stage2 = dir.resolve("stage2").toFile();
-        GradleException e = assertThrows(GradleException.class, () -> MpkStage.stageIcons(p.icons, src, stage2));
+        GradleException e = assertThrows(GradleException.class, () -> MpkStage.stageIcons(p.icons, src, stage2, true));
         assertTrue(e.getMessage().contains("status.png: icon PNG refused: interlace 1"), e.getMessage());
         assertFalse(new File(stage2, "icons").exists());
 
         // So does a declared icon without its file.
         Files.delete(new File(src, "status.png").toPath());
-        e = assertThrows(GradleException.class, () -> MpkStage.stageIcons(p.icons, src, stage2));
+        e = assertThrows(GradleException.class, () -> MpkStage.stageIcons(p.icons, src, stage2, true));
         assertTrue(e.getMessage().contains("status.png"), e.getMessage());
         assertFalse(new File(stage2, "icons").exists());
+    }
+
+    @Test
+    void pluginStageWritesReflectionsForDrawerSizedIconsOnly() throws IOException {
+        Path f = dir.resolve("plugin.json");
+        Files.write(f, ("{\"id\":\"bike-rack\",\"name\":\"Bike\",\"version\":\"1.2.3\",\"author\":\"a\","
+                + "\"api\":3,\"main\":\"x.Y\",\"permissions\":[],\"icons\":[\"hello\",\"hello-20\"]}")
+                .getBytes(StandardCharsets.UTF_8));
+        PluginJson p = PluginJson.read(f.toFile());
+        String manifest = MpkStage.pluginManifest(p);
+        File src = dir.resolve("src").toFile();
+        Files.createDirectories(src.toPath());
+        Files.write(new File(src, "hello.png").toPath(), fixture("ok-72.png"));
+        Files.write(new File(src, "hello-20.png").toPath(), fixture("ok-20.png"));
+        File stage = dir.resolve("stage").toFile();
+        MpkStage.stageIcons(p.icons, src, stage, true);
+
+        byte[] r = Files.readAllBytes(stage.toPath().resolve("icons/hello.r.png"));
+        PngCheck.Info info = PngCheck.check(r, 72);
+        assertEquals(72, info.width);
+        assertEquals(68, info.height);
+        assertArrayEquals(Reflection.encode(Reflection.of(PngCheck.rgba(fixture("ok-72.png")))), r);
+        assertFalse(stage.toPath().resolve("icons/hello-20.r.png").toFile().exists());
+        assertEquals(List.of("hello-20.png", "hello.png", "hello.r.png"),
+                List.of(new File(stage, "icons").list()).stream().sorted().collect(java.util.stream.Collectors.toList()));
+        assertEquals(manifest, MpkStage.pluginManifest(p));
+        assertTrue(manifest.endsWith("icons = [\"hello\", \"hello-20\"]\n"), manifest);
+    }
+
+    @Test
+    void sdkStageWritesNoReflections() throws IOException {
+        File src = dir.resolve("src").toFile();
+        Files.createDirectories(src.toPath());
+        Files.write(new File(src, "dot-72.png").toPath(), fixture("ok-72.png"));
+        Files.write(new File(src, "dot-20.png").toPath(), fixture("ok-20.png"));
+        File stage = dir.resolve("stage").toFile();
+        MpkStage.stageIcons(MpkStage.iconNames(src), src, stage, false);
+        String[] staged = new File(stage, "icons").list();
+        java.util.Arrays.sort(staged);
+        assertArrayEquals(new String[] {"dot-20.png", "dot-72.png"}, staged);
     }
 
     @Test

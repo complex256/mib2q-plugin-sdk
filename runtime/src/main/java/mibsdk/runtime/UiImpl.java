@@ -47,7 +47,8 @@ import mibsdk.platform.UiIcon;
  *
  * <p>Icons: only an {@link IconHandle} made by this object is accepted, like a {@link PageHandle}. {@link #icon} takes
  * a name the manifest declares and reads the plugin's installed {@link IconIndex} once, on first use; a declared name
- * the index lacks gives an inert handle (no {@link UiIcon}) and one WARN. Every check (declared name, own handle, the
+ * the index lacks gives an inert handle (no {@link UiIcon}) and one WARN, in either colour. One handle is cached per
+ * (name, colour); the colours share the index entry and differ only in {@link UiIcon#ownColours}. Every check (declared name, own handle, the
  * {@link StatusItem#ICON_MAX_PX} limit) runs whether or not the unit has {@link Features#UI_ICONS}; without it a row or
  * item simply holds no icon.
  */
@@ -68,7 +69,7 @@ final class UiImpl implements Ui {
     private final Object lock = new Object();
     private final Object iconLock = new Object(); // never held with lock or a handle's lock
     private IconIndex iconIndex; // guarded by iconLock; read on the first icon(name)
-    private final Map<String, IconHandle> icons = new HashMap<String, IconHandle>(); // guarded by iconLock
+    private final Map<String, IconHandle> icons = new HashMap<String, IconHandle>(); // by name[+own]; iconLock
     private int pages; // live pages; guarded by lock
     private int rows; // live Car rows; guarded by lock
     private int statusItems; // live status items; guarded by lock
@@ -188,23 +189,32 @@ final class UiImpl implements Ui {
 
     @Override
     public Icon icon(String name) {
+        return icon(name, Icon.TINTED);
+    }
+
+    @Override
+    public Icon icon(String name, int colour) {
+        if (colour != Icon.TINTED && colour != Icon.OWN_COLOURS) {
+            throw new IllegalArgumentException("colour must be Icon.TINTED or Icon.OWN_COLOURS");
+        }
         if (name == null || !declaredIcons.contains(name)) {
             throw new IllegalArgumentException("icon '" + name + "' is not declared in plugin " + pluginId
                     + "'s plugin.json \"icons\"");
         }
         synchronized (iconLock) {
-            IconHandle h = (IconHandle) icons.get(name);
+            String cacheKey = colour == Icon.OWN_COLOURS ? name + "+own" : name; // '+' is never in a name
+            IconHandle h = (IconHandle) icons.get(cacheKey);
             if (h == null) {
                 if (iconIndex == null) {
                     iconIndex = IconIndex.read(pluginId, iconDir); // never throws
                 }
                 UiIcon u = iconIndex.get(name);
-                if (u == null) {
+                if (u == null && !icons.containsKey(colour == Icon.OWN_COLOURS ? name : name + "+own")) {
                     hub.warn(pluginId, "icon '" + name + "' is declared but not installed (jar pushed without its"
                             + " package?): shown without it");
                 }
-                h = new IconHandle(this, u);
-                icons.put(name, h);
+                h = new IconHandle(this, u == null ? null : u.withOwnColours(colour == Icon.OWN_COLOURS));
+                icons.put(cacheKey, h);
             }
             return h;
         }

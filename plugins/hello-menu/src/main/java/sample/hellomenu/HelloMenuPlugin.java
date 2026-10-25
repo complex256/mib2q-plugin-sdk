@@ -16,7 +16,10 @@ import mibsdk.api.UiAction;
  * Sample UI plugin: a fruit list page, reachable from the Plugins menu and, when the unit has the slot, the Car menu.
  * The manifest declares {@code ui.slot.carmenu} and {@code ui.slot.statusbar} (the status item), and the icons {@code hello} (72x72) and {@code hello-20} (20x20).
  * "Next icon" swaps the Car row's icon between {@code hello} and a stock star (it shows when the Car screen next opens);
- * "Next status icon" cycles the status item's icon hello-20, star, dot. Permissions are all-or-nothing, so a running plugin holds it. The last selection is kept in storage ({@code last}) and restored on enable.
+ * "Next status icon" cycles the status item's icon hello-20, star, dot. The status item draws hello-20 in its own colours
+ * (half white, half blue; api 4) by default, and "Status icon colour" flips it to tinted and back; the stock icons stay
+ * tinted. Permissions are all-or-nothing, so a running plugin holds it. The last selection ({@code last}) and the status
+ * icon colour ({@code colour}) are kept in storage and restored on enable.
  */
 public class HelloMenuPlugin extends MibPlugin {
 
@@ -31,15 +34,17 @@ public class HelloMenuPlugin extends MibPlugin {
     private boolean rowStar;
     private StatusItem status;
     private int statusIcon;
+    private int statusColour;
 
     @Override
     protected void onEnable(PluginContext ctx) {
         storage = ctx.storage();
         // With the SDK UI off (or no Car slot) these handles are inert: the plugin still runs, nothing is shown.
         ui = ctx.ui();
+        statusColour = "tinted".equals(storage.get("colour", null)) ? Icon.TINTED : Icon.OWN_COLOURS;
         page = ui.page(spec(storage.get("last", null)), this::onAction);
         row = ui.carMenuRow("Hello", page, ui.icon("hello"));
-        status = ui.statusItem("Hello", ui.icon("hello-20"));
+        status = ui.statusItem("Hello", statusIcon(0));
     }
 
     private void onAction(UiAction action) {
@@ -55,6 +60,12 @@ public class HelloMenuPlugin extends MibPlugin {
             status.set("Hello", statusIcon(statusIcon));
             return;
         }
+        if ("status-colour".equals(id)) {
+            statusColour = statusColour == Icon.OWN_COLOURS ? Icon.TINTED : Icon.OWN_COLOURS;
+            storage.put("colour", statusColour == Icon.OWN_COLOURS ? "own" : "tinted");
+            status.set("Hello", statusIcon(statusIcon));
+            return;
+        }
         if (label(id) == null) {
             return;
         }
@@ -63,7 +74,7 @@ public class HelloMenuPlugin extends MibPlugin {
     }
 
     private Icon statusIcon(int n) {
-        return n == 0 ? ui.icon("hello-20") : ui.stockIcon(n == 1 ? StockIcons.STAR : StockIcons.DOT);
+        return n == 0 ? ui.icon("hello-20", statusColour) : ui.stockIcon(n == 1 ? StockIcons.STAR : StockIcons.DOT);
     }
 
     private static PageSpec spec(String last) {
@@ -71,7 +82,8 @@ public class HelloMenuPlugin extends MibPlugin {
         for (String[] fruit : FRUITS) {
             spec = spec.item(fruit[0], fruit[1], null);
         }
-        spec = spec.item("next-icon", "Next icon", null).item("next-status-icon", "Next status icon", null);
+        spec = spec.item("next-icon", "Next icon", null).item("next-status-icon", "Next status icon", null)
+                .item("status-colour", "Status icon colour", null);
         String shown = label(last);
         return spec.info("Selected: " + (shown == null ? "<none>" : shown));
     }
