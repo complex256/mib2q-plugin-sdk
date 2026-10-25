@@ -1,0 +1,31 @@
+0 WARN mibsdk.hqc configurator: ui.forcefail=screen
+0 INFO mibsdk.hqc configurator: hmi=HMI_AU_MIB2_HQC_NAR_G22_C10_180803 safeMode=true wrapLoop=false wrappingEnabled=false uiEnabled=true hookServices=[org.dsi.ifc.carparkingsystem.DSICarParkingSystem]
+0 INFO mibsdk.hqc configurator: chain=de.audi.tghu.dsitrace.TraceConfigurator
+0 STATUS mibsdk ui system=sdk
+0 INFO mibsdk.hqc activator: hmi=HMI_AU_MIB2_HQC_NAR_G22_C10_180803 adapter=hqc-nar-g22-c10
+0 STATUS mibsdk seam configurator=seen wrapping=false reason=safe-mode raw.parking=false
+1325 WARN mibsdk safeMode=true reason=marker (SAFE_MODE present; no plugin loads)
+1325 STATUS mibsdk state persist=/mnt/persist/mibsdk ok ram=/ramdisk/mibsdk ok bootGuard=armed
+1325 STATUS mibsdk durability persist=/mnt/persist/mibsdk fileSync=ok dirSync=unsupported (java.io.FileNotFoundException: /mnt/persist/mibsdk at java.io.RandomAccessFile.<init>(Unknown Source)) fsyncMs=0
+2326 INFO mibsdk.hqc org.dsi.ifc.carparkingsystem.DSICarParkingSystem available after 0 ms (1 lookups)
+2326 INFO mibsdk.hqc org.dsi.ifc.powermanagement.DSIPowerManagement available after 0 ms (1 lookups)
+2326 STATUS mibsdk seam configurator=seen wrapping=false reason=safe-mode raw.parking=false
+2326 STATUS mibsdk features=[slot.carmenu, slot.statusbar, ui.icons, ui.pages, vehicle.ignition, vehicle.parking]
+2326 INFO mibsdk.hqc de.audi.atip.base.IFrameworkAccess available after 0 ms (1 lookups)
+2326 STATUS mibsdk features=[slot.carmenu, slot.statusbar, ui.icons, ui.pages, vehicle.ignition, vehicle.parking]
+2326 STATUS mibsdk runtime started adapter=hqc-nar-g22-c10 safeMode=true
+2326 STATUS mibsdk heap free=48945148 total=62914560
+2326 STATUS bike-rack DISCOVERED discovered
+2326 STATUS bike-rack DISABLED safe mode: not loaded
+2326 STATUS crashy DISCOVERED discovered
+2326 STATUS crashy DISABLED safe mode: not loaded
+2326 STATUS daemon-status DISCOVERED discovered
+2326 STATUS daemon-status DISABLED safe mode: not loaded
+2326 STATUS hello-menu DISCOVERED discovered
+2326 STATUS hello-menu DISABLED safe mode: not loaded
+2326 STATUS hello DISCOVERED discovered
+2326 STATUS hello DISABLED safe mode: not loaded
+6327 STATUS mibsdk ui car=sdk
+6327 STATUS mibsdk ui status popup 609600 registered
+6327 STATUS mibsdk ui status popup 609600 built
+289912 ERROR mibsdk ui main menu failed, screen 46 stock for this boot: java.lang.IllegalStateException: forced failure: screen

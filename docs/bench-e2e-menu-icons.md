@@ -4,27 +4,31 @@ Run 2026-10-24 on the bench MHI2Q (10.20.0.23, `HMI_AU_MIB2_HQC_NAR_G22_C10_1808
 `HMISystem=` takeover as a product (`SdkSystemActivator`), not a spike. Frames are `docs/bench-e2e/menu-icons-*.jpg`
 (512×240 keypanel captures) and `*-zoom.png` crops. The R1 log is `docs/bench-e2e/menu-icons-log-r1.txt`.
 
-**Overall: BLOCKED after R2.**
-- R1 passed for the main menu, the drawer and the row icons.
-- R1 found three defects in status popup 609600 (S1/S3). They are fixed in 5340cd3 and deployed as `mibsdk 0.1.0+bench.4`,
-  but not yet seen on screen.
-- R2 ran without the forced failure: `mibsdk-dev ui-forcefail` could not write on the unit (fixed in b619202).
-- After the R2 restart the unit did not come back. Two `keypanel up` tries after the reset failed: the known bench
-  hang, which needs the owner to power-cycle. R2's checks and R3 were not run.
+**Overall: pass after two fixes, with findings.**
+- R1 passed for the main menu, the drawer and the row icons. It found three status-popup defects (B1–B3). They are
+  fixed in 5340cd3 and confirmed on screen at R2a/R3.
+- R2 hit a tool bug (B4, fixed in b619202), then the bench hang. After the owner's power-cycle the run continued:
+  - R2a, the safe-mode boot;
+  - R2b, `ui-forcefail screen` plus safe mode: the screen-46 fallback works and the drawer Plugins row comes back;
+  - R3, normal.
+- The unit ends in the required state.
+- Open findings: B5 (the `{id,id}` reflection) and B10 (package PNGs are tinted with the app colour).
 
 ## Findings
 
 | # | Finding | Status |
 |---|---------|--------|
-| B1 | **Popup labels were right-aligned.** `SdkStatusPopup` set `setAlignment(3, 4)`, and 3 is `ALIGN_RIGHT` in the stock `Alignment` (`LabelRendererHigh.getAlignmentOffsetX`). Each cell's label box runs to the popup's right padding, so every item's text ended at the same x: `TS ? MQ dn` and `Hello` were drawn on top of each other (`menu-icons-status-car-zoom.png`). | **fixed 5340cd3** (`SdkCarScreenFactoryTest.popupLabelsAreLeftAligned` first); deployed as bench.4, **not yet seen on the unit** |
-| B2 | **Package PNGs were never drawn in the popup.** File icons were set with `setResourceLocator(-1, path, 1)`. For a locator of status 1, `IconRendererHigh.calculateDisplayData` draws the controller's bitmap 0 and never loads the URI. Spike C used `new HMIResourceLocator(path)` (status 0). hello's `hello-20` PNG never showed (nothing at cell 1's icon x in `menu-icons-status-car-zoom.png`). The host test asserted status 1. | **fixed 5340cd3** (`SdkCarActivatorTest.popupModelsAreCreated` now asserts 0 and failed first); not yet seen on the unit |
-| B3 | **A built-in icon change in the popup showed only at the next screen change.** `AbstractWidget.setBitmaps` only stores the array; nothing marks the icon dirty. "Next status icon" → star: nothing (`menu-icons-status-icon-swap-not-live-zoom.png`), no `getImagePath` for the star. A second press → dot: the dot appeared only after MEDIA was pressed (`menu-icons-status-media.jpg`), and the log has its first request then (`1143491 getImagePath 609105 -> ../mibsdk/icons-sdk/41a75fb1f2765d90.png`). The star was never drawn. | **fixed 5340cd3** (`SdkCarScreenFactoryTest.iconChangeOnABuiltPopupMarksTheIconDirty` first: a changed id icon is `setCompositesDirty(true)`); not yet seen on the unit |
-| B4 | **`mibsdk-dev ui-forcefail` failed on the unit**: `sh: printf: cannot execute`, then `cannot write /mnt/persist/mibsdk/dev/ui.forcefail`. The restart had been chained after it, so R2 booted with safe mode on and no forced failure. | **fixed b619202** (`UiForceFailTest.test_remote_commands_use_no_printf` first; the write uses `echo`). The screen-46 failure path was **not exercised on the unit** |
+| B1 | **Popup labels were right-aligned.** `SdkStatusPopup` set `setAlignment(3, 4)`, and 3 is `ALIGN_RIGHT` in the stock `Alignment` (`LabelRendererHigh.getAlignmentOffsetX`). Each cell's label box runs to the popup's right padding, so every item's text ended at the same x: `TS ? MQ dn` and `Hello` were drawn on top of each other (`menu-icons-status-car-zoom.png`). | **fixed 5340cd3** (`SdkCarScreenFactoryTest.popupLabelsAreLeftAligned` first). **Verified:** R2a `SAFE` at the left padding; R3 `✕ TS ? MQ ?  ◎ Hello` side by side (`menu-icons-r3-status-zoom.png`) |
+| B2 | **Package PNGs were never drawn in the popup.** File icons were set with `setResourceLocator(-1, path, 1)`. For a locator of status 1, `IconRendererHigh.calculateDisplayData` draws the controller's bitmap 0 and never loads the URI. Spike C used `new HMIResourceLocator(path)` (status 0). hello's `hello-20` PNG never showed (nothing at cell 1's icon x in `menu-icons-status-car-zoom.png`). The host test asserted status 1. | **fixed 5340cd3** (`SdkCarActivatorTest.popupModelsAreCreated` now asserts 0 and failed first). **Verified at R3:** hello's PNG is drawn in cell 1 (see B10 for its colour) |
+| B3 | **A built-in icon change in the popup showed only at the next screen change.** `AbstractWidget.setBitmaps` only stores the array; nothing marks the icon dirty. "Next status icon" → star: nothing (`menu-icons-status-icon-swap-not-live-zoom.png`), no `getImagePath` for the star. A second press → dot: the dot appeared only after MEDIA was pressed (`menu-icons-status-media.jpg`), and the log has its first request then (`1143491 getImagePath 609105 -> ../mibsdk/icons-sdk/41a75fb1f2765d90.png`). The star was never drawn. | **fixed 5340cd3** (`SdkCarScreenFactoryTest.iconChangeOnABuiltPopupMarksTheIconDirty` first: a changed id icon is `setCompositesDirty(true)`). **Verified at R3:** PNG → star → dot live on the Hello page, with text and cell in place (`menu-icons-r3-swap-*-zoom.png`) |
+| B4 | **`mibsdk-dev ui-forcefail` failed on the unit**: `sh: printf: cannot execute`, then `cannot write /mnt/persist/mibsdk/dev/ui.forcefail`. The restart had been chained after it, so R2 booted with safe mode on and no forced failure. | **fixed b619202** (`UiForceFailTest.test_remote_commands_use_no_printf` first; the write uses `echo`). The fixed tool wrote `screen` at R2b (read back before the restart) |
 | B5 | **The plugin PNG doubles as its own reflection (`{id, id}`), and that reads as a second icon.** The Hello row draws its ring icon and, under it, a full-opacity copy, so it looks like an "8". The stock rows beside it have faded reflections (`menu-icons-drawer-hello-reflection-zoom.png`). Built-in icons are fine: the star has its real 72×68 faded reflection (`menu-icons-drawer-icon-next.jpg`). | **finding (I1)**: the planned follow-up is a build-generated faded `-r` variant; no change in this run |
-| B6 | The unit reset on each `slay -s11 j9` and came back only after the `keypanel up` DHCP kick: R1 took about 12 min (20:42:17 → 20:54:14). After R2 (21:10:32) the unit answered SSH briefly at 21:11:35, then dropped off. `keypanel up` at 21:18 and 21:20 got "still unreachable". | **BLOCKED** (bench hang, as in Spike C Boot B and P3-F12) |
+| B6 | The unit reset on each `slay -s11 j9` and came back only after the `keypanel up` DHCP kick: R1 took about 12 min (20:42:17 → 20:54:14). After R2 (21:10:32) the unit answered SSH briefly at 21:11:35, then dropped off. `keypanel up` at 21:18 and 21:20 got "still unreachable". | bench hang (as in Spike C Boot B and P3-F12): the owner power-cycled, back at 21:32. R2b and R3 came back after the DHCP kick |
 | B7 | S2 not run: the engineering Mem/CPU line (popup 65, `SystemInfo.setFlagMemCPU`) has no entry in this REM (Update / System / Settings / Version information) or in the GEM screens checked (`JavaSys`, `Debugging`). The SDK popup is also not shown on the REM screens (`menu-icons-rem-no-popup.jpg`). Boot B already showed 609600 and 65 side by side in slot 7. | not run |
 | B8 | P1 not run: the bench has no PDC ECU, so bike-rack only reaches `waiting for parking value`. `PDC R OFF` cannot appear (as F7 in `docs/bench-e2e-ui.md`). | bench-impossible |
 | B9 | Design note: the popup band (x 514..769) sits under the centre of the screen title. The cross icon is drawn above titles such as "Plugins", "Hello" and "Navigation: Enter destination". With the labels now left-aligned, long item text runs into the right half of long titles. The popup is drawn in the top 24 px, above the title text, so there is no direct overlap on the frames seen. | recorded (owner review) |
+| B10 | **Package PNGs in the popup are tinted with the app colour, not drawn in their own colours.** hello's white `hello-20.png` (all 172 visible pixels are 255,255,255) draws red on Car and yellow on Media, like the id icons (`menu-icons-r3-status-png-tinted-zoom.png`, `-r3-status-media-zoom.png`). Spike C S2 reported a green file icon keeping its colour. For white monochrome PNGs this matches the stock look, but a coloured plugin PNG would be tinted. I did not investigate the cause. | open (finding; owner decision) |
+| B11 | At R1 and R3, `rot 4` from the first row of the Hello page landed on the info row `Selected: …`, not on `Next status icon`; one step back fixed it. This is a keypanel/rotation quirk, not an SDK fault. | recorded (bench) |
 
 ## Builds and deploys
 
@@ -97,28 +101,83 @@ So the popup was built about 1 s after the plugins' first status items. The log 
 | P1 | **bench-impossible (B8).** | — |
 | Stock | **pass.** Radio opened from the ring (Radio: FM), Navigation opened from the ring (Navigation: Enter destination), and the NAV, MEDIA and CAR hard keys worked. | `-stock-radio.jpg`, `-stock-nav.jpg` |
 
-## R2: safe mode (restart 2, 21:10:32) — BLOCKED
+## R2: safe mode (restart 2, 21:10:32) and the bench hang
 
 - `mibsdk-dev ui-forcefail screen` failed (B4).
 - `mibpkg sdk safe-mode on`: `safe mode marker set`. The restart went ahead with safe mode only.
-- `keypanel up` at 21:10:47 answered before the unit reset. SSH answered once at 21:11:35, then the unit went off the
-  network. Two `keypanel up` tries after the reset (21:18:41, 21:20:42) failed with "still unreachable". I stopped
-  there, per the bench rule.
-- Not run: F1 (stock ring), F2 (drawer Plugins row back), F3 (`SAFE` in 609600, which would also have been the first
-  on-screen check of B1–B3), and all of R3.
-- The emergency rule did not apply: SSH did not answer, which is the bench hang and not a blank HMI.
+- SSH answered once at 21:11:35, then the unit went off the network. Two `keypanel up` tries after the reset (21:18:41,
+  21:20:42) failed, and the run stopped BLOCKED.
+- The owner power-cycled the unit, and `keypanel up` at 21:32 brought it back. That boot is R2a and does not count
+  as a restart.
 
-## Bench state at the stop
+## R2a: safe-mode boot after the power-cycle (not a restart)
 
-- mibpkg 0.9.0 supervises. Installed: `mibsdk 0.1.0+bench.4` (5340cd3, previous bench.3),
-  `hello-menu 1.0.1-bench.1`, `daemon-status 1.0.1-bench.1`, and `hello`, `bike-rack`, `crashy 1.1.0` and
-  `carmqtt 0.2.2` as before.
-- The live bundles list has `HMICar=…SdkCarActivator` and `HMISystem=…SdkSystemActivator`, 10238 bytes. The stock
-  backup is in mibpkg's records, and `/mnt/persist/mibsdk-bench/bundles.before` holds the pre-run list.
-- **Safe mode is ON** (marker set). `ui.forcefail` is absent. `/mnt/app` was read-only at the last check.
-- The unit is unreachable (bench hang). The next boot after a power-cycle will be in safe mode with the takeover.
-  Still to do:
-  1. R2's F3 (SAFE in the fixed popup) and B1–B3 on screen, on that boot.
-  2. `mibsdk-dev ui-forcefail screen` (fixed tool) for the screen-46 path, if the budget is re-granted.
-  3. `mibpkg sdk safe-mode off` and `mibsdk-dev ui-forcefail off`, a restart, then R3 (N1, S1/S3 swap on the fixed
-     popup).
+Log `menu-icons-log-r2a.txt`:
+- `safeMode=true … reason=marker`, `ui system=sdk`;
+- each plugin `DISABLED safe mode: not loaded`;
+- `22328 ui car=sdk`, `23329 popup 609600 built`.
+
+| Check | Result | Evidence |
+|---|---|---|
+| F3 / SAFE | **pass.** `SAFE` shows top right in 609600, at the popup's left padding. This is B1 confirmed on screen. | `menu-icons-r2a-status-safe.jpg`, `-r2a-status-safe-zoom.png` |
+| Takeover in safe mode | The ring keeps Plugins: the System takeover is ACTIVE. Plugins from MENU shows `SDK safe mode: plugins are off (marker)` and every plugin `Off`. The drawer has no Plugins row. | `-r2a-plugins-from-menu-safe.jpg`, `-r2a-drawer.jpg` |
+| B2 | Not checkable on this boot: in safe mode no plugin runs, so no package icon is shown. Checked at R3. | — |
+
+## R2b: `ui-forcefail screen` plus safe mode (restart, 21:33:41; back 21:40 after the DHCP kick)
+
+`mibsdk-dev ui-forcefail screen` printed `ui.forcefail=screen written`. Before the restart, `cat` on the unit read
+`screen`, and the SAFE_MODE marker was present.
+
+Log `menu-icons-log-r2.txt`:
+- `0 WARN … configurator: ui.forcefail=screen`;
+- `0 STATUS mibsdk ui system=sdk`: the factory is the SDK's, because `screen` fails only when screen 46 is built;
+- `safeMode=true reason=marker`;
+- at the first MENU: `289912 ERROR mibsdk ui main menu failed, screen 46 stock for this boot:
+  java.lang.IllegalStateException: forced failure: screen`.
+
+| Check | Result | Evidence |
+|---|---|---|
+| F1 | **pass.** Home and `vol_up` work. The MENU ring is **stock**: it ends at Settings, with no Plugins row and no wrench. Radio (Radio: Presets) and Navigation (Enter destination) open from the ring. | `menu-icons-r2-volume.jpg`, `-r2-ring-stock.jpg`, `-r2-radio.jpg`, `-r2-nav.jpg` |
+| F2 | **pass.** Car → drawer now ends with **Plugins (safe mode)**: the row is back once the main menu is FAILED. It opens the Plugins page with the safe-mode notice. | `-r2-drawer-plugins.jpg`, `-r2-drawer-plugins-page.jpg` |
+| F3 | **pass.** `SAFE` shows in 609600 on every screen. | `-r2-status-safe-zoom.png` |
+
+## R3: back to normal (restart, 21:41:48; back 21:48)
+
+Before the restart I checked both switches on the unit:
+- `mibsdk-dev ui-forcefail off`: the file is gone;
+- `mibpkg sdk safe-mode off`: SAFE_MODE is gone, and `boot.state` reads `unhealthyBoots=0 wrapBoots=0`.
+
+Log `menu-icons-log-r3.txt`: `safeMode=false`, `ui system=sdk`, `ui car=sdk`, 5 plugins `ENABLED`,
+`popup 609600 built`, `boot healthy`.
+
+| Check | Result | Evidence |
+|---|---|---|
+| N1 ring | **pass.** The ring ends with Plugins and the wrench. | `menu-icons-r3-ring.jpg` |
+| N1 drawer | **pass.** No Plugins row; Bike rack and Hello (PNG icon) are last. | `-r3-drawer.jpg` |
+| N1 status | **pass.** Both plugins' items sit side by side: `✕ TS ? MQ ?` (daemon-status, tinted cross) and `◎ Hello` (hello's PNG). B1 and B2 are confirmed on screen; the PNG is tinted (B10). | `-r3-status.jpg`, `-r3-status-zoom.png`, `-r3-status-media-zoom.png` |
+| S3 icon swap | **pass (B3 fixed).** On "Next status icon" the PNG was gone at the 1.5 s capture and the star showed at the next one (`getImagePath 609102 -> ../mibsdk/icons-sdk/966b026bec63dfd5.png`). A second press turned the star into a dot. Text and cell stayed in place, with no screen change. The keypanel mirror is lazy, so a frame can lag by a few seconds; what matters is that no screen change was needed, which was the defect. | `-r3-swap-1-png-gone-zoom.png`, `-r3-swap-2-star-zoom.png`, `-r3-swap-3-dot-zoom.png` |
+| Step 6 fallback | Not applied: S3 movement was already live at R1. | — |
+
+## Restart times
+
+| Restart | Issued | Back (bridge) | Note |
+|---|---|---|---|
+| R1 | 20:42:17 | 20:54:14 | DHCP kick needed |
+| R2 | 21:10:32 | — | bench hang; the owner power-cycled, back 21:32 (R2a, not counted) |
+| R2b | 21:33:41 | 21:40:02 | DHCP kick needed |
+| R3 | 21:41:48 | 21:48:04 | |
+
+## Bench state at the end
+
+- mibpkg 0.9.0 supervises.
+- Installed:
+  - `mibsdk 0.1.0+bench.4` (5340cd3);
+  - `hello-menu 1.0.1-bench.1` and `daemon-status 1.0.1-bench.1`;
+  - `hello`, `bike-rack`, `crashy 1.1.0` and `carmqtt 0.2.2`.
+- All 5 plugins are ENABLED with their grants; the ledger is empty.
+- The takeover is ACTIVE: `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator` and
+  `HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator`. The ring has Plugins with the wrench.
+- Safe mode is off (no SAFE_MODE marker), and `ui.forcefail` is absent.
+- `/mnt/app` is read-only (`touch` gives "Read-only file system").
+- The unit is on its home screen (Vehicle: Audi drive select, Dynamic; `menu-icons-r3-final-home.jpg`).
+- `/mnt/persist/mibsdk-bench/bundles.before` (the pre-run list) is kept as a spare.
