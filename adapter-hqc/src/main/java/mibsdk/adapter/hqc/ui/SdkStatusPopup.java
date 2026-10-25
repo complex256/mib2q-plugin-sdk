@@ -164,7 +164,11 @@ final class SdkStatusPopup {
         return i;
     }
 
-    /** Sets every label's and icon's bounds from {@code l}. HMIEvent. */
+    /**
+     * Sets every label's and icon's bounds from {@code l}. Stock AbstractWidgetController.setBounds marks a widget
+     * whose bounds changed dirty (the renderers draw, and take their new position, only when dirty); nothing paints
+     * until {@link #redraw}, which paints the dirty widgets. HMIEvent.
+     */
     void place(StatusLayout l) {
         label(labels[0], l.indicators());
         for (int i = 0; i < idIcons.length; i++) {
@@ -207,7 +211,7 @@ final class SdkStatusPopup {
      * Asks the HMI to paint the dirty widgets now (the popup's stock triggerRepaint: the current screen's
      * doCheckedRepaint: during an animation it registers the screen and the animation repaints it when it ends; otherwise
      * it paints one frame synchronously, like stock does after a model update). Called once per HMI job, after {@link #icons} returned
-     * true. HMIEvent.
+     * true or {@link #place} moved the cells. HMIEvent.
      */
     void redraw() {
         if (popup != null) {

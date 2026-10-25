@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.IconRendererHigh;
+import de.esolutions.hmi.widgets.audi.evo.high.widgets.LabelRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.widgets.IconController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.LabelController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupController;
@@ -26,6 +27,7 @@ class SdkStatusPopupTest {
 
     private IconController[] ids;
     private IconController[] files;
+    private LabelController[] labels;
     private SdkStatusPopup popup;
     /** How often the popup asked the HMI for a repaint (stock AbstractPartialPopupController.triggerRepaint). */
     private int repaints;
@@ -48,7 +50,13 @@ class SdkStatusPopupTest {
             p.add(ids[i]);
             p.add(files[i]);
         }
-        popup = new SdkStatusPopup(new LabelController[HqcUiIds.STATUS_CELLS + 1], ids, files, p);
+        labels = new LabelController[HqcUiIds.STATUS_CELLS + 1];
+        for (int i = 0; i < labels.length; i++) {
+            labels[i] = new LabelController();
+            labels[i].setRenderer(new LabelRendererHigh(labels[i]));
+            p.add(labels[i]);
+        }
+        popup = new SdkStatusPopup(labels, ids, files, p);
     }
 
     @AfterEach
@@ -94,6 +102,21 @@ class SdkStatusPopupTest {
             ids[i].setCompositesDirty(false);
             files[i].setCompositesDirty(false);
         }
+        for (int i = 0; i < labels.length; i++) {
+            labels[i].setCompositesDirty(false);
+        }
+    }
+
+    /** SAFE, then two file-icon items, the first with text {@code a}. */
+    private static StatusLayout withIndicator(String a) {
+        String root = HqcUiIds.INSTALL_ROOT + "/icons/hello/";
+        List<UiStatusPart> parts = new ArrayList<UiStatusPart>();
+        parts.add(new UiStatusPart("SAFE", null, true));
+        parts.add(new UiStatusPart(a, UiIcon.file("hello", root + "aaaa000000000000.png", "aaaa000000000000", 20, 20),
+                false));
+        parts.add(new UiStatusPart("B", UiIcon.file("hello", root + "bbbb000000000000.png", "bbbb000000000000", 20, 20),
+                false));
+        return StatusLayout.of(parts, null, null);
     }
 
     @Test
@@ -154,7 +177,48 @@ class SdkStatusPopupTest {
         applyAfter(layout("A", true, false), layout("A", true, false));
         assertEquals(0, repaints, "nothing changed");
 
-        applyAfter(layout("A", true, false), layout("A longer label", true, false));
-        assertEquals(0, repaints, "a text change repaints through its own label model write");
+        applyAfter(layout("A", true, false), layout("Z", true, false));
+        assertEquals(0, repaints, "a same-length text change repaints through its own label model write");
+    }
+
+    /**
+     * The line is packed to the right edge (bench B9), so a text-length change moves every cell, the indicators too.
+     * setBounds only stores the bounds, and the label's model write may paint before the job: the job repaints once.
+     */
+    @Test
+    void geometryChangeMovesTheCellsAndRepaintsOncePerJob() {
+        StatusLayout shorter = layout("A", false, false);
+        StatusLayout longer = layout("A longer", false, false);
+        applyAfter(shorter, longer);
+        assertEquals(1, repaints, "the moved group is drawn now");
+        assertEquals(longer.cell(0).iconX, files[0].getX(), "the first icon moved");
+        assertEquals(longer.cell(1).labelX, labels[2].getX(), "the last label stays at the right edge");
+        assertEquals(shorter.cell(1).labelX, longer.cell(1).labelX);
+        assertTrue(longer.cell(0).iconX < shorter.cell(0).iconX, "the group grew to the left");
+
+        applyAfter(layout("A", false, false), layout("A longer", true, false));
+        assertEquals(1, repaints, "a move and a colour change in one job: one repaint");
+    }
+
+    /**
+     * The stock label and icon renderers draw (and take their new position) only when dirty. Every moved widget must
+     * be dirty after the job, so the one repaint draws it at its new x; unmoved widgets are left alone. Stock
+     * AbstractWidgetController.setBounds does the marking (the host widgets are the stock classes), so this guards
+     * that place() goes through it.
+     */
+    @Test
+    void movedWidgetsAreMarkedDirty() {
+        applyAfter(withIndicator("A"), withIndicator("A longer"));
+        assertEquals(1, repaints);
+        assertTrue(labels[0].getRenderer().areCompositesDirty(), "the SAFE indicator label moved");
+        assertTrue(labels[1].getRenderer().areCompositesDirty(), "the changed item's label moved");
+        assertTrue(ids[0].getRenderer().areCompositesDirty(), "the changed item's id icon moved");
+        assertTrue(files[0].getRenderer().areCompositesDirty(), "the changed item's file icon moved");
+        assertFalse(labels[2].getRenderer().areCompositesDirty(), "the last label stays at the right edge");
+        assertFalse(files[1].getRenderer().areCompositesDirty(), "the last item's icon did not move");
+        for (int i = 2; i < ids.length; i++) {
+            assertFalse(ids[i].getRenderer().areCompositesDirty(), "unused cell " + i);
+            assertFalse(labels[1 + i].getRenderer().areCompositesDirty(), "unused label " + (1 + i));
+        }
     }
 }

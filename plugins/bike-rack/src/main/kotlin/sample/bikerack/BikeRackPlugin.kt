@@ -36,7 +36,11 @@ import mibsdk.api.VehicleOverride
  * An on press while already armed changes nothing: if the mute was lost to an [OverrideConflictException] (another
  * plugin holds the parking override), toggle off and on again to retry it.
  *
- * Permissions: the manifest is api 2 and declares `ui.slot.carmenu` and `ui.slot.statusbar`. An install that was
+ * Icons: the manifest (api 3) declares `bike` (72x72, the Car row) and `bike-20` (20x20, the status item), white
+ * bicycles from `tools/make_builtin_icons.py --plugin-bike-rack`, both tinted. Without icon support, or with the
+ * package's icons not installed, the row and the item show without them.
+ *
+ * Permissions: the manifest declares `ui.slot.carmenu` and `ui.slot.statusbar`. An install that was
  * granted only `vehicle.read,vehicle.parking.write` must be re-granted, or the runtime blocks the plugin:
  * `mibsdk-dev grant bike-rack vehicle.read,vehicle.parking.write,ui.slot.carmenu,ui.slot.statusbar`.
  */
@@ -59,8 +63,8 @@ class BikeRackPlugin : MibPlugin() {
         page = rack
         // the manifest declares both slot permissions (all-or-nothing: a running plugin holds them); without a
         // slot, or with the SDK UI off, these handles are inert and the mute below works the same
-        ctx.ui().carMenuRow("Bike rack", rack)
-        statusItem = ctx.ui().statusItem(statusText())
+        ctx.ui().carMenuRow("Bike rack", rack, ctx.ui().icon("bike"))
+        statusItem = ctx.ui().statusItem(statusText(), ctx.ui().icon("bike-20"))
         ctx.events().on(IgnitionChanged::class.java) { e ->
             if (!e.isOn) ignitionOff(ctx, storage) else ignitionOn(ctx, storage)
             refresh()

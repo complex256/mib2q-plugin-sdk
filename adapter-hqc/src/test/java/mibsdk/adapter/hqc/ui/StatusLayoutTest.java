@@ -63,7 +63,7 @@ class StatusLayoutTest {
         assertEquals(HqcUiIds.INSTALL_ROOT + "/icons/hello/aaaa000000000000.png", c.filePath,
                 "a file icon is drawn from its absolute path");
         assertEquals(-1, c.stockIconId);
-        assertEquals(HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX - c.labelX, c.labelW);
+        assertEquals(HqcUiIds.POPUP_SDK_W - c.labelX, c.labelW);
         assertEquals(c.labelX + 40 + 10, l.cell(1).labelX, "a space, then the next item");
         assertEquals("I0", l.cell(1).text);
         assertEquals("I4", l.cell(5).text, "the 7th item (I5) has no cell");
@@ -85,16 +85,81 @@ class StatusLayoutTest {
         assertTrue(end <= HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX);
     }
 
+    /** Where the packed line ends: the end of the runtime's character grid, inside the right padding (bench B9). */
+    private static final int GRID_END = HqcUiIds.STATUS_PAD_PX + HqcUiIds.STATUS_MAX_CHARS * HqcUiIds.STATUS_CHAR_PX;
+
+    private static int end(StatusLayout.Cell c) {
+        return c.labelX + c.text.length() * HqcUiIds.STATUS_CHAR_PX;
+    }
+
     @Test
-    void aLineWithoutIndicatorsStartsWithItsFirstItem() {
+    void aLineWithoutIndicatorsPacksItsFirstItemRight() {
         List<UiStatusPart> parts = new ArrayList<UiStatusPart>();
-        parts.add(item("TS up", file("aaaa000000000000")));
+        parts.add(item("TS up", file("aaaa000000000000"))); // 2 + 5 = 7 units
         StatusLayout l = StatusLayout.of(parts, null, null);
         assertEquals("", l.indicators().text);
-        assertEquals(6, l.cell(0).iconX);
-        assertEquals(26, l.cell(0).labelX);
+        assertEquals(GRID_END - 70, l.cell(0).iconX);
+        assertEquals(GRID_END - 50, l.cell(0).labelX);
+        assertEquals(GRID_END, end(l.cell(0)));
+        assertEquals(HqcUiIds.POPUP_SDK_W - l.cell(0).labelX, l.cell(0).labelW);
         assertEquals("", l.cell(1).text);
         assertNull(l.cell(1).filePath);
+    }
+
+    /** Bench B9: a short line packs against the right edge; the indicators stay first, at the left of the group. */
+    @Test
+    void aShortLinePacksToTheRightEdge() {
+        List<UiStatusPart> parts = new ArrayList<UiStatusPart>();
+        parts.add(ind("SAFE"));
+        parts.add(item("RACK", file("aaaa000000000000")));
+        parts.add(item("MQ", null)); // 4 + 1 + 2 + 4 + 1 + 2 = 14 units
+        StatusLayout l = StatusLayout.of(parts, null, null);
+        int start = GRID_END - 140;
+        assertEquals(start, l.indicators().labelX, "the indicators lead the packed group");
+        assertEquals(start, l.indicators().iconX);
+        assertEquals(start + 50, l.cell(0).iconX);
+        assertEquals(start + 70, l.cell(0).labelX);
+        assertEquals(l.cell(0).labelX + 50, l.cell(1).labelX, "a space, then the next item");
+        assertEquals(GRID_END, end(l.cell(1)), "the line ends at the right edge");
+        assertTrue(GRID_END <= HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX);
+        assertEquals(HqcUiIds.POPUP_SDK_W - l.indicators().labelX, l.indicators().labelW);
+        assertEquals(HqcUiIds.POPUP_SDK_W - l.cell(1).labelX, l.cell(1).labelW);
+        assertEquals(HqcUiIds.POPUP_SDK_W, l.cell(1).labelX + l.cell(1).labelW,
+                "the last label's box reaches the band edge: slack for a wider-than-average font");
+        assertEquals(0, l.cell(2).labelX, "unused cells stay all zero");
+        assertEquals(0, l.cell(2).labelW);
+    }
+
+    @Test
+    void aFullLineIsUnchanged() {
+        List<UiStatusPart> parts = new ArrayList<UiStatusPart>();
+        parts.add(ind("SAFE PDC R OFF"));
+        parts.add(item("abcdefg", null));
+        parts.add(item("x", null)); // 24 units
+        StatusLayout l = StatusLayout.of(parts, null, null);
+        assertEquals(HqcUiIds.STATUS_PAD_PX, l.indicators().labelX);
+        assertEquals(6 + 150, l.cell(0).labelX);
+        assertEquals(6 + 230, l.cell(1).labelX);
+    }
+
+    @Test
+    void aTextLengthChangeMovesTheGroupAndKeepsItRightAligned() {
+        List<UiStatusPart> a = new ArrayList<UiStatusPart>();
+        a.add(ind("SAFE"));
+        a.add(item("TS up", file("aaaa000000000000")));
+        a.add(item("MQ", null));
+        List<UiStatusPart> b = new ArrayList<UiStatusPart>();
+        b.add(ind("SAFE"));
+        b.add(item("TS down", file("aaaa000000000000")));
+        b.add(item("MQ", null));
+        StatusLayout la = StatusLayout.of(a, null, null);
+        StatusLayout lb = StatusLayout.of(b, null, null);
+        assertEquals(GRID_END, end(la.cell(1)));
+        assertEquals(GRID_END, end(lb.cell(1)));
+        assertEquals(la.indicators().labelX - 20, lb.indicators().labelX, "two more characters: the group moves left");
+        assertEquals(la.cell(0).iconX - 20, lb.cell(0).iconX);
+        assertEquals(la.cell(1).labelX, lb.cell(1).labelX, "the last item stays at the right edge");
+        assertFalse(la.sameGeometry(lb));
     }
 
     @Test

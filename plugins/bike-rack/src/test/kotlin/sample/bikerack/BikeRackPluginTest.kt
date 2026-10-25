@@ -64,6 +64,7 @@ class BikeRackPluginTest {
         File(base, "sdk.properties").writeText(
             "plugin.start.delay.ms=$startDelayMs\nheap.low.bytes=0\nui.publish.min.ms=0\nlog.file=${File(tmp, "mibsdk.log").path}\n$extraProps")
         File(base, "grants.properties").writeText("bike-rack=vehicle.read,vehicle.parking.write,ui.slot.carmenu,ui.slot.statusbar\n")
+        installIcons()
         if (active != null) {
             File(FakePlatform.roots(tmp).persist(), "data").mkdirs()
             File(FakePlatform.roots(tmp).persist(), "data/bike-rack.properties").writeText("active=$active\n")
@@ -73,6 +74,15 @@ class BikeRackPluginTest {
             if (startDelayMs > 0) return@also
             assertEquals(PluginState.ENABLED, it.statuses().single().state(), it.log().snapshot().toString())
         }
+    }
+
+    /** What mibpkg installs for the package: index.properties and each declared PNG under its sha16 name. */
+    private fun installIcons() {
+        val dir = File(FakePlatform.roots(tmp).install(), "icons/bike-rack")
+        dir.mkdirs()
+        File(dir, "index.properties").writeText("bike=$BIG_SHA,72,72\nbike-20=$SMALL_SHA,20,20\n")
+        File("src/main/icons/bike.png").copyTo(File(dir, "$BIG_SHA.png"))
+        File("src/main/icons/bike-20.png").copyTo(File(dir, "$SMALL_SHA.png"))
     }
 
     private fun awaitApplied(size: Int, last: SoundDirections) {
@@ -271,6 +281,11 @@ class BikeRackPluginTest {
 
     private val page = "bike-rack/rack"
 
+    private companion object {
+        const val BIG_SHA = "0123456789abcdef"
+        const val SMALL_SHA = "fedcba9876543210"
+    }
+
     private fun await(what: String, done: () -> Boolean) {
         for (i in 0 until 500) {
             if (done()) return
@@ -296,6 +311,33 @@ class BikeRackPluginTest {
 
     private fun toggleLine() = ui.render(page).firstOrNull() ?: ""
     private fun status() = ui.statusLine() ?: ""
+
+    // ---- icons (api 3): the Car row and the RACK status item carry the bicycle, tinted ----
+
+    @Test
+    fun rowAndStatusItemCarryTheBikeIcons() {
+        fake.setFeatures(setOf(Features.IGNITION, Features.PARKING, Features.HOOK_PARKING, Features.UI_PAGES,
+            Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR, Features.UI_ICONS))
+        start(true)
+        awaitApplied(1, f1r0l1x1)
+        await("row with the bike icon") { ui.carRows().contains("[png:$BIG_SHA] Bike rack") }
+        await("RACK with the tinted bike-20") { ui.statusParts().contains("[png:$SMALL_SHA] RACK") }
+    }
+
+    @Test
+    fun withoutIconSupportTheRowAndItemShowPlain() {
+        start(true)
+        awaitApplied(1, f1r0l1x1)
+        await("plain row") { ui.carRows().contains("Bike rack") }
+        await("plain RACK") { ui.statusParts().contains("RACK") }
+    }
+
+    @Test
+    fun manifestDeclaresTheIconsAtApiThree() {
+        val m = File("src/main/resources/plugin.json").readText()
+        assertTrue(m.contains("\"api\":3"), m)
+        assertTrue(m.contains("\"icons\":[\"bike\",\"bike-20\"]"), m)
+    }
 
     @Test
     fun toggleOnArmsMutesRearAndShowsStatusItem() {

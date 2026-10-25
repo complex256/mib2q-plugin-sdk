@@ -18,7 +18,10 @@ final class StatusLayout {
         /** The icon's x; the label's x when the cell has no icon. */
         final int iconX;
         final int labelX;
-        /** The label's width: to the popup's right padding, never negative. */
+        /**
+         * The label's width: to the popup's right edge, never negative. The labels are left-aligned, so the box past the
+         * grid is only slack: a text wider than {@link HqcUiIds#STATUS_CHAR_PX} per character is not abbreviated.
+         */
         final int labelW;
         /** A built-in icon's image id (its {@code <name>-20}, drawn by id and tinted); -1 for none. */
         final int stockIconId;
@@ -39,6 +42,13 @@ final class StatusLayout {
             this.filePath = filePath;
             this.ownColours = ownColours;
             this.text = text;
+        }
+
+        /** This cell moved right by {@code dx}, its label width again to the popup's right edge. */
+        Cell shifted(int dx) {
+            int x = labelX + dx;
+            return new Cell(iconX + dx, x, labelWidth(x), stockIconId,
+                    filePath, ownColours, text);
         }
 
         boolean sameBounds(Cell o) {
@@ -62,8 +72,17 @@ final class StatusLayout {
     }
 
     /**
-     * Places {@code parts} (the runtime's indicators first, if any, then the items) from
-     * {@link HqcUiIds#STATUS_PAD_PX}: one character's space before each part after the first, then the part's icon, then its text. A part beyond
+     * Where a packed line ends: the end of the character grid the runtime cut the line to
+     * ({@link HqcUiIds#STATUS_MAX_CHARS} characters from {@link HqcUiIds#STATUS_PAD_PX}), inside the right padding.
+     */
+    static final int LINE_END_PX = HqcUiIds.STATUS_PAD_PX + HqcUiIds.STATUS_MAX_CHARS * HqcUiIds.STATUS_CHAR_PX;
+
+    /**
+     * Places {@code parts} (the runtime's indicators first, if any, then the items): one character's space before
+     * each part after the first, then the part's icon, then its text. The composed line is packed against the right
+     * edge, so it ends at {@link #LINE_END_PX} and the free space is on the left (bench B9: the popup sits under the
+     * centre of long screen titles); the order stays, the indicators at the left of the group. A line as long as the
+     * grid, or longer, starts at {@link HqcUiIds#STATUS_PAD_PX}. A part beyond
      * {@link HqcUiIds#STATUS_CELLS} items is dropped. A built-in icon gets its image id from {@code ids} (null
      * {@code ids} or {@code builtins}: no id, as for a built-in that is not installed); its space is kept either way,
      * because the runtime cut the text to fit it.
@@ -90,7 +109,7 @@ final class StatusLayout {
                 x += HqcUiIds.STATUS_ICON_ADVANCE_PX;
             }
             int labelX = x;
-            int labelW = Math.max(0, HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX - x);
+            int labelW = labelWidth(x);
             x += p.text().length() * HqcUiIds.STATUS_CHAR_PX;
             Cell c = new Cell(iconX, labelX, labelW, stockId(icon, ids, builtins),
                     icon != null && icon.kind() == UiIcon.FILE ? icon.path() : null,
@@ -101,7 +120,21 @@ final class StatusLayout {
                 items[n++] = c;
             }
         }
+        int dx = Math.max(0, LINE_END_PX - x);
+        if (dx > 0) {
+            if (indicators != NONE) {
+                indicators = indicators.shifted(dx);
+            }
+            for (int i = 0; i < n; i++) {
+                items[i] = items[i].shifted(dx);
+            }
+        }
         return new StatusLayout(indicators, items);
+    }
+
+    /** A label at {@code x}: its box runs to the popup's right edge (bench B9 review: slack for the last item). */
+    private static int labelWidth(int x) {
+        return Math.max(0, HqcUiIds.POPUP_SDK_W - x);
     }
 
     /** The image id of a built-in icon's {@code <name>-20}; -1 for a file icon, none, or no id. */
