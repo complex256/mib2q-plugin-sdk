@@ -95,27 +95,44 @@ measured: 13 capture px, about 26 screen px.** One restart (R1) was used. The un
   `waiting for VIN before connecting to MQTT`. The publisher's first connect needs a VIN to build the topics, from
   ExLAP or from `[device] vin` (`publisher.rs` `vin()`), and the bench's ExLAP supplies none, since there is no
   vehicle. No VIN override was set.
-- **The broker is reachable from the unit, over Tailscale.** The tailnet node `stash` advertises `192.168.0.0/16`,
-  and `tailscale up --accept-routes` installs it on `tun9`. `telnet 192.168.10.5 1883` from the unit gave
-  `Connected to 192.168.10.5.` Home Assistant's broker was up at the time. Without the tailnet there is no path:
-  the unit is on 10.20.0.x behind the bench router.
+- **The broker is reachable from the unit, both ways.** At first the tailnet node `stash` advertised
+  `192.168.0.0/16`, `tailscale up --accept-routes` installed it on `tun9`, and `telnet 192.168.10.5 1883` from the
+  unit gave `Connected to 192.168.10.5.` over Tailscale. After the T1 fix (routes off) the same telnet connects
+  directly, through the bench router (default gateway 10.20.0.1). Home Assistant's broker was up both times.
 
-### Finding T1: the accepted 192.168.0.0/16 route cuts the bench LAN
+### Finding T1: the accepted 192.168.0.0/16 route cut the bench LAN (resolved)
 
 The same accepted route carries the unit's replies to every 192.168.x host. Once `tailscaled` is logged in:
 
 - the unit stops answering on 10.20.0.23 from the host and the bench Pi, which are both on 192.168.x;
 - `keypanel status` reports `mmx: UNREACHABLE`.
 
-The unit itself is fine and is reachable at its tailnet address, including SSH and the keypanel on `:8099`. This
+The unit itself is fine and is reachable at its tailnet address, including SSH and the keypanel on `:8099`. Until the fix below, this
 run drove everything after the login over the tailnet. After a boot, the LAN path works only until the autostart
 brings the tunnel up, about 30 s after the uplink.
 
-This is the README's documented configuration (`--accept-routes`), so it was not changed here, and no router or Pi
-networking was touched. Options for the owner:
-- turn off `--accept-routes` on the bench unit (but then the broker at 192.168.10.5 is unreachable);
-- narrow `stash`'s advertised route;
-- reach the bench over the tailnet.
+**Resolved (owner decision): accept-routes is off on the bench unit only.** mib2q-tailscale's `tailscale.sh` gained a
+per-unit opt-out (branch `feat/accept-routes-opt-out`, 902baea, with a host test). `/mnt/persist/tailscale/accept-routes`
+containing `0` makes `tailscale up` pass `--accept-routes=false`; with no file the default stays on, as the car needs.
+The steps on the unit:
+1. The updated script went to `/mnt/app/root/tailscale/` the way it was deployed before: `mount -uw`, upload, read
+   back, `ksh -n`, rename, `mount -ur`. The old copy is kept as `/mnt/persist/tailscale/tailscale.sh.pre-accept-routes`.
+2. Wrote `echo 0 >/mnt/persist/tailscale/accept-routes`.
+3. Applied it live with `tailscale set --accept-routes=false` (prefs `RouteAll: false`). There was no HMI restart
+   and no tailscaled restart.
+
+The 192.168.0.0/16 route left `tun9` at once. After that:
+- 10.20.0.23 answers SSH from the host;
+- `keypanel status` reports `mmx: reachable (10.20.0.23)`, `daemon: up`;
+- the node is still `Running` as `mmx-bench` with the same 100.x address;
+- tsstatus on 19850 still answers `state=Running`.
+
+The setting persists two ways: in tailscaled's stored prefs, and in the file that the next `tailscale.sh start`
+reads (host-tested). It was not re-checked across a boot.
+
+**The broker is reachable directly too:** with routes off, `telnet 192.168.10.5 1883` from the unit connects through
+`mlan0` and its default gateway 10.20.0.1. So the bench router reaches 192.168.10.x on its own, and turning routes off
+costs the bench nothing.
 
 ## R1: the single restart
 
@@ -184,6 +201,7 @@ Also seen:
 - Safe mode off (`safeMode=false`, `unhealthyBoots=0`), and `dev/` is empty (no forcefail).
 - The bundles file is byte-equal to its copy from before the install.
 - `/mnt/app` and `/mnt/system` are read-only.
-- Tailscale autostart is configured (`startup.sh` line, backup `startup.sh.pre-tailscale`), and carmqtt is
-  configured.
+- Tailscale autostart is configured (`startup.sh` line, backup `startup.sh.pre-tailscale`), and accept-routes is off
+  on this unit (`/mnt/persist/tailscale/accept-routes` = `0`). The LAN path 10.20.0.23 and the tailnet path both
+  work. carmqtt is configured.
 - The unit is on its home screen (Car / Audi drive select) (`release-0.2-home-end.jpg`).
