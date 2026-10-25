@@ -25,7 +25,8 @@ import org.gradle.api.tasks.TaskAction;
 /**
  * Lists calls that need {@code platform.unrestricted} (reflection, exec, exit, ...). Report-only unless
  * {@link #getFailOnFindings()} is set; the {@code mibsdk.plugin} convention sets it unless the manifest
- * grants {@code platform.unrestricted}.
+ * grants {@code platform.unrestricted}. Always fails when the classes use API newer than {@link #getDeclaredApi()}
+ * ({@link PermissionScan.Result#needsApi()}).
  */
 @CacheableTask
 public abstract class PermissionScanTask extends DefaultTask {
@@ -52,6 +53,10 @@ public abstract class PermissionScanTask extends DefaultTask {
     @Input
     public abstract Property<Boolean> getFailOnFindings();
 
+    /** The manifest's {@code "api"}; the {@code mibsdk.plugin} convention reads it from {@code plugin.json}. */
+    @Input
+    public abstract Property<Integer> getDeclaredApi();
+
     @OutputFile
     public abstract RegularFileProperty getReport();
 
@@ -60,13 +65,24 @@ public abstract class PermissionScanTask extends DefaultTask {
         Set<String> exempt = kotlinClassNames(getKotlinStdlib().getFiles());
         exempt.removeAll(kotlinClassNames(getOwnClasses().getFiles()));
         TreeSet<String> findings = new TreeSet<String>();
+        TreeSet<String> tooNew = new TreeSet<String>();
+        int declared = getDeclaredApi().get();
         for (File f : getClasses().getFiles()) {
             if (f.exists()) {
-                findings.addAll(PermissionScan.run(f, exempt).findings());
+                PermissionScan.Result r = PermissionScan.run(f, exempt);
+                findings.addAll(r.findings());
+                if (r.needsApi() > declared) {
+                    for (String site : r.apiFindings()) {
+                        tooNew.add(site + " needs api " + r.needsApi() + "; plugin.json declares api " + declared);
+                    }
+                }
             }
         }
         String report = String.join("\n", findings) + (findings.isEmpty() ? "" : "\n");
         Files.write(getReport().get().getAsFile().toPath(), report.getBytes(StandardCharsets.UTF_8));
+        if (!tooNew.isEmpty()) {
+            throw new GradleException("permissionScan: " + String.join("\n  ", tooNew));
+        }
         if (findings.isEmpty()) {
             return;
         }

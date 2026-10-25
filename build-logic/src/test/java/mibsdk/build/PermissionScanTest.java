@@ -148,4 +148,28 @@ class PermissionScanTest {
         Files.createDirectories(p.getParent());
         Files.write(p, b);
     }
+
+    private static final String ICON_STUB = "package mibsdk.api; public interface Icon { int TINTED = 0; int OWN_COLOURS = 1; }";
+    private static final String UI_STUB = "package mibsdk.api; public interface Ui {"
+            + " Icon icon(String name); Icon icon(String name, int colour); }";
+
+    @Test
+    void findsTheColourIconOverload() throws Exception {
+        File colour = Fixtures.compileV48(tmp.resolve("colour"), Map.of("mibsdk.api.Icon", ICON_STUB,
+                "mibsdk.api.Ui", UI_STUB, "fixture.C",
+                "package fixture; import mibsdk.api.*; public class C {"
+                        + " public Icon status(Ui ui) { return ui.icon(\"x\", Icon.OWN_COLOURS); }"
+                        + " public Icon row(Ui ui) { return ui.icon(\"x\"); } }"));
+        PermissionScan.Result r = PermissionScan.run(colour);
+        assertEquals(4, r.needsApi());
+        assertEquals(List.of("fixture/C.status -> Ui.icon(String,int)"), r.apiFindings());
+        assertEquals(List.of(), r.findings(), "not a permission finding");
+
+        File plain = Fixtures.compileV48(tmp.resolve("plain"), Map.of("mibsdk.api.Icon", ICON_STUB,
+                "mibsdk.api.Ui", UI_STUB, "fixture.T",
+                "package fixture; import mibsdk.api.*; public class T {"
+                        + " public Icon row(Ui ui) { return ui.icon(\"x\"); } }"));
+        assertEquals(1, PermissionScan.run(plain).needsApi());
+        assertEquals(List.of(), PermissionScan.run(plain).apiFindings());
+    }
 }

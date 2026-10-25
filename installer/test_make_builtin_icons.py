@@ -96,5 +96,30 @@ class MakeBuiltinIconsTest(unittest.TestCase):
         self.assertEqual(1 << 20, len(zlib.decompress(bomb[8 + 25 + 8:-12 - 4])))
 
 
+def load_tool():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("make_builtin_icons", TOOL)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+HELLO_MENU_ICONS = os.path.join(REPO, "plugins", "hello-menu", "src", "main", "icons")
+
+
+class PluginSampleTest(unittest.TestCase):
+    def test_left_white_right_blue(self):
+        out = load_tool().plugin_sample()
+        for name, size, centre in (("hello.png", 72, 36), ("hello-20.png", 20, 9)):
+            w, h, rows = decode(out[name])
+            self.assertEqual((size, size), (w, h), name)
+            opaque = [(x, p) for r in rows for x, p in enumerate(r) if p[3] > 0]
+            self.assertTrue(any(x < centre for x, _ in opaque) and any(x >= centre for x, _ in opaque), name)
+            for x, p in opaque:
+                self.assertEqual((255, 255, 255) if x < centre else (0, 0, 255), p[:3], "%s x=%d" % (name, x))
+            with open(os.path.join(HELLO_MENU_ICONS, name), "rb") as f:
+                self.assertEqual(out[name], f.read(), name + " is stale: rerun --plugin-sample")
+
+
 if __name__ == "__main__":
     unittest.main()

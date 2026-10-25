@@ -37,7 +37,7 @@ final class PluginJson {
     // Mirrors mibsdk.api.SdkInfo.MIN_API_VERSION / API_VERSION (build-logic cannot depend on :api); the runtime's
     // ManifestParser enforces the same range and wording.
     static final int MIN_API = 1;
-    static final int MAX_API = 3;
+    static final int MAX_API = 4;
     // Mirrors the runtime's ManifestParser: icons arrived with api 3; at most 8 per plugin.
     static final int ICONS_API = 3;
     static final int MAX_ICONS = 8;

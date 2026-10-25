@@ -20,7 +20,7 @@ Usage (python3 -I tools/make_builtin_icons.py ...):
   (no option)          writes dist/icons/
   --icons DIR          writes the built-in set to DIR instead
   --fixtures DIR       writes the named PNG test vectors (build-logic/src/test/resources/png/; mibpkg copies them)
-  --plugin-sample DIR  writes hello-menu's hello.png (72x72) and hello-20.png (20x20)
+  --plugin-sample DIR  writes hello-menu's hello.png (72x72) and hello-20.png (20x20): half white, half blue
 """
 import math
 import os
@@ -31,6 +31,7 @@ import zlib
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SS = 4  # supersampling per axis for anti-aliased edges
 WHITE = (255, 255, 255)
+BLUE = (0, 0, 255)
 
 # ---------------------------------------------------------------------------------------------------------- deflate
 
@@ -252,10 +253,16 @@ GLYPHS = {
         rect(0.46, 0.72, 0.54, 0.92)),
 }
 
-def status(glyph):
-    """The 20x20 status glyph: drawn in an 18-px square centred vertically; the 2 right-most columns stay clear."""
-    px = render(20, 20, glyph, (0, 1, 18))
+def status(glyph, paint=lambda px: px):
+    """The 20x20 status glyph: drawn in an 18-px square centred vertically; the 2 right-most columns stay clear.
+    paint recolours the 20x20 render before the margin is cleared."""
+    px = paint(render(20, 20, glyph, (0, 1, 18)))
     return png(20, 20, [row[:18] + [WHITE + (0,)] * 2 for row in px])
+
+
+def blue_from(split):
+    """Paints every pixel at x >= split blue, keeping its alpha; the rest stays white."""
+    return lambda px: [[(BLUE if x >= split else p[:3]) + (p[3],) for x, p in enumerate(row)] for row in px]
 
 
 def builtin_icons():
@@ -269,9 +276,10 @@ def builtin_icons():
 
 
 def plugin_sample():
+    """hello-menu's ring-and-dot, white left of the glyph box's centre and blue right of it, so own colours show."""
     hello = union(ring(0.5, 0.5, 0.30, 0.44), circle(0.5, 0.5, 0.16))
-    return {"hello.png": png(72, 72, render(72, 72, hello)),
-            "hello-20.png": status(hello)}
+    return {"hello.png": png(72, 72, blue_from(36)(render(72, 72, hello))),
+            "hello-20.png": status(hello, blue_from(9))}  # the 18-px box's centre
 
 
 # --------------------------------------------------------------------------------------------------------- fixtures

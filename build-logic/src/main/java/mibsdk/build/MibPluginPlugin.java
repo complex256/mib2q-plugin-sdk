@@ -72,6 +72,7 @@ public class MibPluginPlugin implements Plugin<Project> {
                 t.getTransitiveLibs().from(retrotranslatorRuntime));
         project.getTasks().named("permissionScan", PermissionScanTask.class).configure(t -> {
             t.getFailOnFindings().set(manifest.map(m -> !m.unrestricted()));
+            t.getDeclaredApi().set(manifest.map(m -> m.api));
             t.getOwnClasses().from(main.getOutput().getClassesDirs());
         });
 

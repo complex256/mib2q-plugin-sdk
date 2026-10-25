@@ -36,7 +36,7 @@ public final class FakeUi {
     public List<String> carRows() {
         List<String> out = new ArrayList<String>();
         for (UiRow r : table.snapshot().carRows()) {
-            out.add(tag(r.icon()) + r.label());
+            out.add(tag(r.icon(), false) + r.label());
         }
         return out;
     }
@@ -50,17 +50,24 @@ public final class FakeUi {
     public List<String> statusParts() {
         List<String> out = new ArrayList<String>();
         for (UiStatusPart p : table.snapshot().statusParts()) {
-            out.add(tag(p.icon()) + p.text());
+            out.add(tag(p.icon(), true) + p.text());
         }
         return out;
     }
 
-    /** {@code "[<name>] "} for a stock icon, {@code "[png:<key>] "} for an installed one, {@code ""} for none. */
-    private static String tag(UiIcon i) {
+    /**
+     * {@code "[<name>] "} for a stock icon, {@code "[png:<key>] "} for an installed one, {@code ""} for none. In a status
+     * part an own-colour file icon reads {@code "[png:<key>+own] "}; a Car row never shows {@code +own}, because rows
+     * ignore the flag (the drawer draws every row icon in its own colours).
+     */
+    private static String tag(UiIcon i, boolean status) {
         if (i == null) {
             return "";
         }
-        return "[" + (i.kind() == UiIcon.FILE ? "png:" + i.key() : i.name()) + "] ";
+        if (i.kind() != UiIcon.FILE) {
+            return "[" + i.name() + "] ";
+        }
+        return "[png:" + i.key() + (status && i.ownColours() ? "+own" : "") + "] ";
     }
 
     /** {@link UiPageText#line} per entry; empty for an unknown page. */

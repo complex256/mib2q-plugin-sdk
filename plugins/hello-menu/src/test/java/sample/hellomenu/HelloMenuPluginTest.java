@@ -115,7 +115,9 @@ class HelloMenuPluginTest {
     private static final String PAGE = "hello-menu/fruits";
     private static final String ROW = "[png:" + BIG_SHA + "] Hello";
     private static final String ROW_STAR = "[star] Hello";
-    private static final String STATUS_PNG = "[png:" + SMALL_SHA + "] Hello";
+    /** The status icon starts in its own colours. */
+    private static final String STATUS_PNG = "[png:" + SMALL_SHA + "+own] Hello";
+    private static final String STATUS_TINTED = "[png:" + SMALL_SHA + "] Hello";
 
     @Test
     void carRowOpensListPage() throws Exception {
@@ -124,11 +126,11 @@ class HelloMenuPluginTest {
         ui.selectRow(ui.carRows().indexOf(ROW));
         await(() -> PAGE.equals(ui.openPageKey()), "page open");
         List<String> lines = ui.render(PAGE);
-        assertEquals(6, lines.size(), lines.toString());
+        assertEquals(7, lines.size(), lines.toString());
         assertTrue(lines.get(0).contains("Apple"), lines.toString());
         assertTrue(lines.get(1).contains("Pear"), lines.toString());
         assertTrue(lines.get(2).contains("Plum"), lines.toString());
-        assertTrue(lines.get(5).contains("Selected: <none>"), lines.toString());
+        assertTrue(lines.get(6).contains("Selected: <none>"), lines.toString());
     }
 
     @Test
@@ -136,7 +138,7 @@ class HelloMenuPluginTest {
         start(Features.SLOT_CAR_MENU, Features.UI_PAGES);
         await(() -> !ui.render(PAGE).isEmpty(), "page registered");
         ui.select(PAGE, "pear");
-        await(() -> ui.render(PAGE).get(5).contains("Selected: Pear"), "Selected: Pear");
+        await(() -> ui.render(PAGE).get(6).contains("Selected: Pear"), "Selected: Pear");
         rt.stop(); // flushes storage
         rt = null;
         Properties p = new Properties();
@@ -177,7 +179,7 @@ class HelloMenuPluginTest {
     void lastSelectionIsRestoredFromStorage() throws Exception {
         write(new File(FakePlatform.roots(tmp).persist(), "data/hello-menu.properties"), "last=plum\n");
         start(Features.SLOT_CAR_MENU, Features.UI_PAGES);
-        await(() -> ui.render(PAGE).size() > 5 && ui.render(PAGE).get(5).contains("Selected: Plum"),
+        await(() -> ui.render(PAGE).size() > 6 && ui.render(PAGE).get(6).contains("Selected: Plum"),
                 "Selected: Plum, restored: " + ui.render(PAGE));
     }
 
@@ -204,12 +206,51 @@ class HelloMenuPluginTest {
     }
 
     @Test
+    void statusIconIsOwnColoursAndToggles() throws Exception {
+        start(Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR, Features.UI_PAGES, Features.UI_ICONS);
+        await(() -> ui.statusParts().contains(STATUS_PNG), "own-colour status: " + ui.statusParts());
+        assertTrue(ui.carRows().contains(ROW), "the row ignores the colour: " + ui.carRows());
+        ui.select(PAGE, "status-colour");
+        await(() -> ui.statusParts().contains(STATUS_TINTED), "tinted status: " + ui.statusParts());
+        ui.select(PAGE, "status-colour");
+        await(() -> ui.statusParts().contains(STATUS_PNG), "own-colour status again: " + ui.statusParts());
+
+        ui.select(PAGE, "status-colour"); // tinted, then kept across disable/enable
+        await(() -> ui.statusParts().contains(STATUS_TINTED), "tinted status: " + ui.statusParts());
+        rt.reload("hello-menu");
+        await(() -> ui.statusParts().contains(STATUS_TINTED), "tinted after reload: " + ui.statusParts());
+        assertEquals("tinted", storedProperty("colour"));
+    }
+
+    private String storedProperty(String key) throws IOException {
+        rt.stop(); // flushes storage
+        rt = null;
+        Properties p = new Properties();
+        FileInputStream in = new FileInputStream(new File(FakePlatform.roots(tmp).persist(), "data/hello-menu.properties"));
+        try {
+            p.load(in);
+        } finally {
+            in.close();
+        }
+        return p.getProperty(key);
+    }
+
+    @Test
     void manifestDeclaresTheStatusbarPermission() throws Exception {
+        assertTrue(manifest().contains("\"ui.slot.statusbar\""), manifest());
+    }
+
+    @Test
+    void manifestIsApi4Version120() throws Exception {
+        String json = manifest();
+        assertTrue(json.contains("\"api\":4"), json);
+        assertTrue(json.contains("\"version\":\"1.2.0\""), json);
+    }
+
+    private static String manifest() throws IOException {
         try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(System.getProperty("mibsdk.pluginJar"))) {
             java.io.InputStream in = z.getInputStream(z.getEntry("plugin.json"));
-            String json = new String(in.readAllBytes(), "UTF-8");
-            assertTrue(json.contains("\"ui.slot.statusbar\""), json);
-            assertTrue(json.contains("\"api\":3"), json);
+            return new String(in.readAllBytes(), "UTF-8");
         }
     }
 

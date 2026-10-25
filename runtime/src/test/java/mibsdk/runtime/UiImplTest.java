@@ -601,4 +601,58 @@ class UiImplTest {
         assertNull(s.carRows().get(2).icon(), "not drawn without UI_ICONS");
         assertNull(s.statusParts().get(1).icon());
     }
+
+    @Test
+    void iconWithoutColourIsTinted() throws Exception {
+        File dir = installIcons("a", "hello=0123456789abcdef,72,72\n");
+        UiImpl a = ui("a", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        assertEquals(held(a.icon("hello")), held(a.icon("hello", Icon.TINTED)));
+        assertFalse(held(a.icon("hello")).ownColours());
+    }
+
+    @Test
+    void ownColoursKeepsTheKey() throws Exception {
+        File dir = installIcons("a", "hello=0123456789abcdef,72,72\n");
+        UiImpl a = ui("a", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        UiIcon own = held(a.icon("hello", Icon.OWN_COLOURS));
+        UiIcon tinted = held(a.icon("hello", Icon.TINTED));
+        assertTrue(own.ownColours());
+        assertEquals(tinted.key(), own.key());
+        assertEquals(tinted.owner(), own.owner());
+        assertFalse(own.equals(tinted));
+        assertEquals(own, held(a.icon("hello", Icon.OWN_COLOURS)));
+        assertEquals(1, Icon.OWN_COLOURS);
+        assertEquals(0, Icon.TINTED);
+
+        // declared but not installed: inert in both colours, one WARN
+        UiImpl b = ui("b", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        assertNull(held(b.icon("hello-20", Icon.OWN_COLOURS)));
+        assertNull(held(b.icon("hello-20", Icon.TINTED)));
+        assertEquals(1, warnings("hello-20"));
+    }
+
+    @Test
+    void unknownColourIsRefused() throws Exception {
+        File dir = installIcons("a", "hello=0123456789abcdef,72,72\n");
+        UiImpl a = ui("a", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        for (final int bad : new int[] {2, -1}) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> a.icon("hello", bad));
+            assertEquals("colour must be Icon.TINTED or Icon.OWN_COLOURS", e.getMessage());
+        }
+    }
+
+    @Test
+    void statusSetWithOtherColourIsASnapshotChange() throws Exception {
+        File dir = installIcons("a", "hello-20=fedcba9876543210,20,20\n");
+        UiImpl a = ui("a", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        StatusItem item = a.statusItem("Hello", a.icon("hello-20"));
+        UiSnapshot before = published();
+        assertFalse(before.statusParts().get(0).icon().ownColours());
+        item.set("Hello", a.icon("hello-20", Icon.OWN_COLOURS));
+        UiSnapshot after = published();
+        assertTrue(after.statusParts().get(0).icon().ownColours());
+        assertFalse(before.equals(after), "a new snapshot");
+        item.set("Hello");
+        assertTrue(published().statusParts().get(0).icon().ownColours(), "set(text) keeps the colour too");
+    }
 }

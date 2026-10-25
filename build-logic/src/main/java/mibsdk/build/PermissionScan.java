@@ -15,7 +15,8 @@ import org.objectweb.asm.Opcodes;
 /**
  * Finds calls that need {@code platform.unrestricted}: reflection, process execution, VM exit, native
  * loading, {@code Thread.stop} and raw sockets (plugins use {@code ctx.net()}). Ignores the {@code class$} helper javac emits for class literals
- * and, when given, the Kotlin stdlib classes shrunk into a plugin (see {@link #run(File, Set)}).
+ * and, when given, the Kotlin stdlib classes shrunk into a plugin (see {@link #run(File, Set)}). Also finds uses of API
+ * that needs a newer {@code "api"} than 1 ({@link Result#needsApi()}).
  */
 public final class PermissionScan {
     private PermissionScan() {}
@@ -46,17 +47,35 @@ public final class PermissionScan {
             "java/net/InetAddress.getAllByName",
             "javax/microedition/io/Connector.open");
 
+    /** {@code Ui.icon(String, int)}, the colour overload: api 4. */
+    private static final String UI = "mibsdk/api/Ui";
+    private static final String ICON_COLOUR = "icon";
+    private static final String ICON_COLOUR_DESC = "(Ljava/lang/String;I)Lmibsdk/api/Icon;";
+    private static final int ICON_COLOUR_API = 4;
+
     /** Outcome of a permission scan. */
     public static final class Result {
         private final List<String> findings;
+        private final List<String> apiFindings;
 
-        Result(List<String> findings) {
+        Result(List<String> findings, List<String> apiFindings) {
             this.findings = Collections.unmodifiableList(findings);
+            this.apiFindings = Collections.unmodifiableList(apiFindings);
         }
 
         /** Sorted {@code owner.method -> java/lang/reflect/Method.invoke} lines. */
         public List<String> findings() {
             return findings;
+        }
+
+        /** Sorted {@code owner.method -> Ui.icon(String,int)} lines: the sites that raise {@link #needsApi()}. */
+        public List<String> apiFindings() {
+            return apiFindings;
+        }
+
+        /** The lowest {@code "api"} these classes need: 4 if any calls {@code Ui.icon(String, int)}, else 1. */
+        public int needsApi() {
+            return apiFindings.isEmpty() ? 1 : ICON_COLOUR_API;
         }
     }
 
@@ -71,6 +90,7 @@ public final class PermissionScan {
      */
     public static Result run(File dirOrJar, Set<String> exemptKotlinStdlib) throws IOException {
         Set<String> findings = new TreeSet<String>();
+        Set<String> apiFindings = new TreeSet<String>();
         ClassSource.forEach(dirOrJar, e -> {
             if (e.name.startsWith("kotlin/") && exemptKotlinStdlib.contains(e.name)) {
                 return;
@@ -82,6 +102,9 @@ public final class PermissionScan {
                     return new MethodVisitor(Opcodes.ASM9) {
                         @Override
                         public void visitMethodInsn(int op, String owner, String n, String d, boolean itf) {
+                            if (owner.equals(UI) && n.equals(ICON_COLOUR) && d.equals(ICON_COLOUR_DESC)) {
+                                apiFindings.add(e.name + "." + name + " -> Ui.icon(String,int)");
+                            }
                             String target = owner + "." + n;
                             if (!RESTRICTED.contains(target)) {
                                 return;
@@ -95,6 +118,6 @@ public final class PermissionScan {
                 }
             }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         });
-        return new Result(new ArrayList<String>(findings));
+        return new Result(new ArrayList<String>(findings), new ArrayList<String>(apiFindings));
     }
 }
