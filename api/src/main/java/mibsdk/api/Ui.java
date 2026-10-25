@@ -76,7 +76,7 @@ public interface Ui {
      * {@code colour} throws {@link IllegalArgumentException}. Needs api 4. Status items honour it. Car rows ignore it:
      * the drawer draws plugin row icons in their own colours, so ship a white glyph for the stock look. Its
      * selected-row tint (the current screen's row, multiplied by the app colour) never applies to plugin rows on this
-     * HMI: a plugin page carries no drawer, so a plugin row is never the drawer's selected row.
+     * HMI (observed on the bench, C2): a plugin page carries no drawer, so a plugin row is never the drawer's selected row.
      *
      * @since api 4
      */

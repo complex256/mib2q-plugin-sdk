@@ -154,7 +154,7 @@ The look follows from the art:
 - a white glyph matches the stock rows;
 - a coloured PNG is drawn in its own colours (bench B3).
 
-**On this HMI a plugin drawer row is never the drawer's selected row** (bench finding C2,
+**On this HMI a plugin drawer row is never the drawer's selected row** (observed on the bench, finding C2,
 `docs/bench-e2e-icon-colour.md`). The selected row is the current screen's row, and a plugin page carries no drawer:
 on it `menu_left` does nothing, and `back` returns to Audi drive select, so the drawer always opens with a stock row
 selected. The knob focus does not tint. So the selected-row multiply in the table above never applies to plugin rows,
@@ -314,13 +314,13 @@ Icon icon(String name, int colour);   // icon(name) == icon(name, Icon.TINTED)
 | Status 1 vs 0 is unrelated to colour (status 1 draws bitmap 0) | proven (code, B2) |
 | `PartialPopupController.setColorPalettes` is a no-op; the plate is the screen's | proven (code) |
 | Plate entry 0 is white in every stock palette row | proven (all 7157 rows) |
-| `setColorIndices({1,0,4,0})` on a popup icon draws it in own colours | **[spike]** |
+| `setColorIndices({1,0,4,0})` on a popup icon draws it in own colours | verified: bench B1 |
 | Toggling own ↔ tinted on a built popup shows live after `setCompositesDirty(true)` | **no** (bench C1): it only marks the widgets dirty and nothing repaints them, because no model write follows. The fix (one `triggerRepaint` on the popup after a colour change) is verified on the bench (B2 re-run: the new colour is drawn 0.56–0.81 s after each press, both directions) |
 | Drawer rows: `Color` is white except on the selected row (app colour); the shader multiplies | proven (code + kzb shader) |
-| A coloured PNG on an unselected drawer row shows its own colours; on the selected row it is multiplied | own colours: bench B3. The selected row is never a plugin row on this HMI (bench C2), so the multiply is not seen |
+| A coloured PNG on an unselected drawer row shows its own colours; on the selected row it is multiplied | own colours: bench B3. The selected row is never a plugin row on this HMI (observed on the bench, C2), so the multiply is not seen |
 | No per-row reflection alpha; `reflectionStrength` is one value for the whole drawer | proven (code + kzb bindings) |
 | Stock reflections: pre-flipped, top band ≈20 rows, linear ramp ≈0.38 → 0 ending at row ≈57 | proven (125 stock images, 2 pairs fitted) |
-| A build-generated `.r` (the built-in transform) looks like the stock reflection on a plugin row | **[spike]** (the transform is proven for built-ins, I2) |
+| A build-generated `.r` (the built-in transform) looks like the stock reflection on a plugin row | verified: bench B3 (the transform is proven for built-ins, I2) |
 
 ## 7. Bench check (one boot)
 

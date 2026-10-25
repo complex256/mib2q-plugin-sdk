@@ -28,8 +28,8 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupController;
  * triggerRepaint). A colour-only change writes no model, so the next unrelated repaint drew it, and the press's own
  * repaint, which ran before the job, showed the previous value. So {@link HmiWidgets} calls {@link #redraw} once
  * after a pass that recoloured a cell. That is the popup's stock triggerRepaint: for a popup without a parent it is
- * the current screen's doCheckedRepaint (AbstractPartialPopupController.triggerRepaint). The fix still needs a bench
- * check.
+ * the current screen's doCheckedRepaint (AbstractPartialPopupController.triggerRepaint). The fix was verified on the bench
+ * (B2 re-run, docs/bench-e2e-icon-colour.md).
  *
  * <p>Built on HMIEvent by {@link SdkCarScreenFactory#getPartialPopup} with the bounds and id icons of {@link #wanted};
  * later changes come from {@link HmiWidgets} through {@link #current}. HMIEvent only, apart from the two volatile
@@ -205,7 +205,8 @@ final class SdkStatusPopup {
 
     /**
      * Asks the HMI to paint the dirty widgets now (the popup's stock triggerRepaint: the current screen's
-     * doCheckedRepaint, which waits for a running animation). Called once per HMI job, after {@link #icons} returned
+     * doCheckedRepaint: during an animation it registers the screen and the animation repaints it when it ends; otherwise
+     * it paints one frame synchronously, like stock does after a model update). Called once per HMI job, after {@link #icons} returned
      * true. HMIEvent.
      */
     void redraw() {
