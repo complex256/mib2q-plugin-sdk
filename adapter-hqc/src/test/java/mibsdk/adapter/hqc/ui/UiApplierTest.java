@@ -712,7 +712,7 @@ class UiApplierTest {
                 }
             };
         }
-        SdkStatusPopup p = new SdkStatusPopup(labels, idIcons, fileIcons);
+        SdkStatusPopup p = new SdkStatusPopup(labels, idIcons, fileIcons, null);
         SdkStatusPopup.current = p;
         return p;
     }

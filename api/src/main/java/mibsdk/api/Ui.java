@@ -74,8 +74,9 @@ public interface Ui {
     /**
      * {@link #icon(String)} drawn either {@link Icon#TINTED} or in its {@link Icon#OWN_COLOURS}; any other
      * {@code colour} throws {@link IllegalArgumentException}. Needs api 4. Status items honour it. Car rows ignore it:
-     * the drawer draws every row icon in its own colours and multiplies the selected row by the app colour, so ship a
-     * white glyph for the stock look.
+     * the drawer draws plugin row icons in their own colours, so ship a white glyph for the stock look. Its
+     * selected-row tint (the current screen's row, multiplied by the app colour) never applies to plugin rows on this
+     * HMI: a plugin page carries no drawer, so a plugin row is never the drawer's selected row.
      *
      * @since api 4
      */

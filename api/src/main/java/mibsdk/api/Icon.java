@@ -16,7 +16,8 @@ public interface Icon {
     int TINTED = 0;
 
     /**
-     * Drawn in the PNG's own colours.
+     * Drawn in the PNG's own colours. Status items only: Car rows always draw their icon in its own colours, whatever
+     * the flag, and a plugin row is never the drawer's selected (tinted) row on this HMI.
      *
      * @since api 4
      */

@@ -4,6 +4,7 @@ import de.audi.atip.base.IFrameworkAccess;
 import de.audi.atip.hmi.view.HMIView;
 import de.audi.atip.hmi.view.IPartialPopupController;
 import de.audi.tghu.system.hmi.evohigh.FontFactory;
+import de.esolutions.hmi.widgets.audi.base.AbstractWidget;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.IconRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.LabelRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.PartialPopupRendererHigh;
@@ -20,6 +21,15 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupController;
  * with the app colour (bench B10, no colour indices) or, when the cell's {@link StatusLayout.Cell#ownColours} is set,
  * drawn in their own colours ({@link HqcUiIds#STATUS_ICON_OWN_COLOURS}); a rebuilt popup applies it from
  * {@link #wanted} like the id icons.
+ *
+ * <p>A colour change on a built popup needs a repaint (bench C1). The HMI job only marks the icons dirty
+ * (AbstractWidget.setInvalid stores a bit and marks the parent). The HMI paints only when something asks for a
+ * repaint, which is mostly a consumed model update (AbstractScreenWidget.processModelUpdateEvent →
+ * triggerRepaint). A colour-only change writes no model, so the next unrelated repaint drew it, and the press's own
+ * repaint, which ran before the job, showed the previous value. So {@link HmiWidgets} calls {@link #redraw} once
+ * after a pass that recoloured a cell. That is the popup's stock triggerRepaint: for a popup without a parent it is
+ * the current screen's doCheckedRepaint (AbstractPartialPopupController.triggerRepaint). The fix still needs a bench
+ * check.
  *
  * <p>Built on HMIEvent by {@link SdkCarScreenFactory#getPartialPopup} with the bounds and id icons of {@link #wanted};
  * later changes come from {@link HmiWidgets} through {@link #current}. HMIEvent only, apart from the two volatile
@@ -39,15 +49,19 @@ final class SdkStatusPopup {
     private final LabelController[] labels;
     private final IconController[] idIcons;
     private final IconController[] fileIcons;
+    /** The popup controller {@link #redraw} asks for a repaint; null in host tests that need none. */
+    private final AbstractWidget popup;
 
     /**
      * {@code labels}: the indicator label, then one per cell; {@code idIcons} and {@code fileIcons}: one per cell
-     * ({@link HqcUiIds#STATUS_CELLS}).
+     * ({@link HqcUiIds#STATUS_CELLS}); {@code popup}: the popup controller that holds them, or null.
      */
-    SdkStatusPopup(LabelController[] labels, IconController[] idIcons, IconController[] fileIcons) {
+    SdkStatusPopup(LabelController[] labels, IconController[] idIcons, IconController[] fileIcons,
+            AbstractWidget popup) {
         this.labels = labels;
         this.idIcons = idIcons;
         this.fileIcons = fileIcons;
+        this.popup = popup;
     }
 
     /** Builds the popup from {@link #wanted} and makes it {@link #current}. Throws on any failure (the caller logs). */
@@ -84,12 +98,11 @@ final class SdkStatusPopup {
             files[i] = icon();
             files[i].setModelID(HqcUiIds.STATUS_FILE_ICON_MODEL_1 + i);
         }
-        SdkStatusPopup s = new SdkStatusPopup(labels, ids, files);
+        PartialPopupController p = new PartialPopupController(HqcUiIds.POPUP_SDK_STATUS);
+        SdkStatusPopup s = new SdkStatusPopup(labels, ids, files, p);
         StatusLayout l = wanted;
         s.place(l);
-        s.icons(l, StatusLayout.EMPTY);
-
-        PartialPopupController p = new PartialPopupController(HqcUiIds.POPUP_SDK_STATUS);
+        s.icons(l, StatusLayout.EMPTY); // no redraw: the popup is not shown yet, and showing it paints it
         p.setScreenFactory(f);
         PartialPopupRendererHigh pR = new PartialPopupRendererHigh(p);
         p.setRenderer(pR);
@@ -170,9 +183,10 @@ final class SdkStatusPopup {
      * Sets the id icon of each cell whose built-in icon differs from {@code last}: its image id, or an empty array (no
      * icon), and marks it for a redraw. Of each cell whose colour flag differs from {@code last}, sets both icons'
      * colour indices ({@link HqcUiIds#STATUS_ICON_OWN_COLOURS} for own colours, null for tinted) and marks both for a
-     * redraw. HMIEvent.
+     * redraw. Returns true if a colour changed: the caller then calls {@link #redraw}. HMIEvent.
      */
-    void icons(StatusLayout l, StatusLayout last) {
+    boolean icons(StatusLayout l, StatusLayout last) {
+        boolean recoloured = false;
         for (int i = 0; i < idIcons.length; i++) {
             StatusLayout.Cell c = l.cell(i);
             int id = c.stockIconId;
@@ -183,11 +197,24 @@ final class SdkStatusPopup {
             if (c.ownColours != last.cell(i).ownColours) {
                 colours(idIcons[i], c.ownColours);
                 colours(fileIcons[i], c.ownColours);
+                recoloured = true;
             }
+        }
+        return recoloured;
+    }
+
+    /**
+     * Asks the HMI to paint the dirty widgets now (the popup's stock triggerRepaint: the current screen's
+     * doCheckedRepaint, which waits for a running animation). Called once per HMI job, after {@link #icons} returned
+     * true. HMIEvent.
+     */
+    void redraw() {
+        if (popup != null) {
+            popup.triggerRepaint();
         }
     }
 
-    /** Own colours (plate entry 0) or tinted (no indices: the renderer's tint), redrawn now. */
+    /** Own colours (plate entry 0) or tinted (no indices: the renderer's tint), marked for the next paint. */
     private static void colours(IconController icon, boolean own) {
         icon.setColorIndices(own ? HqcUiIds.STATUS_ICON_OWN_COLOURS : null);
         icon.setCompositesDirty(true);

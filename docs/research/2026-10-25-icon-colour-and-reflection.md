@@ -152,8 +152,13 @@ gl_FragColor.a   = lookup.a * BlendIntensity;
 
 The look follows from the art:
 - a white glyph matches the stock rows;
-- a coloured PNG is drawn in its own colours, multiplied by the app colour while it is the selected row **[spike]**
-  (the shader is plain, but no coloured drawer icon has been seen on screen).
+- a coloured PNG is drawn in its own colours (bench B3).
+
+**On this HMI a plugin drawer row is never the drawer's selected row** (bench finding C2,
+`docs/bench-e2e-icon-colour.md`). The selected row is the current screen's row, and a plugin page carries no drawer:
+on it `menu_left` does nothing, and `back` returns to Audi drive select, so the drawer always opens with a stock row
+selected. The knob focus does not tint. So the selected-row multiply in the table above never applies to plugin rows,
+and a plugin row icon always shows in its own colours.
 
 A per-icon tint flag therefore **has no effect on the drawer**, and the API should say so.
 
@@ -310,9 +315,9 @@ Icon icon(String name, int colour);   // icon(name) == icon(name, Icon.TINTED)
 | `PartialPopupController.setColorPalettes` is a no-op; the plate is the screen's | proven (code) |
 | Plate entry 0 is white in every stock palette row | proven (all 7157 rows) |
 | `setColorIndices({1,0,4,0})` on a popup icon draws it in own colours | **[spike]** |
-| Toggling own ↔ tinted on a built popup shows live after `setCompositesDirty(true)` | **[spike]** |
+| Toggling own ↔ tinted on a built popup shows live after `setCompositesDirty(true)` | **no** (bench C1): it only marks the widgets dirty and nothing repaints them, because no model write follows. The fix (one `triggerRepaint` on the popup after a colour change) is pending bench verification |
 | Drawer rows: `Color` is white except on the selected row (app colour); the shader multiplies | proven (code + kzb shader) |
-| A coloured PNG on an unselected drawer row shows its own colours; on the selected row it is multiplied | **[spike]** |
+| A coloured PNG on an unselected drawer row shows its own colours; on the selected row it is multiplied | own colours: bench B3. The selected row is never a plugin row on this HMI (bench C2), so the multiply is not seen |
 | No per-row reflection alpha; `reflectionStrength` is one value for the whole drawer | proven (code + kzb bindings) |
 | Stock reflections: pre-flipped, top band ≈20 rows, linear ramp ≈0.38 → 0 ending at row ≈57 | proven (125 stock images, 2 pairs fitted) |
 | A build-generated `.r` (the built-in transform) looks like the stock reflection on a plugin row | **[spike]** (the transform is proven for built-ins, I2) |
@@ -328,5 +333,5 @@ black and the white half red. In own colours they stay blue and white.
 | B1 | Two status items: `icon("hello-20", OWN_COLOURS)` and `icon("hello-20")`; frames on Car and on Media | own: white/blue on both; tinted: red/black on Car, yellow/black on Media. Built-in cross on daemon-status unchanged (tinted) |
 | B2 | "Toggle colour" button on the Hello page flips item 1 between tinted and own while the popup is up | the cell changes within a second, no screen change needed (if not: fall back to `processStateChange` at build and rebuild the popup on a change) |
 | B3 | Car → drawer, Hello row with `hello` (own colours irrelevant) and its build `.r`; zoomed crop beside a stock row | icon white/blue; reflection faded (no "8"), opacity close to the stock rows' |
-| B4 | Open the Hello page from the drawer, then open the drawer again (the Hello row is now selected) | the Hello icon and its reflection are multiplied by red: blue half almost black |
+| B4 | Open the Hello page from the drawer, then open the drawer again (the Hello row is now selected) | the Hello icon and its reflection are multiplied by red: blue half almost black. **Not reachable on this HMI** (C2): a plugin row is never the selected row |
 | B5 | Optional: `mibpkg` host dry run with an old SDK runtime index reader (host test, not on the unit) | `<name>.r` ignored, row falls back to `{id, id}` |

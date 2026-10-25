@@ -11,8 +11,10 @@ import mibsdk.adapter.hqc.SdkGlobals;
  * {@code SdkGlobals.uiSlots} itself ({@link SdkCarScreenFactory}).
  *
  * <p>The status popup ({@link SdkStatusPopup#current}, once built) gets its cells' bounds when the layout's geometry
- * changed, and the id bitmaps of each cell whose built-in icon changed (so a same-length swap of icons is drawn). A
- * popup built later starts from {@link SdkStatusPopup#wanted} itself.
+ * changed, the id bitmaps of each cell whose built-in icon changed (so a same-length swap of icons is drawn), and the
+ * colour indices of each cell whose colour flag changed. After a colour change it asks for one repaint
+ * ({@link SdkStatusPopup#redraw}), because no model write follows it (bench C1). A popup built later starts from
+ * {@link SdkStatusPopup#wanted} itself.
  *
  * <p>The main menu's Plugins row ({@code SdkGlobals.mainMenuRow}, read from SdkGlobals so no System factory class is
  * loaded) gets {@code setVisible} when its wanted visibility changed or screen 46 was rebuilt with a new row; per Boot B
@@ -111,8 +113,8 @@ final class HmiWidgets {
             if (!want.sameGeometry(last)) {
                 p.place(want);
             }
-            if (!want.sameIcons(last)) {
-                p.icons(want, last);
+            if (!want.sameIcons(last) && p.icons(want, last)) {
+                p.redraw(); // once per job: a colour change writes no model, so nothing else repaints it (C1)
             }
         } catch (Throwable t) {
             // the popup keeps its bounds and icons; the rows go on
