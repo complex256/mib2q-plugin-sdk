@@ -26,6 +26,7 @@ class SdkStatusPopupTest {
 
     private IconController[] ids;
     private IconController[] files;
+    private LabelController[] labels;
     private SdkStatusPopup popup;
     /** How often the popup asked the HMI for a repaint (stock AbstractPartialPopupController.triggerRepaint). */
     private int repaints;
@@ -48,7 +49,12 @@ class SdkStatusPopupTest {
             p.add(ids[i]);
             p.add(files[i]);
         }
-        popup = new SdkStatusPopup(new LabelController[HqcUiIds.STATUS_CELLS + 1], ids, files, p);
+        labels = new LabelController[HqcUiIds.STATUS_CELLS + 1];
+        for (int i = 0; i < labels.length; i++) {
+            labels[i] = new LabelController();
+            p.add(labels[i]);
+        }
+        popup = new SdkStatusPopup(labels, ids, files, p);
     }
 
     @AfterEach
@@ -154,7 +160,26 @@ class SdkStatusPopupTest {
         applyAfter(layout("A", true, false), layout("A", true, false));
         assertEquals(0, repaints, "nothing changed");
 
-        applyAfter(layout("A", true, false), layout("A longer label", true, false));
-        assertEquals(0, repaints, "a text change repaints through its own label model write");
+        applyAfter(layout("A", true, false), layout("Z", true, false));
+        assertEquals(0, repaints, "a same-length text change repaints through its own label model write");
+    }
+
+    /**
+     * The line is packed to the right edge (bench B9), so a text-length change moves every cell, the indicators too.
+     * setBounds only stores the bounds, and the label's model write may paint before the job: the job repaints once.
+     */
+    @Test
+    void geometryChangeMovesTheCellsAndRepaintsOncePerJob() {
+        StatusLayout shorter = layout("A", false, false);
+        StatusLayout longer = layout("A longer", false, false);
+        applyAfter(shorter, longer);
+        assertEquals(1, repaints, "the moved group is drawn now");
+        assertEquals(longer.cell(0).iconX, files[0].getX(), "the first icon moved");
+        assertEquals(longer.cell(1).labelX, labels[2].getX(), "the last label stays at the right edge");
+        assertEquals(shorter.cell(1).labelX, longer.cell(1).labelX);
+        assertTrue(longer.cell(0).iconX < shorter.cell(0).iconX, "the group grew to the left");
+
+        applyAfter(layout("A", false, false), layout("A longer", true, false));
+        assertEquals(1, repaints, "a move and a colour change in one job: one repaint");
     }
 }
