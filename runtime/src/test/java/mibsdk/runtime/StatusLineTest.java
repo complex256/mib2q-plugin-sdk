@@ -227,4 +227,32 @@ class StatusLineTest {
         assertEquals(StatusLine.line(ind, without, 16), StatusLine.line(ind, with, 16));
         assertEquals("SAFE TS... RACK", StatusLine.line(Arrays.asList("SAFE"), with, 16));
     }
+
+    /** Fix round 1 (Task 3): an icon never costs an indicator; parts and line keep the same indicators. */
+    @Test
+    void iconsNeverChangeWhichIndicatorsShow() {
+        UiIcon i = UiIcon.stock("star");
+        List<String> ind = Arrays.asList("SAFE", "OVR fan");
+        List<StatusLine.Item> one = Arrays.asList(new StatusLine.Item("a", "RACKSX", i));
+        assertEquals("SAFE OVR fan RACKSX", StatusLine.line(ind, one, 20));
+        assertEquals("SAFE OVR fan", StatusLine.parts(ind, one, 20).get(0).text());
+        List<String> many = Arrays.asList("SAFE", "PDC R OFF", "OVR alpha", "OVR fan", "OVR seat");
+        List<StatusLine.Item> two = Arrays.asList(new StatusLine.Item("a", "TS up", i),
+                new StatusLine.Item("b", "RACK up MQ", i));
+        for (int max = StatusLine.MIN_LINE_CHARS; max <= 40; max++) {
+            for (List<String> d : Arrays.asList(ind, many)) {
+                for (List<StatusLine.Item> items : Arrays.asList(one, two)) {
+                    List<StatusLine.Item> plain = new java.util.ArrayList<StatusLine.Item>();
+                    for (StatusLine.Item it : items) {
+                        plain.add(new StatusLine.Item(it.owner, it.text));
+                    }
+                    List<UiStatusPart> p = StatusLine.parts(d, items, max);
+                    List<UiStatusPart> lineParts = StatusLine.parts(d, plain, max); // what line() joins
+                    assertTrue(p.get(0).indicator() && lineParts.get(0).indicator(), "max " + max);
+                    assertEquals(lineParts.get(0).text(), p.get(0).text(), "max " + max);
+                    assertTrue(StatusLine.line(d, items, max).startsWith(p.get(0).text()), "max " + max);
+                }
+            }
+        }
+    }
 }

@@ -16,9 +16,10 @@ import mibsdk.platform.UiText;
  * <p>Priority: {@code SAFE} first, then {@code PDC R OFF}, then the other overrides. {@code SAFE} and
  * {@code PDC R OFF} are safety indicators and must show ({@link #isMustShow}): they are never dropped for plugin items
  * and never hide each other. The other ({@code OVR ...}) indicators never crowd out the plugin items: while there are
- * items, all indicators together get at most the line minus the items' reserve (the items' joined length plus a
- * space, at most half the line), and an {@code OVR} one that would exceed that is dropped (the SDK page lists every
- * override).
+ * items, all indicators together get at most the line minus the items' reserve (the items' joined text length,
+ * icons not counted, plus a space, at most half the line), and an {@code OVR} one that would exceed that is dropped
+ * (the SDK page lists every override). So an icon never changes which indicators show: {@link #parts} keeps the same
+ * ones as {@link #line}.
  *
  * <p>Fair share: the items share what the indicators leave (if nothing is left, no item shows), max-min fair ({@link #shares}), so no plugin's item
  * crowds out another's. The caller passes them in the user's order ({@link #order}) with hidden ones left out.
@@ -178,7 +179,7 @@ final class StatusLine {
         }
         int joined = 0;
         for (int i = 0; i < it.size(); i++) {
-            joined += (i > 0 ? 1 : 0) + it.get(i).width();
+            joined += (i > 0 ? 1 : 0) + it.get(i).text.length(); // icons not counted: they never cost an indicator
         }
         int reserve = it.isEmpty() ? 0 : Math.min(joined + 1, maxChars / 2);
         int budget = maxChars - reserve;
