@@ -42,7 +42,8 @@ final class SdkSystemScreenFactory extends SystemScreenFactory {
 
     /**
      * Screen 46 ({@code s}, just built by stock) with the Plugins row appended to its wizard; or, on any failure, a
-     * stock screen 46 and the state FAILED. Already FAILED: {@code s} untouched. Never throws.
+     * stock screen 46 and the state FAILED. Already FAILED (also when another build of screen 46 failed while this one
+     * ran): {@code s} without the SDK row, state untouched. Never throws.
      */
     Screen withPluginsRow(Screen s, int terminal) {
         MainWizardController w = null;
@@ -55,14 +56,15 @@ final class SdkSystemScreenFactory extends SystemScreenFactory {
             if (w == null) {
                 throw new IllegalStateException("screen 46 has no MainWizardController");
             }
-            row = appendRow(w);
+            row = newRow(w);
+            w.add(row); // row is recorded first: if add throws after inserting it, the fallback still removes it
             if ("screen".equals(SdkGlobals.uiForceFail)) {
                 throw new IllegalStateException("forced failure: screen");
             }
-            SdkGlobals.mainMenuRow = row;
-            SdkGlobals.mainMenuWizard = w;
-            SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_ACTIVE;
-            return s;
+            if (publish(row, w)) {
+                return s;
+            }
+            return stockScreen(s, w, row, terminal); // another build failed meanwhile: FAILED stays, no row
         } catch (Throwable t) {
             failed(t);
             return stockScreen(s, w, row, terminal);
@@ -70,11 +72,11 @@ final class SdkSystemScreenFactory extends SystemScreenFactory {
     }
 
     /**
-     * Appends the Plugins row to {@code w}, styled as its last stock row (colour indices, glass-plate insets), and
-     * returns it. Throws if {@code w} has no stock row. Called only inside {@link #withPluginsRow}'s catch of
-     * Throwable (and by tests).
+     * The Plugins row for {@code w}, styled as its last stock row (colour indices, glass-plate insets); not added yet.
+     * Throws if {@code w} has no stock row. Called only inside {@link #withPluginsRow}'s catch of Throwable (and by
+     * tests).
      */
-    MenuItemController appendRow(MainWizardController w) {
+    MenuItemController newRow(MainWizardController w) {
         MenuItemController ref = null;
         List children = w.getChildren();
         for (int i = 0; children != null && i < children.size(); i++) {
@@ -99,16 +101,37 @@ final class SdkSystemScreenFactory extends SystemScreenFactory {
         m.setInternalID(HqcUiIds.MAIN_MENU_INTERNAL_ID);
         m.setKeyHandler(new MainMenuKeyHandler());
         m.setVisible(!SdkGlobals.uiDown);
-        w.add(m);
         return m;
     }
 
-    /** FAILED for the boot: the refs first, so nobody sees FAILED with a row still published. Never throws. */
+    /**
+     * Re-checks FAILED and publishes the refs and ACTIVE as one critical section with {@link #failed}'s writes, so two
+     * builds of screen 46 at once can neither overwrite FAILED with ACTIVE nor leave FAILED with refs set. False if
+     * FAILED: nothing written. Field writes only, no I/O; called inside {@link #withPluginsRow}'s catch of Throwable.
+     */
+    private static boolean publish(MenuItemController row, MainWizardController w) {
+        synchronized (SdkSystemScreenFactory.class) {
+            if (SdkGlobals.mainMenu == SdkGlobals.MAIN_MENU_FAILED) {
+                return false;
+            }
+            SdkGlobals.mainMenuRow = row;
+            SdkGlobals.mainMenuWizard = w;
+            SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_ACTIVE;
+            return true;
+        }
+    }
+
+    /**
+     * FAILED for the boot: the refs first, so nobody sees FAILED with a row still published; the writes in the same
+     * critical section as {@link #publish}, the log line outside it. Never throws.
+     */
     private static void failed(Throwable cause) {
         try {
-            SdkGlobals.mainMenuRow = null;
-            SdkGlobals.mainMenuWizard = null;
-            SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_FAILED;
+            synchronized (SdkSystemScreenFactory.class) {
+                SdkGlobals.mainMenuRow = null;
+                SdkGlobals.mainMenuWizard = null;
+                SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_FAILED;
+            }
             SdkGlobals.LOG.append("ERROR", SOURCE, "ui main menu failed, screen 46 stock for this boot: " + cause);
         } catch (Throwable ignored) {
             // the stock screen below is all that matters

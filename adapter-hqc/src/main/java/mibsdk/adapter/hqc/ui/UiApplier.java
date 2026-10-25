@@ -28,7 +28,7 @@ import mibsdk.runtime.RingLog;
  * <li>rows: writes changed row visibility through {@code rows}, only while {@code SdkGlobals.uiRowModels} exists, and
  * every slot again when those models first appear (the drawer is built on HMIEvent, at a time of the HMI's
  * choosing). Slot 0, the Plugins row, is wanted visible only while the main menu has no Plugins row of its own
- * ({@code SdkGlobals.drawerPluginsRowWanted()}: the takeover is OFF or FAILED), evaluated on every pass, so a main
+ * ({@code SdkGlobals.drawerPluginsRowWanted()}: the takeover is not ACTIVE), evaluated on every pass, so a main
  * menu that fails after the drawer hid its row brings the row back within {@link #AWAIT_MS}. This phase also
  * publishes the main menu's Plugins row into the wanted {@link HmiWidgetState}: visible iff not down and the main
  * menu is ACTIVE;</li>

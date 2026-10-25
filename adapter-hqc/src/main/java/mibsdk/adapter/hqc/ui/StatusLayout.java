@@ -7,9 +7,9 @@ import mibsdk.platform.UiStatusPart;
 /**
  * Where each piece of the status line goes in popup {@link HqcUiIds#POPUP_SDK_STATUS}: the indicator label, then up to
  * {@link HqcUiIds#STATUS_CELLS} cells (an optional icon, then a label), on the same character grid the runtime cut the
- * line to ({@link HqcUiIds#STATUS_CHAR_PX} per character, an icon {@link HqcUiIds#STATUS_ICON_PX}). Immutable: built on
- * {@code mibsdk-ui} ({@link #of} gives built-in icons their image ids), read on HMIEvent by {@link HmiWidgets} and
- * {@link SdkStatusPopup}.
+ * line to ({@link HqcUiIds#STATUS_CHAR_PX} per character, an icon {@link HqcUiIds#STATUS_ICON_ADVANCE_PX}).
+ * Immutable: built on {@code mibsdk-ui} ({@link #of} gives built-in icons their image ids), read on HMIEvent by
+ * {@link HmiWidgets} and {@link SdkStatusPopup}.
  */
 final class StatusLayout {
 
@@ -81,7 +81,7 @@ final class StatusLayout {
             UiIcon icon = ind ? null : p.icon();
             int iconX = x;
             if (icon != null) {
-                x += HqcUiIds.STATUS_ICON_PX;
+                x += HqcUiIds.STATUS_ICON_ADVANCE_PX;
             }
             int labelX = x;
             int labelW = Math.max(0, HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX - x);

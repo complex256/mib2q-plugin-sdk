@@ -173,7 +173,7 @@ final class SdkCarModelBank extends CarModelBank {
                 int slot = id - HqcUiIds.ROW_VISIBILITY_MODEL_0;
                 DrawerAssignment slots = SdkGlobals.uiSlots;
                 // The Plugins row is visible from the start, unless the SDK UI was already taken down or the MENU
-                // ring has (or is getting) its own Plugins row.
+                // ring has its own Plugins row (ACTIVE).
                 boolean visible = slot == 0 ? !SdkGlobals.uiDown && SdkGlobals.drawerPluginsRowWanted()
                         : slots != null && slots.visibleAt(slot);
                 m.setValue(visible ? 0 : 1);

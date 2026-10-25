@@ -121,10 +121,16 @@ public final class HqcUiIds {
     /** What an icon takes of its item's width, in characters: the runtime's {@code StatusLine.ICON_CHARS}. */
     public static final int STATUS_ICON_CHARS = 2;
     /**
-     * An icon's cell: {@link #STATUS_ICON_CHARS} characters, 20 px. The built-in {@code -20} glyphs carry their own
-     * 2-px right margin as the gap before the text.
+     * The status icon glyph, 20 px square: the built-in {@code <name>-20} lookup and the icon bounds. A literal, never
+     * derived from {@link #STATUS_CHAR_PX}: retuning that must not ask for a glyph size that does not exist. The
+     * built-in {@code -20} glyphs carry their own 2-px right margin as the gap before the text.
      */
-    public static final int STATUS_ICON_PX = STATUS_ICON_CHARS * STATUS_CHAR_PX;
+    public static final int STATUS_ICON_PX = 20;
+    /**
+     * How far an icon moves its item's text: {@link #STATUS_ICON_CHARS} characters, as the runtime cut the text for
+     * it. Layout only; follows {@link #STATUS_CHAR_PX}.
+     */
+    public static final int STATUS_ICON_ADVANCE_PX = STATUS_ICON_CHARS * STATUS_CHAR_PX;
 
     /**
      * SDK image ids (Car module, {@code id / 100000 == CAR_MODULE}), served by {@code SdkCarScreenFactory.getImagePath}

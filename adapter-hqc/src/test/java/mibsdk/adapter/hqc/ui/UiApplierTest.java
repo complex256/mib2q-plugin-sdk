@@ -874,7 +874,12 @@ class UiApplierTest {
         publish("", "plugins");
         SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_PENDING;
         applier.step(0); // snapshot with the Plugins row
-        assertTrue(writes.contains("row0=off")); // hidden: the MENU ring has it
+        assertTrue(writes.contains("row0=on"), "PENDING: the drawer keeps it until screen 46 has the row");
+        writes.clear();
+        SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_ACTIVE; // screen 46 built with the SDK row
+        applier.step(0);
+        assertEquals(Arrays.asList("row0=off"), rowWrites()); // hidden: the MENU ring has it
+        sink.runHeld(); // the main-menu row's job
         writes.clear();
         SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_FAILED; // screen 46 threw: refs cleared, ring stock
         applier.step(0); // no new snapshot needed

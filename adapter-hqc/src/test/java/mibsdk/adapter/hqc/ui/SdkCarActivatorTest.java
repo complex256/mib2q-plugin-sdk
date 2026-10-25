@@ -263,16 +263,16 @@ class SdkCarActivatorTest {
         assertEquals(1, model(down, HqcUiIds.ROW_VISIBILITY_MODEL_0).getValue(), "hidden once torn down");
     }
 
-    /** Task 7: while the MENU ring has (or is getting) the Plugins row, a drawer built from scratch starts without it. */
+    /** Task 7: only while the MENU ring has the Plugins row (ACTIVE) does a drawer built from scratch start without it. */
     @Test
-    void slot0StartsHiddenWhileTheMainMenuIsActive() throws Exception {
+    void slot0StartsHiddenOnlyWhileTheMainMenuIsActive() throws Exception {
         SdkGlobals.uiEnabled = true;
         SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_ACTIVE;
         assertEquals(1, model((SdkCarModelBank) bankOf(new SdkCarActivator()), HqcUiIds.ROW_VISIBILITY_MODEL_0)
                 .getValue(), "ACTIVE: hidden");
         SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_PENDING;
-        assertEquals(1, model((SdkCarModelBank) bankOf(new SdkCarActivator()), HqcUiIds.ROW_VISIBILITY_MODEL_0)
-                .getValue(), "PENDING: hidden");
+        assertEquals(0, model((SdkCarModelBank) bankOf(new SdkCarActivator()), HqcUiIds.ROW_VISIBILITY_MODEL_0)
+                .getValue(), "PENDING: visible, screen 46 may never be built through the SDK factory");
         SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_FAILED;
         assertEquals(0, model((SdkCarModelBank) bankOf(new SdkCarActivator()), HqcUiIds.ROW_VISIBILITY_MODEL_0)
                 .getValue(), "FAILED: the drawer row is back");

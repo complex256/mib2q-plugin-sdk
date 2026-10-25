@@ -146,7 +146,7 @@ class SdkSystemActivatorTest {
         SdkSystemActivator a = activator();
         assertEquals(SdkSystemScreenFactory.class, a.factoryForTests().getClass());
         assertEquals(SdkGlobals.MAIN_MENU_PENDING, SdkGlobals.mainMenu);
-        assertFalse(SdkGlobals.drawerPluginsRowWanted(), "the Car drawer leaves Plugins to the main menu");
+        assertTrue(SdkGlobals.drawerPluginsRowWanted(), "PENDING: the Car drawer keeps Plugins until screen 46 has it");
         assertSame(a.factoryForTests(), a.factoryForTests());
         List<String> lines = statusLines("ui system=sdk");
         assertEquals(before + 1, lines.size());
@@ -154,16 +154,19 @@ class SdkSystemActivatorTest {
         assertTrue(a.getConditionBank() != null);
     }
 
-    /** The values Task 7 reads: the Car drawer keeps its Plugins row only while the takeover is OFF or FAILED. */
+    /**
+     * The values Task 7 reads: only ACTIVE hides the Car drawer's Plugins row. A PENDING that never moves on (screen
+     * 46 never built through the SDK factory) must not lock the user out of Plugins.
+     */
     @Test
-    void drawerPluginsRowWantedOnlyWhileTheMainMenuIsOffOrFailed() {
+    void drawerPluginsRowHiddenOnlyWhileTheMainMenuIsActive() {
         assertEquals(0, SdkGlobals.MAIN_MENU_OFF);
         assertEquals(1, SdkGlobals.MAIN_MENU_PENDING);
         assertEquals(2, SdkGlobals.MAIN_MENU_ACTIVE);
         assertEquals(3, SdkGlobals.MAIN_MENU_FAILED);
         int[] states = {SdkGlobals.MAIN_MENU_OFF, SdkGlobals.MAIN_MENU_PENDING, SdkGlobals.MAIN_MENU_ACTIVE,
             SdkGlobals.MAIN_MENU_FAILED};
-        boolean[] wanted = {true, false, false, true};
+        boolean[] wanted = {true, true, false, true};
         for (int i = 0; i < states.length; i++) {
             SdkGlobals.mainMenu = states[i];
             assertEquals(wanted[i], SdkGlobals.drawerPluginsRowWanted(), "state " + states[i]);

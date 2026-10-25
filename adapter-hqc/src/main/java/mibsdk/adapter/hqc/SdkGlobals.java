@@ -97,7 +97,9 @@ public final class SdkGlobals {
      * <li>{@code PENDING or ACTIVE -> FAILED}: adding the row threw (or the forced failure {@code screen}); screen 46
      * is stock and both refs are null (cleared before the state is written). FAILED is sticky for the boot.</li>
      * </ul>
-     * The Car drawer shows its own Plugins row only while the state is OFF or FAILED ({@link #drawerPluginsRowWanted}).
+     * The Car drawer hides its own Plugins row only while the state is ACTIVE ({@link #drawerPluginsRowWanted}): a
+     * PENDING that never moves on (screen 46 never built through the SDK factory) must not lock the user out of
+     * Plugins.
      */
     public static final int MAIN_MENU_OFF = 0;
     public static final int MAIN_MENU_PENDING = 1;
@@ -123,10 +125,12 @@ public final class SdkGlobals {
      */
     public static volatile String uiForceFail;
 
-    /** Whether the Car drawer should show its Plugins row: while the main-menu takeover is OFF or FAILED. */
+    /**
+     * Whether the Car drawer should show its Plugins row: unless the main-menu takeover is ACTIVE (OFF, PENDING and
+     * FAILED all keep it), so Plugins is always reachable from one of the two.
+     */
     public static boolean drawerPluginsRowWanted() {
-        int m = mainMenu;
-        return m == MAIN_MENU_OFF || m == MAIN_MENU_FAILED;
+        return mainMenu != MAIN_MENU_ACTIVE;
     }
 
     private SdkGlobals() {

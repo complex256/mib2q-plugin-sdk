@@ -204,6 +204,74 @@ class SdkSystemScreenFactoryTest {
         assertNull(SdkGlobals.mainMenuWizard);
     }
 
+    /** A wizard whose {@code add} runs {@code after} once the child is in (the hook a second build or a throw uses). */
+    private static final class HookedWizard extends MainWizardController {
+        Runnable after;
+
+        public void add(AbstractWidget child) {
+            super.add(child);
+            Runnable r = after;
+            after = null;
+            if (r != null) {
+                r.run();
+            }
+        }
+    }
+
+    private static ScreenWidgetEVO screen46With(MainWizardController w) {
+        w.add(stockRow(0, 244, new int[] {16, 0, 4, 0}, 2));
+        w.add(stockRow(8, 250, new int[] {17, 0, 4, 0}, 3));
+        w.add(stockRow(19, 3200, new int[] {18, 0, 4, 0}, 640));
+        ScreenWidgetEVO s = new ScreenWidgetEVO(46);
+        s.add(new ContainerController());
+        s.add(w);
+        return s;
+    }
+
+    /**
+     * Two builds of screen 46 at once: the second fails while the first is between its FAILED check and its publish.
+     * FAILED must win (sticky), with no refs and no SDK row; the first build must not overwrite it with ACTIVE.
+     */
+    @Test
+    void aFailureDuringAnotherBuildIsNeverOverwrittenWithActive() {
+        final SdkSystemScreenFactory f = factory();
+        HookedWizard w = new HookedWizard();
+        ScreenWidgetEVO s = screen46With(w);
+        w.after = new Runnable() {
+            public void run() {
+                ScreenWidgetEVO noWizard = new ScreenWidgetEVO(46); // the concurrent build fails
+                noWizard.add(new ContainerController());
+                f.withPluginsRow(noWizard, 0);
+            }
+        };
+        Screen out = f.withPluginsRow(s, 0);
+
+        assertEquals(SdkGlobals.MAIN_MENU_FAILED, SdkGlobals.mainMenu, "FAILED is sticky, never overwritten");
+        assertNull(SdkGlobals.mainMenuRow);
+        assertNull(SdkGlobals.mainMenuWizard);
+        assertFalse(hasSdkRow(wizards((AbstractWidget) out).get(0)), "no SDK row in what the HMI gets");
+    }
+
+    /** {@code w.add} throws after the child went in: the fallback still takes the row back out. */
+    @Test
+    void aThrowFromAddAfterTheInsertStillRemovesTheRow() {
+        HookedWizard w = new HookedWizard();
+        ScreenWidgetEVO s = screen46With(w);
+        w.after = new Runnable() {
+            public void run() {
+                throw new IllegalStateException("add threw after inserting");
+            }
+        };
+        Screen out = factory().withPluginsRow(s, 0);
+
+        assertSame(s, out, "the stock rebuild throws on the host: the built screen, row taken out");
+        assertFalse(hasSdkRow(w), "the inserted row is removed");
+        assertEquals(STOCK_ROWS, rows(w).size());
+        assertEquals(SdkGlobals.MAIN_MENU_FAILED, SdkGlobals.mainMenu);
+        assertNull(SdkGlobals.mainMenuRow);
+        assertNull(SdkGlobals.mainMenuWizard);
+    }
+
     @Test
     void otherScreensAndTextsAreStock() {
         SdkSystemScreenFactory f = factory();

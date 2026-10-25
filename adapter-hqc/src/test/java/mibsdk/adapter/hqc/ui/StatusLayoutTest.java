@@ -109,7 +109,7 @@ class StatusLayoutTest {
         assertEquals(new File(dir, "d000000000000000.png").getPath(), ids.fileFor(l.cell(0).stockIconId));
         assertNull(l.cell(0).filePath, "a stock icon is drawn by id (tinted)");
         assertEquals(-1, l.cell(1).stockIconId);
-        assertEquals(l.cell(1).iconX + HqcUiIds.STATUS_ICON_PX, l.cell(1).labelX);
+        assertEquals(l.cell(1).iconX + HqcUiIds.STATUS_ICON_ADVANCE_PX, l.cell(1).labelX);
     }
 
     @Test
@@ -154,5 +154,39 @@ class StatusLayoutTest {
         f.setAccessible(true);
         assertEquals(f.getInt(null), HqcUiIds.STATUS_ICON_CHARS);
         assertEquals(20, HqcUiIds.STATUS_ICON_PX);
+        assertEquals(HqcUiIds.STATUS_ICON_CHARS * HqcUiIds.STATUS_CHAR_PX, HqcUiIds.STATUS_ICON_ADVANCE_PX);
+    }
+
+    /**
+     * Retuning {@code STATUS_CHAR_PX} on the bench moves only the layout advance: the glyph size (the built-in
+     * {@code <name>-20} lookup and the icon bounds) is the literal 20, or every stock status icon would vanish. The
+     * constants are compile-time, so this reads the source: no expression, and the lookup and bounds use it.
+     */
+    @Test
+    void retuningCharPxCannotChangeTheGlyphSize() throws IOException {
+        String ids = source("HqcUiIds");
+        assertTrue(ids.matches("(?s).*\\bSTATUS_ICON_PX = 20;.*"), "STATUS_ICON_PX is the literal 20");
+        assertTrue(ids.matches("(?s).*\\bSTATUS_ICON_ADVANCE_PX = STATUS_ICON_CHARS \\* STATUS_CHAR_PX;.*"));
+        String layout = source("StatusLayout");
+        assertTrue(layout.contains("builtins.get(icon.name(), HqcUiIds.STATUS_ICON_PX, false)"), "the glyph lookup");
+        assertTrue(layout.contains("x += HqcUiIds.STATUS_ICON_ADVANCE_PX;"), "the advance");
+        assertFalse(layout.contains("x += HqcUiIds.STATUS_ICON_PX;"), "the glyph size is not the advance");
+        String popup = source("SdkStatusPopup");
+        assertEquals(2, count(popup, "HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX)"), "both icons' bounds");
+        assertFalse(popup.contains("STATUS_ICON_ADVANCE_PX"));
+    }
+
+    private static String source(String name) throws IOException {
+        File f = new File("src/main/java/mibsdk/adapter/hqc/ui/" + name + ".java");
+        assertTrue(f.isFile(), "run from the adapter-hqc project dir: " + f.getAbsolutePath());
+        return new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+    }
+
+    private static int count(String s, String sub) {
+        int n = 0;
+        for (int at = s.indexOf(sub); at >= 0; at = s.indexOf(sub, at + 1)) {
+            n++;
+        }
+        return n;
     }
 }
