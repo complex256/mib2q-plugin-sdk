@@ -322,6 +322,10 @@ class MibPluginPluginFunctionalTest {
                 "sample/colour/ColourPlugin.onEnable -> Ui.icon(String,int) needs api 4; plugin.json declares api 3"),
                 refused.getOutput());
         assertEquals(TaskOutcome.FAILED, refused.task(":plugins:colour3:permissionScan").getOutcome());
+        String report = new String(Files.readAllBytes(
+                root.resolve("out/plugins_colour3/reports/mibsdk/permissions.txt")), StandardCharsets.UTF_8);
+        assertEquals("sample/colour/ColourPlugin.onEnable -> Ui.icon(String,int) needs api 4;"
+                + " plugin.json declares api 3\n", report);
 
         assertSucceeded(runner(":plugins:colour4:mibPackage", prop).build(), ":plugins:colour4:mibPackage");
     }

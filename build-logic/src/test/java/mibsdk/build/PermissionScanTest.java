@@ -171,5 +171,13 @@ class PermissionScanTest {
                         + " public Icon row(Ui ui) { return ui.icon(\"x\"); } }"));
         assertEquals(1, PermissionScan.run(plain).needsApi());
         assertEquals(List.of(), PermissionScan.run(plain).apiFindings());
+
+        // The plugin's own icon(String,int), with the same name and descriptor, is not Ui's.
+        File own = Fixtures.compileV48(tmp.resolve("own"), Map.of("mibsdk.api.Icon", ICON_STUB,
+                "fixture.O", "package fixture; import mibsdk.api.*; public class O {"
+                        + " public Icon icon(String name, int colour) { return null; }"
+                        + " public Icon use() { return icon(\"x\", Icon.OWN_COLOURS); } }"));
+        assertEquals(1, PermissionScan.run(own).needsApi());
+        assertEquals(List.of(), PermissionScan.run(own).apiFindings());
     }
 }

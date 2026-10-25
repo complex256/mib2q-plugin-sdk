@@ -78,7 +78,9 @@ public abstract class PermissionScanTask extends DefaultTask {
                 }
             }
         }
-        String report = String.join("\n", findings) + (findings.isEmpty() ? "" : "\n");
+        TreeSet<String> lines = new TreeSet<String>(findings);
+        lines.addAll(tooNew); // the api-check reason is in the report too, not only in the exception
+        String report = String.join("\n", lines) + (lines.isEmpty() ? "" : "\n");
         Files.write(getReport().get().getAsFile().toPath(), report.getBytes(StandardCharsets.UTF_8));
         if (!tooNew.isEmpty()) {
             throw new GradleException("permissionScan: " + String.join("\n  ", tooNew));

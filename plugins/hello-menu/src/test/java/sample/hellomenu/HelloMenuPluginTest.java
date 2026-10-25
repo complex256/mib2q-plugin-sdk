@@ -215,11 +215,20 @@ class HelloMenuPluginTest {
         ui.select(PAGE, "status-colour");
         await(() -> ui.statusParts().contains(STATUS_PNG), "own-colour status again: " + ui.statusParts());
 
-        ui.select(PAGE, "status-colour"); // tinted, then kept across disable/enable
+        ui.select(PAGE, "status-colour"); // tinted: stored on the way out
         await(() -> ui.statusParts().contains(STATUS_TINTED), "tinted status: " + ui.statusParts());
-        rt.reload("hello-menu");
-        await(() -> ui.statusParts().contains(STATUS_TINTED), "tinted after reload: " + ui.statusParts());
         assertEquals("tinted", storedProperty("colour"));
+    }
+
+    /** A fresh start with {@code colour=tinted} stored: the first status the plugin publishes is tinted. */
+    @Test
+    void storedStatusColourIsRestoredOnEnable() throws Exception {
+        write(new File(FakePlatform.roots(tmp).persist(), "data/hello-menu.properties"), "colour=tinted\n");
+        start(Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR, Features.UI_PAGES, Features.UI_ICONS);
+        await(() -> !ui.statusParts().isEmpty() && ui.statusParts().get(ui.statusParts().size() - 1).endsWith("Hello"),
+                "a status item: " + ui.statusParts());
+        assertTrue(ui.statusParts().contains(STATUS_TINTED), "restored tinted: " + ui.statusParts());
+        assertFalse(ui.statusParts().contains(STATUS_PNG), ui.statusParts().toString());
     }
 
     private String storedProperty(String key) throws IOException {
