@@ -227,7 +227,8 @@ cmd_ui_forcefail() {
     rsh "rm -f $FORCEFAIL" </dev/null || die "cannot remove $FORCEFAIL on $HOST"
     echo "ui.forcefail removed on $HOST; restart the HMI (mibsdk-dev restart) for it to take effect"
   else
-    rsh "mkdir -p $FORCEFAIL_DIR && printf '%s\\n' $1 > $FORCEFAIL" </dev/null || die "cannot write $FORCEFAIL on $HOST"
+    # echo, not printf: the unit's shell has no printf
+    rsh "mkdir -p $FORCEFAIL_DIR && echo $1 > $FORCEFAIL" </dev/null || die "cannot write $FORCEFAIL on $HOST"
     echo "ui.forcefail=$1 written on $HOST; restart the HMI (mibsdk-dev restart) for it to take effect"
   fi
 }

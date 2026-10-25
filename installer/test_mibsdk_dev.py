@@ -436,7 +436,7 @@ class UiForceFailTest(FakeUnitTestCase):
         for value in ("factory", "screen"):
             self.clear_cmds()
             r = self.ok(self.u.run("ui-forcefail", value))
-            self.assertEqual(["echo ok", "mkdir -p /mnt/persist/mibsdk/dev && printf '%s\\n' " + value + " > " + self.FILE],
+            self.assertEqual(["echo ok", "mkdir -p /mnt/persist/mibsdk/dev && echo " + value + " > " + self.FILE],
                              self.u.ssh_cmds())
             self.assertEqual(value.encode() + b"\n", self.forcefail())
             self.assertIn("restart", r.stdout.decode())
@@ -448,6 +448,12 @@ class UiForceFailTest(FakeUnitTestCase):
         self.assertEqual({"10.20.0.23", "10.1.2.3"}, self.u.hosts())
         self.assertEqual([], self.u.calls())       # no mibpkg verb, no remount
         self.assertFalse(any("mount" in c for c in self.u.ssh_cmds()))
+
+    def test_remote_commands_use_no_printf(self):
+        # The unit's shell has no printf ("sh: printf: cannot execute", bench Task 12 R2): the write failed there.
+        for value in ("factory", "screen", "off"):
+            self.ok(self.u.run("ui-forcefail", value))
+        self.assertFalse([c for c in self.u.ssh_cmds() if "printf" in c])
 
     def test_a_bad_argument_exits_2_and_sends_nothing(self):
         for args in (("ui-forcefail",), ("ui-forcefail", "on"), ("ui-forcefail", "Factory"),
