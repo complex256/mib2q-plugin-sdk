@@ -172,13 +172,19 @@ class SdkCarActivatorTest {
             model(bank, HqcUiIds.MODEL_BASE + i);
         }
         assertNotNull(SdkCarModelBank.pageList());
+        assertNotNull(SdkCarModelBank.statusModels());
         int[] ids = bank.getAllModelIds();
         assertEquals(before.length, ids.length);
-        int sdk = HqcUiIds.ROW_MODEL_COUNT + 1;
+        int popup = HqcUiIds.MODEL_COUNT - HqcUiIds.STATUS_POPUP_VISIBLE_MODEL + HqcUiIds.MODEL_BASE;
+        int sdk = HqcUiIds.ROW_MODEL_COUNT + 1 + popup;
+        int at = ids.length - sdk;
         for (int i = 0; i < HqcUiIds.ROW_MODEL_COUNT; i++) {
-            assertEquals(HqcUiIds.MODEL_BASE + i, ids[ids.length - sdk + i]);
+            assertEquals(HqcUiIds.MODEL_BASE + i, ids[at++]);
         }
-        assertEquals(HqcUiIds.PAGE_LIST_MODEL, ids[ids.length - 1], "then the page list");
+        assertEquals(HqcUiIds.PAGE_LIST_MODEL, ids[at++], "then the page list");
+        for (int i = 0; i < popup; i++) {
+            assertEquals(HqcUiIds.STATUS_POPUP_VISIBLE_MODEL + i, ids[at++], "then the status popup's");
+        }
         assertEquals(1147 + sdk, ids.length, "CarModelBank's 1147 stock ids, then the SDK's");
     }
 
@@ -196,6 +202,53 @@ class SdkCarActivatorTest {
         Field f = de.audi.atip.hmi.model.AbstractModelBank.class.getDeclaredField("models");
         f.setAccessible(true);
         assertNull(((Object[]) f.get(bank))[reserved]);
+    }
+
+    private static Object rawModel(SdkCarModelBank bank, int id) throws Exception {
+        Field f = de.audi.atip.hmi.model.AbstractModelBank.class.getDeclaredField("models");
+        f.setAccessible(true);
+        return ((Object[]) f.get(bank))[BASE_INDEX + id - HqcUiIds.MODEL_BASE];
+    }
+
+    /** Task 5: the status popup's models (one choice, 7 labels, 6 locators), created on demand, written by handle. */
+    @Test
+    void popupModelsAreCreated() throws Exception {
+        SdkGlobals.uiEnabled = true;
+        SdkCarModelBank bank = (SdkCarModelBank) bankOf(new SdkCarActivator());
+        SdkPopupStatusLine.Models m = SdkCarModelBank.statusModels();
+        assertNotNull(m);
+        assertSame(m, SdkCarModelBank.statusModels(), "one handle per bank");
+
+        Object v = rawModel(bank, HqcUiIds.STATUS_POPUP_VISIBLE_MODEL);
+        assertSame(ChoiceModel.class, v.getClass());
+        assertEquals(0, ((ChoiceModel) v).getValue(), "hidden until the first show");
+        assertEquals(HqcUiIds.STATUS_POPUP_VISIBLE_MODEL, ((ChoiceModel) v).getID());
+        for (int i = 0; i <= HqcUiIds.STATUS_CELLS; i++) {
+            Object l = rawModel(bank, HqcUiIds.STATUS_LABEL_MODEL_0 + i);
+            assertSame(de.audi.atip.hmi.model.LabelModel.class, l.getClass(), "label " + i);
+        }
+        for (int i = 0; i < HqcUiIds.STATUS_CELLS; i++) {
+            Object r = rawModel(bank, HqcUiIds.STATUS_FILE_ICON_MODEL_1 + i);
+            assertSame(de.audi.atip.hmi.model.ResourceLocatorModel.class, r.getClass(), "locator " + i);
+        }
+
+        m.label(3, "TS up");
+        assertEquals("TS up", ((de.audi.atip.hmi.model.LabelModel) rawModel(bank, HqcUiIds.STATUS_LABEL_MODEL_0 + 3))
+                .getText());
+        de.audi.atip.hmi.model.ResourceLocatorModel r0 = (de.audi.atip.hmi.model.ResourceLocatorModel)
+                rawModel(bank, HqcUiIds.STATUS_FILE_ICON_MODEL_1);
+        m.fileIcon(0, "/i/a.png");
+        assertEquals("/i/a.png", r0.getResourceLocator().getResourceURI());
+        assertEquals(1, r0.getResourceLocator().getStatus());
+        m.fileIcon(0, null);
+        assertEquals("", r0.getResourceLocator().getResourceURI());
+        assertEquals(0, r0.getResourceLocator().getStatus());
+        m.visible(true);
+        assertEquals(1, ((ChoiceModel) v).getValue());
+        m.visible(false);
+        assertEquals(0, ((ChoiceModel) v).getValue());
+        m.label(7, "out of range");
+        m.fileIcon(6, "/out/of/range.png");
     }
 
     /** Fix round 1, Minor 3: after the SDK UI was taken down, a drawer built from scratch starts without the Plugins row. */

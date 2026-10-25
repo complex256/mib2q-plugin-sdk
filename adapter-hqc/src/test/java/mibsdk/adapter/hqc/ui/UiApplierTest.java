@@ -13,6 +13,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
+import de.esolutions.hmi.widgets.audi.evo.widgets.IconController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.LabelController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import mibsdk.adapter.hqc.SdkGlobals;
 import mibsdk.platform.UiEntry;
@@ -20,12 +22,14 @@ import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiRow;
 import mibsdk.platform.UiSnapshot;
+import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiTable;
 import mibsdk.runtime.Clock;
 import mibsdk.runtime.RingLog;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** The applier driven one pass at a time ({@code step(0)}), with fake rows, status line, pages, sink and clock. */
 class UiApplierTest {
@@ -43,7 +47,7 @@ class UiApplierTest {
 
     private final RowModels rows = (slot, visible) -> writes.add("row" + slot + "=" + (visible ? "on" : "off"));
     private final StatusLineSink status = new StatusLineSink() {
-        public void show(String text) {
+        public void show(List<UiStatusPart> parts, String text) {
             writes.add("show:" + text);
         }
 
@@ -79,6 +83,9 @@ class UiApplierTest {
         SdkGlobals.uiRowModels = null;
         SdkGlobals.uiDown = false;
         SdkCarScreenFactory.sdkRows = null;
+        SdkStatusPopup.current = null;
+        SdkStatusPopup.wanted = StatusLayout.EMPTY;
+        SdkGlobals.statusPopup = 0;
     }
 
     @BeforeEach
@@ -90,9 +97,21 @@ class UiApplierTest {
     }
 
     private UiApplier newApplier(UiApplier[] self) {
+        return newApplier(self, status, BuiltinIcons.NONE);
+    }
+
+    private UiApplier newApplier(UiApplier[] self, StatusLineSink s, BuiltinIcons builtins) {
         Clock clock = () -> now;
         HmiPoster poster = new HmiPoster(sink, () -> self[0].wake(), clock, HmiPoster.PENDING_DEADLINE_MS);
-        return new UiApplier(table, rows, status, pages, poster, clock, log, ids, BuiltinIcons.NONE, new HmiWidgets());
+        return new UiApplier(table, rows, s, pages, poster, clock, log, ids, builtins, new HmiWidgets());
+    }
+
+    /** A live applier over {@code s} and {@code builtins}, replacing the default one. */
+    private UiApplier applierWith(StatusLineSink s, BuiltinIcons builtins) {
+        UiApplier[] self = new UiApplier[1];
+        self[0] = newApplier(self, s, builtins);
+        self[0].claimLive();
+        return self[0];
     }
 
     private void publish(String status, List<String> rowKeys, Map<String, UiPage> pageMap, long openSeq,
@@ -426,7 +445,7 @@ class UiApplierTest {
             throw new IllegalStateException("row model gone");
         };
         StatusLineSink failingStatus = new StatusLineSink() {
-            public void show(String text) {
+            public void show(List<UiStatusPart> parts, String text) {
                 throw new IllegalStateException("popup gone");
             }
 
@@ -642,5 +661,162 @@ class UiApplierTest {
         publishIcon(icon("cccc000000000000"));
         applier.step(0);
         assertEquals(0, sink.size());
+    }
+
+    // ---- Task 5: the status popup 609600 ----
+
+    @TempDir
+    java.io.File iconDir;
+
+    private final List<String> popupCalls = Collections.synchronizedList(new ArrayList<String>());
+
+    /** A built status popup whose widgets record their bounds and bitmaps. */
+    private SdkStatusPopup recordingPopup() {
+        HostWidgets.init();
+        LabelController[] labels = new LabelController[HqcUiIds.STATUS_CELLS + 1];
+        IconController[] idIcons = new IconController[HqcUiIds.STATUS_CELLS];
+        IconController[] fileIcons = new IconController[HqcUiIds.STATUS_CELLS];
+        for (int i = 0; i < labels.length; i++) {
+            final String n = "label" + i;
+            labels[i] = new LabelController() {
+                public void setBounds(int x, int y, int w, int h) {
+                    popupCalls.add(n + ".bounds");
+                    super.setBounds(x, y, w, h);
+                }
+            };
+        }
+        for (int i = 0; i < HqcUiIds.STATUS_CELLS; i++) {
+            final String n = "id" + i;
+            final String f = "file" + i;
+            idIcons[i] = new IconController() {
+                public void setBounds(int x, int y, int w, int h) {
+                    popupCalls.add(n + ".bounds");
+                    super.setBounds(x, y, w, h);
+                }
+
+                public void setBitmaps(int[] b) {
+                    popupCalls.add(n + ".bitmaps=" + Arrays.toString(b));
+                    super.setBitmaps(b);
+                }
+            };
+            fileIcons[i] = new IconController() {
+                public void setBounds(int x, int y, int w, int h) {
+                    popupCalls.add(f + ".bounds");
+                    super.setBounds(x, y, w, h);
+                }
+            };
+        }
+        SdkStatusPopup p = new SdkStatusPopup(labels, idIcons, fileIcons);
+        SdkStatusPopup.current = p;
+        return p;
+    }
+
+    private void publishParts(String line, UiStatusPart... parts) {
+        List<UiRow> r = Collections.singletonList(new UiRow("plugins", "PLUGINS", "plugins.page"));
+        table.publish(new UiSnapshot(++version, r, line, null, 0, null, Arrays.asList(parts)));
+    }
+
+    private static UiStatusPart item(String text, UiIcon icon) {
+        return new UiStatusPart(text, icon, false);
+    }
+
+    private List<String> drainPopup() {
+        synchronized (popupCalls) {
+            List<String> l = new ArrayList<String>(popupCalls);
+            popupCalls.clear();
+            return l;
+        }
+    }
+
+    private static boolean anyBounds(List<String> calls) {
+        for (String c : calls) {
+            if (c.endsWith(".bounds")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
+    void stockIconSwapOfSameLengthAppliesBitmaps() throws Exception {
+        UiApplier a = applierWith(status, StatusLayoutTest.builtins(iconDir));
+        recordingPopup();
+        publishParts("TS up", item("TS up", UiIcon.stock("dot")));
+        a.step(0);
+        assertEquals(1, sink.size());
+        sink.runHeld();
+        List<String> first = drainPopup();
+        assertTrue(anyBounds(first), "the first layout places the cells: " + first);
+        assertTrue(first.contains("id0.bitmaps=[609100]"), first.toString());
+
+        publishParts("TS dn", item("TS dn", UiIcon.stock("cross")));
+        a.step(0);
+        assertEquals(1, sink.size(), "one job");
+        sink.runHeld();
+        assertEquals(Collections.singletonList("id0.bitmaps=[609101]"), drainPopup(), "bitmaps, no bounds");
+
+        publishParts("TS dn", item("TS dn", null)); // the icon goes: the label moves left, the id icon is emptied
+        a.step(0);
+        sink.runHeld();
+        List<String> gone = drainPopup();
+        assertTrue(gone.contains("label1.bounds"), gone.toString());
+        assertEquals("id0.bitmaps=[]", gone.get(gone.size() - 1), "an empty array hides it");
+    }
+
+    @Test
+    void sinkSwitchReshowsWithinOnePass() throws Exception {
+        StatusSinksTest.RecordingSink sdk = new StatusSinksTest.RecordingSink();
+        StatusSinksTest.RecordingSink p65 = new StatusSinksTest.RecordingSink();
+        int[] state = {2};
+        UiApplier a = applierWith(new StatusSinks(sdk, p65, () -> state[0]), BuiltinIcons.NONE);
+        publishParts("TS up", item("TS up", null));
+        a.step(0);
+        assertEquals(Arrays.asList("show TS up"), sdk.calls);
+        a.step(0);
+        assertEquals(1, sdk.calls.size(), "unchanged: no re-show");
+
+        state[0] = -1; // the build failed
+        a.step(0);
+        assertEquals(Arrays.asList("show TS up"), p65.calls, "the next pass, with an unchanged line");
+        assertEquals(Arrays.asList("show TS up", "hide"), sdk.calls);
+        a.step(0);
+        assertEquals(1, p65.calls.size());
+    }
+
+    @Test
+    void layoutChangePostsOneJobTextChangeOnlyWritesModels() throws Exception {
+        recordingPopup();
+        UiStatusPart safe = new UiStatusPart("SAFE", null, true);
+        publishParts("SAFE TS up MQ", safe, item("TS up", null), item("MQ", null));
+        applier.step(0);
+        assertEquals(Collections.singletonList("show:SAFE TS up MQ"), drain());
+        assertEquals(1, sink.size(), "a new layout: one job");
+        sink.runHeld();
+        assertTrue(anyBounds(drainPopup()));
+
+        publishParts("SAFE TS dn MQ", safe, item("TS dn", null), item("MQ", null));
+        applier.step(0);
+        assertEquals(Collections.singletonList("show:SAFE TS dn MQ"), drain(), "the text goes to the models");
+        assertEquals(0, sink.size(), "same geometry: no job");
+
+        publishParts("SAFE TS down MQ", safe, item("TS down", null), item("MQ", null));
+        applier.step(0);
+        assertEquals(Collections.singletonList("show:SAFE TS down MQ"), drain());
+        assertEquals(1, sink.size(), "a longer text moves the next cell: one job");
+        sink.runHeld();
+        List<String> calls = drainPopup();
+        assertTrue(calls.contains("label2.bounds"), calls.toString());
+        assertEquals(0, sink.size(), "the after-hook posts nothing more");
+    }
+
+    @Test
+    void aFileIconChangeWithTheSameTextIsShownAgain() throws Exception {
+        UiIcon a = UiIcon.file("hello", "/i/a.png", "aaaa000000000000", 20, 20);
+        UiIcon b = UiIcon.file("hello", "/i/b.png", "bbbb000000000000", 20, 20);
+        publishParts("TS up", item("TS up", a));
+        applier.step(0);
+        publishParts("TS up", item("TS up", b));
+        applier.step(0);
+        assertEquals(Arrays.asList("show:TS up", "show:TS up"), drain(), "the new path reaches the locator model");
     }
 }

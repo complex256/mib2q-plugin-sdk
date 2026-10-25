@@ -570,7 +570,7 @@ class PageScreensNavigationTest {
         PageStack stack = new PageStack(new PageEvents(table), PageScreens.failuresTo(log));
         pages = new PageScreens(hmi, stack, table, p, log);
         StatusLineSink noStatus = new StatusLineSink() {
-            public void show(String text) {
+            public void show(java.util.List<mibsdk.platform.UiStatusPart> parts, String text) {
             }
 
             public void hide() {

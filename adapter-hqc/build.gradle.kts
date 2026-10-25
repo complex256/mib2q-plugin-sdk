@@ -46,6 +46,8 @@ val hostStockJar = tasks.register<HostStockJarTask>("hostStockJar") {
         // UI (Car activator, bank, models, drawer widgets): the UI tests construct them on the host.
         "de/audi/atip/",
         "de/audi/tghu/car/hmi/",
+        // The status popup's label font is the System one popup 65 uses.
+        "de/audi/tghu/system/hmi/evohigh/FontFactory",
         "de/audi/tghu/hmi/",
         "de/esolutions/hmi/",
         "de/esolutions/fw/util/commons/"))

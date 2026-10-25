@@ -78,6 +78,14 @@ public final class SdkGlobals {
      */
     public static volatile boolean uiDown;
 
+    /**
+     * The SDK status popup {@link HqcUiIds#POPUP_SDK_STATUS}: 0 unknown (its stub not collected yet), 1 registered
+     * (the stub was added), 2 built, -1 failed (the stub or the build threw). -1 is sticky for the boot: nothing moves
+     * it back. Written by the Car factory on stock threads; read by {@code mibsdk-ui}, which shows the status line on
+     * the SDK popup while it is 1 or 2 and on popup 65 otherwise.
+     */
+    public static volatile int statusPopup;
+
     private SdkGlobals() {
     }
 }

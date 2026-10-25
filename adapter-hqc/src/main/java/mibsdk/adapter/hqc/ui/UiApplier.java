@@ -11,6 +11,7 @@ import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiRow;
 import mibsdk.platform.UiSnapshot;
+import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiTable;
 import mibsdk.runtime.Clock;
 import mibsdk.runtime.RingLog;
@@ -27,12 +28,17 @@ import mibsdk.runtime.RingLog;
  * <li>rows: writes changed row visibility through {@code rows}, only while {@code SdkGlobals.uiRowModels} exists, and
  * every slot again when those models first appear (the drawer is built on HMIEvent, at a time of the HMI's
  * choosing);</li>
- * <li>status: shows or hides the status line, and re-asserts a non-empty one every {@link #STATUS_REASSERT_MS} on the
- * monotonic clock (stock engineering code also writes model 416). Popup 65 belongs to stock EngineeringApp until the
- * SDK has shown text on it: it is never hidden before that;</li>
- * <li>hmi: once the drawer exists (so the first screen is up: before it the stock StartupFilter discards posted
- * jobs), posts the one HMI job when {@code openSeq} or the page content moved past what was last <b>rendered</b>, or
- * the wanted {@link HmiWidgetState} differs from the one {@link HmiWidgets} applied. The job re-evaluates both when it
+ * <li>status: shows or hides the status line ({@link StatusSinks}: the SDK popup {@link HqcUiIds#POPUP_SDK_STATUS}
+ * with icons, popup 65 as text only and only as the fallback), and re-asserts a non-empty one every
+ * {@link #STATUS_REASSERT_MS} on the monotonic clock (on popup 65, stock engineering code also writes model 416). It
+ * shows again when the line's parts changed, or when the sink changed since the last show, so a fallback to popup 65
+ * reaches it within one pass. It publishes the line's {@link StatusLayout} into the wanted {@link HmiWidgetState} (the
+ * popup's bounds and built-in icons). Popup 65 belongs to stock EngineeringApp until the SDK has shown text on it: it
+ * is never hidden before that;</li>
+ * <li>hmi: once the drawer or the status popup exists (so the first screen is up: before it the stock StartupFilter
+ * discards posted jobs), posts the one HMI job when {@code openSeq} or the page content moved past what was last
+ * <b>rendered</b>, or the wanted {@link HmiWidgetState} differs from the one {@link HmiWidgets} applied (its status
+ * layout only once the popup is built). The job re-evaluates both when it
  * runs (pages from the latest snapshot), each part isolated; if a job is already pending, the job's after-hook
  * ({@link #wake}) posts again once it is done, so an open request is never lost.</li>
  * </ul>
@@ -92,6 +98,8 @@ public final class UiApplier {
     private boolean warnedIdsSpent;
     private final Set<String> loggedFailures = new HashSet<String>();
     private String shownStatus; // null: the SDK never showed text
+    private String shownParts; // the parts of the last show (UiStatusPart has no equals: compared as text)
+    private int shownSink = UNKNOWN; // StatusSinks.active() at the last show
     private long statusShownAt;
 
     // Read by both threads; the page state is written by the page job (HMIEvent; one at a time).
@@ -132,9 +140,10 @@ public final class UiApplier {
     }
 
     /**
-     * The production applier over {@code SdkGlobals}: popup 65 on {@code frameworkAccess} (the
-     * {@code de.audi.atip.base.IFrameworkAccess} service), row visibility through {@code SdkGlobals.uiRowModels}, jobs
-     * posted to HMIEvent, SDK pages as native screens ({@link PageScreens}), icon ids from the session's
+     * The production applier over {@code SdkGlobals}: the status line on the SDK popup's Car models, or on popup 65
+     * through {@code frameworkAccess} (the {@code de.audi.atip.base.IFrameworkAccess} service) as the fallback
+     * ({@link StatusSinks} over {@code SdkGlobals.statusPopup}), row visibility through {@code SdkGlobals.uiRowModels},
+     * jobs posted to HMIEvent, SDK pages as native screens ({@link PageScreens}), icon ids from the session's
      * {@code SdkGlobals.ICON_IDS} (never a new table) and the built-ins {@code HqcPlatform.start} read.
      * {@code statusMaxChars}: {@code ui.status.max.chars}. Starts nothing.
      */
@@ -158,8 +167,19 @@ public final class UiApplier {
         };
         UiInputs.clock = clock; // SDK presses are timed on it: an open from a Car screen needs a recent one
         PageRenderer pages = PageScreens.create(frameworkAccess, SdkGlobals.UI, poster, log);
-        self[0] = new UiApplier(SdkGlobals.UI, rows, new Popup65StatusLine(frameworkAccess, statusMaxChars), pages,
-                poster, clock, log, SdkGlobals.ICON_IDS, SdkGlobals.builtinIcons, new HmiWidgets());
+        StatusLineSink sdkPopup = new SdkPopupStatusLine(new SdkPopupStatusLine.Source() {
+            public SdkPopupStatusLine.Models get() {
+                return SdkCarModelBank.statusModels();
+            }
+        });
+        StatusLineSink status = new StatusSinks(sdkPopup, new Popup65StatusLine(frameworkAccess, statusMaxChars),
+                new StatusSinks.State() {
+                    public int get() {
+                        return SdkGlobals.statusPopup;
+                    }
+                });
+        self[0] = new UiApplier(SdkGlobals.UI, rows, status, pages, poster, clock, log, SdkGlobals.ICON_IDS,
+                SdkGlobals.builtinIcons, new HmiWidgets());
         return self[0];
     }
 
@@ -308,7 +328,7 @@ public final class UiApplier {
                         applyRows();
                         break;
                     case 2:
-                        applyStatus(current.statusLine());
+                        applyStatus(current);
                         break;
                     default:
                         postJobIfNeeded(true);
@@ -338,7 +358,7 @@ public final class UiApplier {
             bitmaps[slot] = a.iconAt(slot);
             unserved |= bitmaps[slot] == null && hasIcon(s.carRows(), a.keyAt(slot));
         }
-        wantWidgets = new HmiWidgetState(bitmaps);
+        wantWidgets = new HmiWidgetState(bitmaps, wantWidgets.status());
         if (unserved && !warnedIdsSpent && ids != null && ids.exhausted()) {
             warnedIdsSpent = true;
             log.append("WARN", SOURCE, "ui icon ids " + HqcUiIds.ICON_ID_FIRST + ".." + HqcUiIds.ICON_ID_LAST
@@ -385,16 +405,28 @@ public final class UiApplier {
         }
     }
 
-    private void applyStatus(String text) {
+    private void applyStatus(UiSnapshot s) {
+        String text = s.statusLine();
         long now = clock.uptimeMs();
         if (text.length() == 0) {
             if (shownStatus != null && shownStatus.length() > 0) { // only ever hide what the SDK showed
                 status.hide();
                 shownStatus = "";
             }
-        } else if (!text.equals(shownStatus) || now - statusShownAt >= STATUS_REASSERT_MS) {
-            status.show(text);
+            return;
+        }
+        List<UiStatusPart> parts = s.statusParts();
+        StatusLayout layout = StatusLayout.of(parts, ids, builtins);
+        SdkStatusPopup.wanted = layout; // a popup built from now on starts from it
+        wantWidgets = wantWidgets.withStatus(layout);
+        String partsKey = parts.toString();
+        int sink = status instanceof StatusSinks ? ((StatusSinks) status).active() : 0;
+        if (!text.equals(shownStatus) || !partsKey.equals(shownParts) || sink != shownSink
+                || now - statusShownAt >= STATUS_REASSERT_MS) {
+            status.show(parts, text);
             shownStatus = text;
+            shownParts = partsKey;
+            shownSink = sink;
             statusShownAt = now;
         }
     }
@@ -404,16 +436,25 @@ public final class UiApplier {
         if (!isLive() || (stopping && !down)) {
             return; // replaced, or stopping before the teardown took the UI down
         }
-        if (SdkGlobals.uiRowModels == null) {
-            return; // no drawer yet, so no first screen yet: the StartupFilter would discard the job
+        if (SdkGlobals.uiRowModels == null && SdkStatusPopup.current == null) {
+            return; // no drawer or popup yet, so no first screen yet: the StartupFilter would discard the job
         }
         boolean render = needsRender(table.snapshot(), tick);
         if (render && tick && down && closedRendered) {
             closeRetry = true; // the job's own re-evaluation (tick false) would not retry it
         }
-        if (render || !wantWidgets.equals(widgets.applied())) {
+        if (render || widgetsNeedJob()) {
             poster.post(hmiJob); // false: a job is pending; its wake() re-checks when it is done
         }
+    }
+
+    /**
+     * True if the wanted widget state differs from the applied one in what exists: the status layout counts only once
+     * the popup is built (a popup built later starts from {@code SdkStatusPopup.wanted}).
+     */
+    private boolean widgetsNeedJob() {
+        HmiWidgetState applied = widgets.applied();
+        return SdkStatusPopup.current != null ? !wantWidgets.equals(applied) : !wantWidgets.sameRows(applied);
     }
 
     /**

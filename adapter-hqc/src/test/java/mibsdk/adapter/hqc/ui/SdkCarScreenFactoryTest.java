@@ -7,16 +7,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import de.audi.atip.base.IFrameworkAccess;
+import de.audi.atip.hmi.view.IPartialPopupController;
 import de.audi.atip.hmi.view.HMIView;
 import de.audi.tghu.car.hmi.evohigh.CarScreenFactory;
 import de.esolutions.hmi.widgets.audi.evo.widgets.DrawerController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.ContainerController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupStub;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import java.util.ArrayList;
 import java.lang.reflect.Proxy;
 import java.util.List;
 import mibsdk.adapter.hqc.SdkGlobals;
 import mibsdk.platform.UiRow;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /** Carried requirement 3: the SDK rows go in whole or not at all; the drawer is never left half-built. */
@@ -177,5 +182,121 @@ class SdkCarScreenFactoryTest {
             SdkGlobals.uiSlots = before;
             SdkCarScreenFactory.sdkRows = null;
         }
+    }
+
+    @BeforeEach
+    @AfterEach
+    void resetPopup() {
+        HostWidgets.init();
+        SdkGlobals.statusPopup = 0;
+        SdkStatusPopup.current = null;
+    }
+
+    /**
+     * The System fonts the popup takes: cached (as once the System bundle loaded them), or not, so the next lookup
+     * goes to the HMI terminal.
+     */
+    private static void systemFonts(boolean cached) throws Exception {
+        Class<?> ff = de.audi.tghu.system.hmi.evohigh.FontFactory.class;
+        java.lang.reflect.Field arrays = ff.getDeclaredField("fontArrays");
+        arrays.setAccessible(true);
+        Object[] a = (Object[]) arrays.get(null);
+        java.util.Arrays.fill(a, cached ? new de.esolutions.hmi.widgets.audi.base.eal.IWrappedFont[0] : null);
+        java.lang.reflect.Field loader = ff.getDeclaredField("fontLoader");
+        loader.setAccessible(true);
+        loader.set(null, null);
+    }
+
+    /** A factory whose popup build throws: no fonts cached, and the HMI terminal is gone. */
+    private static SdkCarScreenFactory failingBuild() throws Exception {
+        systemFonts(false);
+        IFrameworkAccess gone = (IFrameworkAccess) Proxy.newProxyInstance(
+                SdkCarScreenFactoryTest.class.getClassLoader(), new Class<?>[] {IFrameworkAccess.class}, (p, m, a) -> {
+                    if (m.getName().equals("getHMIService")) {
+                        return Proxy.newProxyInstance(SdkCarScreenFactoryTest.class.getClassLoader(),
+                                new Class<?>[] {m.getReturnType()}, (q, n, b) -> {
+                                    throw new IllegalStateException("no terminal");
+                                });
+                    }
+                    return m.invoke(fw(), a);
+                });
+        return new SdkCarScreenFactory(gone);
+    }
+
+    private static PartialPopupStub sdkStub(IPartialPopupController[] stubs) {
+        PartialPopupStub found = null;
+        for (int i = 0; stubs != null && i < stubs.length; i++) {
+            if (stubs[i] instanceof PartialPopupStub
+                    && ((PartialPopupStub) stubs[i]).getID() == HqcUiIds.POPUP_SDK_STATUS) {
+                assertNull(found, "one stub");
+                found = (PartialPopupStub) stubs[i];
+            }
+        }
+        return found;
+    }
+
+    private static int length(IPartialPopupController[] a) {
+        return a == null ? 0 : a.length;
+    }
+
+    @Test
+    void stubsAddPopup609600InSlot7AndBuildFailureMarksFailed() throws Exception {
+        IPartialPopupController[] stock = new CarScreenFactory(fw()).getPartialPopupStubs(0);
+        IPartialPopupController[] stubs = failingBuild().getPartialPopupStubs(0);
+        assertEquals(length(stock) + 1, stubs.length, "the stock stubs, then the SDK's");
+        PartialPopupStub stub = sdkStub(stubs);
+        assertSame(stub, stubs[stubs.length - 1]);
+        assertEquals(HqcUiIds.POPUP_SDK_SLOT, stub.getSlot());
+        assertEquals(7, stub.getSlot());
+        assertEquals(HqcUiIds.POPUP_SDK_ZPM_SLOT, stub.getZpmSlot());
+        assertEquals(HqcUiIds.POPUP_SDK_PRIORITY, stub.getZpmPriority());
+        assertEquals(HqcUiIds.POPUP_SDK_TYPE, stub.getType());
+        assertEquals(HqcUiIds.POPUP_SDK_STUB_KIND, stub.getStyle());
+        assertEquals(HqcUiIds.STATUS_POPUP_VISIBLE_MODEL, stub.getModelID());
+        assertEquals(1, SdkGlobals.statusPopup, "registered");
+
+        assertNull(failingBuild().getPartialPopup(HqcUiIds.POPUP_SDK_STATUS, 0));
+        assertEquals(-1, SdkGlobals.statusPopup, "failed");
+        assertNull(SdkStatusPopup.current);
+    }
+
+    @Test
+    void popupBuildsInSlot7AndMarksBuilt() throws Exception {
+        systemFonts(true);
+        SdkCarScreenFactory f = new SdkCarScreenFactory(fw());
+        f.getPartialPopupStubs(0);
+        IPartialPopupController p = f.getPartialPopup(HqcUiIds.POPUP_SDK_STATUS, 0);
+        assertTrue(p instanceof PartialPopupController, "built: " + SdkGlobals.LOG.snapshot());
+        PartialPopupController c = (PartialPopupController) p;
+        assertEquals(HqcUiIds.POPUP_SDK_STATUS, c.getID());
+        assertEquals(HqcUiIds.POPUP_SDK_SLOT, c.getSlot());
+        assertEquals(HqcUiIds.POPUP_SDK_ZPM_SLOT, c.getZpmSlot());
+        assertEquals(HqcUiIds.STATUS_POPUP_VISIBLE_MODEL, c.getModelID());
+        assertArrayEquals(new int[] {HqcUiIds.STATUS_POPUP_VISIBLE_MODEL, HqcUiIds.STATUS_LABEL_MODEL_0,
+            HqcUiIds.STATUS_LABEL_MODEL_0 + 1, HqcUiIds.STATUS_LABEL_MODEL_0 + 2, HqcUiIds.STATUS_LABEL_MODEL_0 + 3,
+            HqcUiIds.STATUS_LABEL_MODEL_0 + 4, HqcUiIds.STATUS_LABEL_MODEL_0 + 5, HqcUiIds.STATUS_LABEL_MODEL_0 + 6,
+            HqcUiIds.STATUS_FILE_ICON_MODEL_1, HqcUiIds.STATUS_FILE_ICON_MODEL_1 + 1,
+            HqcUiIds.STATUS_FILE_ICON_MODEL_1 + 2, HqcUiIds.STATUS_FILE_ICON_MODEL_1 + 3,
+            HqcUiIds.STATUS_FILE_ICON_MODEL_1 + 4, HqcUiIds.STATUS_FILE_ICON_MODEL_1 + 5}, c.getViewIDs());
+        assertEquals(2, SdkGlobals.statusPopup, "built");
+        assertTrue(SdkStatusPopup.current != null);
+        boolean stockNull = new CarScreenFactory(fw()).getPartialPopup(600000, 0) == null;
+        assertEquals(stockNull, f.getPartialPopup(600000, 0) == null, "other ids: stock");
+    }
+
+    @Test
+    void failedStaysFailedWhenStubsAreCollectedAgain() throws Exception {
+        SdkCarScreenFactory ok = new SdkCarScreenFactory(fw());
+        ok.getPartialPopupStubs(0);
+        failingBuild().getPartialPopup(HqcUiIds.POPUP_SDK_STATUS, 0);
+        assertEquals(-1, SdkGlobals.statusPopup);
+
+        IPartialPopupController[] again = ok.getPartialPopupStubs(0);
+        assertNull(sdkStub(again), "no stub once failed");
+        assertEquals(length(new CarScreenFactory(fw()).getPartialPopupStubs(0)), length(again));
+        assertEquals(-1, SdkGlobals.statusPopup, "a later collection never moves it back to 1");
+        systemFonts(true); // a build would succeed now
+        assertNull(ok.getPartialPopup(HqcUiIds.POPUP_SDK_STATUS, 0), "nor a later build to 2");
+        assertEquals(-1, SdkGlobals.statusPopup);
     }
 }

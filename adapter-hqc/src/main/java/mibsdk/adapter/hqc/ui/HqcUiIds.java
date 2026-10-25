@@ -34,8 +34,24 @@ public final class HqcUiIds {
      * {@code MODEL_BASE + 10} stays unused (spike B's row-label model).
      */
     public static final int PAGE_LIST_MODEL = MODEL_BASE + 11;
-    /** Model ids the SDK bank reserves: {@code MODEL_BASE .. MODEL_BASE + MODEL_COUNT - 1}. */
-    public static final int MODEL_COUNT = PAGE_LIST_MODEL - MODEL_BASE + 1;
+    /**
+     * SDK status popup {@link #POPUP_SDK_STATUS}: its visibility ChoiceModel (0 hidden, 1 shown), also the stub's
+     * model.
+     */
+    public static final int STATUS_POPUP_VISIBLE_MODEL = MODEL_BASE + 12;
+    /** The popup's LabelModels: {@code +0} the indicators, {@code +1 .. +STATUS_CELLS} the cells. */
+    public static final int STATUS_LABEL_MODEL_0 = MODEL_BASE + 13;
+    /** The popup's ResourceLocatorModels, one per cell ({@code +0 .. +STATUS_CELLS - 1}): a file icon's path. */
+    public static final int STATUS_FILE_ICON_MODEL_1 = MODEL_BASE + 20;
+    /**
+     * Model ids the SDK bank reserves: {@code MODEL_BASE .. MODEL_BASE + MODEL_COUNT - 1} (602738..602763).
+     * Spike C proved 602738..602753 on the bench. Checked in {@code lsd-src} (Task 5 Step 0): CarModelBank is built
+     * with 2738 models ({@code super(6, 2738, 1147)}), so every id from 602738 is past its {@code models[]}; no stock
+     * source uses 602738..602763 as a model id, decoded or byte-swapped. The only hits are a few byte-swapped
+     * {@code setTextIds} values (text ids, another namespace) and condition 602738 in CarConditionBank (condition
+     * ids, another namespace).
+     */
+    public static final int MODEL_COUNT = STATUS_FILE_ICON_MODEL_1 + HqcUiIds.STATUS_CELLS - MODEL_BASE;
     /** SDK rows' menu-item internal ids, one per slot (as spike A wired them). */
     public static final int ROW_INTERNAL_ID_BASE = 609900;
     /**
@@ -74,6 +90,41 @@ public final class HqcUiIds {
     public static final int STATUS_VISIBLE_CHOICE = 1;
     /** 25 characters measured on the bench; one of margin for the proportional font. */
     public static final int STATUS_MAX_CHARS = 24;
+
+    /**
+     * The SDK status popup (spike C, Boot A S1/S2, Boot B slot): a copy of popup 65 at (514, 0, 255, 24). In slot 7
+     * it shows beside popup 65 (which is in slot 5) instead of replacing it. Stub arguments as popup 65's
+     * ({@code SystemScreenFactory.getPartialPopupStubs}), apart from the id, the model and the slot.
+     */
+    public static final int POPUP_SDK_STATUS = 609600;
+    public static final int POPUP_SDK_X = 514;
+    public static final int POPUP_SDK_W = 255;
+    public static final int POPUP_SDK_H = 24;
+    public static final int POPUP_SDK_SLOT = 7;
+    public static final int POPUP_SDK_ZPM_SLOT = 12;
+    public static final int POPUP_SDK_PRIORITY = 250;
+    public static final int POPUP_SDK_TYPE = 7;
+    /** The stub's third argument (no second model) and tenth (its style), as popup 65's stub has them. */
+    public static final int POPUP_SDK_STUB_NO_MODEL = -1;
+    public static final int POPUP_SDK_STUB_KIND = 2;
+    /** The popup backdrop: a 1x1 bitmap scaled to the popup (SystemScreenBag3.partialPopupDebugInfo). */
+    public static final int POPUP_BACKDROP_BITMAP = 251;
+
+    /** Status popup layout: the item cells after the indicators (one per plugin item, at most). */
+    public static final int STATUS_CELLS = 6;
+    /** Left (and right) padding inside the popup. */
+    public static final int STATUS_PAD_PX = 6;
+    /**
+     * One character of the status font, estimated: popup 65 fits 24 characters in 235 px. Checked at bench R1 S1.
+     */
+    public static final int STATUS_CHAR_PX = 10;
+    /** What an icon takes of its item's width, in characters: the runtime's {@code StatusLine.ICON_CHARS}. */
+    public static final int STATUS_ICON_CHARS = 2;
+    /**
+     * An icon's cell: {@link #STATUS_ICON_CHARS} characters, 20 px. The built-in {@code -20} glyphs carry their own
+     * 2-px right margin as the gap before the text.
+     */
+    public static final int STATUS_ICON_PX = STATUS_ICON_CHARS * STATUS_CHAR_PX;
 
     /**
      * SDK image ids (Car module, {@code id / 100000 == CAR_MODULE}), served by {@code SdkCarScreenFactory.getImagePath}

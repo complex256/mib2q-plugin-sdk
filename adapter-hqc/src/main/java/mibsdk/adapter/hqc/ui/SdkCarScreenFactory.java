@@ -3,10 +3,12 @@ package mibsdk.adapter.hqc.ui;
 import de.audi.atip.base.IFrameworkAccess;
 import de.audi.atip.hmi.view.HMIView;
 import de.audi.atip.hmi.view.IDrawerController;
+import de.audi.atip.hmi.view.IPartialPopupController;
 import de.audi.tghu.car.hmi.evohigh.CarScreenFactory;
 import de.esolutions.hmi.widgets.audi.base.AbstractWidget;
 import de.esolutions.hmi.widgets.audi.base.widgets.AbstractWidgetController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.DrawerController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupStub;
 import de.esolutions.hmi.widgets.audi.evo.widgets.VisibilityProxyWidget;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import java.util.List;
@@ -16,8 +18,11 @@ import mibsdk.adapter.hqc.SdkGlobals;
  * CarScreenFactory plus the SDK's pre-allocated rows at the end of the Car selection drawer: the Plugins row (slot
  * 0, visible) and {@link HqcUiIds#PLUGIN_ROW_SLOTS} plugin rows shown or hidden by their visibility models. Labels
  * come from {@link #getText} (live, from {@code SdkGlobals.uiSlots}), and so does the SDK page title
- * ({@link HqcUiIds#TEXT_PAGE_TITLE}). Every override runs on HMIEvent: it reads only
- * volatile SDK state, builds stock widgets, catches Throwable and falls back to the stock result.
+ * ({@link HqcUiIds#TEXT_PAGE_TITLE}). It also registers and builds the SDK status popup
+ * {@link HqcUiIds#POPUP_SDK_STATUS} ({@link SdkStatusPopup}), recording how that went in
+ * {@code SdkGlobals.statusPopup}.
+ * Every override runs on a stock thread (HMIEvent; the popup stubs on the startup dispatcher): it reads only volatile
+ * SDK state, builds stock widgets, catches Throwable and falls back to the stock result.
  */
 final class SdkCarScreenFactory extends CarScreenFactory {
 
@@ -33,6 +38,9 @@ final class SdkCarScreenFactory extends CarScreenFactory {
     private static int serveLogs; // HMIEvent only
 
     private final TextIds texts = new TextIds(HqcUiIds.TEXT_BASE);
+
+    /** Orders the {@code SdkGlobals.statusPopup} moves (stock threads only; a few instructions under it). */
+    private static final Object POPUP_STATE_LOCK = new Object();
 
     SdkCarScreenFactory(IFrameworkAccess fw) {
         super(fw);
@@ -186,6 +194,77 @@ final class SdkCarScreenFactory extends CarScreenFactory {
             // stock path
         }
         return super.getImagePath(id, terminal);
+    }
+
+    /**
+     * The stock stubs plus the SDK status popup's ({@code SdkGlobals.statusPopup} := 1), unless the popup already
+     * failed this boot (-1, sticky: no stub). On any Throwable: the stock stubs, and -1.
+     */
+    public IPartialPopupController[] getPartialPopupStubs(int terminal) {
+        IPartialPopupController[] stock = super.getPartialPopupStubs(terminal);
+        try {
+            if (SdkGlobals.statusPopup == -1) {
+                return stock;
+            }
+            int n = stock == null ? 0 : stock.length;
+            IPartialPopupController[] all = new IPartialPopupController[n + 1];
+            if (n > 0) {
+                System.arraycopy(stock, 0, all, 0, n);
+            }
+            all[n] = new PartialPopupStub(HqcUiIds.POPUP_SDK_STATUS, HqcUiIds.STATUS_POPUP_VISIBLE_MODEL,
+                    HqcUiIds.POPUP_SDK_STUB_NO_MODEL, HqcUiIds.POPUP_SDK_PRIORITY, HqcUiIds.POPUP_SDK_SLOT,
+                    HqcUiIds.POPUP_SDK_ZPM_SLOT, true, HqcUiIds.POPUP_SDK_TYPE, terminal, HqcUiIds.POPUP_SDK_STUB_KIND,
+                    null, true, true);
+            popupState(1, "registered");
+            return all;
+        } catch (Throwable t) {
+            popupState(-1, "failed reason=stub " + t);
+            return stock;
+        }
+    }
+
+    /**
+     * Builds the SDK status popup ({@code SdkGlobals.statusPopup} := 2); on any Throwable null, and -1. Once the popup
+     * failed this boot, null without a build. Other ids: stock.
+     */
+    public IPartialPopupController getPartialPopup(int id, int terminal) {
+        if (id == HqcUiIds.POPUP_SDK_STATUS) {
+            try {
+                if (SdkGlobals.statusPopup == -1) {
+                    return null;
+                }
+                IPartialPopupController p = SdkStatusPopup.build(this, terminal);
+                popupState(2, "built");
+                return p;
+            } catch (Throwable t) {
+                popupState(-1, "failed reason=build " + t);
+                return null;
+            }
+        }
+        return super.getPartialPopup(id, terminal);
+    }
+
+    /**
+     * Moves {@code SdkGlobals.statusPopup} to {@code state}, never away from -1 (sticky) and never from 2 back to 1;
+     * logs each move once. Never throws.
+     */
+    private static void popupState(int state, String what) {
+        boolean moved;
+        synchronized (POPUP_STATE_LOCK) {
+            int now = SdkGlobals.statusPopup;
+            moved = now != -1 && now != state && !(now == 2 && state == 1);
+            if (moved) {
+                SdkGlobals.statusPopup = state;
+            }
+        }
+        if (moved) {
+            try {
+                SdkGlobals.LOG.append(state == -1 ? "ERROR" : "STATUS", "mibsdk", "ui status popup "
+                        + HqcUiIds.POPUP_SDK_STATUS + " " + what);
+            } catch (Throwable ignored) {
+                // logging never breaks the HMI
+            }
+        }
     }
 
     public String getText(int id) {

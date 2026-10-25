@@ -7,6 +7,10 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
  * the state applied last. Drawer rows get their bitmaps through {@code setBitmaps}; the change shows at the next Car
  * screen connect (Boot A I3), and nothing tries to force it. A drawer built later takes its bitmaps from
  * {@code SdkGlobals.uiSlots} itself ({@link SdkCarScreenFactory}).
+ *
+ * <p>The status popup ({@link SdkStatusPopup#current}, once built) gets its cells' bounds when the layout's geometry
+ * changed, and the id bitmaps of each cell whose built-in icon changed (so a same-length swap of icons is drawn). A
+ * popup built later starts from {@link SdkStatusPopup#wanted} itself.
  */
 final class HmiWidgets {
 
@@ -31,6 +35,7 @@ final class HmiWidgets {
         try {
             HmiWidgetState last = applied;
             applied = want;
+            applyStatus(want.status(), last.status());
             MenuItemController[] rows = SdkCarScreenFactory.sdkRows;
             for (int slot = 0; rows != null && slot < rows.length && slot < HqcUiIds.ROW_SLOTS; slot++) {
                 if (!want.sameSlot(slot, last)) {
@@ -44,6 +49,24 @@ final class HmiWidgets {
             }
         } catch (Throwable t) {
             // stock widgets stay as they are
+        }
+    }
+
+    /** The status popup's bounds and id icons; isolated from the rows. */
+    private static void applyStatus(StatusLayout want, StatusLayout last) {
+        try {
+            SdkStatusPopup p = SdkStatusPopup.current;
+            if (p == null) {
+                return;
+            }
+            if (!want.sameGeometry(last)) {
+                p.place(want);
+            }
+            if (!want.sameIcons(last)) {
+                p.icons(want, last);
+            }
+        } catch (Throwable t) {
+            // the popup keeps its bounds and icons; the rows go on
         }
     }
 

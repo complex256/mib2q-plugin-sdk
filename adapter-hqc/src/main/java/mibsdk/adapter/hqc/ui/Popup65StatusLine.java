@@ -2,10 +2,14 @@ package mibsdk.adapter.hqc.ui;
 
 import de.audi.atip.base.IFrameworkAccess;
 import de.audi.atip.hmi.IHMIServiceApp;
+import java.util.List;
+import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiText;
 
 /**
- * The status line on stock popup {@link HqcUiIds#POPUP_STATUS}: its text is system label model
+ * The status line's fallback, text only ({@link StatusSinks}): used only while the SDK popup
+ * {@link HqcUiIds#POPUP_SDK_STATUS} is not registered yet (the boot window) or could not be registered or built. On
+ * stock popup {@link HqcUiIds#POPUP_STATUS}: its text is system label model
  * {@link HqcUiIds#STATUS_LABEL_MODEL}, and system choice model {@link HqcUiIds#STATUS_VISIBLE_CHOICE} shows it (1)
  * or hides it (0). App-side model writes (thread-safe, marshalled to HMIEvent by the models), made on
  * {@code mibsdk-ui}. Holds no clock and no thread: the re-assert lives in {@link UiApplier}.
@@ -31,9 +35,10 @@ final class Popup65StatusLine implements StatusLineSink {
         this.maxChars = Math.min(HqcUiIds.STATUS_MAX_CHARS, Math.max(MIN_CHARS, maxChars));
     }
 
-    public void show(String text) {
+    /** Shows {@code textLine}; popup 65 draws no icons, so {@code parts} are not used. */
+    public void show(List<UiStatusPart> parts, String textLine) {
         IHMIServiceApp app = app();
-        app.getLabelModel(HqcUiIds.STATUS_LABEL_MODEL).setText(UiText.clean(text, maxChars));
+        app.getLabelModel(HqcUiIds.STATUS_LABEL_MODEL).setText(UiText.clean(textLine, maxChars));
         app.getChoiceModel(HqcUiIds.STATUS_VISIBLE_CHOICE).setValue(1);
     }
 

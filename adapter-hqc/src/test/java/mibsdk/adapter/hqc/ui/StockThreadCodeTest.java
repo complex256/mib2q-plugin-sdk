@@ -23,7 +23,7 @@ class StockThreadCodeTest {
 
     private static final String[] STOCK_THREAD_FILES = {"SdkCarActivator", "SdkCarModelBank", "SdkCarScreenFactory",
         "TextIds", "UiInputs", "DrawerAssignment", "HmiPoster", "PageEvents", "PageRenderer", "PageScreens",
-        "PageWidgets", "IconIds", "HmiWidgets", "HmiWidgetState"};
+        "PageWidgets", "IconIds", "HmiWidgets", "HmiWidgetState", "StatusLayout", "SdkStatusPopup"};
 
     private static final Pattern FORBIDDEN = Pattern.compile("java\\.io\\.|java\\.nio\\.|java\\.net\\.|\\bnew Thread\\b"
             + "|\\bThread\\.sleep\\b|\\.start\\(\\)|\\.join\\(|\\.wait\\(|\\bnew Timer\\b|System\\.(out|err)"
@@ -57,6 +57,8 @@ class StockThreadCodeTest {
             {"SdkCarScreenFactory", "getText"},
             {"SdkCarScreenFactory", "getAltText"},
             {"SdkCarScreenFactory", "getImagePath"},
+            {"SdkCarScreenFactory", "getPartialPopupStubs"},
+            {"SdkCarScreenFactory", "getPartialPopup"},
             {"HmiWidgets", "void apply"},
             {"SdkCarModelBank", "createModel"},
             {"SdkCarModelBank", "itemSelected"},
