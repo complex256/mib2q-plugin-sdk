@@ -11,6 +11,12 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 final class HmiWidgets {
 
     private volatile HmiWidgetState applied = HmiWidgetState.EMPTY;
+    /**
+     * A never-set row's bitmaps (the S1f no-icon state), captured once from a fresh {@link MenuItemController} on
+     * HMIEvent; a row that loses its icon gets a copy of it back. HMIEvent only.
+     */
+    private int[] fresh;
+    private boolean freshKnown;
 
     /** The state applied last (read by {@code mibsdk-ui} to decide whether a job is needed). */
     HmiWidgetState applied() {
@@ -29,7 +35,8 @@ final class HmiWidgets {
             for (int slot = 0; rows != null && slot < rows.length && slot < HqcUiIds.ROW_SLOTS; slot++) {
                 if (!want.sameSlot(slot, last)) {
                     try {
-                        rows[slot].setBitmaps(want.bitmapsAt(slot));
+                        int[] b = want.bitmapsAt(slot);
+                        rows[slot].setBitmaps(b != null ? b : freshBitmaps());
                     } catch (Throwable t) {
                         // this row keeps its bitmaps; the others go on
                     }
@@ -38,5 +45,14 @@ final class HmiWidgets {
         } catch (Throwable t) {
             // stock widgets stay as they are
         }
+    }
+
+    /** A copy of a never-set row's bitmaps (null in the stock HMI: AbstractWidget.bitmapIndices starts null). */
+    private int[] freshBitmaps() {
+        if (!freshKnown) {
+            fresh = new MenuItemController().getBitmapIndices();
+            freshKnown = true;
+        }
+        return fresh == null ? null : (int[]) fresh.clone();
     }
 }
