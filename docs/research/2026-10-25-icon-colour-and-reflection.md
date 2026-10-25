@@ -315,7 +315,7 @@ Icon icon(String name, int colour);   // icon(name) == icon(name, Icon.TINTED)
 | `PartialPopupController.setColorPalettes` is a no-op; the plate is the screen's | proven (code) |
 | Plate entry 0 is white in every stock palette row | proven (all 7157 rows) |
 | `setColorIndices({1,0,4,0})` on a popup icon draws it in own colours | **[spike]** |
-| Toggling own ↔ tinted on a built popup shows live after `setCompositesDirty(true)` | **no** (bench C1): it only marks the widgets dirty and nothing repaints them, because no model write follows. The fix (one `triggerRepaint` on the popup after a colour change) is pending bench verification |
+| Toggling own ↔ tinted on a built popup shows live after `setCompositesDirty(true)` | **no** (bench C1): it only marks the widgets dirty and nothing repaints them, because no model write follows. The fix (one `triggerRepaint` on the popup after a colour change) is verified on the bench (B2 re-run: the new colour is drawn 0.56–0.81 s after each press, both directions) |
 | Drawer rows: `Color` is white except on the selected row (app colour); the shader multiplies | proven (code + kzb shader) |
 | A coloured PNG on an unselected drawer row shows its own colours; on the selected row it is multiplied | own colours: bench B3. The selected row is never a plugin row on this HMI (bench C2), so the multiply is not seen |
 | No per-row reflection alpha; `reflectionStrength` is one value for the whole drawer | proven (code + kzb bindings) |
