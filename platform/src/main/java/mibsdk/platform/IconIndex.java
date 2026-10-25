@@ -13,8 +13,10 @@ import mibsdk.api.Ui;
  * The installed icons of one package: {@code <dir>/index.properties}, written by mibpkg, with lines
  * {@code <name>=<sha16>,<w>,<h>} for files {@code <dir>/<sha16>.png}. Reading never throws: a missing, unreadable or
  * malformed file is an empty index, and a bad line (a name outside {@code [a-z0-9-]{1,32}}, a key that is not 16
- * lowercase hex characters, a size outside 1..72, or no {@code <sha16>.png} file) is left out. No java.util.regex:
- * the car has none.
+ * lowercase hex characters, a size outside 1..72, or no {@code <sha16>.png} file) is left out. A line
+ * {@code <name>.r=<rsha16>,<w>,<h>} is the faded drawer reflection of the entry {@code <name>}
+ * ({@link UiIcon#reflection}); it is never an entry of its own, and it is left out when its value is bad, its
+ * {@code <rsha16>.png} is missing or {@code <name>} has no entry. No java.util.regex: the car has none.
  */
 public final class IconIndex {
 
@@ -66,6 +68,18 @@ public final class IconIndex {
                 out.put(name, icon);
             }
         }
+        for (Enumeration e = p.propertyNames(); e.hasMoreElements();) {
+            String key = (String) e.nextElement();
+            if (!key.endsWith(".r")) {
+                continue;
+            }
+            String base = key.substring(0, key.length() - 2);
+            UiIcon icon = isName(base) ? (UiIcon) out.get(base) : null;
+            UiIcon r = icon == null ? null : value(owner, dir, p.getProperty(key));
+            if (r != null) {
+                out.put(base, icon.withReflection(r));
+            }
+        }
         return new IconIndex(out);
     }
 
@@ -75,7 +89,12 @@ public final class IconIndex {
     }
 
     private static UiIcon entry(String owner, File dir, String name, String value) {
-        if (!isName(name) || value == null) {
+        return isName(name) ? value(owner, dir, value) : null;
+    }
+
+    /** The icon a value {@code <sha16>,<w>,<h>} names, if well formed and its PNG is present; null otherwise. */
+    private static UiIcon value(String owner, File dir, String value) {
+        if (value == null) {
             return null;
         }
         int c1 = value.indexOf(',');

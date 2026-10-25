@@ -3,8 +3,9 @@ package mibsdk.platform;
 /**
  * An icon on a Car row or a status item: one of the SDK's built-in icons ({@link #STOCK}, by name) or an installed
  * package PNG ({@link #FILE}, by owner and content key). Immutable. Two icons are equal when they are the same stock
- * name, or the same owner's file with the same content key, drawn the same way ({@link #ownColours}): identical bytes
- * in two packages are two icons. The colour choice is not content: {@link #key} and {@link #owner} ignore it.
+ * name, or the same owner's file with the same content key, drawn the same way ({@link #ownColours}) and with an
+ * equal {@link #reflection}: identical bytes in two packages are two icons. The colour choice is not content:
+ * {@link #key} and {@link #owner} ignore it.
  */
 public final class UiIcon {
 
@@ -22,9 +23,10 @@ public final class UiIcon {
     private final int width;
     private final int height;
     private final boolean ownColours;
+    private final UiIcon reflection;
 
     private UiIcon(int kind, String name, String owner, String path, String key, int width, int height,
-            boolean ownColours) {
+            boolean ownColours, UiIcon reflection) {
         this.kind = kind;
         this.name = name;
         this.owner = owner;
@@ -33,11 +35,12 @@ public final class UiIcon {
         this.width = width;
         this.height = height;
         this.ownColours = ownColours;
+        this.reflection = reflection;
     }
 
     /** A built-in icon by name (a {@code mibsdk.api.StockIcons} constant). Its owner is {@code mibsdk}. */
     public static UiIcon stock(String name) {
-        return new UiIcon(STOCK, name, SDK_OWNER, null, null, 0, 0, false);
+        return new UiIcon(STOCK, name, SDK_OWNER, null, null, 0, 0, false, null);
     }
 
     /**
@@ -48,7 +51,7 @@ public final class UiIcon {
      * @param key the file's content key ({@code <sha16>})
      */
     public static UiIcon file(String owner, String path, String key, int width, int height) {
-        return new UiIcon(FILE, null, owner, path, key, width, height, false);
+        return new UiIcon(FILE, null, owner, path, key, width, height, false, null);
     }
 
     public int kind() {
@@ -89,9 +92,24 @@ public final class UiIcon {
         return ownColours;
     }
 
-    /** This icon, drawn in its own colours or tinted; the same object if that is already so. */
+    /**
+     * This icon, drawn in its own colours or tinted, with the same reflection; the same object if that is already so.
+     */
     public UiIcon withOwnColours(boolean own) {
-        return own == ownColours ? this : new UiIcon(kind, name, owner, path, key, width, height, own);
+        return own == ownColours ? this : new UiIcon(kind, name, owner, path, key, width, height, own, reflection);
+    }
+
+    /**
+     * The package's faded drawer reflection of this icon (the index's {@code <name>.r} line): a {@link #FILE} icon
+     * with the same owner. Null if the package has none, and always for a stock icon.
+     */
+    public UiIcon reflection() {
+        return reflection;
+    }
+
+    /** This icon with reflection {@code r} (null for none). */
+    public UiIcon withReflection(UiIcon r) {
+        return new UiIcon(kind, name, owner, path, key, width, height, ownColours, r);
     }
 
     public boolean equals(Object o) {
@@ -99,19 +117,21 @@ public final class UiIcon {
             return false;
         }
         UiIcon i = (UiIcon) o;
-        return kind == i.kind && ownColours == i.ownColours
+        return kind == i.kind && ownColours == i.ownColours && same(reflection, i.reflection)
                 && (kind == STOCK ? same(name, i.name) : same(owner, i.owner) && same(key, i.key));
     }
 
     public int hashCode() {
-        return (kind == STOCK ? hash(name) : 31 * hash(owner) + hash(key) + 1) + (ownColours ? 7 : 0);
+        return (kind == STOCK ? hash(name) : 31 * hash(owner) + hash(key) + 1) + (ownColours ? 7 : 0)
+                + (reflection == null ? 0 : 17 * reflection.hashCode());
     }
 
     public String toString() {
-        return (kind == STOCK ? "stock:" + name : owner + "/" + key) + (ownColours ? "+own" : "");
+        return (kind == STOCK ? "stock:" + name : owner + "/" + key) + (ownColours ? "+own" : "")
+                + (reflection == null ? "" : "+r:" + reflection.key());
     }
 
-    private static boolean same(String a, String b) {
+    private static boolean same(Object a, Object b) {
         return a == null ? b == null : a.equals(b);
     }
 

@@ -254,4 +254,52 @@ class DrawerSlotsTest {
         assertEquals(path, StatusLayout.of(tinted, ids, BuiltinIcons.NONE).cell(0).filePath);
         assertEquals(path, StatusLayout.of(own, ids, BuiltinIcons.NONE).cell(0).filePath);
     }
+
+    private static final String HELLO = HqcUiIds.INSTALL_ROOT + "/icons/hello/";
+
+    private static UiIcon withReflection() {
+        return UiIcon.file("hello", HELLO + "0123456789abcdef.png", "0123456789abcdef", 72, 72)
+                .withReflection(UiIcon.file("hello", HELLO + "fedcba9876543210.png", "fedcba9876543210", 72, 68));
+    }
+
+    @Test
+    void fileIconWithReflectionUsesItsOwnId() {
+        IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
+        int[] b = DrawerSlots.bitmaps(withReflection(), ids, BuiltinIcons.NONE);
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST + 1}, b);
+        assertEquals("../mibsdk/icons/hello/0123456789abcdef.png", ids.relPathFor(b[0]));
+        assertEquals("../mibsdk/icons/hello/fedcba9876543210.png", ids.relPathFor(b[1]));
+        assertArrayEquals(b, DrawerSlots.bitmaps(withReflection(), ids, BuiltinIcons.NONE), "ids are kept");
+        assertArrayEquals(b, DrawerSlots.bitmaps(withReflection().withOwnColours(true), ids, BuiltinIcons.NONE));
+    }
+
+    @Test
+    void fileIconWithoutReflectionFallsBackToIdId() {
+        IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
+        UiIcon f = UiIcon.file("hello", HELLO + "0123456789abcdef.png", "0123456789abcdef", 72, 72);
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST},
+                DrawerSlots.bitmaps(f, ids, BuiltinIcons.NONE));
+
+        // Rows of an old package ({id, id}) and a new one ({id, rid}) side by side in one drawer.
+        List<UiRow> l = new ArrayList<UiRow>();
+        l.add(PLUGINS);
+        l.add(new UiRow("old", "Old", "po", f));
+        l.add(new UiRow("new", "New", "pn", withReflection()));
+        DrawerAssignment a = DrawerSlots.assign(DrawerAssignment.EMPTY, l, 8, ids, BuiltinIcons.NONE);
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST}, a.iconAt(1));
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST + 1}, a.iconAt(2),
+                "same base bytes and owner: the base id is shared, the reflection has its own");
+    }
+
+    @Test
+    void spentRangeForTheReflectionFallsBackToIdId() {
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST + 1},
+                DrawerSlots.bitmaps(withReflection(), new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST + 1),
+                        BuiltinIcons.NONE), "the control: room for both");
+        IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST);
+        assertArrayEquals(new int[] {HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_FIRST},
+                DrawerSlots.bitmaps(withReflection(), ids, BuiltinIcons.NONE));
+        assertNull(DrawerSlots.bitmaps(withReflection(), new IconIds(HqcUiIds.ICON_ID_FIRST,
+                HqcUiIds.ICON_ID_FIRST - 1), BuiltinIcons.NONE), "no id for the icon itself: no bitmaps");
+    }
 }

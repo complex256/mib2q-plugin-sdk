@@ -96,7 +96,9 @@ final class DrawerSlots {
 
     /**
      * A row icon's drawer bitmaps: a built-in ({@link UiIcon#STOCK}) is {@code {id(<name>-72), id(<name>-72r)}}, an
-     * installed file {@code {id, id}}. Null for no icon, an unknown built-in, a missing ids table, or a spent range.
+     * installed file {@code {id, rid}} with {@code rid} the id of its {@link UiIcon#reflection} (the package's
+     * {@code <name>.r}, keyed {@code <owner>/<rsha16>}), or {@code {id, id}} when it has none or no id is left for it.
+     * Null for no icon, an unknown built-in, a missing ids table, or no id for the icon itself.
      */
     static int[] bitmaps(UiIcon icon, IconIds ids, BuiltinIcons builtins) {
         // UiIcon.ownColours() is ignored on purpose: drawer rows always draw their icon's own colours (spec 2.2).
@@ -112,7 +114,11 @@ final class DrawerSlots {
             return r < 0 ? null : new int[] {a, r};
         }
         int f = id(icon, ids);
-        return f < 0 ? null : new int[] {f, f};
+        if (f < 0) {
+            return null;
+        }
+        int r = icon.reflection() == null ? -1 : id(icon.reflection(), ids);
+        return r >= 0 ? new int[] {f, r} : new int[] {f, f};
     }
 
     /** The id of an installed file icon (keyed by its owner and content key); -1 if none can be given. */
