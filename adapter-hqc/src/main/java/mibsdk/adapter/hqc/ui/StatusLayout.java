@@ -41,6 +41,13 @@ final class StatusLayout {
             this.text = text;
         }
 
+        /** This cell moved right by {@code dx}, its label width again to the popup's right padding. */
+        Cell shifted(int dx) {
+            int x = labelX + dx;
+            return new Cell(iconX + dx, x, Math.max(0, HqcUiIds.POPUP_SDK_W - HqcUiIds.STATUS_PAD_PX - x), stockIconId,
+                    filePath, ownColours, text);
+        }
+
         boolean sameBounds(Cell o) {
             return iconX == o.iconX && labelX == o.labelX && labelW == o.labelW;
         }
@@ -62,8 +69,17 @@ final class StatusLayout {
     }
 
     /**
-     * Places {@code parts} (the runtime's indicators first, if any, then the items) from
-     * {@link HqcUiIds#STATUS_PAD_PX}: one character's space before each part after the first, then the part's icon, then its text. A part beyond
+     * Where a packed line ends: the end of the character grid the runtime cut the line to
+     * ({@link HqcUiIds#STATUS_MAX_CHARS} characters from {@link HqcUiIds#STATUS_PAD_PX}), inside the right padding.
+     */
+    static final int LINE_END_PX = HqcUiIds.STATUS_PAD_PX + HqcUiIds.STATUS_MAX_CHARS * HqcUiIds.STATUS_CHAR_PX;
+
+    /**
+     * Places {@code parts} (the runtime's indicators first, if any, then the items): one character's space before
+     * each part after the first, then the part's icon, then its text. The composed line is packed against the right
+     * edge, so it ends at {@link #LINE_END_PX} and the free space is on the left (bench B9: the popup sits under the
+     * centre of long screen titles); the order stays, the indicators at the left of the group. A line as long as the
+     * grid, or longer, starts at {@link HqcUiIds#STATUS_PAD_PX}. A part beyond
      * {@link HqcUiIds#STATUS_CELLS} items is dropped. A built-in icon gets its image id from {@code ids} (null
      * {@code ids} or {@code builtins}: no id, as for a built-in that is not installed); its space is kept either way,
      * because the runtime cut the text to fit it.
@@ -99,6 +115,15 @@ final class StatusLayout {
                 indicators = c;
             } else {
                 items[n++] = c;
+            }
+        }
+        int dx = Math.max(0, LINE_END_PX - x);
+        if (dx > 0) {
+            if (indicators != NONE) {
+                indicators = indicators.shifted(dx);
+            }
+            for (int i = 0; i < n; i++) {
+                items[i] = items[i].shifted(dx);
             }
         }
         return new StatusLayout(indicators, items);
