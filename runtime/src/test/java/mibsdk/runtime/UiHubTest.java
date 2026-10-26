@@ -1071,4 +1071,232 @@ class UiHubTest {
         assertEquals(1, got.size(), "the re-enabled slider is not muted: " + got);
         assertEquals(Integer.valueOf(3), got.get(0).value());
     }
+
+    // ---- dialogs and toasts (Task 3) ----
+
+    /** A hub with page {@code p/main} (plus a choice {@code lang}) registered and shown. */
+    private UiHub shownHub(Actions a, SerialExecutor exec) {
+        UiHub hub = hub(0);
+        hub.addPage("p", PageSpec.of("main", "Main").choice("lang", "Language", LANGS, 0), a, exec);
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main", null, false));
+        return hub;
+    }
+
+    private static long confirm(UiHub hub, String text, Actions a, SerialExecutor exec) {
+        return hub.requestDialog("p", mibsdk.platform.UiDialog.CONFIRM, "Reset?", text, null, null, 0, a, exec);
+    }
+
+    private static UiInput done(long seq, int value, String text) {
+        return new UiInput(UiInput.DIALOG_DONE, "p/main", String.valueOf(seq), false, value, text);
+    }
+
+    private mibsdk.platform.UiDialog publishedDialog(UiHub hub) {
+        hub.publishNow();
+        return table.snapshot().dialog();
+    }
+
+    @Test
+    void confirmOpensOnlyOverOwnersPage() throws Exception {
+        UiHub hub = hub(0);
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        hub.addPage("p", PageSpec.of("main", "Main"), a, exec);
+        hub.addPage("q", PageSpec.of("main", "Q"), null, executor("plugin-q"));
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "q/main", null, false));
+        confirm(hub, "Sure?", a, exec);
+        List<UiAction> got = a.drained(exec);
+        assertEquals(1, got.size());
+        assertEquals(Integer.valueOf(0), got.get(0).value());
+        assertNull(got.get(0).itemId());
+        assertNull(publishedDialog(hub), "never published");
+
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "q/main", null, false));
+        confirm(hub, "Sure?", a, exec); // nothing shown at all
+        assertEquals(2, a.drained(exec).size());
+        assertNull(publishedDialog(hub));
+    }
+
+    @Test
+    void dialogDoneAsTheAdapterSendsIt() throws Exception {
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        UiHub hub = shownHub(a, exec);
+        long seq = confirm(hub, "Sure?", a, exec);
+        mibsdk.platform.UiDialog d = publishedDialog(hub);
+        assertNotNull(d);
+        assertEquals(seq, d.seq());
+        assertEquals(mibsdk.platform.UiDialog.CONFIRM, d.kind());
+        assertEquals("p/main", d.ownerPageKey());
+        assertEquals("Reset?", d.title());
+        assertEquals("Sure?", d.text());
+        assertEquals("Yes", d.yes());
+        assertEquals("No", d.no());
+        UiDispatcher disp = new UiDispatcher(table, hub);
+        disp.start();
+        List<UiAction> got;
+        try {
+            table.input(new UiInput(UiInput.DIALOG_DONE, "p/main", String.valueOf(seq), false, 1, null));
+            got = a.await(1);
+        } finally {
+            disp.stop();
+        }
+        assertEquals(1, got.size());
+        assertEquals("main", got.get(0).pageId());
+        assertNull(got.get(0).itemId());
+        assertEquals(Integer.valueOf(1), got.get(0).value());
+        assertNull(publishedDialog(hub), "answered: off the snapshot");
+    }
+
+    @Test
+    void dialogAnswersExactlyOnce() throws Exception {
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        UiHub hub = shownHub(a, exec);
+        long seq = confirm(hub, "Sure?", a, exec);
+        hub.dispatch(done(seq, 1, null));
+        hub.dispatch(done(seq, 1, null));
+        long seq2 = confirm(hub, "Again?", a, exec);
+        assertTrue(seq2 > seq);
+        hub.dispatch(done(seq2, 7, null)); // anything but 1 is No
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main", null, false));
+        hub.dispatch(done(seq, 1, null)); // stale
+        hub.dispatch(new UiInput(UiInput.DIALOG_DONE, "p/main", "999", false, 1, null)); // unknown
+        hub.dispatch(new UiInput(UiInput.DIALOG_DONE, "p/main", "x", false, 1, null));
+        List<UiAction> got = a.drained(exec);
+        assertEquals(2, got.size(), got.toString());
+        assertEquals(Integer.valueOf(1), got.get(0).value());
+        assertEquals(Integer.valueOf(0), got.get(1).value());
+    }
+
+    @Test
+    void cancelledDialogIsNeverAnswered() throws Exception {
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        UiHub hub = shownHub(a, exec);
+        long seq = confirm(hub, "Sure?", a, exec);
+        hub.cancelDialog("q", seq); // not the owner's
+        assertNotNull(publishedDialog(hub));
+        hub.cancelDialog("p", seq);
+        assertNull(publishedDialog(hub));
+        hub.dispatch(done(seq, 1, null));
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main", null, false));
+        assertEquals(0, a.drained(exec).size());
+
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main", null, false));
+        confirm(hub, "Sure?", a, exec);
+        hub.removeOwner("p", "P stopped"); // owner removal: cleared with no answer
+        assertNull(publishedDialog(hub));
+        assertEquals(0, a.drained(exec).size());
+    }
+
+    @Test
+    void secondDialogWhileOneIsUpIsAnsweredAtOnce() throws Exception {
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        UiHub hub = shownHub(a, exec);
+        long seq = confirm(hub, "First?", a, exec);
+        hub.requestDialog("p", mibsdk.platform.UiDialog.SPELLER, "Name", "abc", null, null, 8, a, exec);
+        List<UiAction> got = a.drained(exec);
+        assertEquals(1, got.size());
+        assertNull(got.get(0).text(), "the speller never showed");
+        assertNull(got.get(0).value());
+        assertEquals(seq, publishedDialog(hub).seq(), "the first stays up");
+    }
+
+    @Test
+    void dialogFromChoiceSubPageUsesParentKey() throws Exception {
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        UiHub hub = shownHub(a, exec);
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main", null, false)); // push the choice page
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main#lang", null, false));
+        long seq = confirm(hub, "Sure?", a, exec);
+        assertEquals("p/main", publishedDialog(hub).ownerPageKey());
+        hub.dispatch(done(seq, 1, null));
+        List<UiAction> got = a.drained(exec);
+        assertEquals(1, got.size());
+        assertEquals("main", got.get(0).pageId());
+    }
+
+    @Test
+    void spellerTextIsCleanedToMaxLen() throws Exception {
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        UiHub hub = shownHub(a, exec);
+        long seq = hub.requestDialog("p", mibsdk.platform.UiDialog.SPELLER, "Name", "  initial\ttext that is long ",
+                null, null, 8, a, exec);
+        mibsdk.platform.UiDialog d = publishedDialog(hub);
+        assertEquals(mibsdk.platform.UiDialog.SPELLER, d.kind());
+        assertEquals(8, d.maxLen());
+        assertEquals("initi...", d.text());
+        hub.dispatch(done(seq, 0, "Bob\u0001  Smith-Jones"));
+        List<UiAction> got = a.drained(exec);
+        assertEquals(1, got.size());
+        assertEquals("Bob S...", got.get(0).text());
+        assertNull(got.get(0).value());
+    }
+
+    @Test
+    void pageClosedAnswersDismissed() throws Exception {
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        UiHub hub = shownHub(a, exec);
+        hub.requestDialog("p", mibsdk.platform.UiDialog.SPELLER, "Name", "abc", null, null, 8, a, exec);
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "q/main", null, false)); // another page: nothing
+        assertNotNull(publishedDialog(hub));
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main", null, false));
+        assertNull(publishedDialog(hub));
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main", null, false));
+        confirm(hub, "Sure?", a, exec);
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main", null, false));
+        List<UiAction> got = a.drained(exec);
+        assertEquals(2, got.size(), got.toString());
+        assertNull(got.get(0).text());
+        assertEquals("main", got.get(0).pageId());
+        assertEquals(Integer.valueOf(0), got.get(1).value());
+    }
+
+    @Test
+    void toastNewestReplaces() throws Exception {
+        UiHub hub = hub(0);
+        hub.publishNow();
+        assertNull(table.snapshot().toast());
+        hub.showToast("p", "Saved", null);
+        hub.publishNow();
+        mibsdk.platform.UiToast t1 = table.snapshot().toast();
+        assertEquals("Saved", t1.text());
+        assertNull(t1.icon());
+        UiIcon check = UiIcon.stock(mibsdk.api.StockIcons.CHECK);
+        hub.showToast("q", "A rather long toast text here", check);
+        hub.showToast("q", " \t ", check); // empty: ignored
+        hub.showToast("q", null, check);
+        hub.publishNow();
+        mibsdk.platform.UiToast t2 = table.snapshot().toast();
+        assertTrue(t2.seq() > t1.seq());
+        assertEquals(mibsdk.api.Ui.MAX_TOAST, t2.text().length());
+        assertEquals("A rather long toa...", t2.text());
+        assertEquals(check, t2.icon());
+        hub.removeOwner("q", null);
+        hub.showToast("q", "stray", null); // a removed owner's stray call
+        hub.publishNow();
+        assertNull(table.snapshot().toast(), "the owner's toast goes with it");
+    }
+
+    @Test
+    void confirmTextKeepsThreeLines() throws Exception {
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        UiHub hub = shownHub(a, exec);
+        long seq = confirm(hub, "a\nb\nc\nd", a, exec);
+        assertEquals("a\nb\nc d", publishedDialog(hub).text());
+        hub.cancelDialog("p", seq);
+        StringBuilder big = new StringBuilder();
+        for (int i = 0; i < 200; i++) {
+            big.append('x');
+        }
+        confirm(hub, "  first\t line \n" + big, a, exec);
+        String text = publishedDialog(hub).text();
+        assertTrue(text.startsWith("first line\nxxx"), text);
+        assertEquals(mibsdk.api.Ui.MAX_CONFIRM_TEXT, text.length() - 1, "the lines share the limit: " + text);
+    }
 }

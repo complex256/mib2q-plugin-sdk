@@ -15,7 +15,9 @@ import mibsdk.api.Page;
 import mibsdk.api.PageSpec;
 import mibsdk.api.Scheduler;
 import mibsdk.api.StatusItem;
+import mibsdk.api.Ui;
 import mibsdk.api.UiAction;
+import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiInput;
@@ -24,6 +26,7 @@ import mibsdk.platform.UiRow;
 import mibsdk.platform.UiSnapshot;
 import mibsdk.platform.UiTable;
 import mibsdk.platform.UiText;
+import mibsdk.platform.UiToast;
 
 /**
  * Folds every plugin's UI contributions (pages, Car rows, status items) and the SDK's own pages into one
@@ -60,6 +63,12 @@ import mibsdk.platform.UiText;
  * parent's, so opening and leaving it never closes the plugin's page. DROPDOWN indexes out of range are dropped;
  * SLIDER values are clamped, snapped to the step and coalesced (one waiting action per slider). Any input on a
  * disabled entry is dropped and logged once per page key, whatever the unit's features.
+ *
+ * <p>Dialogs (api 5): at most one confirm or speller is up, and only over its owner's shown page
+ * ({@link #shownPageKey}). Each request is answered exactly once on the plugin's executor (a null listener gets
+ * nothing), unless {@link #cancelDialog} withdraws it or its owner is removed: a request that cannot open is answered
+ * at once (confirm 0, speller null); an open one by its {@code DIALOG_DONE}, or as dismissed by its page's
+ * {@code PAGE_CLOSED}. Toasts: the newest replaces the last; the snapshot carries it until its owner is removed.
  */
 final class UiHub {
 
@@ -90,6 +99,23 @@ final class UiHub {
     /** The one SLIDER action waiting on a plugin's executor for one (page key, item id); newer values replace it. */
     private static final class PendingSlider {
         int value; // guarded by the hub's lock
+    }
+
+    /** The one dialog up: its snapshot form and where its answer goes. */
+    private static final class DialogRec {
+        final UiDialog dialog;
+        final String owner;
+        final String pageId;
+        final Listener<UiAction> listener; // may be null
+        final SerialExecutor exec;
+
+        DialogRec(UiDialog dialog, String owner, String pageId, Listener<UiAction> listener, SerialExecutor exec) {
+            this.dialog = dialog;
+            this.owner = owner;
+            this.pageId = pageId;
+            this.listener = listener;
+            this.exec = exec;
+        }
     }
 
     private static final class Owner {
@@ -127,6 +153,11 @@ final class UiHub {
     volatile Runnable sliderResolvedHook;
     /** By {@code <pageKey>#<itemId>}: the slider action waiting on its plugin's executor. */
     private final Map<String, PendingSlider> pendingSliders = new HashMap<String, PendingSlider>();
+    private DialogRec dialog; // the one dialog up; null for none
+    private long dialogSeq;
+    private UiToast toast; // the latest toast; null for none
+    private String toastOwner;
+    private long toastSeq;
     private boolean publishPending;
     private boolean published;
     private long lastPublishAt;
@@ -322,6 +353,15 @@ final class UiHub {
                         it.remove(); // the queued task finds no holder and sends nothing
                     }
                 }
+                if (dialog != null && owner.equals(dialog.owner)) {
+                    dialog = null; // the plugin is stopping: cleared, never answered
+                    changed = true;
+                }
+                if (toast != null && owner.equals(toastOwner)) {
+                    toast = null;
+                    toastOwner = null;
+                    changed = true;
+                }
             }
             if (stoppedNoticeOrNull != null && owner != null) {
                 String prefix = owner + "/";
@@ -464,6 +504,140 @@ final class UiHub {
         }
     }
 
+    /**
+     * Opens a {@link UiDialog#CONFIRM} or {@link UiDialog#SPELLER} over {@code owner}'s shown page and returns its seq,
+     * if one of {@code owner}'s live pages is shown ({@link #shownPageKey}) and no dialog is up. Otherwise it answers at
+     * once (confirm {@code value 0}, speller {@code text null}) and returns 0. Text is cleaned here: a confirm's text to
+     * at most 3 lines ({@link #confirmText}), null {@code yes}/{@code no} to "Yes"/"No", a speller's to {@code maxLen}.
+     */
+    long requestDialog(String owner, int kind, String title, String text, String yes, String no, int maxLen,
+            Listener<UiAction> l, SerialExecutor exec) {
+        checkOwner(owner);
+        boolean speller = kind == UiDialog.SPELLER;
+        String t = UiText.clean(title, PageSpec.MAX_TITLE);
+        String body = speller ? UiText.clean(text, maxLen) : confirmText(text);
+        String y = speller ? null : rowLabel(yes, "Yes");
+        String n = speller ? null : rowLabel(no, "No");
+        long seq;
+        synchronized (lock) {
+            String shown = shownPageKey;
+            PageRec rec = shown != null && shown.startsWith(owner + "/") && !removedOwners.contains(owner)
+                    ? livePage(shown) : null;
+            if (rec == null || dialog != null) {
+                seq = 0;
+            } else {
+                seq = ++dialogSeq;
+                dialog = new DialogRec(new UiDialog(seq, speller ? UiDialog.SPELLER : UiDialog.CONFIRM, shown, t,
+                        body, y, n, speller ? maxLen : 0), owner, rec.pageId, l, exec);
+            }
+        }
+        if (seq == 0) {
+            answer(l, exec, speller, null, 0, null);
+        } else {
+            changed();
+        }
+        return seq;
+    }
+
+    /** Takes {@code owner}'s dialog {@code seq} off screen with no answer; anything else is ignored. */
+    void cancelDialog(String owner, long seq) {
+        synchronized (lock) {
+            if (dialog == null || dialog.dialog.seq() != seq || !dialog.owner.equals(owner)) {
+                return;
+            }
+            dialog = null;
+        }
+        changed();
+    }
+
+    /** Shows {@code text} (cleaned to {@link Ui#MAX_TOAST}; empty is ignored) as the newest toast. */
+    void showToast(String owner, String text, UiIcon icon) {
+        checkOwner(owner);
+        String clean = UiText.clean(text, Ui.MAX_TOAST);
+        if (clean.length() == 0) {
+            return;
+        }
+        synchronized (lock) {
+            if (removedOwners.contains(owner)) {
+                return;
+            }
+            toast = new UiToast(++toastSeq, clean, icon);
+            toastOwner = owner;
+        }
+        changed();
+    }
+
+    /**
+     * A confirm's text: split at the first two {@code '\n'} (a later one joins the third line as a space), each line
+     * cleaned, all lines sharing {@link Ui#MAX_CONFIRM_TEXT} characters.
+     */
+    static String confirmText(String text) {
+        if (text == null) {
+            return "";
+        }
+        StringBuffer out = new StringBuffer();
+        int left = Ui.MAX_CONFIRM_TEXT;
+        int at = 0;
+        for (int line = 0; line < 3 && at <= text.length() && left > 0; line++) {
+            int nl = line < 2 ? text.indexOf('\n', at) : -1;
+            String part = UiText.clean(text.substring(at, nl < 0 ? text.length() : nl), left);
+            if (line > 0) {
+                out.append('\n');
+            }
+            out.append(part);
+            left -= part.length();
+            if (nl < 0) {
+                break;
+            }
+            at = nl + 1;
+        }
+        return out.toString();
+    }
+
+    private static String rowLabel(String label, String dflt) {
+        String clean = UiText.clean(label, PageSpec.MAX_LABEL);
+        return clean.length() == 0 ? dflt : clean;
+    }
+
+    /**
+     * Posts one answer on {@code exec}: a speller's {@code text}, or a confirm's {@code value} (1 or 0). Nothing for a
+     * null listener.
+     */
+    private static void answer(final Listener<UiAction> l, SerialExecutor exec, boolean speller, String pageId,
+            int value, String text) {
+        if (l == null) {
+            return;
+        }
+        final UiAction a = speller ? new UiAction(pageId, null, null, null, text)
+                : new UiAction(pageId, null, null, new Integer(value == 1 ? 1 : 0), null);
+        exec.submit(speller ? "ui:speller" : "ui:confirm", new Runnable() {
+            public void run() {
+                try {
+                    l.on(a);
+                } catch (Exception e) {
+                    EventBus.<RuntimeException>sneakyThrow(e);
+                }
+            }
+        });
+    }
+
+    /** {@code DIALOG_DONE}: answers the dialog up if {@code in} names it (owner page key and seq); else dropped. */
+    private void dialogDone(UiInput in) {
+        DialogRec d;
+        synchronized (lock) {
+            d = dialog;
+            if (d == null || !d.dialog.ownerPageKey().equals(in.pageKey())
+                    || !String.valueOf(d.dialog.seq()).equals(in.entryKey())) {
+                return; // stale, unknown or already answered
+            }
+            dialog = null;
+        }
+        changed();
+        boolean speller = d.dialog.kind() == UiDialog.SPELLER;
+        String text = speller && in.text() != null ? UiText.clean(in.text(), d.dialog.maxLen()) : null;
+        answer(d.listener, d.exec, speller, d.pageId, in.value(), text);
+    }
+
     /** Receives input on SDK pages (owner {@code mibsdk}); runs on the dispatcher thread, so it must not block. */
     void setSdkHandler(Listener<UiInput> h) {
         synchronized (lock) {
@@ -537,6 +711,10 @@ final class UiHub {
         if (kind == UiInput.PAGE_SHOWN || kind == UiInput.PAGE_CLOSED) {
             String parent = parentKey(key); // a choice page's events are its parent's
             pageShown(parent, kind == UiInput.PAGE_SHOWN, parent.length() < key.length());
+            return;
+        }
+        if (kind == UiInput.DIALOG_DONE) {
+            dialogDone(in);
             return;
         }
         if (kind != UiInput.ENTRY_SELECTED && kind != UiInput.TOGGLE_REQUESTED && kind != UiInput.VALUE_REQUESTED) {
@@ -741,6 +919,7 @@ final class UiHub {
      */
     private void pageShown(String key, boolean shown, boolean choicePage) {
         boolean changed = false;
+        DialogRec dismissed = null;
         synchronized (lock) {
             if (shown) {
                 markOpen(key);
@@ -751,10 +930,19 @@ final class UiHub {
                 }
                 openTitles.remove(key);
                 changed = !choicePage && notices.remove(key) != null;
+                if (dialog != null && key.equals(dialog.dialog.ownerPageKey())) {
+                    dismissed = dialog; // its page is gone: answered as dismissed
+                    dialog = null;
+                    changed = true;
+                }
             }
         }
         if (changed) {
             changed();
+        }
+        if (dismissed != null) {
+            answer(dismissed.listener, dismissed.exec, dismissed.dialog.kind() == UiDialog.SPELLER, dismissed.pageId,
+                    0, null);
         }
     }
 
@@ -967,7 +1155,8 @@ final class UiHub {
         }
         // one item list, two outputs: the parts with icons, and the text-only line (the items without them)
         return new UiSnapshot(v, rows, StatusLine.line(indicators, items, statusMaxChars), pages, openSeq,
-                openPageKey, StatusLine.parts(indicators, items, statusMaxChars));
+                openPageKey, StatusLine.parts(indicators, items, statusMaxChars), dialog == null ? null : dialog.dialog,
+                toast);
     }
 
     /** Asks for one publish, at the earliest publishMinMs after the last one; a pending one absorbs this change. */

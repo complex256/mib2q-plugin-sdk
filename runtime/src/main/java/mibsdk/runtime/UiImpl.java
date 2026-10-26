@@ -18,6 +18,7 @@ import mibsdk.api.Subscription;
 import mibsdk.api.Ui;
 import mibsdk.api.UiAction;
 import mibsdk.platform.IconIndex;
+import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiIcon;
 
 /**
@@ -55,9 +56,11 @@ import mibsdk.platform.UiIcon;
  * <p>Api 5 (inputs): {@link #page} and {@link PageHandle#update} check every item icon (this plugin's handle, at most
  * {@link PageSpec#ITEM_ICON_MAX_PX} installed), then hand the hub {@link #forUnit} of the spec: the feature decision
  * ({@link Features#UI_INPUTS}, {@link Features#UI_ICONS}) is made here, so the hub only ever sees entries the unit
- * can draw. {@link #confirm} and {@link #speller} are inert for now: each posts its one inert answer (confirm
- * {@code value 0}, speller {@code text null}) on the plugin's executor unless cancelled first; {@link #toast} checks
- * its permission and arguments and shows nothing.
+ * can draw. {@link #confirm} and {@link #speller} go to the hub with {@link Features#UI_PAGES} and
+ * {@link Features#UI_INPUTS}, {@link #toast} with {@link Features#SLOT_STATUS_BAR} and {@link Features#UI_INPUTS}.
+ * Without them a confirm or speller is inert: it posts its one answer (confirm {@code value 0}, speller
+ * {@code text null}) on the plugin's executor; an inert toast checks its permission and arguments and shows nothing.
+ * Either way an answer is delivered at most once, never after its handle is cancelled.
  */
 final class UiImpl implements Ui {
 
@@ -236,17 +239,28 @@ final class UiImpl implements Ui {
         return new IconHandle(this, name, UiIcon.stock(name));
     }
 
-    // ---- api 5: confirm, toast, speller (inert until the HMI side is wired) ----
+    // ---- api 5: confirm, toast, speller ----
 
     @Override
     public Subscription confirm(String title, String text, String yes, String no, Listener<UiAction> onAnswer) {
-        return inertAnswer(onAnswer, new UiAction(null, null, null, Integer.valueOf(0), null), "ui:confirm");
+        if (!dialogs()) {
+            return inertAnswer(onAnswer, new UiAction(null, null, null, new Integer(0), null), "ui:confirm");
+        }
+        return dialog(UiDialog.CONFIRM, title, text, yes, no, 0, onAnswer);
     }
 
     @Override
     public void toast(String text, Icon icon) {
         requirePermission(Permissions.UI_SLOT_STATUS_BAR);
-        ownIcon(icon, true);
+        UiIcon shown = shown(ownIcon(icon, true));
+        if (!features.has(Features.SLOT_STATUS_BAR) || !features.has(Features.UI_INPUTS)) {
+            return;
+        }
+        synchronized (lock) {
+            if (!closed) {
+                hub.showToast(pluginId, text, shown);
+            }
+        }
     }
 
     @Override
@@ -254,7 +268,40 @@ final class UiImpl implements Ui {
         if (maxLen < 1 || maxLen > MAX_SPELLER) {
             throw new IllegalArgumentException("maxLen must be 1.." + MAX_SPELLER + ", not " + maxLen);
         }
-        return inertAnswer(onDone, new UiAction(null, null, null, null, null), "ui:speller");
+        if (!dialogs()) {
+            return inertAnswer(onDone, new UiAction(null, null, null, null, null), "ui:speller");
+        }
+        return dialog(UiDialog.SPELLER, title, initial, null, null, maxLen, onDone);
+    }
+
+    /** The unit shows confirm and speller (fixed for a boot). */
+    private boolean dialogs() {
+        return features.has(Features.UI_PAGES) && features.has(Features.UI_INPUTS);
+    }
+
+    /**
+     * A live confirm or speller: the hub answers it once (at once if it cannot open), through a listener that drops
+     * the answer once the handle is cancelled; cancel also takes it off screen. Once closed (the plugin is stopping)
+     * it comes back cancelled, unanswered.
+     */
+    private Subscription dialog(int kind, String title, String text, String yes, String no, int maxLen,
+            final Listener<UiAction> l) {
+        final AnswerHandle h = new AnswerHandle(this);
+        Listener<UiAction> gated = l == null ? null : new Listener<UiAction>() {
+            public void on(UiAction a) throws Exception {
+                if (h.take()) {
+                    l.on(a);
+                }
+            }
+        };
+        synchronized (lock) {
+            if (closed) {
+                h.cancel();
+                return h;
+            }
+            h.seq = hub.requestDialog(pluginId, kind, title, text, yes, no, maxLen, gated, exec);
+        }
+        return h;
     }
 
     /**
@@ -262,7 +309,7 @@ final class UiImpl implements Ui {
      * handle is cancelled before it runs. Once closed (the plugin is stopping) it comes back cancelled, unanswered.
      */
     private Subscription inertAnswer(final Listener<UiAction> l, final UiAction answer, String label) {
-        final AnswerHandle h = new AnswerHandle();
+        final AnswerHandle h = new AnswerHandle(null);
         synchronized (lock) {
             if (closed) {
                 h.cancel();
@@ -564,10 +611,18 @@ final class UiImpl implements Ui {
         }
     }
 
-    /** An inert confirm or speller: answered at most once, never after {@link #cancel()}. */
+    /** A confirm or speller: answered at most once, never after {@link #cancel()}. */
     static final class AnswerHandle implements Subscription {
+        /** The UiImpl of a live dialog, so cancel takes it off screen; null for an inert one. */
+        private final UiImpl ui;
         private final Object hlock = new Object();
         private boolean done; // guarded by hlock
+        /** The hub's seq of a live dialog that opened; 0 otherwise. Written under ui.lock. */
+        long seq;
+
+        AnswerHandle(UiImpl ui) {
+            this.ui = ui;
+        }
 
         /** True once: the answer may be delivered now. False after cancel() or an earlier take(). */
         boolean take() {
@@ -584,6 +639,13 @@ final class UiImpl implements Ui {
         public void cancel() {
             synchronized (hlock) {
                 done = true;
+            }
+            if (ui != null) {
+                synchronized (ui.lock) {
+                    if (!ui.closed && seq != 0) {
+                        ui.hub.cancelDialog(ui.pluginId, seq);
+                    }
+                }
             }
         }
     }

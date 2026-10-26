@@ -857,4 +857,121 @@ class UiImplTest {
         a.speller("T", "", 1, null);
         a.speller("T", "", 32, null);
     }
+
+    // ---- live confirm, speller and toast (Task 3) ----
+
+    private static Set<String> withInputs(Set<String> features) {
+        Set<String> s = new HashSet<String>(features);
+        s.add(Features.UI_INPUTS);
+        return s;
+    }
+
+    /** Hands every input the FakeUi queued to the hub, as the dispatcher does, then publishes. */
+    private void pump() throws InterruptedException {
+        mibsdk.platform.UiInput in;
+        while ((in = table.poll(0)) != null) {
+            hub.dispatch(in);
+        }
+        hub.publishNow();
+    }
+
+    /** Plugin {@code a} with UI_INPUTS (and icons), its page {@code main} open in {@code fake}. */
+    private UiImpl openOn(mibsdk.adapter.fake.FakeUi fake, SerialExecutor exec, List<String> icons, File iconDir)
+            throws InterruptedException {
+        UiImpl a = new UiImpl("a", hub, new LiveFeatures(withIcons(withInputs(UiTestRuntime.UI_FEATURES))),
+                ALL_PERMS, exec, new Registrations(), icons, iconDir);
+        a.page(PageSpec.of("main", "Main").item("x", "X", null), null).open();
+        hub.publishNow();
+        assertEquals("a/main", fake.openPageKey());
+        pump(); // PAGE_SHOWN
+        return a;
+    }
+
+    @Test
+    void confirmRoundTripThroughFakeUi() throws Exception {
+        mibsdk.adapter.fake.FakeUi fake = new mibsdk.adapter.fake.FakeUi(table);
+        SerialExecutor exec = executor("plugin-a");
+        UiImpl a = openOn(fake, exec, Collections.<String>emptyList(), null);
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<UiAction> last = new AtomicReference<UiAction>();
+        a.confirm("Reset?", "All settings\nare lost", null, "Keep", recorder(calls, last));
+        hub.publishNow();
+        assertEquals("confirm:Reset?|All settings\nare lost|Yes|Keep", fake.dialog());
+        fake.answer(1);
+        assertNull(fake.dialog(), "answered: the screen is gone");
+        pump();
+        drain(exec);
+        assertEquals(1, calls.get());
+        assertEquals("main", last.get().pageId());
+        assertEquals(Integer.valueOf(1), last.get().value());
+
+        a.confirm("Again?", "x", null, null, recorder(calls, last));
+        hub.publishNow();
+        fake.leave(); // BACK = No
+        pump();
+        drain(exec);
+        assertEquals(2, calls.get());
+        assertEquals(Integer.valueOf(0), last.get().value());
+
+        Subscription s = a.confirm("Gone?", "x", null, null, recorder(calls, last));
+        hub.publishNow();
+        assertNotNull(fake.dialog());
+        s.cancel();
+        hub.publishNow();
+        assertNull(fake.dialog(), "cancel takes it off screen");
+        drain(exec);
+        assertEquals(2, calls.get(), "and never answers");
+    }
+
+    @Test
+    void spellerLeaveDeliversTypedText() throws Exception {
+        mibsdk.adapter.fake.FakeUi fake = new mibsdk.adapter.fake.FakeUi(table);
+        SerialExecutor exec = executor("plugin-a");
+        UiImpl a = openOn(fake, exec, Collections.<String>emptyList(), null);
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<UiAction> last = new AtomicReference<UiAction>();
+        a.speller("Name", "Bo", 6, recorder(calls, last));
+        hub.publishNow();
+        assertEquals("speller:Name|Bo", fake.dialog());
+        fake.type("Bob Smith");
+        assertEquals("speller:Name|Bob Smith", fake.dialog());
+        fake.leave();
+        pump();
+        drain(exec);
+        assertEquals(1, calls.get());
+        assertEquals("main", last.get().pageId());
+        assertEquals("Bob...", last.get().text(), "cleaned to maxLen");
+
+        a.speller("Name", "Al", 6, recorder(calls, last));
+        hub.publishNow();
+        fake.leave(); // nothing typed: the initial text
+        pump();
+        drain(exec);
+        assertEquals(2, calls.get());
+        assertEquals("Al", last.get().text());
+    }
+
+    @Test
+    void toastShowsWithOwnIconTag() throws Exception {
+        mibsdk.adapter.fake.FakeUi fake = new mibsdk.adapter.fake.FakeUi(table);
+        File dir = installIcons("a", "hello-20=fedcba9876543210,20,20\nbig=0123456789abcdef,72,72\n");
+        final UiImpl a = openOn(fake, executor("plugin-a"), DECLARED, dir);
+        assertNull(fake.toast());
+        a.toast("Saved", a.icon("hello-20", Icon.OWN_COLOURS));
+        hub.publishNow();
+        assertEquals("[png:fedcba9876543210+own] Saved", fake.toast());
+        a.toast("Done", a.stockIcon(StockIcons.CHECK));
+        hub.publishNow();
+        assertEquals("[check] Done", fake.toast());
+        a.toast("Plain", null);
+        hub.publishNow();
+        assertEquals("Plain", fake.toast());
+        final Icon big = a.icon("big");
+        assertThrows(IllegalArgumentException.class, () -> a.toast("x", big), "the status-icon rule");
+
+        UiImpl noInputs = ui("b", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations());
+        noInputs.toast("Inert", null);
+        hub.publishNow();
+        assertEquals("Plain", fake.toast(), "inert without UI_INPUTS");
+    }
 }

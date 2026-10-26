@@ -303,4 +303,61 @@ class FakeUiTest {
         assertEquals("p/main", ui.openPageKey(), "a disabled choice does not open");
         assertTrue(drain().isEmpty());
     }
+
+    // ---- dialogs and toasts (api 5) ----
+
+    private void publishDialog(long version, mibsdk.platform.UiDialog d, mibsdk.platform.UiToast t) {
+        table.publish(new UiSnapshot(version, null, "", new HashMap<String, UiPage>(), 0, null, null, d, t));
+    }
+
+    private java.util.List<String> dialogInputs() throws Exception {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        UiInput in;
+        while ((in = table.poll(0)) != null) {
+            out.add(in.kind() + ":" + in.pageKey() + ":" + in.entryKey() + ":" + in.value() + ":" + in.text());
+        }
+        return out;
+    }
+
+    @Test
+    void dialogAndToastRendering() throws Exception {
+        assertNull(ui.dialog());
+        assertNull(ui.toast());
+        assertNull(UiSnapshot.EMPTY.dialog());
+        assertNull(UiSnapshot.down(1).toast());
+        ui.answer(1); // nothing up: nothing sent
+        ui.leave();
+        assertTrue(dialogInputs().isEmpty());
+
+        publishDialog(1, new mibsdk.platform.UiDialog(4, mibsdk.platform.UiDialog.CONFIRM, "p/main", "Reset?", "a\nb",
+                "Yes", "No", 0), new mibsdk.platform.UiToast(2, "Saved", UiIcon.stock("check")));
+        assertEquals("confirm:Reset?|a\nb|Yes|No", ui.dialog());
+        assertEquals("[check] Saved", ui.toast());
+        ui.answer(1);
+        assertNull(ui.dialog(), "answered");
+        ui.answer(1); // once per dialog
+        assertEquals(Arrays.asList(UiInput.DIALOG_DONE + ":p/main:4:1:null"), dialogInputs());
+
+        publishDialog(2, new mibsdk.platform.UiDialog(5, mibsdk.platform.UiDialog.CONFIRM, "p/main", "T", "x", "Ja",
+                "Nein", 0), null);
+        assertNull(ui.toast());
+        ui.leave(); // BACK on a confirm is No
+        assertEquals(Arrays.asList(UiInput.DIALOG_DONE + ":p/main:5:0:null"), dialogInputs());
+
+        publishDialog(3, new mibsdk.platform.UiDialog(6, mibsdk.platform.UiDialog.SPELLER, "p/main", "Name", "Bo", null,
+                null, 8), null);
+        assertEquals("speller:Name|Bo", ui.dialog());
+        ui.answer(1); // not a confirm: nothing
+        ui.type("Bob");
+        assertEquals("speller:Name|Bob", ui.dialog());
+        ui.leave();
+        assertNull(ui.dialog());
+        assertEquals(Arrays.asList(UiInput.DIALOG_DONE + ":p/main:6:0:Bob"), dialogInputs());
+
+        publishDialog(4, new mibsdk.platform.UiDialog(7, mibsdk.platform.UiDialog.SPELLER, "p/main", "Name", "Al", null,
+                null, 8), null);
+        assertEquals("speller:Name|Al", ui.dialog(), "typed text does not carry to the next speller");
+        ui.leave();
+        assertEquals(Arrays.asList(UiInput.DIALOG_DONE + ":p/main:7:0:Al"), dialogInputs());
+    }
 }

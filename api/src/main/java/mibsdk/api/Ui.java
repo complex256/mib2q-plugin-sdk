@@ -124,9 +124,11 @@ public interface Ui {
      * page. {@code text} lines break at {@code '\n'} (at most 3 lines, {@link #MAX_CONFIRM_TEXT} characters); null
      * {@code yes}/{@code no} mean "Yes"/"No". A null listener gets no answer.
      *
-     * <p>Exactly once, always: every call is answered exactly once on the plugin's executor, unless
-     * {@link Subscription#cancel()} withdraws it first. {@link UiAction#value()} is 1 for Yes, and 0 for No, BACK,
-     * dismissed, not over this plugin's open page, or inert (without {@link Features#UI_INPUTS}). Needs api 5.
+     * <p>Exactly once: a call with a listener is answered exactly once on the plugin's executor, unless
+     * {@link Subscription#cancel()} withdraws it first. A call made while the plugin is stopping comes back cancelled
+     * and is never answered. {@link UiAction#value()} is 1 for Yes, and 0 for No, BACK, dismissed (its page closed),
+     * not over this plugin's open page, another confirm or speller already up, or inert (without
+     * {@link Features#UI_INPUTS}). Needs api 5.
      *
      * @since api 5
      */
@@ -149,9 +151,11 @@ public interface Ui {
      * listener gets no answer. The speller has no OK key: BACK leaves the speller and is "done", so {@code onDone} gets
      * {@link UiAction#text()} = the typed text. A page may offer its own Save row.
      *
-     * <p>Exactly once, always: every call is answered exactly once on the plugin's executor, unless
-     * {@link Subscription#cancel()} withdraws it first. {@link UiAction#text()} is the typed text, or null when the
-     * speller never showed (inert without {@link Features#UI_INPUTS}, or not over this plugin's page). Needs api 5.
+     * <p>Exactly once: a call with a listener is answered exactly once on the plugin's executor, unless
+     * {@link Subscription#cancel()} withdraws it first. A call made while the plugin is stopping comes back cancelled
+     * and is never answered. {@link UiAction#text()} is the typed text (at most {@code maxLen} characters), or null
+     * when the speller never showed (inert without {@link Features#UI_INPUTS}, not over this plugin's page, or another
+     * confirm or speller already up) or was dismissed (its page closed). Needs api 5.
      *
      * @since api 5
      */
