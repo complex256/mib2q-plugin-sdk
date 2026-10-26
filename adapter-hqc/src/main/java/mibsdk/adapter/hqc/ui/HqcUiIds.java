@@ -294,6 +294,55 @@ public final class HqcUiIds {
     /** The rotary's widget state "focused and active" ({@code RangeModelKeyHandler} needs it; spike D: set at connect). */
     public static final int SLIDER_KNOB_STATE = 36;
 
+    // ---- the confirm and speller screens (spike D, D7/D9; research note 2026-10-25 §7.2) ----------------------------
+
+    /** The confirm screen (Car module, unused by the Car factory): the {@code cARPOPUPDRIVESELECTLIFTNA} recipe. */
+    public static final int CONFIRM_SCREEN_ID = 609502;
+    /** The speller screen (Car module, unused by the Car factory): the {@code cMOPTBLUETOOTHNAMEEDIT} recipe. */
+    public static final int SPELLER_SCREEN_ID = 609503;
+    /**
+     * The confirm hint's {@code MultiLineLabelRendererHigh.setAutoWrap}: 0 wraps at the label's width (stock calls it
+     * so); the default -1 only breaks at {@code '\n'} (spike D: one line ending in "...").
+     */
+    public static final int CONFIRM_AUTOWRAP = 0;
+    /** The confirm screen's small-stage type ({@code setSmallStageType(1)}). */
+    public static final int CONFIRM_SMALL_STAGE = 1;
+    /** The dialogs' {@code InstructionTextContoller} colour indices. Never written to. */
+    public static final int[] DIALOG_TEXT_COLOURS = {1, 0, 4, 0};
+    /** The dialogs' hint label {@code setTextOrientationHints}. Never written to. */
+    public static final int[] DIALOG_HINT_ORIENTATION = {6};
+    /** The dialogs' menu content right offset (the spike's dressed menu; the page's is 32). */
+    public static final int DIALOG_MENU_RIGHT_OFFSET = 25;
+    /** {@code SpellerListener.commandPressed}: the band opened ({@code COMMAND_SPELLER_OPENED}) and closed. */
+    public static final int SPELLER_OPENED = 4711;
+    public static final int SPELLER_CLOSED = 4712;
+    /** The speller screen's small-stage type (as the spike). */
+    public static final int SPELLER_SMALL_STAGE = 3;
+    /** The input field ({@code TouchController}): bitmaps, Connectivity font set 4, colours. Never written to. */
+    public static final int[] SPELLER_FIELD_BITMAPS = {483, 484, 857};
+    public static final int SPELLER_FIELD_FONTS = 4;
+    public static final int[] SPELLER_FIELD_COLOURS = {2, 5, 4, 3};
+    /** The field's cursor offsets, glassplate insets, height, screen level and widgetID. */
+    public static final int SPELLER_CURSOR_OFFSET_BOTTOM = 1;
+    public static final int SPELLER_CURSOR_OFFSET_TOP = -1;
+    public static final int SPELLER_INSET_BOTTOM = 17;
+    public static final int SPELLER_INSET_TOP = 5;
+    public static final int SPELLER_FIELD_HEIGHT = 60;
+    public static final int SPELLER_SCREEN_LEVEL = 2;
+    public static final int SPELLER_WIDGET_ID = 1;
+    /** The band ({@code SpellerController}): the 49 bitmaps of {@code cMOPTBLUETOOTHNAMEEDIT}. Never written to. */
+    public static final int[] SPELLER_BITMAPS = {421, 84, 85, 86, 87, 88, 89, 424, 425, 90, 91, 92, 93, 94, 95, 96,
+        97, 98, 99, 187, 188, 189, 190, 473, 473, 475, 476, 475, 475, 479, 480, 479, 479, 486, 487, 488, 489, 490, 491,
+        492, 493, 494, 495, 496, 497, 858, 859, 961, 962};
+    /** The band's Connectivity font set and colours. Never written to. */
+    public static final int SPELLER_FONTS = 5;
+    public static final int[] SPELLER_COLOURS = {2, 0, 4, 0};
+    /** The field's model stubs (Connectivity models) and the layers they are added at. */
+    public static final int SPELLER_STUB_A = 5602;
+    public static final int SPELLER_STUB_A_LAYER = 16;
+    public static final int SPELLER_STUB_B = 5606;
+    public static final int SPELLER_STUB_B_LAYER = 8;
+
     private static int[] comboBitmaps() {
         int[] b = new int[44];
         for (int i = 0; i < 42; i++) {

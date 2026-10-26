@@ -1,10 +1,11 @@
 package mibsdk.adapter.hqc.ui;
 
+import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiSnapshot;
 
 /**
- * Draws SDK pages. {@link #open}, {@link #refresh}, {@link #close} and {@link #runPendingNav} run inside an
- * {@link HmiPoster} job, on HMIEvent; {@link #closePending}, {@link #navPending}, {@link #itemIcons} and
+ * Draws SDK pages. {@link #open}, {@link #refresh}, {@link #close}, {@link #runPendingNav} and {@link #dialogChanged}
+ * run inside an {@link HmiPoster} job, on HMIEvent; {@link #closePending}, {@link #navPending}, {@link #itemIcons} and
  * {@link #shown} are called on {@code mibsdk-ui}.
  */
 interface PageRenderer {
@@ -55,6 +56,13 @@ interface PageRenderer {
      */
     PageScreens.Shown shown();
 
+    /**
+     * In the applier's job, after the pages are rendered: the snapshot's dialog ({@code null} for none). A new one is
+     * shown over its owner's page or answered as not shown; one withdrawn while its screen is up goes back to the
+     * page. Called with every render; the same dialog again changes nothing. Never throws.
+     */
+    void dialogChanged(UiDialog d);
+
     /** No SDK pages. */
     PageRenderer NONE = new PageRenderer() {
         public void open(String pageKey, UiSnapshot s, long requestAgeMs) {
@@ -86,6 +94,9 @@ interface PageRenderer {
 
         public PageScreens.Shown shown() {
             return null;
+        }
+
+        public void dialogChanged(UiDialog d) {
         }
     };
 }

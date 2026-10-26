@@ -33,14 +33,15 @@ final class SliderScreen {
     }
 
     /**
-     * The screen: BACK (press and release) is the SDK's while the SDK owns it ({@link PageScreens#ownsSub}), else
-     * stock's (never a BACK swallowed on a screen nothing handles); it tells its owner when it connects and leaves.
+     * An SDK sub-screen ({@code id}: the slider, confirm or speller screen): BACK (press and release) is the SDK's
+     * while the SDK owns it ({@link PageScreens#ownsSub}), else stock's (never a BACK swallowed on a screen nothing
+     * handles); it tells its owner when it connects and leaves.
      */
     static final class Screen extends ScreenWidgetEVO {
         private final PageScreens owner;
 
-        Screen(PageScreens owner) {
-            super(HqcUiIds.SLIDER_SCREEN_ID);
+        Screen(int id, PageScreens owner) {
+            super(id);
             this.owner = owner;
         }
 
@@ -129,7 +130,7 @@ final class SliderScreen {
         box.setBounds(0, 0, 0, 0);
         box.add(glass);
         box.add(mirror);
-        Screen s = new Screen(owner);
+        Screen s = new Screen(HqcUiIds.SLIDER_SCREEN_ID, owner);
         PageWidgets.shell(s, f, t, ref0, box, HqcUiIds.TEXT_INPUT_BASE + HqcUiIds.TEXT_TYPED_STRIDE * slot,
                 HqcUiIds.SLIDER_SMALL_STAGE, new int[] {model}, new HMIView[][] {{rot}});
         return s;

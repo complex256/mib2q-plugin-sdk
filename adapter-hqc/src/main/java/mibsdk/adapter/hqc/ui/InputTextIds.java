@@ -50,7 +50,7 @@ final class InputTextIds {
                 return dialog != null && dialog.kind() == UiDialog.CONFIRM ? dialog.text() : "";
             case HqcUiIds.TEXT_SPELLER_TITLE:
                 return dialog != null && dialog.kind() == UiDialog.SPELLER ? dialog.title() : "";
-            default: // the speller's info and hint: Task 6
+            default: // the speller's info and hint: none
                 return "";
         }
     }

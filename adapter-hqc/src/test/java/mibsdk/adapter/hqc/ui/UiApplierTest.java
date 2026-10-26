@@ -19,6 +19,7 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.LabelController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.MainWizardController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import mibsdk.adapter.hqc.SdkGlobals;
+import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiPage;
@@ -103,7 +104,16 @@ class UiApplierTest {
         public PageScreens.Shown shown() {
             return shownPage;
         }
+
+        public void dialogChanged(UiDialog d) {
+            long seq = d == null ? -1 : d.seq();
+            if (seq != rendererDialog) { // only changes: every job hands the renderer the dialog, null included
+                rendererDialog = seq;
+                writes.add("dialog:" + (d == null ? "null" : String.valueOf(seq)));
+            }
+        }
     };
+    private volatile long rendererDialog = -1;
     private volatile PageScreens.Shown shownPage;
     private volatile Runnable onItemIcons = () -> { };
     private volatile ItemIcons rendererIcons = ItemIcons.NONE;
@@ -299,6 +309,51 @@ class UiApplierTest {
         applier.step(0);
         sink.runHeld();
         assertEquals(Collections.singletonList("refresh:[p1, p2]"), drain());
+    }
+
+    private void publishDialog(Map<String, UiPage> pageMap, UiDialog d) {
+        List<UiRow> r = Collections.singletonList(new UiRow("plugins", "PLUGINS", "plugins.page"));
+        table.publish(new UiSnapshot(++version, r, "", pageMap, 0, null, null, d, null));
+    }
+
+    private static UiDialog confirm(long seq) {
+        return new UiDialog(seq, UiDialog.CONFIRM, "p1", "Reset?", "Sure?", "Yes", "No", 0);
+    }
+
+    /** F3: a new dialog alone (the pages unchanged) posts the job, which hands it to the renderer; once. */
+    @Test
+    void newDialogAlonePostsJob() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", Collections.singletonList("plugins"), pages("p1"), 0, null);
+        applier.step(0);
+        sink.runHeld();
+        drain();
+        publishDialog(pages("p1"), confirm(7));
+        applier.step(0);
+        assertEquals(1, sink.size(), "the dialog alone posts the job");
+        sink.runHeld();
+        assertEquals(Arrays.asList("refresh:[p1]", "dialog:7"), drain());
+        publishDialog(pages("p1"), confirm(7)); // the same dialog in a new snapshot
+        applier.step(0);
+        assertEquals(0, sink.size(), "rendered already");
+    }
+
+    /** F3: a withdrawn dialog alone (the pages unchanged) posts the job too. */
+    @Test
+    void withdrawnDialogAlonePostsJob() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publishDialog(pages("p1"), confirm(7));
+        applier.step(0);
+        sink.runHeld();
+        assertTrue(drain().contains("dialog:7"));
+        publishDialog(pages("p1"), null);
+        applier.step(0);
+        assertEquals(1, sink.size(), "the withdrawal alone posts the job");
+        sink.runHeld();
+        assertEquals(Arrays.asList("refresh:[p1]", "dialog:null"), drain());
+        publishDialog(pages("p1"), null);
+        applier.step(0);
+        assertEquals(0, sink.size());
     }
 
     /** Every input field counts: a change in only one of them is a page change (it must be redrawn). */

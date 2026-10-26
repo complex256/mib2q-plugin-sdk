@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import mibsdk.adapter.hqc.SdkGlobals;
 import mibsdk.platform.PageStack;
+import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
@@ -54,6 +55,7 @@ class PageScreensNavigationTest {
         boolean failScreenManager;
         final List<PageLayout> layouts = new ArrayList<PageLayout>();
         PageRow[] lastRows;
+        String spellerText; // the SpellerModel's text (null: none)
 
         public int currentId() {
             if (failScreenManager) {
@@ -111,6 +113,20 @@ class PageScreensNavigationTest {
             }
             calls.add("slider " + slot);
             return "slider" + (++built);
+        }
+
+        public Object buildConfirm(UiDialog d, PageScreens owner) {
+            calls.add("confirm " + d.seq() + " [" + d.yes() + ", " + d.no() + "]");
+            return "confirm" + (++built);
+        }
+
+        public Object buildSpeller(UiDialog d, PageScreens owner) {
+            calls.add("speller " + d.seq() + " '" + d.text() + "' max " + d.maxLen());
+            return "speller" + (++built);
+        }
+
+        public String spellerText() {
+            return spellerText;
         }
 
         public void writeRows(PageRow[] rows) {
@@ -180,10 +196,12 @@ class PageScreensNavigationTest {
         while ((in = table.poll(0)) != null) {
             String k = in.kind() == UiInput.PAGE_SHOWN ? "shown" : in.kind() == UiInput.PAGE_CLOSED ? "closed"
                     : in.kind() == UiInput.ENTRY_SELECTED ? "selected" : in.kind() == UiInput.TOGGLE_REQUESTED
-                    ? "toggle" : in.kind() == UiInput.VALUE_REQUESTED ? "value" : "other";
+                    ? "toggle" : in.kind() == UiInput.VALUE_REQUESTED ? "value" : in.kind() == UiInput.DIALOG_DONE
+                    ? "done" : "other";
             out.add(k + " " + in.pageKey() + (in.entryKey() == null ? "" : "/" + in.entryKey())
                     + (in.kind() == UiInput.TOGGLE_REQUESTED ? "=" + in.on() : "")
-                    + (in.kind() == UiInput.VALUE_REQUESTED ? "=" + in.value() : ""));
+                    + (in.kind() == UiInput.VALUE_REQUESTED ? "=" + in.value() : "")
+                    + (in.kind() == UiInput.DIALOG_DONE ? "=" + in.value() + ":" + in.text() : ""));
         }
         return out;
     }
@@ -1254,5 +1272,183 @@ class PageScreensNavigationTest {
         pages.refresh(s);
         assertTrue(pages.ownsSub(sub), "connected: kept");
         assertTrue(PageScreens.sliderNow() != null);
+    }
+
+    // ---- dialogs (Task 6) ------------------------------------------------------------------------------------------
+
+    private static UiDialog confirm(long seq, String owner) {
+        return new UiDialog(seq, UiDialog.CONFIRM, owner, "Reset?", "All settings\nare lost", "Yes", "No", 0);
+    }
+
+    private static UiDialog speller(long seq, String owner, String initial) {
+        return new UiDialog(seq, UiDialog.SPELLER, owner, "Name", initial, null, null, 20);
+    }
+
+    /** Opens a/p if no page is up, then shows {@code d} over it and connects its screen; returns the screen. */
+    private Object showDialog(UiDialog d) throws Exception {
+        if (pages.shown() == null) {
+            pages.open("a/p", publish(page("a/p", "Alpha", item("go", "Go"))), 0);
+        }
+        Object page = hmi.current;
+        calls();
+        inputs();
+        pages.dialogChanged(d);
+        Object sub = hmi.current;
+        assertTrue(sub != page, "the dialog's screen is shown");
+        pages.screenDisconnecting(page); // the dialog screen replaced the page
+        pages.subConnected(sub);
+        calls();
+        return sub;
+    }
+
+    /** Another page on screen (or a popup up): not shown, answered 0 at once with the owner's key. */
+    @Test
+    void dialogShownOnlyOverOwnersPage() throws Exception {
+        UiSnapshot s = publish(page("a/q", "Other", item("x", "X")), page("a/p", "Alpha", item("go", "Go")));
+        pages.open("a/q", s, 0);
+        calls();
+        inputs();
+        pages.dialogChanged(confirm(3, "a/p"));
+        assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs(), "not shown");
+        assertEquals(Collections.emptyList(), calls());
+        pages.dialogChanged(confirm(3, "a/p"));
+        assertEquals(Collections.emptyList(), inputs(), "answered once");
+
+        pages.dialogChanged(confirm(4, "a/q"));
+        assertEquals(Collections.emptyList(), inputs(), "over its owner's page: shown");
+        assertEquals(Arrays.asList("confirm 4 [Yes, No]", "show confirm2"), calls());
+        pages.subBack();
+        runJobs();
+        calls();
+        inputs();
+        hmi.blocked = true; // a popup over the page
+        pages.dialogChanged(speller(5, "a/q", "Bob"));
+        assertEquals(Collections.singletonList("done a/q/5=0:null"), inputs(), "the screen may not change");
+        assertEquals(Collections.emptyList(), calls());
+    }
+
+    /** A dialog over a CHOICE's sub-page: the shown key is the owner's {@code #} child. */
+    @Test
+    void dialogShownOverChoiceSubPage() throws Exception {
+        UiSnapshot s = publish(page("p/main#lang", "Language", new UiEntry(UiEntry.RADIO, "en", "English", null,
+                true, null)), page("p/main", "Main", item("go", "Go")));
+        pages.open("p/main#lang", s, 0);
+        calls();
+        inputs();
+        pages.dialogChanged(confirm(3, "p/main"));
+        assertEquals(Arrays.asList("confirm 3 [Yes, No]", "show confirm2"), calls());
+        assertEquals(Collections.emptyList(), inputs());
+        assertEquals("Reset?", PageScreens.dialogNow().title(), "its texts are served");
+        pages.dialogChanged(confirm(4, "p/mainx")); // a prefix, not a child: not shown
+        assertEquals(Collections.singletonList("done p/mainx/4=0:null"), inputs());
+    }
+
+    /** Row 0 is 1, row 1 is 0, BACK is 0; each answers once and re-shows the page (same rows, no pop). */
+    @Test
+    void confirmRowsAndBackAnswer() throws Exception {
+        long seq = 3;
+        for (int how = 0; how < 3; how++) {
+            Object sub = showDialog(confirm(seq, "a/p"));
+            assertTrue(pages.ownsSub(sub));
+            if (how < 2) {
+                PageScreens.confirmSelected(how);
+            } else {
+                pages.subBack();
+            }
+            assertEquals(Collections.singletonList("done a/p/" + seq + "=" + (how == 0 ? 1 : 0) + ":null"),
+                    inputs(), "answer " + how);
+            PageScreens.confirmSelected(0); // a second press before the page is back
+            pages.subBack();
+            assertEquals(Collections.emptyList(), inputs(), "one answer, " + how);
+            runJobs();
+            List<String> c = calls();
+            assertEquals(Arrays.asList("rows [Go]", "build a/p 'Alpha'"), c.subList(0, 2), "the page again");
+            assertEquals(Collections.emptyList(), inputs(), "no stack pop, no page event");
+            assertEquals("a/p", pages.shown().pageKey);
+            seq++;
+        }
+    }
+
+    /** The runtime withdrew the dialog: back to the page with no answer; a new seq replaces the screen. */
+    @Test
+    void withdrawnDialogReturnsWithoutAnswer() throws Exception {
+        showDialog(confirm(3, "a/p"));
+        pages.dialogChanged(null);
+        runJobs();
+        assertEquals(Arrays.asList("rows [Go]", "build a/p 'Alpha'", "show screen3:a/p"), calls());
+        assertEquals(Collections.emptyList(), inputs(), "no answer");
+        assertNull(PageScreens.dialogNow());
+
+        Object sub = showDialog(speller(4, "a/p", ""));
+        assertEquals(Collections.emptyList(), inputs());
+        pages.dialogChanged(confirm(5, "a/p")); // 4 withdrawn, 5 up at once
+        assertEquals(Arrays.asList("confirm 5 [Yes, No]", "show confirm5"), calls());
+        assertFalse(pages.ownsSub(sub));
+        pages.subDisconnecting(sub); // the old screen leaving is no user leaving
+        assertEquals(Collections.emptyList(), inputs(), "4 has no answer, the page stays open");
+        PageScreens.confirmSelected(0);
+        assertEquals(Collections.singletonList("done a/p/5=1:null"), inputs());
+    }
+
+    /** A stock screen over the dialog: DIALOG_DONE (dismissed) before the page's PAGE_CLOSED. */
+    @Test
+    void stockScreenOverDialogAnswersThenCloses() throws Exception {
+        Object sub = showDialog(confirm(3, "a/p"));
+        hmi.current = "stock:radio";
+        hmi.currentId = 1300014;
+        pages.subDisconnecting(sub);
+        assertEquals(Arrays.asList("done a/p/3=0:null", "closed a/p"), inputs());
+        assertFalse(pages.ownsSub(sub));
+        PageScreens.confirmSelected(0);
+        assertEquals(Collections.emptyList(), inputs());
+    }
+
+    /** The speller's screen leaving without BACK delivers its text once, before PAGE_CLOSED. */
+    @Test
+    void spellerDisconnectDeliversText() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("go", "Go"))), 0);
+        Object page = hmi.current;
+        calls();
+        inputs();
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Arrays.asList("speller 3 'Bob' max 20", "show speller2"), calls());
+        Object sub = hmi.current;
+        pages.screenDisconnecting(page);
+        pages.subConnected(sub);
+        PageScreens.spellerCommand(HqcUiIds.SPELLER_OPENED);
+        PageScreens.spellerTextChanged("Bo");
+        PageScreens.spellerTextChanged("Bon");
+        PageScreens.spellerCommand(HqcUiIds.SPELLER_CLOSED);
+        assertEquals(Collections.emptyList(), inputs(), "the band closing is not done");
+        hmi.current = "stock:phone";
+        pages.subDisconnecting(sub);
+        assertEquals(Arrays.asList("done a/p/3=0:Bon", "closed a/p"), inputs());
+    }
+
+    /** BACK on the speller is done with the model's text, once; its screen leaving after it adds nothing. */
+    @Test
+    void spellerBackIsDoneOnce() throws Exception {
+        Object sub = showDialog(speller(3, "a/p", "Bob"));
+        PageScreens.spellerTextChanged("Al");
+        hmi.spellerText = "Alf";
+        pages.subBack();
+        assertEquals(Collections.singletonList("done a/p/3=0:Alf"), inputs());
+        runJobs();
+        pages.subDisconnecting(sub);
+        assertEquals(Collections.emptyList(), inputs());
+    }
+
+    /** A dialog screen that never connects is answered (dismissed) when it is given up. */
+    @Test
+    void dialogThatNeverConnectsIsAnswered() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go")));
+        pages.open("a/p", s, 0);
+        Object page = hmi.current;
+        pages.dialogChanged(confirm(3, "a/p"));
+        hmi.current = page; // the show was dropped
+        inputs();
+        now += PageScreens.SUB_CONNECT_MS + 1;
+        pages.refresh(s);
+        assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs(), "the page stays open");
     }
 }

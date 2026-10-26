@@ -8,6 +8,7 @@ import de.audi.atip.hmi.model.ListModel;
 import de.audi.atip.hmi.model.RangeListener;
 import de.audi.atip.hmi.model.RangeModel;
 import de.audi.atip.hmi.model.ResourceLocatorModel;
+import de.audi.atip.hmi.model.SpellerListener;
 import de.audi.atip.hmi.model.SpellerModel;
 import de.audi.atip.hmi.model.listener.DefaultChoiceListener;
 import de.audi.atip.model.CarModelBank;
@@ -27,7 +28,9 @@ import mibsdk.adapter.hqc.SdkGlobals;
  * publishes them as {@code SdkGlobals.uiRowModels}. The selection listener only drops the press into
  * {@code SdkGlobals.UI}; the page list's listener only hands the row to {@link PageScreens#listSelected}; the typed
  * ChoiceModels' listener hands the pick to {@link PageScreens#typedChosen} and the RangeModels' the knob turn to
- * {@link PageScreens#sliderTurned}. The typed models are written only on {@code mibsdk-ui} ({@link #typedModels}).
+ * {@link PageScreens#sliderTurned}; the confirm list's listener the row to {@link PageScreens#confirmSelected}, the
+ * SpellerModel's its text and band commands to {@link PageScreens#spellerTextChanged} and
+ * {@link PageScreens#spellerCommand}. The typed models are written only on {@code mibsdk-ui} ({@link #typedModels}).
  */
 final class SdkCarModelBank extends CarModelBank {
 
@@ -104,6 +107,25 @@ final class SdkCarModelBank extends CarModelBank {
         }
         b.createModel(PAGE_LIST_INDEX);
         return (ListModel) b.models[PAGE_LIST_INDEX];
+    }
+
+    /** The confirm screen's Yes/No ListModel (created on first use), or null before the bank exists. HMIEvent. */
+    static ListModel confirmList() {
+        return (ListModel) model(HqcUiIds.CONFIRM_LIST_MODEL);
+    }
+
+    /** The speller screen's SpellerModel (created on first use), or null before the bank exists. HMIEvent. */
+    static SpellerModel speller() {
+        return (SpellerModel) model(HqcUiIds.SPELLER_MODEL);
+    }
+
+    private static HMIModel model(int id) {
+        SdkCarModelBank b = current;
+        if (b == null) {
+            return null;
+        }
+        b.createModel(index(id));
+        return b.models[index(id)];
     }
 
     /**
@@ -306,9 +328,12 @@ final class SdkCarModelBank extends CarModelBank {
                 ListModel l = new ListModel(id);
                 l.setMaxColumns(HqcUiIds.PAGE_COLUMNS);
                 l.setMaxRows(2);
+                l.setListListener(new ConfirmListListener());
                 m = l;
             } else if (id == HqcUiIds.SPELLER_MODEL) {
-                m = new SpellerModel(id);
+                SpellerModel sp = new SpellerModel(id);
+                sp.setSpellerListener(new DialogSpellerListener());
+                m = sp;
             } else if (id == HqcUiIds.TOAST_VISIBLE_MODEL) {
                 ChoiceModel c = new ChoiceModel(id);
                 c.setValue(0);
@@ -509,6 +534,54 @@ final class SdkCarModelBank extends CarModelBank {
         }
 
         public void itemReleased(int modelId, int row, int x, int terminal) {
+        }
+    }
+
+    /** A confirm row was selected (HMIEvent): handed to PageScreens, which only sends input or asks for a job. */
+    private static final class ConfirmListListener implements ListListener {
+        public void itemSelected(int modelId, int row, int x, int terminal) {
+            try {
+                PageScreens.confirmSelected(row);
+            } catch (Throwable ignored) {
+                // never propagate into the HMI
+            }
+        }
+
+        public void itemFocused(int modelId, int row, int x, int terminal) {
+        }
+
+        public void itemReleased(int modelId, int row, int x, int terminal) {
+        }
+    }
+
+    /** The speller's text and band commands (HMIEvent): handed to PageScreens' open speller session. */
+    private static final class DialogSpellerListener implements SpellerListener {
+        public void keyPressed(int modelId, int key, int terminal) {
+        }
+
+        public void keyReleased(int modelId, int key, int terminal) {
+        }
+
+        public void keyTyped(int modelId, int key, int terminal) {
+        }
+
+        public void textChanged(int modelId, String text, char c, int terminal) {
+            try {
+                PageScreens.spellerTextChanged(text);
+            } catch (Throwable ignored) {
+                // never propagate into the HMI
+            }
+        }
+
+        public void focusedCharacter(int modelId, char c, int terminal) {
+        }
+
+        public void commandPressed(int modelId, int command, int terminal) {
+            try {
+                PageScreens.spellerCommand(command);
+            } catch (Throwable ignored) {
+                // never propagate into the HMI
+            }
         }
     }
 }

@@ -7,6 +7,7 @@ import de.audi.atip.hmi.event.WheelButtonEvent;
 import de.audi.atip.hmi.model.IntegerListCell;
 import de.audi.atip.hmi.model.ListCell;
 import de.audi.atip.hmi.model.ListModel;
+import de.audi.atip.hmi.model.SpellerModel;
 import de.audi.atip.hmi.model.TextListCell;
 import de.audi.atip.hmi.view.HMIView;
 import de.audi.atip.hmi.view.IScreenData;
@@ -53,6 +54,7 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemColumnsConstraints;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.list.ListItemFactory;
+import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiEntry;
 
 /**
@@ -135,6 +137,20 @@ final class PageWidgets implements PageScreens.Screens {
         return SliderScreen.build(factory(), TERMINAL, slot, layout, owner);
     }
 
+    public Object buildConfirm(UiDialog d, PageScreens owner) {
+        ConfirmScreen.writeRows(SdkCarModelBank.confirmList(), d);
+        return ConfirmScreen.build(factory(), TERMINAL, owner);
+    }
+
+    public Object buildSpeller(UiDialog d, PageScreens owner) {
+        return SpellerScreen.build(factory(), TERMINAL, SdkCarModelBank.speller(), d, owner);
+    }
+
+    public String spellerText() {
+        SpellerModel m = SdkCarModelBank.speller();
+        return m == null ? null : m.getText();
+    }
+
     private static SdkCarScreenFactory factory() {
         SdkCarScreenFactory f = SdkCarScreenFactory.current;
         if (f == null) {
@@ -204,6 +220,11 @@ final class PageWidgets implements PageScreens.Screens {
         if (m == null) {
             throw new IllegalStateException("no page list model");
         }
+        write(m, rows);
+    }
+
+    /** Rewrites {@code m}'s rows in place (so focus stays), then trims or extends it. */
+    static void write(ListModel m, PageRow[] rows) {
         int had = m.getLength();
         for (int i = 0; i < rows.length; i++) {
             ListCell[] row = cells(rows[i]);
@@ -294,40 +315,9 @@ final class PageWidgets implements PageScreens.Screens {
 
     static Screen build(SdkCarScreenFactory f, int t, PageScreens owner, String pageKey, PageLayout layout) {
         AbstractWidgetController ref0 = f.getRefWidget(t, 0, f);
-
-        GlassplateController glass = new GlassplateController();
-        glass.setRenderer(new GlassplateRendererHigh(glass));
-        glass.setBounds(0, 0, 100, 100);
-        glass.setSdsNumbersGapWidth(4);
-        glass.setSdsNumbersWidth(64);
-        FocusCursorController cursor = new FocusCursorController();
-        cursor.setRenderer(new FocusCursorRendererHigh(cursor));
-        cursor.setBounds(0, 0, 100, 100);
-        cursor.setColorIndices(new int[] {1, 2, 4, 0});
-        cursor.setOptionsIconVisible(false);
-        ScrollbarController scroll = new ScrollbarController();
-        scroll.setRenderer(new ScrollbarRendererKanziHigh(scroll));
-        scroll.setBounds(933, 8, 5, 308);
-
         ListController list = list(layout);
-
         PageMenu menu = new PageMenu(owner);
-        menu.setRenderer(new MenuRendererHigh(menu));
-        menu.createInfolineWidgets(new InfoLineRendererHigh());
-        menu.getInfoline().getInfolineRenderer().setFonts(FontFactory.getFonts(2, t, f.framework()));
-        menu.getInfolineTimer().setIdleTime(800);
-        menu.getInfoline().setColorIndices(new int[] {2, 0, 4, 3});
-        menu.getLayout().setBackgroundInsetsVert(7);
-        menu.getLayout().setContentLeftOffset(12);
-        menu.getLayout().setContentRightOffset(32);
-        menu.getLayout().setContentRightOffsetSmallStage(25);
-        menu.getLayout().setItemsGap(9);
-        menu.getLayout().setOptionsIconAdditionalRightInsets(26);
-        menu.setBounds(59, 77, 946, 324);
-        menu.setColorIndices(new int[] {1, 0, 4, 0, 2, 3});
-        menu.add(glass, 4);
-        menu.add(cursor, 1);
-        menu.add(scroll, 3);
+        dressMenu(menu, f, t, 32);
         menu.add(list);
 
         PageLayout.TypedRow[] typed = layout == null ? new PageLayout.TypedRow[0] : layout.typed();
@@ -343,6 +333,45 @@ final class PageWidgets implements PageScreens.Screens {
         }
         ScreenWidgetEVO s = new PageScreen(HqcUiIds.PAGE_SCREEN_ID, owner, pageKey, layout);
         return shell(s, f, t, ref0, menu, HqcUiIds.TEXT_PAGE_TITLE, 3, ids, views);
+    }
+
+    /**
+     * Dresses {@code menu} as the page's body menu (spike B; the dialogs' with {@code rightOffset}
+     * {@link HqcUiIds#DIALOG_MENU_RIGHT_OFFSET}): renderer, infoline, layout, bounds, colours, and its glassplate, focus
+     * cursor and scrollbar.
+     */
+    static MenuController dressMenu(MenuController menu, SdkCarScreenFactory f, int t, int rightOffset) {
+        GlassplateController glass = new GlassplateController();
+        glass.setRenderer(new GlassplateRendererHigh(glass));
+        glass.setBounds(0, 0, 100, 100);
+        glass.setSdsNumbersGapWidth(4);
+        glass.setSdsNumbersWidth(64);
+        FocusCursorController cursor = new FocusCursorController();
+        cursor.setRenderer(new FocusCursorRendererHigh(cursor));
+        cursor.setBounds(0, 0, 100, 100);
+        cursor.setColorIndices(new int[] {1, 2, 4, 0});
+        cursor.setOptionsIconVisible(false);
+        ScrollbarController scroll = new ScrollbarController();
+        scroll.setRenderer(new ScrollbarRendererKanziHigh(scroll));
+        scroll.setBounds(933, 8, 5, 308);
+
+        menu.setRenderer(new MenuRendererHigh(menu));
+        menu.createInfolineWidgets(new InfoLineRendererHigh());
+        menu.getInfoline().getInfolineRenderer().setFonts(FontFactory.getFonts(2, t, f.framework()));
+        menu.getInfolineTimer().setIdleTime(800);
+        menu.getInfoline().setColorIndices(new int[] {2, 0, 4, 3});
+        menu.getLayout().setBackgroundInsetsVert(7);
+        menu.getLayout().setContentLeftOffset(12);
+        menu.getLayout().setContentRightOffset(rightOffset);
+        menu.getLayout().setContentRightOffsetSmallStage(25);
+        menu.getLayout().setItemsGap(9);
+        menu.getLayout().setOptionsIconAdditionalRightInsets(26);
+        menu.setBounds(59, 77, 946, 324);
+        menu.setColorIndices(new int[] {1, 0, 4, 0, 2, 3});
+        menu.add(glass, 4);
+        menu.add(cursor, 1);
+        menu.add(scroll, 3);
+        return menu;
     }
 
     /**
@@ -520,8 +549,13 @@ final class PageWidgets implements PageScreens.Screens {
      * the row's cells), the enabled column greys a row (spike D).
      */
     static ListController list(PageLayout layout) {
+        return list(HqcUiIds.PAGE_LIST_MODEL, layout);
+    }
+
+    /** As {@link #list(PageLayout)}, on ListModel {@code modelId} (the confirm's Yes/No rows use it). */
+    static ListController list(int modelId, PageLayout layout) {
         ListController list = new ListController();
-        list.setModelID(HqcUiIds.PAGE_LIST_MODEL);
+        list.setModelID(modelId);
         list.setBounds(0, 0, 0, 0);
         list.setGlassplateInsetsBottom(new int[0]);
         list.setGlassplateInsetsTop(new int[0]);

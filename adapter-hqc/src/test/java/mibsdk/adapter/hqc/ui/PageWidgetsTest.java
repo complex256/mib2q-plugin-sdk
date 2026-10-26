@@ -284,4 +284,93 @@ class PageWidgetsTest {
         assertTrue(s.findViews(HqcUiIds.TYPED_RANGE_MODEL_0 + 1)[0] instanceof SliderScreen.Knob);
         assertEquals(3, s.getSmallStageType());
     }
+
+    /** Connectivity's font sets, as {@link #carFonts} (the speller's field and band use them). */
+    static void connectivityFonts() throws Exception {
+        java.lang.reflect.Field arrays = de.audi.tghu.connectivity.hmi.evohigh.FontFactory.class
+                .getDeclaredField("fontArrays");
+        arrays.setAccessible(true);
+        Object[] a = (Object[]) arrays.get(null);
+        for (int i = 0; i < a.length; i++) {
+            if (a[i] == null) {
+                a[i] = new de.esolutions.hmi.widgets.audi.base.eal.IWrappedFont[0];
+            }
+        }
+    }
+
+    /** The first widget of class {@code c} in {@code w}'s tree, depth first; null if none. */
+    static <T> T find(de.esolutions.hmi.widgets.audi.base.AbstractWidget w, Class<T> c) {
+        if (c.isInstance(w)) {
+            return c.cast(w);
+        }
+        List<?> kids = w.getChildren();
+        for (int i = 0; kids != null && i < kids.size(); i++) {
+            if (kids.get(i) instanceof de.esolutions.hmi.widgets.audi.base.AbstractWidget) {
+                T t = find((de.esolutions.hmi.widgets.audi.base.AbstractWidget) kids.get(i), c);
+                if (t != null) {
+                    return t;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * D7 + F9: the confirm screen 609502 (small stage 1) on the Yes/No list; its hint is text id 609080 in a
+     * multi-line label that wraps ({@code autoWrap} 0: the renderer has no getter on the unit's jar, so the field is
+     * read).
+     */
+    @Test
+    void confirmLabelAutoWrapIsZero() throws Exception {
+        HostWidgets.init();
+        carFonts();
+        SdkCarScreenFactory f = new SdkCarScreenFactory(SdkCarScreenFactoryTest.fw());
+        de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO s = ConfirmScreen.build(f, 0, null);
+        assertEquals(HqcUiIds.CONFIRM_SCREEN_ID, s.getID());
+        assertEquals(1, s.getSmallStageType());
+        assertArrayEquals(new int[] {138, HqcUiIds.CONFIRM_LIST_MODEL}, s.getViewIDs());
+        assertTrue(s.findViews(HqcUiIds.CONFIRM_LIST_MODEL)[0] instanceof ListController);
+        de.esolutions.hmi.widgets.audi.evo.InstructionTextContoller it =
+                find(s, de.esolutions.hmi.widgets.audi.evo.InstructionTextContoller.class);
+        LabelController hint = it.getHintText();
+        assertArrayEquals(new int[] {609080}, hint.getTextIds());
+        java.lang.reflect.Field wrap = de.esolutions.hmi.widgets.audi.evo.high.widgets.MultiLineLabelRendererHigh.class
+                .getDeclaredField("autoWrap");
+        wrap.setAccessible(true);
+        assertEquals(0, wrap.getInt(hint.getRenderer()));
+    }
+
+    /** The confirm's rows: Yes then No, ACTION rows, enabled. */
+    @Test
+    void confirmRowsAreYesThenNo() {
+        PageRow[] r = ConfirmScreen.rows(new mibsdk.platform.UiDialog(3, mibsdk.platform.UiDialog.CONFIRM, "p/main",
+                "Reset?", "Sure?", "Do it", "Keep", 0));
+        assertEquals(2, r.length);
+        assertEquals("Do it", r[0].label);
+        assertEquals("Keep", r[1].label);
+        for (int i = 0; i < 2; i++) {
+            assertEquals(PageScreens.ROW_ACTION, r[i].kind);
+            assertTrue(r[i].enabled);
+            assertEquals(1, ((IntegerListCell) PageWidgets.cells(r[i])[HqcUiIds.PAGE_COL_ENABLED]).getValue());
+        }
+    }
+
+    /** D9: the speller screen 609503 builds on the host (Connectivity's fonts); the model gets max length and text. */
+    @Test
+    void spellerScreenBuildsOnHost() throws Exception {
+        HostWidgets.init();
+        carFonts();
+        connectivityFonts();
+        SdkCarScreenFactory f = new SdkCarScreenFactory(SdkCarScreenFactoryTest.fw());
+        de.audi.atip.hmi.model.SpellerModel m = new de.audi.atip.hmi.model.SpellerModel(HqcUiIds.SPELLER_MODEL);
+        de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO s = SpellerScreen.build(f, 0, m,
+                new mibsdk.platform.UiDialog(4, mibsdk.platform.UiDialog.SPELLER, "p/main", "Name", "Bob", null, null,
+                        20), null);
+        assertEquals(HqcUiIds.SPELLER_SCREEN_ID, s.getID());
+        assertArrayEquals(new int[] {138, 5602, 5606, HqcUiIds.SPELLER_MODEL}, s.getViewIDs());
+        assertTrue(s.findViews(HqcUiIds.SPELLER_MODEL)[0]
+                instanceof de.esolutions.hmi.widgets.audi.evo.widgets.TouchController);
+        assertEquals("Bob", m.getText());
+        assertEquals(20, m.getMaxLength());
+    }
 }

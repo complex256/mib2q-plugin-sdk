@@ -25,7 +25,7 @@ class StockThreadCodeTest {
         "TextIds", "UiInputs", "DrawerAssignment", "HmiPoster", "PageEvents", "PageRenderer", "PageScreens",
         "PageWidgets", "IconIds", "HmiWidgets", "HmiWidgetState", "StatusLayout", "SdkStatusPopup",
         "SdkSystemActivator", "SdkSystemScreenFactory", "MainMenuKeyHandler", "MainMenuWrench", "PageRow",
-        "PageLayout", "ItemIcons", "SliderSession", "SliderScreen", "InputTextIds"};
+        "PageLayout", "ItemIcons", "SliderSession", "SliderScreen", "InputTextIds", "ConfirmScreen", "SpellerScreen", "SpellerSession"};
 
     private static final Pattern FORBIDDEN = Pattern.compile("java\\.io\\.|java\\.nio\\.|java\\.net\\.|\\bnew Thread\\b"
             + "|\\bThread\\.sleep\\b|\\.start\\(\\)|\\.join\\(|\\.wait\\(|\\bnew Timer\\b|System\\.(out|err)"
@@ -100,6 +100,12 @@ class StockThreadCodeTest {
             {"SdkCarModelBank", "UiApplier.TypedModels typedHandle"},
             {"SliderScreen", "void keyPressed"},
             {"SliderScreen", "void keyReleased"},
+            {"PageScreens", "void dialogChanged"},
+            {"PageScreens", "void confirmSelected"},
+            {"PageScreens", "void spellerTextChanged"},
+            {"PageScreens", "void spellerCommand"},
+            {"SdkCarModelBank", "void textChanged"},
+            {"SdkCarModelBank", "void commandPressed"},
         };
         for (String[] o : overrides) {
             String src = source(o[0]);

@@ -39,6 +39,14 @@ import mibsdk.runtime.RingLog;
  * {@code PAGE_CLOSED}, input still goes to the page's key; BACK on it ({@link #subBack}) re-shows the page with the
  * same rows and no stack pop. A stock screen connecting over a sub-screen is the user leaving the page.
  *
+ * <p>Dialogs (Task 6): the snapshot's confirm or speller ({@link #dialogChanged}) is a sub-screen over its owner's page
+ * ({@link HqcUiIds#CONFIRM_SCREEN_ID}, {@link HqcUiIds#SPELLER_SCREEN_ID}), shown only while that page (or a choice
+ * page of it) is ours on screen and the screen may change; otherwise it is answered at once as not shown. Each is
+ * answered exactly once with {@code DIALOG_DONE} (page key = the owner's): a confirm row (Yes 1, No 0), BACK (confirm
+ * 0, the speller done with its text: no OK key is reachable), or its screen leaving unanswered (dismissed, the same
+ * answers), always before the page-closed handling of a stock screen over it. A withdrawn dialog goes back to the page
+ * with no answer. The page under a dialog is never reported closed by the dialog itself.
+ *
  * <p>Opens: a request is honoured only within {@link #OPEN_TTL_MS} of the applier seeing it (monotonic clock), and
  * only while an SDK page is the connected screen, or on a Car screen (the Car drawer's) or the main menu
  * ({@link HqcUiIds#SYS_SCREEN_MAINWIZARD}, the MENU ring's Plugins row) within {@link #OPEN_TTL_MS} of a user press
@@ -109,6 +117,21 @@ final class PageScreens implements PageRenderer {
          * its BACK and connect/disconnect go to {@code owner}. Shown with {@link #show}.
          */
         Object buildSlider(int slot, PageLayout layout, PageScreens owner) throws Exception;
+
+        /**
+         * A new confirm screen ({@link HqcUiIds#CONFIRM_SCREEN_ID}) for {@code d}, its Yes/No rows written; its BACK
+         * and connect/disconnect go to {@code owner}. Shown with {@link #show}.
+         */
+        Object buildConfirm(UiDialog d, PageScreens owner) throws Exception;
+
+        /**
+         * A new speller screen ({@link HqcUiIds#SPELLER_SCREEN_ID}) for {@code d}, the SpellerModel's max length and
+         * initial text written; its BACK and connect/disconnect go to {@code owner}. Shown with {@link #show}.
+         */
+        Object buildSpeller(UiDialog d, PageScreens owner) throws Exception;
+
+        /** The SpellerModel's text (what the GUI wrote last), or null. */
+        String spellerText();
     }
 
     /** One requested navigation: BACK, a LINK (or CHOICE) to {@code target}, the slider screen, or BACK from it. */
@@ -156,7 +179,7 @@ final class PageScreens implements PageRenderer {
     private static Object stockReturn;
     /** The title {@link SdkCarScreenFactory#getText} serves for {@link HqcUiIds#TEXT_PAGE_TITLE}. */
     private static volatile String title = "";
-    /** The dialog whose texts {@link InputTextIds} serves; null until Task 6 shows one. */
+    /** The dialog whose texts {@link InputTextIds} serves: the one on show; null for none. */
     private static volatile UiDialog dialog;
     /** Counts page screen builds and adoptions: each {@link Shown} gets the next. */
     private static int generations;
@@ -225,6 +248,12 @@ final class PageScreens implements PageRenderer {
     private Shown lastSubShown;
     /** The open slider edit screen's session; null unless the sub-screen is the slider. Read by getText. */
     private volatile SliderSession slider;
+    /** The dialog seq {@link #dialogChanged} acted on last (shown, refused or withdrawn); 0 for none. */
+    private long dialogSeq;
+    /** The dialog whose screen is the sub-screen, until it is answered or withdrawn; null for none. */
+    private UiDialog dialogUp;
+    /** The open speller's session; null unless {@link #dialogUp} is a speller. */
+    private SpellerSession spellerSession;
 
     PageScreens(Screens screens, PageStack stack, UiTable table, HmiPoster poster, RingLog log) {
         this.screens = screens;
@@ -430,6 +459,7 @@ final class PageScreens implements PageRenderer {
             down = true;
             boolean onScreen = shown != null || ownPageConnected();
             shown = null;
+            dropDialog(); // the runtime is down: nothing to answer
             clearSub();
             lastSub = null;
             stack.clear();
@@ -723,13 +753,17 @@ final class PageScreens implements PageRenderer {
         }
     }
 
-    /** BACK on a sub-screen (it consumed the key): the page again, same rows, no stack pop, in a job. Never throws. */
+    /**
+     * BACK on a sub-screen (it consumed the key): a dialog up is answered (confirm No; the speller is done with its
+     * text), then the page again, same rows, no stack pop, in a job. Never throws.
+     */
     void subBack() {
         try {
             if (down || orphanPending) {
                 poster.post(retryJob);
                 return;
             }
+            answerDialog(0);
             requestNav(new Nav(Nav.SUB_BACK, null, -1));
         } catch (Throwable t) {
             // never propagate into the HMI
@@ -832,10 +866,162 @@ final class PageScreens implements PageRenderer {
         }
     }
 
+    /**
+     * Forgets the sub-screen. A dialog's screen leaving unanswered (a stock screen over it, never connected, the page
+     * rebuilt) is answered here as dismissed (confirm 0, the speller with its text): before any page-closed handling,
+     * which the callers do after this.
+     */
     private void clearSub() {
+        answerDialog(0);
         sub = null;
         slider = null;
         subWaiting = false;
+        dialog = null;
+    }
+
+    // ---- dialogs (Task 6): confirm 609502 and speller 609503, sub-screens over their owner's page --------------------
+
+    public void dialogChanged(UiDialog d) {
+        try {
+            long seq = d == null ? 0 : d.seq();
+            if (seq == dialogSeq) {
+                return; // the same dialog (or none) again
+            }
+            dialogSeq = seq;
+            boolean wasUp = dialogUp != null;
+            dropDialog(); // withdrawn, or replaced by d: it gets no answer from us
+            if (d != null && dialogAllowed(d)) {
+                showDialog(d); // replaces whatever sub-screen is up
+                return;
+            }
+            if (wasUp && sub != null) {
+                subBack(); // its screen goes; the page again
+            }
+            if (d != null) {
+                log.append("INFO", SOURCE, "ui dialog " + seq + " not shown: " + d.ownerPageKey()
+                        + " is not on screen, or the screen may not change");
+                answer(d, 0, null);
+            }
+        } catch (Throwable t) {
+            failed("dialog", t);
+        }
+    }
+
+    /** {@code d} may show now: its owner's page (or a {@code #} child of it) is ours on screen, and it may change. */
+    private boolean dialogAllowed(UiDialog d) {
+        Shown sp = shownPage;
+        if (down || orphanPending || shown == null || sp == null) {
+            return false;
+        }
+        String owner = d.ownerPageKey();
+        boolean over = sp.pageKey.equals(owner) || sp.pageKey.startsWith(owner + "#");
+        return over && changeAllowed();
+    }
+
+    /** Builds and shows {@code d}'s screen as the sub-screen; a build that fails answers it as not shown. */
+    private void showDialog(UiDialog d) {
+        boolean isSpeller = d.kind() == UiDialog.SPELLER;
+        Object screen;
+        try {
+            screen = isSpeller ? screens.buildSpeller(d, this) : screens.buildConfirm(d, this);
+        } catch (Throwable t) {
+            failed("build dialog " + d.seq(), t);
+            answer(d, 0, null);
+            return;
+        }
+        clearSub(); // a slider under it closes
+        dialog = d; // its texts, served at connect
+        dialogUp = d;
+        spellerSession = isSpeller ? new SpellerSession(d.seq(), d.text()) : null;
+        openSub(isSpeller ? HqcUiIds.SPELLER_SCREEN_ID : HqcUiIds.CONFIRM_SCREEN_ID, screen);
+    }
+
+    /**
+     * Answers the dialog up, once, and forgets it: a confirm with {@code value}; a speller (whatever {@code value}) is
+     * done with the model's text, else the last typed, else its initial text. Nothing without one.
+     */
+    private void answerDialog(int value) {
+        UiDialog d = dialogUp;
+        SpellerSession ss = spellerSession;
+        dropDialog();
+        if (d == null) {
+            return;
+        }
+        if (ss == null) {
+            answer(d, value, null);
+        } else if (ss.takeDone()) {
+            answer(d, 0, ss.doneText(spellerModelText()));
+        }
+    }
+
+    /** Forgets the dialog up with no answer. */
+    private void dropDialog() {
+        dialogUp = null;
+        spellerSession = null;
+    }
+
+    private void answer(UiDialog d, int value, String text) {
+        table.input(new UiInput(UiInput.DIALOG_DONE, d.ownerPageKey(), String.valueOf(d.seq()), false, value, text));
+    }
+
+    private String spellerModelText() {
+        try {
+            return screens.spellerText();
+        } catch (Throwable t) {
+            return null; // the session's last text then
+        }
+    }
+
+    /** A row of the confirm list was selected (its ListListener): row 0 Yes (1), row 1 No (0). Never throws. */
+    static void confirmSelected(int row) {
+        try {
+            PageScreens p = live;
+            if (p != null) {
+                p.confirmPick(row);
+            }
+        } catch (Throwable t) {
+            // never propagate into the HMI
+        }
+    }
+
+    private void confirmPick(int row) {
+        if (down || orphanPending) {
+            poster.post(retryJob);
+            return;
+        }
+        UiDialog d = dialogUp;
+        if (d == null || d.kind() != UiDialog.CONFIRM || sub == null || row < 0 || row > 1) {
+            return; // answered already, or no confirm of ours
+        }
+        UiInputs.userPressed();
+        answerDialog(row == 0 ? 1 : 0);
+        subBack();
+    }
+
+    /** The speller's text changed (its SpellerListener). Never throws. */
+    static void spellerTextChanged(String text) {
+        try {
+            PageScreens p = live;
+            SpellerSession ss = p == null ? null : p.spellerSession;
+            if (ss != null) {
+                ss.onTextChanged(text);
+            }
+        } catch (Throwable t) {
+            // never propagate into the HMI
+        }
+    }
+
+    /** The speller's band opened or closed (its SpellerListener's {@code commandPressed}). Never throws. */
+    static void spellerCommand(int command) {
+        try {
+            PageScreens p = live;
+            SpellerSession ss = p == null ? null : p.spellerSession;
+            if (ss != null) {
+                ss.onCommand(command);
+            }
+        } catch (Throwable t) {
+            // never propagate into the HMI
+        }
     }
 
     /** The live SLIDER entry of typed slot {@code slot} of {@code sp} in {@code s}, or null. */

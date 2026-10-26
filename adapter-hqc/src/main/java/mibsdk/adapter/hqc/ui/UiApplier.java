@@ -77,6 +77,8 @@ public final class UiApplier {
     static final long STOP_JOIN_MS = 3000;
     private static final String SOURCE = "mibsdk";
     private static final int UNKNOWN = -1;
+    /** {@link #renderedDialogSeq} for no dialog (the runtime's seqs start at 1). */
+    private static final long NO_DIALOG = 0;
     private static final int MAX_LOGGED_FAILURES = 32;
     private static final String[] PHASES = {"slots", "rows", "inputs", "status", "hmi"};
 
@@ -141,6 +143,8 @@ public final class UiApplier {
     private volatile boolean down;
     private volatile boolean closedRendered;
     private volatile long renderedOpenSeq;
+    /** The dialog seq the last page render handed the renderer; {@link #NO_DIALOG} for none (F3). */
+    private volatile long renderedDialogSeq = NO_DIALOG;
     /** The newest openSeq the applier saw, and when (monotonic): an open request's age is measured from here. */
     private volatile long seenOpenSeq = Long.MIN_VALUE;
     private volatile long seenOpenAt;
@@ -659,7 +663,12 @@ public final class UiApplier {
             return !closedRendered || (tick && pages.closePending());
         }
         return isOpenRequest(s) || !samePages(s.pages(), renderedPages) || itemIcons != renderedIcons
-                || (tick && pages.rebuildPending());
+                || dialogSeq(s) != renderedDialogSeq || (tick && pages.rebuildPending());
+    }
+
+    /** The snapshot's dialog seq, or {@link #NO_DIALOG}. */
+    private static long dialogSeq(UiSnapshot s) {
+        return s.dialog() == null ? NO_DIALOG : s.dialog().seq();
     }
 
     private boolean isOpenRequest(UiSnapshot s) {
@@ -687,6 +696,7 @@ public final class UiApplier {
         ItemIcons icons = itemIcons;
         renderedIcons = icons;
         pages.itemIcons(icons); // the renderer draws with exactly the ids counted as rendered
+        renderedDialogSeq = dialogSeq(s);
         if (open) {
             // A request this thread has not seen yet was published just now: age 0.
             long age = s.openSeq() == seenOpenSeq ? clock.uptimeMs() - seenOpenAt : 0;
@@ -694,6 +704,7 @@ public final class UiApplier {
         } else {
             pages.refresh(s);
         }
+        pages.dialogChanged(s.dialog()); // over the page just rendered (F3)
     }
 
     /** Same page keys, titles and entries (UiPage has no equals: the runtime rebuilds them every snapshot). */
