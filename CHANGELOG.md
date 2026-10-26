@@ -3,6 +3,29 @@
 The `mibsdk` SDK package (`dist/build/dist/mibsdk-<version>.mpk`) and its sample plugins. Versions are semver as
 mibpkg compares them; bench builds carried a `+bench.N` tag on the package version only and are not releases.
 
+## 0.3.0 (SDK; plugin api 1..5)
+
+Native inputs: plugin pages are drawn with the HMI's own list cells and input screens.
+
+- **Native checkbox for every toggle.** Page toggles, at any api, are the stock checkbox cell instead of an
+  `[on]`/`[off]` text row.
+- **Api 5** (a plugin using any of it declares `"api": 5`; the build refuses it otherwise):
+  - `PageSpec.choice` (a row that opens a sub-page of options to pick one from), `dropdown`, `slider` (edited on its
+    own screen with the knob; optionally centred) and `progress`; at most 4 dropdown and slider rows per page and 8
+    options per row;
+  - a value column (the value of `item(id, label, value)`), item icons (`item(id, label, value, icon)`, at most
+    24x24) and greyed, unselectable rows (`PageSpec.enabled`);
+  - `UiAction.value()` and `text()`: the picked index, the slider level, the confirm answer and the speller text;
+  - `Ui.confirm`, a yes/no screen of up to 3 lines and 120 characters, answered exactly once;
+  - `Ui.toast`, a short message with an optional icon shown for 3 s at the top of the screen beside the status line
+    (needs `ui.slot.statusbar`);
+  - `Ui.speller`, **experimental**: the HMI's on-screen keyboard. It has no OK key, so BACK is "done";
+  - the `ui.inputs` feature (`Features.UI_INPUTS`). Without it, choices, dropdowns, sliders and progress bars show
+    as text lines ("Level: Mid"), and confirm, speller and toast are inert (a confirm answers No, a speller null).
+- **An api-5 plugin needs SDK 0.3.0; mibpkg refuses it over 0.2.0.** Api 1..4 plugins run unchanged.
+
+Sample plugins: inputs-demo 1.0.0 (new, api 5), one page with every native input, opened from MENU → Plugins.
+
 ## 0.2.0 (SDK; plugin api 1..4)
 
 The first release after 0.1.0. It replaces every `0.1.0+bench.N` build: mibpkg orders build metadata, so 0.1.0
