@@ -153,9 +153,11 @@ public interface Ui {
      *
      * <p>Exactly once: a call with a listener is answered exactly once on the plugin's executor, unless
      * {@link Subscription#cancel()} withdraws it first. A call made while the plugin is stopping comes back cancelled
-     * and is never answered. {@link UiAction#text()} is the typed text (at most {@code maxLen} characters), or null
-     * when the speller never showed (inert without {@link Features#UI_INPUTS}, not over this plugin's page, or another
-     * confirm or speller already up) or was dismissed (its page closed). Needs api 5.
+     * and is never answered. {@link UiAction#text()} is the typed text (at most {@code maxLen} characters) when the
+     * user leaves a speller they saw: BACK, or another screen (a stock one) taking over. It is null when the speller
+     * never showed (inert without {@link Features#UI_INPUTS}, not over this plugin's page, another confirm or speller
+     * already up, or its screen could not be shown), or when it was dismissed because its page closed, including when
+     * this plugin itself opens another page or removes the page under it while the speller is up. Needs api 5.
      *
      * @since api 5
      */

@@ -56,6 +56,10 @@ class PageScreensNavigationTest {
         final List<PageLayout> layouts = new ArrayList<PageLayout>();
         PageRow[] lastRows;
         String spellerText; // the SpellerModel's text (null: none)
+        boolean connectLater; // a shown screen stays pending until the test connects it
+        boolean failBlocked;
+        boolean failShow;
+        Object lastShownScreen;
 
         public int currentId() {
             if (failScreenManager) {
@@ -65,6 +69,9 @@ class PageScreensNavigationTest {
         }
 
         public boolean currentBlocked() {
+            if (failBlocked) {
+                throw new IllegalStateException("no screen data");
+            }
             return blocked;
         }
 
@@ -90,9 +97,15 @@ class PageScreensNavigationTest {
         }
 
         public void show(Object screen) {
+            if (failShow) {
+                throw new IllegalStateException("show failed");
+            }
             calls.add("show " + screen);
-            current = screen; // connects at once here; on the unit it connects later
-            currentId = HqcUiIds.PAGE_SCREEN_ID;
+            lastShownScreen = screen;
+            if (!connectLater) {
+                current = screen; // connects at once here; on the unit it connects later
+                currentId = HqcUiIds.PAGE_SCREEN_ID;
+            }
         }
 
         public void showStock(Object data) {
@@ -1450,5 +1463,109 @@ class PageScreensNavigationTest {
         now += PageScreens.SUB_CONNECT_MS + 1;
         pages.refresh(s);
         assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs(), "the page stays open");
+    }
+
+    // ---- fix round 1 (Task 6 review) -------------------------------------------------------------------------------
+
+    private UiSnapshot publishWith(UiDialog d, UiPage... ps) {
+        Map<String, UiPage> m = new HashMap<String, UiPage>();
+        for (UiPage p : ps) {
+            m.put(p.key(), p);
+        }
+        UiSnapshot s = new UiSnapshot(++version, null, "", m, version, ps[0].key(), null, d, null);
+        table.publish(s);
+        return s;
+    }
+
+    /**
+     * I1: the page open and its dialog in one snapshot (PAGE_SHOWN went out before the page connected): the dialog
+     * waits for the page to connect, is not answered by that connect, and then shows and works.
+     */
+    @Test
+    void dialogWaitsForItsPageToConnect() throws Exception {
+        hmi.connectLater = true;
+        UiSnapshot s = publishWith(confirm(3, "a/p"), page("a/p", "Alpha", item("go", "Go")));
+        pages.open("a/p", s, 0);
+        pages.dialogChanged(s.dialog());
+        assertEquals(Arrays.asList("rows [Go]", "build a/p 'Alpha'", "show screen1:a/p"), calls(),
+                "no dialog over a pending page");
+        assertEquals(Collections.singletonList("shown a/p"), inputs(), "not answered");
+        assertTrue(pages.rebuildPending(), "the tick retries it");
+
+        Object page = hmi.lastShownScreen;
+        hmi.current = page;
+        hmi.currentId = HqcUiIds.PAGE_SCREEN_ID;
+        pages.screenConnected(page, "a/p", pages.shown().layout);
+        runJobs();
+        assertEquals(Arrays.asList("confirm 3 [Yes, No]", "show confirm2"), calls(), "shown once the page is up");
+        assertEquals(Collections.emptyList(), inputs());
+        hmi.current = hmi.lastShownScreen;
+        pages.subConnected(hmi.current);
+        PageScreens.confirmSelected(0);
+        assertEquals(Collections.singletonList("done a/p/3=1:null"), inputs());
+    }
+
+    /** I1: a dialog right after PAGE_SHOWN, the page never connecting: answered "not shown" after the bound. */
+    @Test
+    void dialogOverAPageThatNeverConnectsIsNotShown() throws Exception {
+        hmi.connectLater = true;
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go")));
+        pages.open("a/p", s, 0);
+        calls();
+        inputs();
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.emptyList(), inputs());
+        now += PageScreens.SUB_CONNECT_MS - 1;
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.emptyList(), inputs(), "still within the bound");
+        now += 2;
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs());
+        assertEquals(Collections.emptyList(), calls());
+        assertFalse(pages.rebuildPending());
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.emptyList(), inputs(), "once");
+    }
+
+    /** I2: the HMI throwing while a dialog is handled: it is answered (0, null) exactly once. */
+    @Test
+    void dialogChangedThatThrowsAnswersOnce() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("go", "Go"))), 0);
+        calls();
+        inputs();
+        hmi.failBlocked = true;
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs());
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        hmi.failBlocked = false;
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.emptyList(), inputs(), "once");
+        assertEquals(Collections.emptyList(), calls());
+    }
+
+    /** I3: a speller whose show throws never showed: answered null, not its initial text. */
+    @Test
+    void spellerWhoseShowFailsAnswersNull() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("go", "Go"))), 0);
+        inputs();
+        hmi.spellerText = "Bob"; // the model got the initial text before the show
+        hmi.failShow = true;
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs());
+    }
+
+    /** I3: a speller whose screen never connects never showed: answered null when it is given up. */
+    @Test
+    void spellerThatNeverConnectsAnswersNull() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go")));
+        pages.open("a/p", s, 0);
+        Object page = hmi.current;
+        hmi.spellerText = "Bob";
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        hmi.current = page; // the show was dropped
+        inputs();
+        now += PageScreens.SUB_CONNECT_MS + 1;
+        pages.refresh(s);
+        assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs());
     }
 }

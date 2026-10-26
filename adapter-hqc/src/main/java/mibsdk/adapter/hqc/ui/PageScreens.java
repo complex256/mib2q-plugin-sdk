@@ -44,8 +44,11 @@ import mibsdk.runtime.RingLog;
  * page of it) is ours on screen and the screen may change; otherwise it is answered at once as not shown. Each is
  * answered exactly once with {@code DIALOG_DONE} (page key = the owner's): a confirm row (Yes 1, No 0), BACK (confirm
  * 0, the speller done with its text: no OK key is reachable), or its screen leaving unanswered (dismissed, the same
- * answers), always before the page-closed handling of a stock screen over it. A withdrawn dialog goes back to the page
- * with no answer. The page under a dialog is never reported closed by the dialog itself.
+ * answers; a speller that never connected gets null), before the page-closed handling of a stock screen over it or of
+ * the never-connected guard. A dialog waits (bounded) for its page screen to connect, so that connect never takes it
+ * down. A withdrawn dialog goes back to the page with no answer. The page under a dialog is never reported closed by
+ * the dialog itself; but when the plugin itself opens another page or removes the owner page, the stack's PAGE_CLOSED
+ * goes first and the runtime dismisses the dialog (0, null); the adapter's later answer is dropped as stale.
  *
  * <p>Opens: a request is honoured only within {@link #OPEN_TTL_MS} of the applier seeing it (monotonic clock), and
  * only while an SDK page is the connected screen, or on a Car screen (the Car drawer's) or the main menu
@@ -254,6 +257,23 @@ final class PageScreens implements PageRenderer {
     private UiDialog dialogUp;
     /** The open speller's session; null unless {@link #dialogUp} is a speller. */
     private SpellerSession spellerSession;
+    /** {@link #dialogUp}'s screen connected: the user saw it (a speller left then delivers its text, else null). */
+    private boolean dialogSeen;
+    /** The seq last answered by this renderer (the exactly-once guard of the throwing path). */
+    private long answeredSeq;
+    /**
+     * A dialog waits for its owner's page screen to connect (PAGE_SHOWN goes out before it does): the applier's tick
+     * and the page's connect retry it ({@link #rebuildPending}). Since when ({@link UiInputs#now}) and for which seq.
+     */
+    private volatile boolean dialogDeferred;
+    private long deferredSeq;
+    private long deferredAt;
+
+    private final Runnable dialogJob = new Runnable() {
+        public void run() {
+            dialogChanged(table.snapshot().dialog());
+        }
+    };
 
     PageScreens(Screens screens, PageStack stack, UiTable table, HmiPoster poster, RingLog log) {
         this.screens = screens;
@@ -460,6 +480,7 @@ final class PageScreens implements PageRenderer {
             boolean onScreen = shown != null || ownPageConnected();
             shown = null;
             dropDialog(); // the runtime is down: nothing to answer
+            dialogDeferred = false;
             clearSub();
             lastSub = null;
             stack.clear();
@@ -490,9 +511,12 @@ final class PageScreens implements PageRenderer {
         return navPending;
     }
 
-    /** Also true while a shown sub-screen has not connected: the job that may give it up runs on the tick. */
+    /**
+     * Also true while a shown sub-screen has not connected (the job that may give it up runs on the tick), and while a
+     * dialog waits for its page to connect.
+     */
     public boolean rebuildPending() {
-        return rebuildPending || subWaiting;
+        return rebuildPending || subWaiting || dialogDeferred;
     }
 
     public void runPendingNav() {
@@ -784,6 +808,8 @@ final class PageScreens implements PageRenderer {
             }
             if (screen != null && screen == sub) {
                 subWaiting = false;
+                dialogSeen = dialogUp != null;
+                retryDialog();
                 return;
             }
             if (screen != null && screen == lastSub && sub == null && shown == null && lastSubShown != null) {
@@ -887,6 +913,10 @@ final class PageScreens implements PageRenderer {
             if (seq == dialogSeq) {
                 return; // the same dialog (or none) again
             }
+            if (d != null && waitForPage(d)) {
+                return; // its page has not connected yet: retried, the seq not consumed
+            }
+            dialogDeferred = false;
             dialogSeq = seq;
             boolean wasUp = dialogUp != null;
             dropDialog(); // withdrawn, or replaced by d: it gets no answer from us
@@ -904,18 +934,59 @@ final class PageScreens implements PageRenderer {
             }
         } catch (Throwable t) {
             failed("dialog", t);
+            if (d != null && dialogUp != d && answeredSeq != d.seq()) {
+                dialogDeferred = false;
+                dialogSeq = d.seq();
+                answer(d, 0, null); // never left unanswered: the runtime's one dialog slot would stay taken
+            }
         }
     }
 
-    /** {@code d} may show now: its owner's page (or a {@code #} child of it) is ours on screen, and it may change. */
-    private boolean dialogAllowed(UiDialog d) {
+    /** In a connect callback: a dialog waiting for the page is retried in a job. */
+    private void retryDialog() {
+        if (dialogDeferred) {
+            poster.post(dialogJob); // false: a job is pending; the tick retries (rebuildPending)
+        }
+    }
+
+    /**
+     * {@code d} is for the page shown, whose screen (or the sub-screen over it) has not connected yet: wait, for at
+     * most {@link #SUB_CONNECT_MS} from the first wait for this seq (monotonic clock; without one, as long as it
+     * takes). False once that bound has passed: it is not shown then.
+     */
+    private boolean waitForPage(UiDialog d) {
+        if (!overOwner(d) || screens.isCurrent(shown) || (sub != null && screens.isCurrent(sub))) {
+            return false;
+        }
+        long now = UiInputs.now();
+        if (deferredSeq != d.seq()) {
+            deferredSeq = d.seq();
+            deferredAt = now;
+        }
+        if (now >= 0 && deferredAt >= 0 && now - deferredAt > SUB_CONNECT_MS) {
+            return false;
+        }
+        dialogDeferred = true;
+        return true;
+    }
+
+    /** The page shown (ours, up or on its way) is {@code d}'s owner's page or a {@code #} child of it. */
+    private boolean overOwner(UiDialog d) {
         Shown sp = shownPage;
         if (down || orphanPending || shown == null || sp == null) {
             return false;
         }
         String owner = d.ownerPageKey();
-        boolean over = sp.pageKey.equals(owner) || sp.pageKey.startsWith(owner + "#");
-        return over && changeAllowed();
+        return sp.pageKey.equals(owner) || sp.pageKey.startsWith(owner + "#");
+    }
+
+    /**
+     * {@code d} may show now: its owner's page (or a {@code #} child of it) is ours and connected (or the sub-screen
+     * over it is), and the screen may change.
+     */
+    private boolean dialogAllowed(UiDialog d) {
+        boolean up = screens.isCurrent(shown) || (sub != null && screens.isCurrent(sub));
+        return overOwner(d) && up && changeAllowed();
     }
 
     /** Builds and shows {@code d}'s screen as the sub-screen; a build that fails answers it as not shown. */
@@ -932,17 +1003,21 @@ final class PageScreens implements PageRenderer {
         clearSub(); // a slider under it closes
         dialog = d; // its texts, served at connect
         dialogUp = d;
+        dialogSeen = false;
         spellerSession = isSpeller ? new SpellerSession(d.seq(), d.text()) : null;
         openSub(isSpeller ? HqcUiIds.SPELLER_SCREEN_ID : HqcUiIds.CONFIRM_SCREEN_ID, screen);
     }
 
     /**
-     * Answers the dialog up, once, and forgets it: a confirm with {@code value}; a speller (whatever {@code value}) is
-     * done with the model's text, else the last typed, else its initial text. Nothing without one.
+     * Answers the dialog up, once, and forgets it: a confirm with {@code value}. A speller (whatever {@code value})
+     * the user saw (its screen connected: BACK, a stock screen over it) is done with the model's text, else the last
+     * typed, else its initial text; one that never showed (its show failed, it never connected) gets null. Nothing
+     * without a dialog.
      */
     private void answerDialog(int value) {
         UiDialog d = dialogUp;
         SpellerSession ss = spellerSession;
+        boolean seen = dialogSeen;
         dropDialog();
         if (d == null) {
             return;
@@ -950,7 +1025,7 @@ final class PageScreens implements PageRenderer {
         if (ss == null) {
             answer(d, value, null);
         } else if (ss.takeDone()) {
-            answer(d, 0, ss.doneText(spellerModelText()));
+            answer(d, 0, seen ? ss.doneText(spellerModelText()) : null);
         }
     }
 
@@ -958,9 +1033,11 @@ final class PageScreens implements PageRenderer {
     private void dropDialog() {
         dialogUp = null;
         spellerSession = null;
+        dialogSeen = false;
     }
 
     private void answer(UiDialog d, int value, String text) {
+        answeredSeq = d.seq();
         table.input(new UiInput(UiInput.DIALOG_DONE, d.ownerPageKey(), String.valueOf(d.seq()), false, value, text));
     }
 
@@ -1087,6 +1164,7 @@ final class PageScreens implements PageRenderer {
             }
             if (screen == shown) {
                 clearSub(); // the page is back: whatever sub-screen was over it is gone
+                retryDialog();
                 return;
             }
             if (shown != null) {
@@ -1101,6 +1179,7 @@ final class PageScreens implements PageRenderer {
             UiSnapshot s = table.snapshot();
             stack.reconcile(s);
             writeRows(pageOf(stack.top(), s), shownLayout());
+            retryDialog();
         } catch (Throwable t) {
             failed("connect", t);
         }
