@@ -123,6 +123,8 @@ final class UiHub {
     private long openSeq;
     private String openPageKey;
     private String shownPageKey; // the parent key of the last PAGE_SHOWN, until its PAGE_CLOSED
+    /** Test seam: runs on the dispatcher between resolving a slider's page and queueing its action. */
+    volatile Runnable sliderResolvedHook;
     /** By {@code <pageKey>#<itemId>}: the slider action waiting on its plugin's executor. */
     private final Map<String, PendingSlider> pendingSliders = new HashMap<String, PendingSlider>();
     private boolean publishPending;
@@ -533,7 +535,8 @@ final class UiHub {
             return;
         }
         if (kind == UiInput.PAGE_SHOWN || kind == UiInput.PAGE_CLOSED) {
-            pageShown(parentKey(key), kind == UiInput.PAGE_SHOWN); // a choice page is its parent's
+            String parent = parentKey(key); // a choice page's events are its parent's
+            pageShown(parent, kind == UiInput.PAGE_SHOWN, parent.length() < key.length());
             return;
         }
         if (kind != UiInput.ENTRY_SELECTED && kind != UiInput.TOGGLE_REQUESTED && kind != UiInput.VALUE_REQUESTED) {
@@ -593,7 +596,11 @@ final class UiHub {
             }
             action = new UiAction(rec.pageId, entry.key(), null, new Integer(in.value()), null);
         } else if (kind == UiInput.VALUE_REQUESTED && entry.kind() == UiEntry.SLIDER) {
-            submitSlider(rec, choiceKey(pageKey, entry.key()), entry, snap(entry, in.value()));
+            Runnable hook = sliderResolvedHook;
+            if (hook != null) {
+                hook.run();
+            }
+            submitSlider(rec, pageKey, entry, snap(entry, in.value()));
             return;
         } else {
             return; // PROGRESS, INFO, a CHOICE row (the adapter opens its page), a kind mismatch
@@ -622,13 +629,18 @@ final class UiHub {
      * At most one SLIDER action per {@code pendingKey} waits on the plugin's executor: a value arriving while one
      * waits replaces its value; the task reads the latest value as it starts.
      */
-    private void submitSlider(PageRec rec, final String pendingKey, UiEntry entry, int value) {
+    private void submitSlider(PageRec rec, String pageKey, UiEntry entry, int value) {
         final Listener<UiAction> l = rec.listener;
         if (l == null) {
             return;
         }
+        final String pendingKey = choiceKey(pageKey, entry.key()); // <pageKey>#<itemId>, as a choice page's key
         final PendingSlider p;
         synchronized (lock) {
+            PageRec live = livePage(pageKey);
+            if (live == null || live.exec != rec.exec) {
+                return; // its owner was removed since rec was resolved: a holder now would outlive the plugin
+            }
             PendingSlider waiting = (PendingSlider) pendingSliders.get(pendingKey);
             if (waiting != null) {
                 waiting.value = value;
@@ -723,7 +735,11 @@ final class UiHub {
         return null;
     }
 
-    private void pageShown(String key, boolean shown) {
+    /**
+     * {@code key} is a page key; {@code choicePage} when the event was its choice page's. Closing a choice page never
+     * drops the parent's stopped notice: the pop that follows a stop must still land on it.
+     */
+    private void pageShown(String key, boolean shown, boolean choicePage) {
         boolean changed = false;
         synchronized (lock) {
             if (shown) {
@@ -734,7 +750,7 @@ final class UiHub {
                     shownPageKey = null;
                 }
                 openTitles.remove(key);
-                changed = notices.remove(key) != null;
+                changed = !choicePage && notices.remove(key) != null;
             }
         }
         if (changed) {

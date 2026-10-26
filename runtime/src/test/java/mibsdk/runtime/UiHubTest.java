@@ -1024,4 +1024,51 @@ class UiHubTest {
             assertEquals("ok", got.get(0).itemId());
         }
     }
+
+    /** Review fix 1: a stop while the choice page is shown; the pop must reveal the parent's stopped notice. */
+    @Test
+    void stoppedNoticeSurvivesTheChoicePagePop() throws Exception {
+        UiHub hub = hub(0);
+        hub.addPage("p", PageSpec.of("main", "Main").choice("lang", "Language", LANGS, 0), null,
+                executor("plugin-p"));
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main", null, false));
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main", null, false)); // push
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main#lang", null, false));
+        hub.removeOwner("p", "P stopped");
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main#lang", null, false)); // pop, after the stop
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main", null, false));
+        hub.publishNow();
+        UiPage notice = table.snapshot().pages().get("p/main");
+        assertNotNull(notice, "the pop lands on the parent's stopped notice");
+        assertEquals("P stopped", notice.entries().get(0).label());
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main", null, false));
+        hub.publishNow();
+        assertNull(table.snapshot().pages().get("p/main"), "closing the parent itself still drops it");
+    }
+
+    /** Review fix 2: the owner is removed between resolving the page and queueing a slider action. */
+    @Test
+    void sliderRacingARemovedOwnerDoesNotMuteTheReEnabledSlider() throws Exception {
+        final UiHub hub = hub(0);
+        final SerialExecutor old = executor("plugin-p-old");
+        final PageSpec spec = PageSpec.of("main", "Main").slider("bal", "Balance", -6, 6, 1, 0, true);
+        hub.addPage("p", spec, new Actions(), old);
+        final Actions a = new Actions();
+        final SerialExecutor fresh = executor("plugin-p-new");
+        pause(old); // the stale task waits in the queue, so shutdown drops it
+        hub.sliderResolvedHook = new Runnable() {
+            public void run() {
+                hub.sliderResolvedHook = null;
+                hub.removeOwner("p", null); // the plugin stops: its waiting holders are cleared
+            }
+        };
+        hub.dispatch(value("p/main", "bal", 2)); // resolved against the old page, queued after the stop
+        old.shutdown(); // drops the queued task
+        hub.registerOwner("p"); // the plugin is enabled again
+        hub.addPage("p", spec, a, fresh);
+        hub.dispatch(value("p/main", "bal", 3));
+        List<UiAction> got = a.await(1);
+        assertEquals(1, got.size(), "the re-enabled slider is not muted: " + got);
+        assertEquals(Integer.valueOf(3), got.get(0).value());
+    }
 }
