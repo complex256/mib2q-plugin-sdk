@@ -1,6 +1,8 @@
 package mibsdk.adapter.hqc.ui;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -8,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 import mibsdk.adapter.hqc.SdkGlobals;
 import mibsdk.platform.UiEntry;
+import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiRow;
 import mibsdk.platform.UiSnapshot;
@@ -24,7 +27,8 @@ import mibsdk.runtime.RingLog;
  * logged once per phase and message, and never starves the others):
  * <ul>
  * <li>slots: assigns the Car rows to drawer slots ({@link DrawerSlots}, which gives their icons image ids from
- * {@code ids}), swaps {@code SdkGlobals.uiSlots}, and publishes the wanted {@link HmiWidgetState};</li>
+ * {@code ids}), swaps {@code SdkGlobals.uiSlots}, and publishes the wanted {@link HmiWidgetState}; gives the page
+ * items' icons their image ids ({@link #assignItemIcons}) and publishes them to the page renderer;</li>
  * <li>rows: writes changed row visibility through {@code rows}, only while {@code SdkGlobals.uiRowModels} exists, and
  * every slot again when those models first appear (the drawer is built on HMIEvent, at a time of the HMI's
  * choosing). Slot 0, the Plugins row, is wanted visible only while the main menu has no Plugins row of its own
@@ -42,7 +46,9 @@ import mibsdk.runtime.RingLog;
  * is never hidden before that;</li>
  * <li>hmi: once the drawer, the status popup or the main menu's Plugins row exists (so the first screen is up: before
  * it the stock StartupFilter discards posted jobs), posts the one HMI job when {@code openSeq} or the page content
- * moved past what was last <b>rendered</b>, or the wanted {@link HmiWidgetState} differs from the one
+ * moved past what was last <b>rendered</b> (the item icons' ids included), or a page asked for navigation
+ * ({@link PageRenderer#navPending}, F2: the job always runs it), or the wanted {@link HmiWidgetState} differs from
+ * the one
  * {@link HmiWidgets} applied (its status layout only once the popup is built; the main-menu row against the row it
  * was applied to), or, on the pass only, a new main wizard still waits for its wrench (it may not be connected
  * yet). The job re-evaluates both when it
@@ -118,6 +124,9 @@ public final class UiApplier {
     private volatile long seenOpenSeq = Long.MIN_VALUE;
     private volatile long seenOpenAt;
     private volatile Map<String, UiPage> renderedPages;
+    /** The page items' icon ids: given on {@code mibsdk-ui}; the ones the last page render saw. */
+    private volatile ItemIcons itemIcons = ItemIcons.NONE;
+    private volatile ItemIcons renderedIcons = ItemIcons.NONE;
     /** What the stock widgets should show; published by {@code mibsdk-ui}, applied by the HMI job. */
     private volatile HmiWidgetState wantWidgets = HmiWidgetState.EMPTY;
     /** Set by a pass that saw a deferred close: the next HMI job retries it (never the after-hook's own re-post). */
@@ -330,6 +339,7 @@ public final class UiApplier {
                         if (freshSnapshot) {
                             freshSnapshot = false;
                             assignSlots(current);
+                            assignItemIcons(current);
                         }
                         break;
                     case 1:
@@ -379,6 +389,44 @@ public final class UiApplier {
                 log.append("WARN", SOURCE, "ui car row " + key + " has no drawer slot; reachable from the Plugins menu");
             }
         }
+    }
+
+    /**
+     * On {@code mibsdk-ui}: gives every page item's icon its image id (a built-in its {@link HqcUiIds#ITEM_ICON_PX}
+     * variant, an installed file its own, through {@link DrawerSlots#id}; the same icon keeps its id), and publishes
+     * the result to the page renderer when it changed. Stock-thread code never gives ids. Returns what is published.
+     */
+    ItemIcons assignItemIcons(UiSnapshot s) {
+        Map<UiIcon, Integer> m = new HashMap<UiIcon, Integer>();
+        for (Iterator<UiPage> it = s.pages().values().iterator(); it.hasNext();) {
+            List<UiEntry> entries = it.next().entries();
+            for (int i = 0; i < entries.size(); i++) {
+                UiEntry e = entries.get(i);
+                UiIcon icon = e.kind() == UiEntry.ITEM ? e.icon() : null;
+                if (icon != null && !m.containsKey(icon)) {
+                    int id = itemIconId(icon);
+                    if (id >= 0) {
+                        m.put(icon, new Integer(id));
+                    }
+                }
+            }
+        }
+        ItemIcons next = new ItemIcons(m);
+        if (!next.equals(itemIcons)) {
+            itemIcons = next;
+            pages.itemIcons(next);
+        }
+        return itemIcons;
+    }
+
+    private int itemIconId(UiIcon icon) {
+        if (ids == null) {
+            return -1;
+        }
+        if (icon.kind() == UiIcon.STOCK) {
+            return builtins == null ? -1 : DrawerSlots.id(builtins.get(icon.name(), HqcUiIds.ITEM_ICON_PX, false), ids);
+        }
+        return DrawerSlots.id(icon, ids);
     }
 
     /** True if the row {@code key} of {@code rows} has an icon. */
@@ -459,7 +507,7 @@ public final class UiApplier {
         if (render && tick && down && closedRendered) {
             closeRetry = true; // the job's own re-evaluation (tick false) would not retry it
         }
-        if (render || widgetsNeedJob() || (tick && widgets.wrenchPending())) {
+        if (render || pages.navPending() || widgetsNeedJob() || (tick && widgets.wrenchPending())) {
             poster.post(hmiJob); // false: a job is pending; its wake() re-checks when it is done
         }
     }
@@ -477,12 +525,18 @@ public final class UiApplier {
     }
 
     /**
-     * The one HMI job, on HMIEvent: renders pages if they still need it, then applies the wanted widget state. Each
-     * part is isolated. A replaced applier's job does nothing.
+     * The one HMI job, on HMIEvent: runs the pages' pending navigation (always: a nav asked for while this job was
+     * pending waits for it, F2), renders pages if they still need it, then applies the wanted widget state. Each part
+     * is isolated. A replaced applier's job does nothing.
      */
     private void runHmiJob() {
         if (!isLive()) {
             return;
+        }
+        try {
+            pages.runPendingNav();
+        } catch (Throwable t) {
+            // pages still get rendered
         }
         try {
             boolean retry = closeRetry;
@@ -505,7 +559,7 @@ public final class UiApplier {
             // A close deferred by RVC/PDC is retried once per pass (AWAIT_MS), never in a loop of jobs.
             return !closedRendered || (tick && pages.closePending());
         }
-        return isOpenRequest(s) || !samePages(s.pages(), renderedPages);
+        return isOpenRequest(s) || !samePages(s.pages(), renderedPages) || itemIcons != renderedIcons;
     }
 
     private boolean isOpenRequest(UiSnapshot s) {
@@ -530,6 +584,7 @@ public final class UiApplier {
         boolean open = isOpenRequest(s);
         renderedOpenSeq = s.openSeq();
         renderedPages = s.pages();
+        renderedIcons = itemIcons;
         if (open) {
             // A request this thread has not seen yet was published just now: age 0.
             long age = s.openSeq() == seenOpenSeq ? clock.uptimeMs() - seenOpenAt : 0;
@@ -559,7 +614,8 @@ public final class UiApplier {
         return true;
     }
 
-    private static boolean samePage(UiPage x, UiPage y) {
+    /** Every field of every entry: a change in only {@code enabled}, the number, an option, the range or the icon. */
+    static boolean samePage(UiPage x, UiPage y) {
         if (x == y) {
             return true;
         }
@@ -570,7 +626,10 @@ public final class UiApplier {
             UiEntry p = x.entries().get(i);
             UiEntry q = y.entries().get(i);
             if (p.kind() != q.kind() || p.on() != q.on() || !eq(p.key(), q.key()) || !eq(p.label(), q.label())
-                    || !eq(p.value(), q.value()) || !eq(p.targetPageKey(), q.targetPageKey())) {
+                    || !eq(p.value(), q.value()) || !eq(p.targetPageKey(), q.targetPageKey())
+                    || p.number() != q.number() || !Arrays.equals(p.options(), q.options()) || p.min() != q.min()
+                    || p.max() != q.max() || p.step() != q.step() || p.centred() != q.centred()
+                    || p.enabled() != q.enabled() || !eq(p.icon(), q.icon())) {
                 return false;
             }
         }

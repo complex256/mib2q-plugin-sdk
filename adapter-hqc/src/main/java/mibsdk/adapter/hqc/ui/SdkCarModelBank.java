@@ -186,11 +186,14 @@ final class SdkCarModelBank extends CarModelBank {
         }
     }
 
-    /** 3 columns: text, value, row kind (the list's id column); rows are written by PageScreens. Never throws. */
+    /**
+     * {@link HqcUiIds#PAGE_COLUMNS} columns: label, value, row kind (the list's record-set column), enabled, value
+     * text (F14); rows are written by PageScreens. Never throws.
+     */
     private void createPageList() {
         try {
             ListModel l = new ListModel(HqcUiIds.PAGE_LIST_MODEL);
-            l.setMaxColumns(3);
+            l.setMaxColumns(HqcUiIds.PAGE_COLUMNS);
             l.setMaxRows(PAGE_MAX_ROWS);
             l.setListListener(new PageListListener());
             this.models[PAGE_LIST_INDEX] = l;

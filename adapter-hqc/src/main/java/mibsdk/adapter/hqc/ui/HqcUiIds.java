@@ -30,8 +30,9 @@ public final class HqcUiIds {
     /** The drawer rows' models: the 9 visibility models and the selection model ({@code MODEL_BASE + 0..9}). */
     public static final int ROW_MODEL_COUNT = ROW_SLOTS + 1;
     /**
-     * The SDK page's ListModel (spike B): 3 columns (text, value, row kind; the kind is the id column). Id
-     * {@code MODEL_BASE + 10} stays unused (spike B's row-label model).
+     * The SDK page's ListModel (spike B, 5 columns since spike D): label, value, row kind, enabled, value text
+     * ({@link #PAGE_COL_LABEL} .. {@link #PAGE_COL_VALUE_TEXT}). The kind is the record-set column: it picks the item
+     * factory's row. Id {@code MODEL_BASE + 10} stays unused (spike B's row-label model).
      */
     public static final int PAGE_LIST_MODEL = MODEL_BASE + 11;
     /**
@@ -77,6 +78,58 @@ public final class HqcUiIds {
     public static final int KEY_BACK = 15;
     /** Menu-item type of a list row (EngineeringScreenBag2's list items). */
     public static final int LIST_ITEM_TYPE = 16;
+    /**
+     * The page list's columns (spike D, research note 2026-10-25 §7.2): 0 {@code TextListCell} label, 1
+     * {@code IntegerListCell} value (checkbox/radio 1/0, progress percent, icon index), 2 row kind (the list's id and
+     * record-set column), 3 enabled ({@code > 0} enabled: the list's enabled column), 4 {@code TextListCell} value text.
+     */
+    public static final int PAGE_COL_LABEL = 0;
+    public static final int PAGE_COL_VALUE = 1;
+    public static final int PAGE_COL_KIND = 2;
+    public static final int PAGE_COL_ENABLED = 3;
+    public static final int PAGE_COL_VALUE_TEXT = 4;
+    public static final int PAGE_COLUMNS = 5;
+    /**
+     * F12, [bench N4]: an item with an icon and a value is drawn with both (the 3-column icon + label + value row).
+     * If bench N4 shows that row broken, this is set false and such an item drops its icon (a value row).
+     */
+    public static final boolean PAGE_ICON_VALUE_ROWS = true;
+    /** Label alignment ({@code LabelRendererHigh.setAlignment(h, v)}): left, right, vertically centred. */
+    public static final int ALIGN_LEFT = 1;
+    public static final int ALIGN_RIGHT = 3;
+    public static final int ALIGN_MIDDLE = 5;
+    /** The row's cell bounds (checkbox, radio), as the spike set them. */
+    public static final int CELL_BOUNDS_W = 100;
+    public static final int CELL_BOUNDS_H = 100;
+    /** Checkbox cell: model value 0 unchecked, 1 checked. Never written to: widgets keep the reference. */
+    public static final int[][] CHECKBOX_MAPPING = {{0}, {1}};
+    /** Progress cell: its bar bitmaps, colour indices, range and height. Never written to. */
+    public static final int[] PROGRESS_BITMAPS = {40, 41, 42, 43, 44, 45};
+    public static final int[] PROGRESS_COLOURS = {1, 2, 4, 0};
+    public static final int PROGRESS_MIN = 0;
+    public static final int PROGRESS_MAX = 100;
+    public static final int PROGRESS_HEIGHT = 15;
+    /** Icon cell: its preferred height (the bitmap's own), as the stock list icon cells. */
+    public static final int ICON_CELL_HEIGHT = 1;
+    /** Item icons: built-ins use their 20-px variant (installed item icons are at most 24 px; no scaling). */
+    public static final int ITEM_ICON_PX = 20;
+    /**
+     * Row column constraints ({@code MenuItemColumnsConstraints} gaps, grow/shrink, min, max; -1 none), by row shape.
+     * Label + cell (checkbox, radio, progress, value): the label grows. Never written to.
+     */
+    public static final int[] PAGE_CELL_GAPS = {0, 22, 0};
+    public static final float[] PAGE_CELL_GROW = {1.0f, 0.0f};
+    /** Radio: the cell at most 33 px; progress: the bar at least 300 px. */
+    public static final int[] PAGE_RADIO_MAX = {-1, 33};
+    public static final int[] PAGE_PROGRESS_MIN = {-1, 300};
+    /** Icon + label: the icon first, at most 30 px. */
+    public static final int[] PAGE_ICON_GAPS = {0, 15, 0};
+    public static final float[] PAGE_ICON_GROW = {0.0f, 1.0f};
+    public static final int[] PAGE_ICON_MAX = {30, -1};
+    /** Icon + label + value [bench N4] (the Language list's 3 columns, {@code SettingsScreenBag1$1}). */
+    public static final int[] PAGE_ICON_VALUE_GAPS = {0, 15, 22, 0};
+    public static final float[] PAGE_ICON_VALUE_GROW = {0.0f, 1.0f, 0.0f};
+    public static final int[] PAGE_ICON_VALUE_MAX = {30, -1, -1};
     /** The status-bar stub's model on every stock screen. */
     public static final int STATUSBAR_STUB_MODEL = 138;
     /** Title bar bitmaps of the page (as spike B drew them). */

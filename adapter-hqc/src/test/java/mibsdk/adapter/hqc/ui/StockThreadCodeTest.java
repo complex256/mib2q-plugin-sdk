@@ -24,7 +24,8 @@ class StockThreadCodeTest {
     private static final String[] STOCK_THREAD_FILES = {"SdkCarActivator", "SdkCarModelBank", "SdkCarScreenFactory",
         "TextIds", "UiInputs", "DrawerAssignment", "HmiPoster", "PageEvents", "PageRenderer", "PageScreens",
         "PageWidgets", "IconIds", "HmiWidgets", "HmiWidgetState", "StatusLayout", "SdkStatusPopup",
-        "SdkSystemActivator", "SdkSystemScreenFactory", "MainMenuKeyHandler", "MainMenuWrench"};
+        "SdkSystemActivator", "SdkSystemScreenFactory", "MainMenuKeyHandler", "MainMenuWrench", "PageRow",
+        "PageLayout", "ItemIcons"};
 
     private static final Pattern FORBIDDEN = Pattern.compile("java\\.io\\.|java\\.nio\\.|java\\.net\\.|\\bnew Thread\\b"
             + "|\\bThread\\.sleep\\b|\\.start\\(\\)|\\.join\\(|\\.wait\\(|\\bnew Timer\\b|System\\.(out|err)"
@@ -76,6 +77,7 @@ class StockThreadCodeTest {
             {"PageScreens", "void backPressed"},
             {"PageScreens", "void screenConnected"},
             {"PageScreens", "void screenDisconnecting"},
+            {"PageScreens", "void runPendingNav"},
             {"PageWidgets", "void keyPressed"},
             {"PageWidgets", "void keyReleased"},
             {"SdkCarModelBank", "void createPageList"},

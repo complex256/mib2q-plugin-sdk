@@ -189,7 +189,10 @@ class SdkCarActivatorTest {
         assertEquals(1147 + sdk, ids.length, "CarModelBank's 1147 stock ids, then the SDK's");
     }
 
-    /** Task 11: the page ListModel (3 columns) exists on demand; the reserved id between it and the rows has none. */
+    /**
+     * Task 11: the page ListModel (5 columns since native inputs, F14) exists on demand; the reserved id between it
+     * and the rows has none.
+     */
     @Test
     void bankGrowsThePageListModel() throws Exception {
         SdkGlobals.uiEnabled = true;
@@ -197,7 +200,7 @@ class SdkCarActivatorTest {
         de.audi.atip.hmi.model.ListModel list = SdkCarModelBank.pageList();
         assertNotNull(list);
         assertSame(list, SdkCarModelBank.pageList(), "created once");
-        assertEquals(3, list.getMaxColumns());
+        assertEquals(5, list.getMaxColumns());
         int reserved = BASE_INDEX + HqcUiIds.ROW_MODEL_COUNT;
         bank.createModel(reserved);
         Field f = de.audi.atip.hmi.model.AbstractModelBank.class.getDeclaredField("models");

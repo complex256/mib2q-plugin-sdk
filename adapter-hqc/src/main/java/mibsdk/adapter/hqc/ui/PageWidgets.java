@@ -19,21 +19,27 @@ import de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO;
 import de.esolutions.hmi.widgets.audi.evo.gridlayout.AxisConstraints;
 import de.esolutions.hmi.widgets.audi.evo.gridlayout.GridLayout;
 import de.esolutions.hmi.widgets.audi.evo.gridlayout.GridLayoutHints;
+import de.esolutions.hmi.widgets.audi.evo.high.widgets.CheckboxRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.ContainerRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.FocusCursorRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.GlassplateRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.IconRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.LabelRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.MenuItemRendererHigh;
+import de.esolutions.hmi.widgets.audi.evo.high.widgets.ProgressBarRendererHigh;
+import de.esolutions.hmi.widgets.audi.evo.high.widgets.RadioButtonRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.ScreenRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.ScrollbarRendererKanziHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.TitleBarRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.menu.MenuRendererHigh;
+import de.esolutions.hmi.widgets.audi.evo.widgets.CheckboxController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.ContainerController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.FocusCursorController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.GlassplateController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.IconController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.LabelController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.ProgressBarController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.RadioButtonController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.ScrollbarController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.StatusBarStubController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.TitleBarWidget;
@@ -51,9 +57,10 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.menu.list.ListItemFactory;
  *
  * <p>A page is a {@code ScreenWidgetEVO} with a body menu (glassplate, focus cursor, scrollbar) holding one
  * {@code ListController} on {@link HqcUiIds#PAGE_LIST_MODEL}, and a head title bar whose title is factory text
- * {@link HqcUiIds#TEXT_PAGE_TITLE}. Every row is a list item with one label cell (column 0): spike B rendered that
- * cell; its checkbox cell drew nothing, so toggles carry their state as text. Layout numbers (bounds, palettes,
- * fonts) are the stock bag's decoded values, as spike B used them.
+ * {@link HqcUiIds#TEXT_PAGE_TITLE}. Every row is a list item with a label cell (column 0) and, by row kind (the
+ * list's record-set column), a checkbox, radio, progress, value-text or item-icon cell ({@link Rows}, spike D's
+ * recipes, research note 2026-10-25 §7.2). Layout numbers (bounds, palettes, fonts) are the stock bag's decoded
+ * values, as spike B used them; the cells' literals are in {@link HqcUiIds}.
  */
 final class PageWidgets implements PageScreens.Screens {
 
@@ -112,12 +119,12 @@ final class PageWidgets implements PageScreens.Screens {
         return screen != null && sm != null && sm.getCurrentConnectedScreen() == screen;
     }
 
-    public Object build(String pageKey, String title, PageScreens owner) {
+    public Object build(String pageKey, String title, PageScreens owner, PageLayout layout) {
         SdkCarScreenFactory f = SdkCarScreenFactory.current;
         if (f == null) {
             throw new IllegalStateException("no SDK Car screen factory");
         }
-        return build(f, TERMINAL, owner, pageKey);
+        return build(f, TERMINAL, owner, pageKey, layout);
     }
 
     /**
@@ -175,23 +182,34 @@ final class PageWidgets implements PageScreens.Screens {
     }
 
     /** Rewrites the rows in place (so focus stays), then trims or extends the list. */
-    public void writeRows(String[] texts, int[] kinds) {
+    public void writeRows(PageRow[] rows) {
         ListModel m = SdkCarModelBank.pageList();
         if (m == null) {
             throw new IllegalStateException("no page list model");
         }
         int had = m.getLength();
-        for (int i = 0; i < texts.length; i++) {
-            ListCell[] row = {TextListCell.create(texts[i]), IntegerListCell.create(0), IntegerListCell.create(kinds[i])};
+        for (int i = 0; i < rows.length; i++) {
+            ListCell[] row = cells(rows[i]);
             if (i < had) {
                 m.setRow(i, row);
             } else {
                 m.addRow(row);
             }
         }
-        for (int i = had - 1; i >= texts.length; i--) {
+        for (int i = had - 1; i >= rows.length; i--) {
             m.removeRow(i);
         }
+    }
+
+    /** One model row: label, value, kind, enabled 1/0, value text ("" for none). */
+    static ListCell[] cells(PageRow r) {
+        ListCell[] c = new ListCell[HqcUiIds.PAGE_COLUMNS];
+        c[HqcUiIds.PAGE_COL_LABEL] = TextListCell.create(r.label == null ? "" : r.label);
+        c[HqcUiIds.PAGE_COL_VALUE] = IntegerListCell.create(r.value);
+        c[HqcUiIds.PAGE_COL_KIND] = IntegerListCell.create(r.kind);
+        c[HqcUiIds.PAGE_COL_ENABLED] = IntegerListCell.create(r.enabled ? 1 : 0);
+        c[HqcUiIds.PAGE_COL_VALUE_TEXT] = TextListCell.create(r.valueText == null ? "" : r.valueText);
+        return c;
     }
 
     // ---- the page -----------------------------------------------------------------------------------------------
@@ -200,16 +218,18 @@ final class PageWidgets implements PageScreens.Screens {
     static final class PageScreen extends ScreenWidgetEVO {
         private final PageScreens owner;
         private final String pageKey;
+        private final PageLayout layout;
 
-        PageScreen(int id, PageScreens owner, String pageKey) {
+        PageScreen(int id, PageScreens owner, String pageKey, PageLayout layout) {
             super(id);
             this.owner = owner;
             this.pageKey = pageKey;
+            this.layout = layout;
         }
 
         public void connected(InitializationContext c) {
             super.connected(c);
-            owner.screenConnected(this, pageKey); // never throws
+            owner.screenConnected(this, pageKey, layout); // never throws
         }
 
         public void disconnecting() {
@@ -255,7 +275,7 @@ final class PageWidgets implements PageScreens.Screens {
         }
     }
 
-    static Screen build(SdkCarScreenFactory f, int t, PageScreens owner, String pageKey) {
+    static Screen build(SdkCarScreenFactory f, int t, PageScreens owner, String pageKey, PageLayout layout) {
         AbstractWidgetController ref0 = f.getRefWidget(t, 0, f);
 
         GlassplateController glass = new GlassplateController();
@@ -272,15 +292,7 @@ final class PageWidgets implements PageScreens.Screens {
         scroll.setRenderer(new ScrollbarRendererKanziHigh(scroll));
         scroll.setBounds(933, 8, 5, 308);
 
-        ListController list = new ListController();
-        list.setModelID(HqcUiIds.PAGE_LIST_MODEL);
-        list.setBounds(0, 0, 0, 0);
-        list.setGlassplateInsetsBottom(new int[0]);
-        list.setGlassplateInsetsTop(new int[0]);
-        list.setIdColumn(2);
-        list.setNoFocusAreasBottom(new int[0]);
-        list.setNoFocusAreasTop(new int[0]);
-        list.setItemFactory(new Rows());
+        ListController list = list(layout);
 
         PageMenu menu = new PageMenu(owner);
         menu.setRenderer(new MenuRendererHigh(menu));
@@ -345,7 +357,7 @@ final class PageWidgets implements PageScreens.Screens {
         stub.setRenderStyle(2);
         AbstractWidgetController ref1 = f.getRefWidget(t, 1, f); // also sets refWidgets[t][2]
 
-        ScreenWidgetEVO s = new PageScreen(HqcUiIds.PAGE_SCREEN_ID, owner, pageKey);
+        ScreenWidgetEVO s = new PageScreen(HqcUiIds.PAGE_SCREEN_ID, owner, pageKey, layout);
         s.setScreenFactory(f);
         ScreenRendererHigh sr = new ScreenRendererHigh(s);
         s.setRenderer(sr);
@@ -371,38 +383,194 @@ final class PageWidgets implements PageScreens.Screens {
         return s;
     }
 
-    /** List rows: one label cell (column 0) for every row kind; the kind only tells PageScreens what a press does. */
+    /**
+     * The page's list on {@link HqcUiIds#PAGE_LIST_MODEL}: the kind column is the id and record-set column (it picks
+     * the row's cells), the enabled column greys a row (spike D).
+     */
+    static ListController list(PageLayout layout) {
+        ListController list = new ListController();
+        list.setModelID(HqcUiIds.PAGE_LIST_MODEL);
+        list.setBounds(0, 0, 0, 0);
+        list.setGlassplateInsetsBottom(new int[0]);
+        list.setGlassplateInsetsTop(new int[0]);
+        list.setIdColumn(HqcUiIds.PAGE_COL_KIND);
+        list.setRecordSetColumn(HqcUiIds.PAGE_COL_KIND);
+        list.setEnabledColumn(HqcUiIds.PAGE_COL_ENABLED);
+        list.setNoFocusAreasBottom(new int[0]);
+        list.setNoFocusAreasTop(new int[0]);
+        list.setItemFactory(new Rows(layout));
+        return list;
+    }
+
+    /**
+     * List rows by kind (spike D, {@code SpikePage.Items}): one shell (a type-16 menu item with one grid layout,
+     * vertically centred), the label on model column 0, and the kind's cell: a checkbox, radio or progress bar on
+     * column 1, a right-aligned value text on column 4, the item icon (bitmaps {@link PageLayout#iconIds}, indexed by
+     * column 1) before the label, or icon, label and value [bench N4]. ACTION and LABEL rows are the label alone.
+     */
     static final class Rows implements ListItemFactory {
+        private final PageLayout layout;
+
+        Rows(PageLayout layout) {
+            this.layout = layout == null ? PageLayout.EMPTY : layout;
+        }
+
         public AbstractWidgetController createListItem(int kind, ListCell[] cells) {
-            MenuItemController item = new MenuItemController();
-            item.setType(HqcUiIds.LIST_ITEM_TYPE);
-            item.setRenderer(new MenuItemRendererHigh(item));
-            GridLayout grid = new GridLayout();
-            MenuItemColumnsConstraints cols = new MenuItemColumnsConstraints(1);
-            cols.grow = new float[] {1.0f};
-            grid.setColumnConstraints(cols);
-            grid.setRowConstraints(new AxisConstraints(1));
-            AbstractWidgetController text = createCell(0);
-            GridLayoutHints th = new GridLayoutHints(0, 0);
-            th.hidemode = 0;
-            grid.setCellConstraints(new GridLayoutHints[] {th}, new Object[] {text});
-            item.setLayoutChoices(new GridLayout[] {grid});
-            item.add(text);
-            return item;
+            AbstractWidgetController label = label(HqcUiIds.PAGE_COL_LABEL, HqcUiIds.ALIGN_LEFT);
+            int[] gaps = HqcUiIds.PAGE_CELL_GAPS;
+            float[] grow = HqcUiIds.PAGE_CELL_GROW;
+            int[] min = null;
+            int[] max = null;
+            AbstractWidgetController[] row;
+            switch (kind) {
+                case PageScreens.ROW_TOGGLE:
+                    row = new AbstractWidgetController[] {label, checkbox()};
+                    break;
+                case PageScreens.ROW_RADIO:
+                    row = new AbstractWidgetController[] {label, radio()};
+                    max = HqcUiIds.PAGE_RADIO_MAX;
+                    break;
+                case PageScreens.ROW_PROGRESS:
+                    row = new AbstractWidgetController[] {label, progress()};
+                    min = HqcUiIds.PAGE_PROGRESS_MIN;
+                    break;
+                case PageScreens.ROW_VALUE:
+                    row = new AbstractWidgetController[] {label, valueLabel()};
+                    break;
+                case PageScreens.ROW_ICON:
+                    row = new AbstractWidgetController[] {icon(), label};
+                    gaps = HqcUiIds.PAGE_ICON_GAPS;
+                    grow = HqcUiIds.PAGE_ICON_GROW;
+                    max = HqcUiIds.PAGE_ICON_MAX;
+                    break;
+                case PageScreens.ROW_ICON_VALUE: // [bench N4]
+                    row = new AbstractWidgetController[] {icon(), label, valueLabel()};
+                    gaps = HqcUiIds.PAGE_ICON_VALUE_GAPS;
+                    grow = HqcUiIds.PAGE_ICON_VALUE_GROW;
+                    max = HqcUiIds.PAGE_ICON_VALUE_MAX;
+                    break;
+                default: // ACTION, LABEL: the label alone
+                    row = new AbstractWidgetController[] {label};
+                    gaps = null;
+                    grow = new float[] {1.0f};
+                    break;
+            }
+            return item(label, cols(row.length, gaps, grow, min, max), row);
         }
 
         public AbstractWidgetController createListItemNoData() {
             return null;
         }
 
+        /** The label (column 0) and the value text (column 4); the other cells depend on the row kind. */
         public AbstractWidgetController createCell(int col) {
-            if (col != 0) {
-                return null;
+            if (col == HqcUiIds.PAGE_COL_LABEL) {
+                return label(HqcUiIds.PAGE_COL_LABEL, HqcUiIds.ALIGN_LEFT);
             }
+            if (col == HqcUiIds.PAGE_COL_VALUE_TEXT) {
+                return valueLabel();
+            }
+            return null;
+        }
+
+        /** The row shell: {@code cells} (one is {@code label}) in grid columns 0.. in order, vertically centred. */
+        private static MenuItemController item(AbstractWidgetController label, MenuItemColumnsConstraints cols,
+                                               AbstractWidgetController[] cells) {
+            MenuItemController item = new MenuItemController();
+            item.setType(HqcUiIds.LIST_ITEM_TYPE);
+            item.setRenderer(new MenuItemRendererHigh(item));
+            GridLayout grid = new GridLayout();
+            grid.setColumnConstraints(cols);
+            AxisConstraints rows = new AxisConstraints(1);
+            rows.alignment = new int[] {HqcUiIds.ALIGN_MIDDLE};
+            grid.setRowConstraints(rows);
+            GridLayoutHints[] hints = new GridLayoutHints[cells.length];
+            for (int i = 0; i < cells.length; i++) {
+                hints[i] = new GridLayoutHints(i, 0);
+                hints[i].hidemode = 0;
+                hints[i].alignmentVert = HqcUiIds.ALIGN_MIDDLE;
+            }
+            grid.setCellConstraints(hints, cells);
+            item.setLayoutChoices(new GridLayout[] {grid});
+            item.add(label); // the label first, as spike D and the stock lists add it
+            for (int i = 0; i < cells.length; i++) {
+                if (cells[i] != label) {
+                    item.add(cells[i]);
+                }
+            }
+            return item;
+        }
+
+        /** Column constraints; shrink as grow. Null arrays stay unset. */
+        private static MenuItemColumnsConstraints cols(int n, int[] gaps, float[] grow, int[] min, int[] max) {
+            MenuItemColumnsConstraints c = new MenuItemColumnsConstraints(n);
+            if (gaps != null) {
+                c.gaps = (int[]) gaps.clone();
+            }
+            c.grow = (float[]) grow.clone();
+            if (n > 1) {
+                c.shrink = (float[]) grow.clone();
+            }
+            if (min != null) {
+                c.min = (int[]) min.clone();
+            }
+            if (max != null) {
+                c.max = (int[]) max.clone();
+            }
+            return c;
+        }
+
+        static LabelController label(int col, int hAlign) {
             LabelController l = new LabelController();
-            l.setRenderer(new LabelRendererHigh(l));
-            l.setModelColumn(0);
+            LabelRendererHigh r = new LabelRendererHigh(l);
+            l.setRenderer(r);
+            l.setModelColumn(col);
+            r.setAlignment(hAlign, HqcUiIds.ALIGN_MIDDLE);
             return l;
+        }
+
+        static LabelController valueLabel() {
+            return label(HqcUiIds.PAGE_COL_VALUE_TEXT, HqcUiIds.ALIGN_RIGHT);
+        }
+
+        static CheckboxController checkbox() {
+            CheckboxController cb = new CheckboxController();
+            cb.setRenderer(new CheckboxRendererHigh(cb));
+            cb.setBounds(0, 0, HqcUiIds.CELL_BOUNDS_W, HqcUiIds.CELL_BOUNDS_H);
+            cb.setMapping(HqcUiIds.CHECKBOX_MAPPING);
+            cb.setModelColumn(HqcUiIds.PAGE_COL_VALUE);
+            return cb;
+        }
+
+        static RadioButtonController radio() {
+            RadioButtonController rb = new RadioButtonController();
+            rb.setRenderer(new RadioButtonRendererHigh(rb));
+            rb.setBounds(0, 0, HqcUiIds.CELL_BOUNDS_W, HqcUiIds.CELL_BOUNDS_H);
+            rb.setModelColumn(HqcUiIds.PAGE_COL_VALUE);
+            return rb;
+        }
+
+        static ProgressBarController progress() {
+            ProgressBarController pb = new ProgressBarController();
+            pb.setRenderer(new ProgressBarRendererHigh(pb));
+            pb.setBitmaps(HqcUiIds.PROGRESS_BITMAPS);
+            pb.setColorIndices(HqcUiIds.PROGRESS_COLOURS);
+            pb.setMinimumModelValue(HqcUiIds.PROGRESS_MIN);
+            pb.setMaximumModelValue(HqcUiIds.PROGRESS_MAX);
+            pb.setPreferredHeight(HqcUiIds.PROGRESS_HEIGHT);
+            pb.setModelColumn(HqcUiIds.PAGE_COL_VALUE);
+            return pb;
+        }
+
+        IconController icon() {
+            IconController ic = new IconController();
+            IconRendererHigh r = new IconRendererHigh(ic);
+            ic.setRenderer(r);
+            ic.setBitmaps(layout.iconIds());
+            ic.setModelColumn(HqcUiIds.PAGE_COL_VALUE);
+            ic.setPreferredHeight(HqcUiIds.ICON_CELL_HEIGHT);
+            r.setAlignment(HqcUiIds.ALIGN_LEFT, HqcUiIds.ALIGN_MIDDLE);
+            return ic;
         }
     }
 }

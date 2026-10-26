@@ -1,5 +1,6 @@
 package mibsdk.adapter.hqc.ui;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -51,6 +52,8 @@ class PageScreensNavigationTest {
         int built;
         boolean failBuild;
         boolean failScreenManager;
+        final List<PageLayout> layouts = new ArrayList<PageLayout>();
+        PageRow[] lastRows;
 
         public int currentId() {
             if (failScreenManager) {
@@ -75,11 +78,12 @@ class PageScreensNavigationTest {
             return screen != null && screen == current;
         }
 
-        public Object build(String pageKey, String title, PageScreens owner) {
+        public Object build(String pageKey, String title, PageScreens owner, PageLayout layout) {
             if (failBuild) {
                 throw new IllegalStateException("no factory");
             }
             calls.add("build " + pageKey + " '" + title + "'");
+            layouts.add(layout);
             return "screen" + (++built) + ":" + pageKey;
         }
 
@@ -101,8 +105,13 @@ class PageScreensNavigationTest {
             currentId = id;
         }
 
-        public void writeRows(String[] texts, int[] kinds) {
-            calls.add("rows " + Arrays.asList(texts));
+        public void writeRows(PageRow[] rows) {
+            List<String> labels = new ArrayList<String>();
+            for (PageRow r : rows) {
+                labels.add(r.label);
+            }
+            calls.add("rows " + labels);
+            lastRows = rows;
         }
     }
 
@@ -320,7 +329,7 @@ class PageScreensNavigationTest {
 
         hmi.current = screen;
         hmi.currentId = HqcUiIds.PAGE_SCREEN_ID;
-        pages.screenConnected(screen, "a/p");
+        pages.screenConnected(screen, "a/p", PageLayout.EMPTY);
         assertEquals(Collections.singletonList("shown a/p"), inputs());
         assertEquals(Collections.singletonList("rows [Y]"), calls(), "the rows catch up with the snapshot");
         pages.backPressed();
@@ -335,7 +344,8 @@ class PageScreensNavigationTest {
         calls();
         inputs();
         pages.refresh(publish(page("a/p", "Alpha", toggle("t", "Rack", true))));
-        assertEquals(Collections.singletonList("rows [[on] Rack]"), calls());
+        assertEquals(Collections.singletonList("rows [Rack]"), calls());
+        assertEquals(new PageRow("Rack", 1, PageScreens.ROW_TOGGLE, true, null), hmi.lastRows[0], "the checkbox is on");
         PageScreens.listSelected(0);
         assertEquals(Collections.singletonList("toggle a/p/t=false"), inputs(), "the new state is the truth");
 
@@ -531,7 +541,7 @@ class PageScreensNavigationTest {
         assertEquals(Collections.singletonList("closed a/p"), inputs());
 
         hmi.pendingId = -1; // the RVC ended; the HMI goes back to the page
-        pages.screenConnected(screen, "a/p");
+        pages.screenConnected(screen, "a/p", PageLayout.EMPTY);
         runJobs();
         assertEquals(Collections.singletonList("stock " + STOCK), calls(), "the close is retried");
         assertEquals(Collections.emptyList(), inputs(), "not adopted again: the runtime is down");
@@ -705,7 +715,7 @@ class PageScreensNavigationTest {
 
         hmi.current = screen;
         hmi.currentId = HqcUiIds.PAGE_SCREEN_ID;
-        pages.screenConnected(screen, "a/p"); // the HMI went back to the dead page
+        pages.screenConnected(screen, "a/p", PageLayout.EMPTY); // the HMI went back to the dead page
         runJobs();
         assertEquals(Collections.singletonList("stock " + STOCK), calls());
         inputs();
@@ -731,7 +741,7 @@ class PageScreensNavigationTest {
         inputs();
 
         Object mine = "mine:a/p";
-        pages.screenConnected(mine, "a/p"); // one of the new renderer's own pages connects
+        pages.screenConnected(mine, "a/p", PageLayout.EMPTY); // one of the new renderer's own pages connects
         assertEquals(Collections.singletonList("shown a/p"), inputs(), "adopted");
 
         hmi.blocked = false;
@@ -754,5 +764,160 @@ class PageScreensNavigationTest {
         pages.backPressed();
         runJobs();
         assertEquals(Collections.singletonList("car " + HqcUiIds.CAR_MAIN_SCREEN), calls());
+    }
+
+    // ---- native inputs (Task 4): disabled rows, the choice sub-page, item icons --------------------------------
+
+    private static final mibsdk.platform.UiIcon ICON_A = mibsdk.platform.UiIcon.stock("a");
+    private static final mibsdk.platform.UiIcon ICON_B = mibsdk.platform.UiIcon.stock("b");
+
+    private static UiEntry iconItem(String key, mibsdk.platform.UiIcon icon, String value) {
+        return new UiEntry(UiEntry.ITEM, key, key, value, false, null).withIcon(icon);
+    }
+
+    private static ItemIcons icons(mibsdk.platform.UiIcon... is) {
+        Map<mibsdk.platform.UiIcon, Integer> m = new HashMap<mibsdk.platform.UiIcon, Integer>();
+        for (int i = 0; i < is.length; i++) {
+            m.put(is[i], 609100 + i);
+        }
+        return new ItemIcons(m);
+    }
+
+    private static UiPage languages(boolean english) {
+        return page("p/main#lang", "Language", new UiEntry(UiEntry.RADIO, "0", "Deutsch", null, !english, null),
+                new UiEntry(UiEntry.RADIO, "1", "English", null, english, null));
+    }
+
+    private static UiEntry language(int selected) {
+        return new UiEntry(UiEntry.CHOICE, "lang", "Language", null, false, "p/main#lang")
+                .withOptions(new String[] {"Deutsch", "English"}).withNumber(selected);
+    }
+
+    private long builds() {
+        long n = 0;
+        for (String c : calls()) {
+            n += c.startsWith("build ") ? 1 : 0;
+        }
+        return n;
+    }
+
+    /** The HMI still sends a press on a greyed row: the adapter drops it (no input, no job). */
+    @Test
+    void disabledRowPressIsDropped() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go").withEnabled(false),
+                toggle("t", "Rack", true).withEnabled(false), link("more", "More", "a/q").withEnabled(false),
+                language(0).withEnabled(false)), page("a/q", "Beta", item("x", "X")), languages(false));
+        pages.open("a/p", s, 0);
+        calls();
+        inputs();
+        for (int row = 0; row < 4; row++) {
+            PageScreens.listSelected(row);
+        }
+        assertEquals(Collections.emptyList(), inputs());
+        assertEquals(0, sink.size(), "no navigation job");
+        assertFalse(pages.navPending());
+        assertFalse(hmi.lastRows[0].enabled, "written greyed");
+    }
+
+    /** F26: DROPDOWN and SLIDER are not list rows, so list row i is the i-th list entry. */
+    @Test
+    void listRowsSkipDropdownAndSlider() throws Exception {
+        UiEntry dropdown = new UiEntry(UiEntry.DROPDOWN, "d", "Mode", null, false, null)
+                .withOptions(new String[] {"a", "b"});
+        UiEntry slider = new UiEntry(UiEntry.SLIDER, "s", "Bass", null, false, null).withRange(-6, 6, 1, true);
+        UiSnapshot s = publish(page("a/p", "Alpha", dropdown, item("go", "Go"), slider, toggle("t", "Rack", false)));
+        pages.open("a/p", s, 0);
+        assertEquals(Arrays.asList("rows [Go, Rack]", "build a/p 'Alpha'", "show screen1:a/p"), calls());
+        inputs();
+        PageScreens.listSelected(0);
+        PageScreens.listSelected(1);
+        assertEquals(Arrays.asList("selected a/p/go", "toggle a/p/t=true"), inputs());
+    }
+
+    /**
+     * F16: a CHOICE row opens its choice page; a pick there is sent on the choice page's key and goes back. The page
+     * events are CLOSED(old) before SHOWN(new) both ways; the hub's {@code #} mapping (Task 2) keeps {@code p/main}
+     * open, so the plugin sees no PAGE_CLOSED for it.
+     */
+    @Test
+    void choiceOpensSubPageAndPickReturns() throws Exception {
+        UiSnapshot s = publish(page("p/main", "Main", language(0)), languages(false));
+        pages.open("p/main", s, 0);
+        assertEquals(new PageRow("Language", 0, PageScreens.ROW_VALUE, true, "Deutsch"), hmi.lastRows[0]);
+        calls();
+        inputs();
+
+        PageScreens.listSelected(0);
+        runJobs();
+        assertEquals(Arrays.asList("rows [Deutsch, English]", "build p/main#lang 'Language'",
+                "show screen2:p/main#lang"), calls());
+        assertEquals(Arrays.asList("closed p/main", "shown p/main#lang"), inputs());
+        assertEquals(new PageRow("Deutsch", 1, PageScreens.ROW_RADIO, true, null), hmi.lastRows[0]);
+
+        PageScreens.listSelected(1);
+        assertTrue(pages.navPending(), "the back is posted");
+        runJobs();
+        assertEquals(Arrays.asList("selected p/main#lang/1", "closed p/main#lang", "shown p/main"), inputs());
+        assertEquals(Arrays.asList("rows [Language]", "build p/main 'Main'", "show screen3:p/main"), calls());
+        assertFalse(pages.navPending());
+    }
+
+    @Test
+    void choiceBackReturnsWithoutAction() throws Exception {
+        UiSnapshot s = publish(page("p/main", "Main", language(1)), languages(true));
+        pages.open("p/main", s, 0);
+        PageScreens.listSelected(0);
+        runJobs();
+        calls();
+        inputs();
+        pages.backPressed();
+        runJobs();
+        assertEquals(Arrays.asList("closed p/main#lang", "shown p/main"), inputs(), "no ENTRY_SELECTED");
+        assertTrue(calls().contains("show screen3:p/main"));
+    }
+
+    /** C7: a row's icon indexes the screen's icon bitmaps, so a new icon id needs a new screen; a new index not. */
+    @Test
+    void iconSetChangeRebuildsScreen() throws Exception {
+        pages.itemIcons(icons(ICON_A, ICON_B));
+        UiSnapshot s = publish(page("a/p", "Alpha", iconItem("x", ICON_A, null), item("y", "Y")));
+        pages.open("a/p", s, 0);
+        assertEquals(1, builds());
+        assertArrayEquals(new int[] {609100}, hmi.layouts.get(0).iconIds());
+        assertEquals(new PageRow("x", 0, PageScreens.ROW_ICON, true, null), hmi.lastRows[0]);
+
+        pages.refresh(publish(page("a/p", "Alpha", iconItem("x", ICON_A, null), iconItem("y", ICON_B, null),
+                iconItem("z", ICON_A, null))));
+        assertEquals(1, builds(), "a new icon id: a new screen");
+        assertArrayEquals(new int[] {609100, 609101}, hmi.layouts.get(1).iconIds());
+        assertEquals(new PageRow("y", 1, PageScreens.ROW_ICON, true, null), hmi.lastRows[1]);
+
+        pages.refresh(publish(page("a/p", "Alpha", iconItem("x", ICON_A, null), iconItem("y", ICON_B, null),
+                iconItem("z", ICON_B, null))));
+        assertEquals(0, builds(), "only a new index: rows only");
+        assertEquals(new PageRow("z", 1, PageScreens.ROW_ICON, true, null), hmi.lastRows[2]);
+    }
+
+    /** B4: while the screen may not change, a row whose icon the shown screen lacks is written without it. */
+    @Test
+    void iconChangeWhileBlockedWritesNoIconKind() throws Exception {
+        pages.itemIcons(icons(ICON_A, ICON_B));
+        UiSnapshot s = publish(page("a/p", "Alpha", iconItem("x", ICON_A, null)));
+        pages.open("a/p", s, 0);
+        calls();
+        hmi.blocked = true; // a popup or the parking display
+        UiSnapshot next = publish(page("a/p", "Alpha", iconItem("x", ICON_A, null), iconItem("y", ICON_B, "on"),
+                iconItem("z", ICON_B, null)));
+        pages.refresh(next);
+        assertEquals(0, builds(), "no rebuild while blocked");
+        assertEquals(new PageRow("x", 0, PageScreens.ROW_ICON, true, null), hmi.lastRows[0], "a shown icon stays");
+        assertEquals(new PageRow("y", 0, PageScreens.ROW_VALUE, true, "on"), hmi.lastRows[1]);
+        assertEquals(new PageRow("z", 0, PageScreens.ROW_ACTION, true, null), hmi.lastRows[2]);
+
+        hmi.blocked = false;
+        pages.refresh(next);
+        assertEquals(1, builds(), "the deferred rebuild");
+        assertEquals(new PageRow("y", 1, PageScreens.ROW_ICON_VALUE, true, "on"), hmi.lastRows[1]);
+        assertEquals(new PageRow("z", 1, PageScreens.ROW_ICON, true, null), hmi.lastRows[2]);
     }
 }

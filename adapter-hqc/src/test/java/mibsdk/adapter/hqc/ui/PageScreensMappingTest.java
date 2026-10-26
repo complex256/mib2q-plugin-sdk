@@ -5,32 +5,85 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import mibsdk.platform.UiEntry;
+import mibsdk.platform.UiIcon;
 import org.junit.jupiter.api.Test;
 
-/** The stock-free parts of the page recipe: entry kind to list row, row text, and where an open may happen. */
+/** The stock-free parts of the page recipe: entry kind to list row, the row's cells, and where an open may happen. */
 class PageScreensMappingTest {
 
     private static UiEntry entry(int kind, String label, String value, boolean on) {
         return new UiEntry(kind, "k", label, value, on, kind == UiEntry.LINK ? "o/p2" : null);
     }
 
+    private static final UiIcon WIFI = UiIcon.stock("wifi");
+
     /**
-     * INFO is a label row; ITEM and LINK are action rows; TOGGLE is its own kind (spike B: the stock checkbox cell
-     * draws nothing, so the state is in the row text). Every row's text is {@code UiPageText.line}.
+     * Every list kind has its own row (the record-set column picks it). ITEM, LINK and CHOICE carry a value column
+     * only when they have a value text; an item icon is its own column, and with a value both (ICON_VALUE).
      */
     @Test
     void everyKindMapsToRecipeRow() {
-        assertEquals(PageScreens.ROW_LABEL, PageScreens.rowKind(entry(UiEntry.INFO, "Hello", null, false)));
-        assertEquals(PageScreens.ROW_ACTION, PageScreens.rowKind(entry(UiEntry.ITEM, "Do", "now", false)));
-        assertEquals(PageScreens.ROW_TOGGLE, PageScreens.rowKind(entry(UiEntry.TOGGLE, "Rack", null, true)));
-        assertEquals(PageScreens.ROW_ACTION, PageScreens.rowKind(entry(UiEntry.LINK, "More", null, false)));
+        assertEquals(PageScreens.ROW_LABEL, PageScreens.rowKind(entry(UiEntry.INFO, "Hello", null, false), -1, true));
+        assertEquals(PageScreens.ROW_TOGGLE, PageScreens.rowKind(entry(UiEntry.TOGGLE, "Rack", null, true), -1, true));
+        assertEquals(PageScreens.ROW_RADIO, PageScreens.rowKind(entry(UiEntry.RADIO, "English", null, true), -1, true));
+        assertEquals(PageScreens.ROW_PROGRESS, PageScreens.rowKind(
+                entry(UiEntry.PROGRESS, "Battery", null, false).withNumber(40), -1, true));
+        assertEquals(PageScreens.ROW_ACTION, PageScreens.rowKind(entry(UiEntry.LINK, "More", null, false), -1, true));
+    }
 
-        assertEquals("Hello", PageScreens.rowText(entry(UiEntry.INFO, "Hello", null, false)));
-        assertEquals("Do: now", PageScreens.rowText(entry(UiEntry.ITEM, "Do", "now", false)));
-        assertEquals("Do", PageScreens.rowText(entry(UiEntry.ITEM, "Do", null, false)));
-        assertEquals("[on] Rack", PageScreens.rowText(entry(UiEntry.TOGGLE, "Rack", null, true)));
-        assertEquals("[off] Rack", PageScreens.rowText(entry(UiEntry.TOGGLE, "Rack", null, false)));
-        assertEquals("More >", PageScreens.rowText(entry(UiEntry.LINK, "More", null, false)));
+    @Test
+    void kindFollowsValueAndIcon() {
+        UiEntry plain = entry(UiEntry.ITEM, "Do", null, false);
+        UiEntry valued = entry(UiEntry.ITEM, "Do", "now", false);
+        assertEquals(PageScreens.ROW_ACTION, PageScreens.rowKind(plain, -1, true));
+        assertEquals(PageScreens.ROW_VALUE, PageScreens.rowKind(valued, -1, true));
+        assertEquals(PageScreens.ROW_ICON, PageScreens.rowKind(plain.withIcon(WIFI), 0, true));
+        assertEquals(PageScreens.ROW_ICON_VALUE, PageScreens.rowKind(valued.withIcon(WIFI), 0, true));
+        assertEquals(PageScreens.ROW_VALUE, PageScreens.rowKind(valued.withIcon(WIFI), -1, true),
+                "an icon not in the layout: no icon column");
+
+        PageRow icon = PageRow.of(valued.withIcon(WIFI), 2);
+        assertEquals(new PageRow("Do", 2, PageScreens.ROW_ICON_VALUE, true, "now"), icon, "the value is the index");
+
+        PageRow link = PageRow.of(entry(UiEntry.LINK, "Wi-Fi", "on", false), -1);
+        assertEquals(new PageRow("Wi-Fi", 0, PageScreens.ROW_VALUE, true, "on >"), link);
+        assertEquals(new PageRow("More >", 0, PageScreens.ROW_ACTION, true, null),
+                PageRow.of(entry(UiEntry.LINK, "More", null, false), -1));
+
+        UiEntry choice = new UiEntry(UiEntry.CHOICE, "lang", "Language", null, false, "p/main#lang")
+                .withOptions(new String[] {"Deutsch", "English"}).withNumber(1);
+        assertEquals(new PageRow("Language", 0, PageScreens.ROW_VALUE, true, "English"), PageRow.of(choice, -1));
+    }
+
+    /** F12: the bench N4 fallback ({@code PAGE_ICON_VALUE_ROWS} false) drops the icon of a valued item. */
+    @Test
+    void iconValueFallsBackToValueWhenDisabled() {
+        UiEntry e = entry(UiEntry.ITEM, "Do", "now", false).withIcon(WIFI);
+        assertEquals(PageScreens.ROW_VALUE, PageScreens.rowKind(e, 0, false));
+        assertEquals(PageScreens.ROW_ICON, PageScreens.rowKind(entry(UiEntry.ITEM, "Do", null, false).withIcon(WIFI),
+                0, false), "an icon without a value keeps its column");
+    }
+
+    /** The checkbox cell draws the state: the label has no {@code [on]}/{@code [off]} tag. */
+    @Test
+    void toggleRowIsLabelOnlyWithValue01() {
+        assertEquals(new PageRow("Wi-Fi", 1, PageScreens.ROW_TOGGLE, true, null),
+                PageRow.of(entry(UiEntry.TOGGLE, "Wi-Fi", null, true), -1));
+        assertEquals(new PageRow("Wi-Fi", 0, PageScreens.ROW_TOGGLE, true, null),
+                PageRow.of(entry(UiEntry.TOGGLE, "Wi-Fi", null, false), -1));
+        assertEquals(new PageRow("English", 1, PageScreens.ROW_RADIO, true, null),
+                PageRow.of(entry(UiEntry.RADIO, "English", null, true), -1));
+        assertEquals(new PageRow("Battery", 40, PageScreens.ROW_PROGRESS, true, null),
+                PageRow.of(entry(UiEntry.PROGRESS, "Battery", null, false).withNumber(40), -1));
+    }
+
+    /** A disabled entry is greyed by the enabled column, never by a text tag. */
+    @Test
+    void disabledRowWritesEnabled0() {
+        PageRow r = PageRow.of(entry(UiEntry.ITEM, "Do", null, false).withEnabled(false).withIcon(WIFI), 0);
+        assertFalse(r.enabled);
+        assertEquals("Do", r.label, "no [disabled] or icon tag");
+        assertTrue(PageRow.of(entry(UiEntry.ITEM, "Do", null, false), -1).enabled);
     }
 
     /**

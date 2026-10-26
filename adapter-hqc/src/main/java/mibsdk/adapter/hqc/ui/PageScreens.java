@@ -22,9 +22,13 @@ import mibsdk.runtime.RingLog;
  * callbacks only send {@link UiInput}s and ask for a job: every screen change runs in a posted job, through the same
  * poster (at most one SDK job pending; a nav request made while a job is pending runs inside that job).
  *
- * <p>Rendering: one list row per entry, all from {@link UiPageText#line}. TOGGLE rows carry their state as text
- * ({@code [on] }/{@code [off] }): spike B's checkbox cell drew nothing. A page is built per show; {@code refresh}
- * rewrites the list rows only (a new title rebuilds the screen, and only while the page is on screen).
+ * <p>Rendering: one list row ({@link PageRow}) per list entry (DROPDOWN and SLIDER are not list rows, so list row
+ * {@code i} is {@code rowEntries[i]}), with native cells (spike D): a checkbox, radio, progress bar, value column or
+ * item icon beside the label ({@link UiPageText#label}/{@link UiPageText#valueText}, never text tags), greyed by the
+ * enabled column. A page is built per show with its {@link PageLayout} (the item icons' bitmaps); {@code refresh}
+ * rewrites the list rows only. A new title or a new layout rebuilds the screen, only while the page is on screen and
+ * the screen may change; until then a row whose icon is not in the shown layout is written without its icon (B4).
+ * A press on a disabled row is dropped. CHOICE opens its choice page; a RADIO pick there is sent and goes back.
  *
  * <p>Opens: a request is honoured only within {@link #OPEN_TTL_MS} of the applier seeing it (monotonic clock), and
  * only while an SDK page is the connected screen, or on a Car screen (the Car drawer's) or the main menu
@@ -42,10 +46,15 @@ final class PageScreens implements PageRenderer {
 
     /** How old an open request may be when its job runs. */
     static final long OPEN_TTL_MS = 2000;
-    /** List row kinds (the list model's id column picks the item factory's row). */
+    /** List row kinds: the list model's record-set column (2) picks the item factory's row. */
     static final int ROW_ACTION = 0;
     static final int ROW_TOGGLE = 1;
     static final int ROW_LABEL = 2;
+    static final int ROW_RADIO = 3;
+    static final int ROW_PROGRESS = 4;
+    static final int ROW_VALUE = 5;
+    static final int ROW_ICON = 6;
+    static final int ROW_ICON_VALUE = 7;
     /** PageStack's notice key for a page that vanished; the runtime publishes no page under it. */
     static final String STOPPED_KEY = "mibsdk/stopped";
     static final String STOPPED_TITLE = "Plugin stopped";
@@ -70,8 +79,8 @@ final class PageScreens implements PageRenderer {
         /** {@code screen} (from {@link #build}) is the connected screen. */
         boolean isCurrent(Object screen);
 
-        /** A new page screen for {@code pageKey}; its callbacks go to {@code owner}. */
-        Object build(String pageKey, String title, PageScreens owner) throws Exception;
+        /** A new page screen for {@code pageKey}, its cells built for {@code layout}; callbacks go to {@code owner}. */
+        Object build(String pageKey, String title, PageScreens owner, PageLayout layout) throws Exception;
 
         void show(Object screen) throws Exception;
 
@@ -82,15 +91,26 @@ final class PageScreens implements PageRenderer {
         void showCarScreen(int id) throws Exception;
 
         /** Replaces the page list model's rows. */
-        void writeRows(String[] texts, int[] kinds) throws Exception;
+        void writeRows(PageRow[] rows) throws Exception;
     }
 
-    /** One requested navigation: BACK, or a LINK to {@code target}. */
+    /** One requested navigation: BACK, or a LINK (or CHOICE) to {@code target}. */
     private static final class Nav {
         final String target; // null: BACK
 
         Nav(String target) {
             this.target = target;
+        }
+    }
+
+    /** The page screen on show: its key and the layout it was built with (read by the row writes). */
+    private static final class Shown {
+        final String key;
+        final PageLayout layout;
+
+        Shown(String key, PageLayout layout) {
+            this.key = key;
+            this.layout = layout == null ? PageLayout.EMPTY : layout;
         }
     }
 
@@ -120,6 +140,10 @@ final class PageScreens implements PageRenderer {
     };
 
     private final List<Nav> navs = new ArrayList<Nav>();
+    /** Navigation was asked for and has not run yet (read on {@code mibsdk-ui}: the applier posts a job for it). */
+    private volatile boolean navPending;
+    /** The item icons' image ids, given on {@code mibsdk-ui} ({@link UiApplier#assignItemIcons}). */
+    private volatile ItemIcons itemIcons = ItemIcons.NONE;
     /** The runtime went down (close ran) and no open came since: this renderer's pages are dead. */
     private boolean down;
     /**
@@ -136,7 +160,8 @@ final class PageScreens implements PageRenderer {
     private Object lastShown;
     /** The page screen this instance showed and believes on screen; null once left or never shown. */
     private Object shown;
-    private String shownKey;
+    /** The key and layout of the page screen shown last; null before the first. */
+    private volatile Shown shownPage;
     private String shownTitle;
     private List<UiEntry> rowEntries = Collections.<UiEntry>emptyList();
 
@@ -165,19 +190,36 @@ final class PageScreens implements PageRenderer {
 
     // ---- stock-free mapping -------------------------------------------------------------------------------------
 
-    static int rowKind(UiEntry e) {
+    /**
+     * The list row kind of {@code e}. ITEM, LINK and CHOICE get the value column when they have a value text; an ITEM
+     * whose icon is in the layout ({@code iconIndex >= 0}) gets the icon column, and with a value both, or (with
+     * {@code iconValue} false, the F12 fallback) the value only.
+     */
+    static int rowKind(UiEntry e, int iconIndex, boolean iconValue) {
         switch (e.kind()) {
             case UiEntry.INFO:
                 return ROW_LABEL;
             case UiEntry.TOGGLE:
                 return ROW_TOGGLE;
-            default:
-                return ROW_ACTION; // ITEM, LINK
+            case UiEntry.RADIO:
+                return ROW_RADIO;
+            case UiEntry.PROGRESS:
+                return ROW_PROGRESS;
+            case UiEntry.ITEM: {
+                boolean value = UiPageText.valueText(e) != null;
+                if (iconIndex >= 0) {
+                    return !value ? ROW_ICON : iconValue ? ROW_ICON_VALUE : ROW_VALUE;
+                }
+                return value ? ROW_VALUE : ROW_ACTION;
+            }
+            default: // LINK, CHOICE
+                return UiPageText.valueText(e) != null ? ROW_VALUE : ROW_ACTION;
         }
     }
 
-    static String rowText(UiEntry e) {
-        return UiPageText.line(e);
+    /** True for an entry drawn as a list row: every kind but DROPDOWN and SLIDER (their own rows, Task 5). */
+    static boolean isListEntry(UiEntry e) {
+        return e.kind() != UiEntry.DROPDOWN && e.kind() != UiEntry.SLIDER;
     }
 
     /**
@@ -233,7 +275,7 @@ final class PageScreens implements PageRenderer {
                         + " ms, or a popup, parking display or screen change is under way");
                 return;
             }
-            navs.clear(); // the accepted open replaces whatever navigation was asked for before it
+            clearNavs(); // the accepted open replaces whatever navigation was asked for before it
             down = false;
             closePending = false;
             orphanChecked = true;
@@ -266,11 +308,15 @@ final class PageScreens implements PageRenderer {
             }
             stack.reconcile(s);
             String top = stack.top();
-            boolean rebuild = !top.equals(before) || !eq(titleOf(top, s), shownTitle);
+            UiPage p = pageOf(top, s);
+            PageLayout shownLayout = shownLayout();
+            boolean rebuild = !top.equals(before) || !eq(titleOf(top, s), shownTitle)
+                    || !PageLayout.of(p, itemIcons).equals(shownLayout);
             if (rebuild && screens.isCurrent(shown) && changeAllowed()) {
                 showTop(s);
             } else {
-                writeRows(pageOf(top, s)); // not connected yet: the title follows on the next refresh
+                // not connected yet, or the screen may not change: the title and layout follow on a later refresh
+                writeRows(p, shownLayout);
             }
         } catch (Throwable t) {
             failed("refresh", t);
@@ -285,7 +331,7 @@ final class PageScreens implements PageRenderer {
      */
     public void close() {
         try {
-            navs.clear();
+            clearNavs();
             down = true;
             boolean onScreen = shown != null || ownPageConnected();
             shown = null;
@@ -311,6 +357,24 @@ final class PageScreens implements PageRenderer {
 
     public boolean closePending() {
         return closePending;
+    }
+
+    public boolean navPending() {
+        return navPending;
+    }
+
+    public void runPendingNav() {
+        try {
+            if (navPending) {
+                runNav(table.snapshot());
+            }
+        } catch (Throwable t) {
+            failed("navigation", t);
+        }
+    }
+
+    public void itemIcons(ItemIcons ids) {
+        itemIcons = ids == null ? ItemIcons.NONE : ids;
     }
 
     /** One of this renderer's page screens is the connected screen. */
@@ -394,11 +458,15 @@ final class PageScreens implements PageRenderer {
             return;
         }
         List<UiEntry> entries = rowEntries;
-        String key = shownKey;
+        Shown sp = shownPage;
+        String key = sp == null ? null : sp.key;
         if (key == null || row < 0 || row >= entries.size()) {
             return;
         }
         UiEntry e = entries.get(row);
+        if (!e.enabled()) {
+            return; // greyed: the HMI still sends its press
+        }
         switch (e.kind()) {
             case UiEntry.ITEM:
                 UiInputs.userPressed();
@@ -409,11 +477,17 @@ final class PageScreens implements PageRenderer {
                 table.input(new UiInput(UiInput.TOGGLE_REQUESTED, key, e.key(), !e.on()));
                 break;
             case UiEntry.LINK:
+            case UiEntry.CHOICE:
                 UiInputs.userPressed();
                 requestNav(new Nav(e.targetPageKey()));
                 break;
+            case UiEntry.RADIO:
+                UiInputs.userPressed();
+                table.input(new UiInput(UiInput.ENTRY_SELECTED, key, e.key(), false));
+                requestNav(new Nav(null)); // the pick closes the choice page
+                break;
             default:
-                break; // INFO
+                break; // INFO, PROGRESS
         }
     }
 
@@ -439,7 +513,7 @@ final class PageScreens implements PageRenderer {
      * A page screen connected. Ours, shown last: nothing to do. Ours, after the user had left it (a popup or the
      * RVC ended and the HMI went back to it): it is the open page again. Never throws.
      */
-    void screenConnected(Object screen, String pageKey) {
+    void screenConnected(Object screen, String pageKey, PageLayout layout) {
         try {
             if (down) {
                 poster.post(retryJob); // a dead page came back: take it off screen (a pending job retries too)
@@ -451,12 +525,12 @@ final class PageScreens implements PageRenderer {
             orphanPending = false; // our own page is up: whatever was orphaned is gone
             shown = screen;
             lastShown = screen;
-            shownKey = pageKey;
+            shownPage = new Shown(pageKey, layout);
             live = this;
             stack.open(pageKey, stockReturn);
             UiSnapshot s = table.snapshot();
             stack.reconcile(s);
-            writeRows(pageOf(stack.top(), s));
+            writeRows(pageOf(stack.top(), s), shownLayout());
         } catch (Throwable t) {
             failed("connect", t);
         }
@@ -467,7 +541,7 @@ final class PageScreens implements PageRenderer {
         try {
             if (screen != null && screen == shown) {
                 shown = null;
-                navs.clear();
+                clearNavs();
                 stack.clear();
             }
         } catch (Throwable t) {
@@ -481,26 +555,40 @@ final class PageScreens implements PageRenderer {
         if (navs.size() < MAX_NAV) {
             navs.add(n);
         }
-        poster.post(navJob); // false: a job is pending, and it runs the navigation first
+        navPending = true;
+        poster.post(navJob); // false: a job is pending (the applier's combined job), and it runs the navigation
+    }
+
+    private void clearNavs() {
+        navs.clear();
+        navPending = false;
     }
 
     /** In a job: the navigation asked for since the last one, in order. */
     private void runNav(UiSnapshot s) {
+        try {
+            runNavs(s);
+        } finally {
+            navPending = !navs.isEmpty();
+        }
+    }
+
+    private void runNavs(UiSnapshot s) {
         if (down || orphanPending) {
-            navs.clear();
+            clearNavs();
             retryClose();
             return;
         }
         while (!navs.isEmpty()) {
             Nav n = navs.remove(0);
             if (shown == null || stack.top() == null) {
-                navs.clear();
+                clearNavs();
                 return; // the page was left meanwhile
             }
             if (!changeAllowed()) {
                 log.append("INFO", SOURCE, "ui page navigation dropped: a popup, parking display or screen change"
                         + " is under way");
-                navs.clear();
+                clearNavs();
                 return;
             }
             try {
@@ -533,9 +621,10 @@ final class PageScreens implements PageRenderer {
             }
             UiPage p = pageOf(key, s);
             String t = p.title() == null ? "" : p.title();
-            writeRows(p);
+            PageLayout layout = PageLayout.of(p, itemIcons);
+            writeRows(p, layout);
             title = t;
-            Object screen = screens.build(key, t, this);
+            Object screen = screens.build(key, t, this, layout);
             PageScreens prev = live;
             if (prev != null && prev != this) {
                 prev.shown = null; // a replaced applier's page: its leaving is not the user leaving
@@ -543,7 +632,7 @@ final class PageScreens implements PageRenderer {
             live = this;
             shown = screen;
             lastShown = screen;
-            shownKey = key;
+            shownPage = new Shown(key, layout);
             shownTitle = t;
             screens.show(screen);
         } catch (Throwable t) {
@@ -578,17 +667,29 @@ final class PageScreens implements PageRenderer {
         return screenChangeAllowed(screens.currentBlocked(), screens.pendingId());
     }
 
-    private void writeRows(UiPage p) {
-        List<UiEntry> entries = p.entries();
-        String[] texts = new String[entries.size()];
-        int[] kinds = new int[texts.length];
-        for (int i = 0; i < texts.length; i++) {
-            texts[i] = rowText(entries.get(i));
-            kinds[i] = rowKind(entries.get(i));
+    /** The layout of the page screen shown last ({@link PageLayout#EMPTY} before one). */
+    private PageLayout shownLayout() {
+        Shown sp = shownPage;
+        return sp == null ? PageLayout.EMPTY : sp.layout;
+    }
+
+    /** Writes {@code p}'s list rows for a screen built with {@code layout}: an icon not in it is not drawn. */
+    private void writeRows(UiPage p, PageLayout layout) {
+        List<UiEntry> all = p.entries();
+        List<UiEntry> entries = new ArrayList<UiEntry>(all.size());
+        for (int i = 0; i < all.size(); i++) {
+            if (isListEntry(all.get(i))) {
+                entries.add(all.get(i));
+            }
+        }
+        PageRow[] rows = new PageRow[entries.size()];
+        for (int i = 0; i < rows.length; i++) {
+            UiEntry e = entries.get(i);
+            rows[i] = PageRow.of(e, e.kind() == UiEntry.ITEM ? layout.iconIndex(e.icon()) : -1);
         }
         rowEntries = entries;
         try {
-            screens.writeRows(texts, kinds);
+            screens.writeRows(rows);
         } catch (Throwable t) {
             failed("rows", t);
         }

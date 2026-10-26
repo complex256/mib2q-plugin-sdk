@@ -2,7 +2,11 @@ package mibsdk.adapter.hqc.ui;
 
 import mibsdk.platform.UiSnapshot;
 
-/** Draws SDK pages. Both methods run inside an {@link HmiPoster} job, on HMIEvent. */
+/**
+ * Draws SDK pages. {@link #open}, {@link #refresh}, {@link #close} and {@link #runPendingNav} run inside an
+ * {@link HmiPoster} job, on HMIEvent; {@link #closePending}, {@link #navPending} and {@link #itemIcons} are called on
+ * {@code mibsdk-ui}.
+ */
 interface PageRenderer {
 
     /**
@@ -26,6 +30,18 @@ interface PageRenderer {
      */
     boolean closePending();
 
+    /**
+     * A page asked for navigation (LINK, CHOICE, a choice pick, BACK) that has not run yet: the applier posts its job
+     * for it, also when no page changed (F2). Read on {@code mibsdk-ui}.
+     */
+    boolean navPending();
+
+    /** In the applier's job: runs the navigation asked for since the last job, if any. Never throws. */
+    void runPendingNav();
+
+    /** On {@code mibsdk-ui}: the item icons' image ids for the pages drawn from now on (kept in a volatile field). */
+    void itemIcons(ItemIcons ids);
+
     /** No SDK pages. */
     PageRenderer NONE = new PageRenderer() {
         public void open(String pageKey, UiSnapshot s, long requestAgeMs) {
@@ -39,6 +55,16 @@ interface PageRenderer {
 
         public boolean closePending() {
             return false;
+        }
+
+        public boolean navPending() {
+            return false;
+        }
+
+        public void runPendingNav() {
+        }
+
+        public void itemIcons(ItemIcons ids) {
         }
     };
 }

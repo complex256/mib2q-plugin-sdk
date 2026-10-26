@@ -75,8 +75,25 @@ class UiApplierTest {
         public boolean closePending() {
             return closePending;
         }
+
+        public boolean navPending() {
+            return navPending;
+        }
+
+        public void runPendingNav() {
+            if (navPending) {
+                navPending = false;
+                writes.add("nav");
+            }
+        }
+
+        public void itemIcons(ItemIcons ids) {
+            publishedIcons.add(ids);
+        }
     };
     private volatile boolean closePending;
+    private volatile boolean navPending;
+    private final List<ItemIcons> publishedIcons = new java.util.concurrent.CopyOnWriteArrayList<ItemIcons>();
 
     @BeforeEach
     @AfterEach
@@ -264,6 +281,111 @@ class UiApplierTest {
         applier.step(0);
         sink.runHeld();
         assertEquals(Collections.singletonList("refresh:[p1, p2]"), drain());
+    }
+
+    /** Every input field counts: a change in only one of them is a page change (it must be redrawn). */
+    @Test
+    void samePageSeesEveryInputField() {
+        UiEntry base = new UiEntry(UiEntry.CHOICE, "c", "Choice", null, false, "p#c")
+                .withOptions(new String[] {"a", "b"}).withNumber(0).withRange(0, 10, 1, false);
+        UiPage page = new UiPage("p", "P", Collections.singletonList(base));
+        assertTrue(UiApplier.samePage(page, new UiPage("p", "P", Collections.singletonList(
+                base.withNumber(0)))), "equal copies");
+        UiEntry[] changed = {
+            base.withEnabled(false),
+            base.withNumber(1),
+            base.withOptions(new String[] {"a", "c"}),
+            base.withRange(0, 11, 1, false),
+            base.withRange(1, 10, 1, false),
+            base.withRange(0, 10, 2, false),
+            base.withRange(0, 10, 1, true),
+            base.withIcon(UiIcon.stock("wifi")),
+        };
+        for (int i = 0; i < changed.length; i++) {
+            assertFalse(UiApplier.samePage(page, new UiPage("p", "P", Collections.singletonList(changed[i]))),
+                    "change " + i);
+        }
+    }
+
+    /**
+     * F2: a nav asked for while the combined job is pending (a choice pick) waits for that job; the job runs it even
+     * when no page changed, and a pass posts the job for a pending nav.
+     */
+    @Test
+    void pendingNavRunsWithoutPageChange() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", Collections.singletonList("plugins"), pages("p1"), 0, null);
+        applier.step(0);
+        sink.runHeld();
+        drain();
+
+        publish("", Collections.singletonList("plugins"), pages("p1", "p2"), 0, null);
+        applier.step(0);
+        assertEquals(1, sink.size(), "the combined job is pending");
+        navPending = true; // the pick's nav: its own post was refused
+        publish("", Collections.singletonList("plugins"), pages("p1"), 0, null); // back to what was rendered
+        sink.runHeld();
+        assertEquals(Collections.singletonList("nav"), drain(), "no page change, and the nav still runs");
+
+        navPending = true;
+        applier.step(0);
+        assertEquals(1, sink.size(), "a pending nav alone posts the job");
+        sink.runHeld();
+        assertEquals(Collections.singletonList("nav"), drain());
+        applier.step(0);
+        assertEquals(0, sink.size());
+    }
+
+    /** F28: item icon ids are given on mibsdk-ui, once per icon: the same icon keeps its id across snapshots. */
+    @Test
+    void itemIconIdsAssignedOnUiThread() throws Exception {
+        String sha16 = "0123456789abcdef";
+        UiIcon file = UiIcon.file("hello", HqcUiIds.INSTALL_ROOT + "/icons/hello/" + sha16 + ".png", sha16, 24, 24);
+        Map<String, UiPage> m = new HashMap<String, UiPage>();
+        m.put("p", new UiPage("p", "P", Arrays.asList(
+                new UiEntry(UiEntry.ITEM, "a", "A", null, false, null).withIcon(file),
+                new UiEntry(UiEntry.ITEM, "b", "B", null, false, null).withIcon(UiIcon.stock("nothing")))));
+        publish("", Collections.singletonList("plugins"), m, 0, null);
+        applier.step(0);
+        assertEquals(1, publishedIcons.size(), "published to the renderer from the applier's pass");
+        ItemIcons first = publishedIcons.get(0);
+        int id = first.id(file);
+        assertTrue(id >= HqcUiIds.ICON_ID_FIRST && id <= HqcUiIds.ICON_ID_LAST, "id " + id);
+        assertEquals(-1, first.id(UiIcon.stock("nothing")), "a built-in that is not installed has none");
+
+        Map<String, UiPage> m2 = new HashMap<String, UiPage>(m);
+        m2.put("q", new UiPage("q", "Q", Collections.singletonList(
+                new UiEntry(UiEntry.ITEM, "c", "C", null, false, null).withIcon(file))));
+        publish("", Collections.singletonList("plugins"), m2, 0, null);
+        applier.step(0);
+        assertEquals(1, publishedIcons.size(), "the same ids: nothing new to publish");
+        assertEquals(id, applier.assignItemIcons(table.snapshot()).id(file), "the same icon, the same id");
+    }
+
+    /**
+     * The job renders the newest snapshot, maybe before the pass gave its icons ids: once they are given, the pages
+     * render again, though their content was already rendered.
+     */
+    @Test
+    void newItemIconIdsRender() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", Collections.singletonList("plugins"), pages("p1"), 0, null);
+        applier.step(0);
+        assertEquals(1, sink.size());
+        String sha16 = "0123456789abcdef";
+        UiIcon file = UiIcon.file("hello", HqcUiIds.INSTALL_ROOT + "/icons/hello/" + sha16 + ".png", sha16, 24, 24);
+        Map<String, UiPage> m = new HashMap<String, UiPage>(pages("p1"));
+        m.put("p2", new UiPage("p2", "P2", Collections.singletonList(
+                new UiEntry(UiEntry.ITEM, "a", "A", null, false, null).withIcon(file))));
+        publish("", Collections.singletonList("plugins"), m, 0, null); // before the pending job runs
+        sink.runHeld();
+        assertTrue(drain().contains("refresh:[p1, p2]"), "rendered before its icon has an id");
+        applier.step(0); // the pass gives the id
+        assertEquals(1, sink.size(), "rendered again for the id");
+        sink.runHeld();
+        assertEquals(Collections.singletonList("refresh:[p1, p2]"), drain());
+        applier.step(0);
+        assertEquals(0, sink.size(), "rendered with its ids: nothing left");
     }
 
     /** Review Focus 5: the drawer cap is logged once per overflowing key, not once per snapshot. */
