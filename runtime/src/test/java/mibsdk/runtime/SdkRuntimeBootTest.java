@@ -173,6 +173,28 @@ class SdkRuntimeBootTest {
         return n;
     }
 
+    // ---- manifests ----
+
+    /** Regression guard: an api newer than this SDK is refused as invalid, never as a failure (0.2.0 did so for 5). */
+    @Test
+    void newerApiIsBlockedInvalidNotFailed() throws Exception {
+        plugin("hello");
+        jars.writeRaw(new File(plugins, "future.jar"), "package fx; public class Main {}",
+                "{\"id\":\"future\",\"version\":\"1\",\"api\":6,\"main\":\"fx.Main\",\"permissions\":[]}");
+        start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
+        awaitState("hello", PluginState.ENABLED);
+        assertEquals(PluginState.BLOCKED_INVALID, status("future").state());
+        assertTrue(status("future").reason().contains("unsupported api 6"), status("future").reason());
+        int failed = 0;
+        for (PluginStatus s : rt.statuses()) {
+            if (s.state() == PluginState.FAILED) {
+                failed++;
+            }
+        }
+        assertEquals(0, failed, rt.statuses().toString());
+        assertEquals(1, enabledLines());
+    }
+
     // ---- STATUS line, adapter ----
 
     @Test

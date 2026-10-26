@@ -65,7 +65,7 @@ class PluginJsonTest {
         assertEquals("1.0.0", p.version);
         assertEquals(1, p.api);
         assertEquals(1, PluginJson.MIN_API);
-        assertEquals(4, PluginJson.MAX_API);
+        assertEquals(5, PluginJson.MAX_API);
         assertEquals(java.util.Collections.emptyList(), p.icons);
     }
 
@@ -83,11 +83,12 @@ class PluginJsonTest {
     }
 
     @Test
-    void maxApiIs4AndIconNamesAreChecked() throws IOException {
-        assertEquals(4, PluginJson.MAX_API);
+    void maxApiIs5AndIconNamesAreChecked() throws IOException {
+        assertEquals(5, PluginJson.MAX_API);
         assertEquals(3, PluginJson.read(manifest("hello", "1.0.0", 3)).api);
         assertEquals(4, PluginJson.read(manifest("hello", "1.0.0", 4)).api);
-        assertTrue(fail5().contains("this SDK implements api 1..4"));
+        assertEquals(5, PluginJson.read(manifest("hello", "1.0.0", 5)).api);
+        assertTrue(fail6().contains("this SDK implements api 1..5"));
 
         assertEquals(java.util.Arrays.asList("hello", "hello-20"),
                 PluginJson.read(withIcons(3, "[\"hello\",\"hello-20\"]")).icons);
@@ -106,8 +107,8 @@ class PluginJsonTest {
         }
     }
 
-    private String fail5() throws IOException {
-        File f = manifest("hello", "1.0.0", 5);
+    private String fail6() throws IOException {
+        File f = manifest("hello", "1.0.0", 6);
         return assertThrows(GradleException.class, () -> PluginJson.read(f)).getMessage();
     }
 }

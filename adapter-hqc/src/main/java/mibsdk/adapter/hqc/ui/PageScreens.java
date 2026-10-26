@@ -2,8 +2,11 @@ package mibsdk.adapter.hqc.ui;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import mibsdk.platform.PageStack;
+import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
@@ -22,9 +25,32 @@ import mibsdk.runtime.RingLog;
  * callbacks only send {@link UiInput}s and ask for a job: every screen change runs in a posted job, through the same
  * poster (at most one SDK job pending; a nav request made while a job is pending runs inside that job).
  *
- * <p>Rendering: one list row per entry, all from {@link UiPageText#line}. TOGGLE rows carry their state as text
- * ({@code [on] }/{@code [off] }): spike B's checkbox cell drew nothing. A page is built per show; {@code refresh}
- * rewrites the list rows only (a new title rebuilds the screen, and only while the page is on screen).
+ * <p>Rendering: one list row ({@link PageRow}) per list entry (DROPDOWN and SLIDER are not list rows, so list row
+ * {@code i} is {@code rowEntries[i]}), with native cells (spike D): a checkbox, radio, progress bar, value column or
+ * item icon beside the label ({@link UiPageText#label}/{@link UiPageText#valueText}, never text tags), greyed by the
+ * enabled column. A page is built per show with its {@link PageLayout} (the item icons' bitmaps); {@code refresh}
+ * rewrites the list rows only. A new title or a new layout rebuilds the screen, only while the page is on screen and
+ * the screen may change; until then a row whose icon is not in the shown layout is written without its icon (B4).
+ * A press on a disabled row is dropped. CHOICE opens its choice page; a RADIO pick there is sent and goes back.
+ *
+ * <p>Typed rows (Task 5): the layout's dropdown and slider rows ({@link PageLayout#typed}) follow the list, each on
+ * the pooled model of its slot, which the applier writes on {@code mibsdk-ui} for the {@link Shown} layout published
+ * here. A dropdown pick sends {@code VALUE_REQUESTED} with the option index. SELECT on a slider row opens the slider
+ * edit screen {@link HqcUiIds#SLIDER_SCREEN_ID} ({@link #sliderPressed}); its knob turns accumulate in a
+ * {@link SliderSession} and send the requested value. A sub-screen ({@link #openSub}) leaves the page open: no
+ * {@code PAGE_CLOSED}, input still goes to the page's key; BACK on it ({@link #subBack}) re-shows the page with the
+ * same rows and no stack pop. A stock screen connecting over a sub-screen is the user leaving the page.
+ *
+ * <p>Dialogs (Task 6): the snapshot's confirm or speller ({@link #dialogChanged}) is a sub-screen over its owner's page
+ * ({@link HqcUiIds#CONFIRM_SCREEN_ID}, {@link HqcUiIds#SPELLER_SCREEN_ID}), shown only while that page (or a choice
+ * page of it) is ours on screen and the screen may change; otherwise it is answered at once as not shown. Each is
+ * answered exactly once with {@code DIALOG_DONE} (page key = the owner's): a confirm row (Yes 1, No 0), BACK (confirm
+ * 0, the speller done with its text: no OK key is reachable), or its screen leaving unanswered (dismissed, the same
+ * answers; a speller that never connected gets null), before the page-closed handling of a stock screen over it or of
+ * the never-connected guard. A dialog waits (bounded) for its page screen to connect, so that connect never takes it
+ * down. A withdrawn dialog goes back to the page with no answer. The page under a dialog is never reported closed by
+ * the dialog itself; but when the plugin itself opens another page or removes the owner page, the stack's PAGE_CLOSED
+ * goes first and the runtime dismisses the dialog (0, null); the adapter's later answer is dropped as stale.
  *
  * <p>Opens: a request is honoured only within {@link #OPEN_TTL_MS} of the applier seeing it (monotonic clock), and
  * only while an SDK page is the connected screen, or on a Car screen (the Car drawer's) or the main menu
@@ -32,6 +58,12 @@ import mibsdk.runtime.RingLog;
  * on an SDK row or page entry ({@link UiInputs#sinceLastPress}); a plugin never opens a page over an arbitrary
  * screen. BACK on the bottom page returns to the screen the page was opened from (the Car screen's or screen 46's
  * saved data). A dropped request is logged and sent as {@code PAGE_CLOSED}, never replayed.
+ *
+ * <p>Focus (bench B, C): leaving a page for a sub-screen or a child page (or rebuilding it on screen) remembers its
+ * focused entry by key ({@link Screens#focused}); the page built again focuses that entry where it is now, or the
+ * nearest remaining row (same place, or the last) if it is gone ({@link Screens#build}'s focus). A choice page opens on
+ * its marked option; a child page opens fresh, as does a new open. Rows added or removed in place keep the focus on the
+ * same entry through the list's row ids ({@link PageRow#rowId}).
  *
  * <p>Vehicle safety: every screen change the SDK makes (show, BACK, return to stock, close) first checks
  * {@link #screenChangeAllowed}: no popup or parking/RVC overlay on the current screen, and no screen change under way
@@ -42,16 +74,35 @@ final class PageScreens implements PageRenderer {
 
     /** How old an open request may be when its job runs. */
     static final long OPEN_TTL_MS = 2000;
-    /** List row kinds (the list model's id column picks the item factory's row). */
+    /** How long a shown sub-screen may take to connect before it is given up (monotonic clock). */
+    static final long SUB_CONNECT_MS = 3000;
+    /** List row kinds: the list model's record-set column (2) picks the item factory's row. */
     static final int ROW_ACTION = 0;
     static final int ROW_TOGGLE = 1;
     static final int ROW_LABEL = 2;
+    static final int ROW_RADIO = 3;
+    static final int ROW_PROGRESS = 4;
+    static final int ROW_VALUE = 5;
+    static final int ROW_ICON = 6;
+    static final int ROW_ICON_VALUE = 7;
     /** PageStack's notice key for a page that vanished; the runtime publishes no page under it. */
     static final String STOPPED_KEY = "mibsdk/stopped";
     static final String STOPPED_TITLE = "Plugin stopped";
     static final String STOPPED_TEXT = "This page is no longer available.";
     private static final String SOURCE = "mibsdk";
     private static final int MAX_NAV = 8;
+    /** A focus code (bench B, C): none (stock's first item); list row {@code r} is {@code r}; typed slot: below. */
+    static final int NO_FOCUS = -1;
+
+    /** The focus code of typed slot {@code slot} (its row after the list): {@code -2 - slot}. */
+    static int typedFocus(int slot) {
+        return -2 - slot;
+    }
+
+    /** The typed slot of focus code {@code code}, or -1 if it is none. */
+    static int typedSlot(int code) {
+        return code <= -2 ? -2 - code : -1;
+    }
 
     /** The stock HMI, as the page logic needs it. Every method runs on HMIEvent and may throw. */
     interface Screens {
@@ -70,8 +121,15 @@ final class PageScreens implements PageRenderer {
         /** {@code screen} (from {@link #build}) is the connected screen. */
         boolean isCurrent(Object screen);
 
-        /** A new page screen for {@code pageKey}; its callbacks go to {@code owner}. */
-        Object build(String pageKey, String title, PageScreens owner) throws Exception;
+        /**
+         * A new page screen for {@code pageKey}, its cells built for {@code layout}; callbacks go to {@code owner}. Once
+         * connected it focuses focus code {@code focus} (a list row, {@link #typedFocus}, or {@link #NO_FOCUS}: stock's
+         * first item), with the call that moves the knob's position and the drawn focus together.
+         */
+        Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus) throws Exception;
+
+        /** The focus code of page screen {@code screen}'s focused row, or {@link #NO_FOCUS}. */
+        int focused(Object screen);
 
         void show(Object screen) throws Exception;
 
@@ -82,15 +140,82 @@ final class PageScreens implements PageRenderer {
         void showCarScreen(int id) throws Exception;
 
         /** Replaces the page list model's rows. */
-        void writeRows(String[] texts, int[] kinds) throws Exception;
+        void writeRows(PageRow[] rows) throws Exception;
+
+        /**
+         * A new slider edit screen ({@link HqcUiIds#SLIDER_SCREEN_ID}) for typed slot {@code slot} of {@code layout};
+         * its BACK and connect/disconnect go to {@code owner}. Shown with {@link #show}.
+         */
+        Object buildSlider(int slot, PageLayout layout, PageScreens owner) throws Exception;
+
+        /**
+         * A new confirm screen ({@link HqcUiIds#CONFIRM_SCREEN_ID}) for {@code d}, its Yes/No rows written; its BACK
+         * and connect/disconnect go to {@code owner}. Shown with {@link #show}.
+         */
+        Object buildConfirm(UiDialog d, PageScreens owner) throws Exception;
+
+        /**
+         * A new speller screen ({@link HqcUiIds#SPELLER_SCREEN_ID}) for {@code d}, the SpellerModel's max length and
+         * initial text written; its BACK and connect/disconnect go to {@code owner}. Shown with {@link #show}.
+         */
+        Object buildSpeller(UiDialog d, PageScreens owner) throws Exception;
+
+        /** The SpellerModel's text (what the GUI wrote last), or null. */
+        String spellerText();
     }
 
-    /** One requested navigation: BACK, or a LINK to {@code target}. */
+    /** One requested navigation: BACK, a LINK (or CHOICE) to {@code target}, the slider screen, or BACK from it. */
     private static final class Nav {
-        final String target; // null: BACK
+        static final int PAGE = 0;
+        static final int SLIDER = 1;
+        static final int SUB_BACK = 2;
+
+        final int kind;
+        final String target; // PAGE: null is BACK
+        final int slot; // SLIDER
+        final boolean choice; // PAGE: the target is a CHOICE's choice page (it opens on its marked option)
 
         Nav(String target) {
+            this(PAGE, target, -1, false);
+        }
+
+        Nav(int kind, String target, int slot) {
+            this(kind, target, slot, false);
+        }
+
+        Nav(int kind, String target, int slot, boolean choice) {
+            this.kind = kind;
             this.target = target;
+            this.slot = slot;
+            this.choice = choice;
+        }
+    }
+
+    /** A page's remembered focus: its entry, and its place in the menu (list rows, then typed rows) for the nearest. */
+    private static final class Focus {
+        final String entryKey;
+        final int place;
+
+        Focus(String entryKey, int place) {
+            this.entryKey = entryKey;
+            this.place = place;
+        }
+    }
+
+    /**
+     * The page screen on show: its key, the layout it was built with (read by the row writes, the typed rows' input
+     * and texts, and on {@code mibsdk-ui} by the applier's typed-model writes), and its generation: new at each build,
+     * so the applier writes every typed model again for a new screen. Immutable.
+     */
+    static final class Shown {
+        final String pageKey;
+        final PageLayout layout;
+        final int generation;
+
+        Shown(String pageKey, PageLayout layout, int generation) {
+            this.pageKey = pageKey;
+            this.layout = layout == null ? PageLayout.EMPTY : layout;
+            this.generation = generation;
         }
     }
 
@@ -101,6 +226,10 @@ final class PageScreens implements PageRenderer {
     private static Object stockReturn;
     /** The title {@link SdkCarScreenFactory#getText} serves for {@link HqcUiIds#TEXT_PAGE_TITLE}. */
     private static volatile String title = "";
+    /** The dialog whose texts {@link InputTextIds} serves: the one on show; null for none. */
+    private static volatile UiDialog dialog;
+    /** Counts page screen builds and adoptions: each {@link Shown} gets the next. */
+    private static int generations;
 
     private final Screens screens;
     private final PageStack stack;
@@ -120,6 +249,17 @@ final class PageScreens implements PageRenderer {
     };
 
     private final List<Nav> navs = new ArrayList<Nav>();
+    /** The remembered focus of the stack's pages, by page key (bench B, C); HMIEvent only. */
+    private final Map<String, Focus> focus = new HashMap<String, Focus>();
+    /** Navigation was asked for and has not run yet (read on {@code mibsdk-ui}: the applier posts a job for it). */
+    private volatile boolean navPending;
+    /**
+     * The shown page needs a rebuild (title or layout) that the screen could not take (popup, parking display): the
+     * applier retries on its tick. Set and cleared on HMIEvent.
+     */
+    private volatile boolean rebuildPending;
+    /** The item icons' image ids, given on {@code mibsdk-ui} ({@link UiApplier#assignItemIcons}). */
+    private volatile ItemIcons itemIcons = ItemIcons.NONE;
     /** The runtime went down (close ran) and no open came since: this renderer's pages are dead. */
     private boolean down;
     /**
@@ -136,9 +276,50 @@ final class PageScreens implements PageRenderer {
     private Object lastShown;
     /** The page screen this instance showed and believes on screen; null once left or never shown. */
     private Object shown;
-    private String shownKey;
+    /** The key and layout of the page screen shown last; null before the first. */
+    private volatile Shown shownPage;
     private String shownTitle;
     private List<UiEntry> rowEntries = Collections.<UiEntry>emptyList();
+    /** The sub-screen over the page (609501..609503) shown last and not left; null for none. */
+    private Object sub;
+    private int subId = -1;
+    /** {@link #sub} was shown and has not connected yet (read on {@code mibsdk-ui} by {@link #rebuildPending}). */
+    private volatile boolean subWaiting;
+    /** When {@link #sub} was shown ({@link UiInputs#now}; -1 without a clock: never given up). */
+    private long subShownAt;
+    /**
+     * The sub-screen shown last, the page it was over and its typed slot (-1 for none): kept after the user left, so
+     * the same screen connecting again re-adopts the page ({@link #subConnected}). Forgotten when a page is shown.
+     */
+    private Object lastSub;
+    private int lastSubId = -1;
+    private int lastSubSlot = -1;
+    private Shown lastSubShown;
+    /** The open slider edit screen's session; null unless the sub-screen is the slider. Read by getText. */
+    private volatile SliderSession slider;
+    /** The dialog seq {@link #dialogChanged} acted on last (shown, refused or withdrawn); 0 for none. */
+    private long dialogSeq;
+    /** The dialog whose screen is the sub-screen, until it is answered or withdrawn; null for none. */
+    private UiDialog dialogUp;
+    /** The open speller's session; null unless {@link #dialogUp} is a speller. */
+    private SpellerSession spellerSession;
+    /** {@link #dialogUp}'s screen connected: the user saw it (a speller left then delivers its text, else null). */
+    private boolean dialogSeen;
+    /** The seq last answered by this renderer (the exactly-once guard of the throwing path). */
+    private long answeredSeq;
+    /**
+     * A dialog waits for its owner's page screen to connect (PAGE_SHOWN goes out before it does): the applier's tick
+     * and the page's connect retry it ({@link #rebuildPending}). Since when ({@link UiInputs#now}) and for which seq.
+     */
+    private volatile boolean dialogDeferred;
+    private long deferredSeq;
+    private long deferredAt;
+
+    private final Runnable dialogJob = new Runnable() {
+        public void run() {
+            dialogChanged(table.snapshot().dialog());
+        }
+    };
 
     PageScreens(Screens screens, PageStack stack, UiTable table, HmiPoster poster, RingLog log) {
         this.screens = screens;
@@ -165,19 +346,41 @@ final class PageScreens implements PageRenderer {
 
     // ---- stock-free mapping -------------------------------------------------------------------------------------
 
-    static int rowKind(UiEntry e) {
+    /**
+     * The list row kind of {@code e}. ITEM, LINK and CHOICE get the value column when they have a value text; an ITEM
+     * whose icon is in the layout ({@code iconIndex >= 0}) gets the icon column, and with a value both, or (with
+     * {@code iconValue} false, the F12 fallback) the value only.
+     */
+    static int rowKind(UiEntry e, int iconIndex, boolean iconValue) {
         switch (e.kind()) {
             case UiEntry.INFO:
                 return ROW_LABEL;
             case UiEntry.TOGGLE:
                 return ROW_TOGGLE;
-            default:
-                return ROW_ACTION; // ITEM, LINK
+            case UiEntry.RADIO:
+                return ROW_RADIO;
+            case UiEntry.PROGRESS:
+                return ROW_PROGRESS;
+            case UiEntry.ITEM: {
+                boolean value = UiPageText.valueText(e) != null;
+                if (iconIndex >= 0) {
+                    return !value ? ROW_ICON : iconValue ? ROW_ICON_VALUE : ROW_VALUE;
+                }
+                return value ? ROW_VALUE : ROW_ACTION;
+            }
+            default: // LINK, CHOICE
+                return UiPageText.valueText(e) != null ? ROW_VALUE : ROW_ACTION;
         }
     }
 
-    static String rowText(UiEntry e) {
-        return UiPageText.line(e);
+    /** True for an entry drawn as a list row: every kind but DROPDOWN and SLIDER (their own rows, Task 5). */
+    static boolean isListEntry(UiEntry e) {
+        return e.kind() != UiEntry.DROPDOWN && e.kind() != UiEntry.SLIDER;
+    }
+
+    /** An SDK screen: the page (609500) or a sub-screen over it (609501..609503). */
+    static boolean isSdkScreen(int id) {
+        return id >= HqcUiIds.PAGE_SCREEN_ID && id <= HqcUiIds.SUB_SCREEN_LAST;
     }
 
     /**
@@ -189,7 +392,7 @@ final class PageScreens implements PageRenderer {
         if (!screenChangeAllowed(blocked, pendingId)) {
             return false;
         }
-        if (currentId == HqcUiIds.PAGE_SCREEN_ID) {
+        if (isSdkScreen(currentId)) {
             return true;
         }
         boolean origin = isCarScreen(currentId) || currentId == HqcUiIds.SYS_SCREEN_MAINWIZARD;
@@ -218,6 +421,23 @@ final class PageScreens implements PageRenderer {
         return title;
     }
 
+    /** The page screen shown last by the live renderer, or null (HMIEvent, from the factory's getText). */
+    static Shown shownNow() {
+        PageScreens p = live;
+        return p == null ? null : p.shownPage;
+    }
+
+    /** The live renderer's open slider session, or null (HMIEvent, from the factory's getText). */
+    static SliderSession sliderNow() {
+        PageScreens p = live;
+        return p == null ? null : p.slider;
+    }
+
+    /** The dialog on show, or null (HMIEvent, from the factory's getText). */
+    static UiDialog dialogNow() {
+        return dialog;
+    }
+
     // ---- PageRenderer (the applier's job) -----------------------------------------------------------------------
 
     public void open(String pageKey, UiSnapshot s, long requestAgeMs) {
@@ -233,12 +453,13 @@ final class PageScreens implements PageRenderer {
                         + " ms, or a popup, parking display or screen change is under way");
                 return;
             }
-            navs.clear(); // the accepted open replaces whatever navigation was asked for before it
+            clearNavs(); // the accepted open replaces whatever navigation was asked for before it
+            focus.clear(); // a new open starts on stock's first item
             down = false;
             closePending = false;
             orphanChecked = true;
             orphanPending = false;
-            if (current != HqcUiIds.PAGE_SCREEN_ID) {
+            if (!isSdkScreen(current)) {
                 stockReturn = screens.currentData();
             }
             stack.open(pageKey, stockReturn);
@@ -260,17 +481,33 @@ final class PageScreens implements PageRenderer {
                 retryOrphan();
             }
             runNav(s);
+            if (subOverdue()) {
+                giveUpSub();
+            }
             String before = stack.top();
             if (before == null || shown == null) {
+                rebuildPending = false;
                 return; // no SDK page of ours on screen: nothing to redraw
             }
             stack.reconcile(s);
             String top = stack.top();
-            boolean rebuild = !top.equals(before) || !eq(titleOf(top, s), shownTitle);
-            if (rebuild && screens.isCurrent(shown) && changeAllowed()) {
+            UiPage p = pageOf(top, s);
+            if (sub != null && (!top.equals(before) || !syncSlider(p))) {
+                backFromSub(s); // the page or the slider's entry is gone: back to the page stack's top as it is now
+                return;
+            }
+            PageLayout shownLayout = shownLayout();
+            boolean rebuild = !top.equals(before) || !eq(titleOf(top, s), shownTitle)
+                    || !PageLayout.of(p, itemIcons).equals(shownLayout);
+            boolean current = sub == null && screens.isCurrent(shown); // never rebuilt from under a sub-screen
+            boolean allowed = changeAllowed();
+            rebuildPending = rebuild && current && !allowed;
+            if (rebuild && current && allowed) {
+                rememberFocus(); // the rebuilt page keeps its focused entry
                 showTop(s);
             } else {
-                writeRows(pageOf(top, s)); // not connected yet: the title follows on the next refresh
+                // not connected yet, or the screen may not change: the title and layout follow on a later refresh
+                writeRows(p, shownLayout);
             }
         } catch (Throwable t) {
             failed("refresh", t);
@@ -285,11 +522,17 @@ final class PageScreens implements PageRenderer {
      */
     public void close() {
         try {
-            navs.clear();
+            clearNavs();
+            rebuildPending = false;
             down = true;
             boolean onScreen = shown != null || ownPageConnected();
             shown = null;
+            dropDialog(); // the runtime is down: nothing to answer
+            dialogDeferred = false;
+            clearSub();
+            lastSub = null;
             stack.clear();
+            focus.clear();
             if (!onScreen) {
                 closePending = false;
                 return;
@@ -313,12 +556,42 @@ final class PageScreens implements PageRenderer {
         return closePending;
     }
 
+    public boolean navPending() {
+        return navPending;
+    }
+
+    /**
+     * Also true while a shown sub-screen has not connected (the job that may give it up runs on the tick), and while a
+     * dialog waits for its page to connect.
+     */
+    public boolean rebuildPending() {
+        return rebuildPending || subWaiting || dialogDeferred;
+    }
+
+    public void runPendingNav() {
+        try {
+            if (navPending) {
+                runNav(table.snapshot());
+            }
+        } catch (Throwable t) {
+            failed("navigation", t);
+        }
+    }
+
+    public void itemIcons(ItemIcons ids) {
+        itemIcons = ids == null ? ItemIcons.NONE : ids;
+    }
+
+    public Shown shown() {
+        return shownPage;
+    }
+
     /** One of this renderer's page screens is the connected screen. */
     private boolean ownPageConnected() {
         if (lastShown != null && screens.isCurrent(lastShown)) {
             return true;
         }
-        return live == this && screens.currentId() == HqcUiIds.PAGE_SCREEN_ID;
+        return live == this && isSdkScreen(screens.currentId());
     }
 
     /** In a job: retries a deferred close (runtime down) or orphan close (runtime up). Never throws. */
@@ -344,7 +617,7 @@ final class PageScreens implements PageRenderer {
         }
         orphanChecked = true;
         PageScreens prev = live;
-        if (stack.top() != null || prev == this || screens.currentId() != HqcUiIds.PAGE_SCREEN_ID) {
+        if (stack.top() != null || prev == this || !isSdkScreen(screens.currentId())) {
             return;
         }
         if (prev != null) {
@@ -357,7 +630,7 @@ final class PageScreens implements PageRenderer {
 
     /** Sends the orphan back to stock if it is still on screen and the screen may change; logs a deferral once. */
     private void retryOrphan() {
-        if (stack.top() != null || screens.currentId() != HqcUiIds.PAGE_SCREEN_ID) {
+        if (stack.top() != null || !isSdkScreen(screens.currentId())) {
             orphanPending = false; // gone, or one of our own pages is up now
             return;
         }
@@ -394,11 +667,15 @@ final class PageScreens implements PageRenderer {
             return;
         }
         List<UiEntry> entries = rowEntries;
-        String key = shownKey;
+        Shown sp = shownPage;
+        String key = sp == null ? null : sp.pageKey;
         if (key == null || row < 0 || row >= entries.size()) {
             return;
         }
         UiEntry e = entries.get(row);
+        if (!e.enabled()) {
+            return; // greyed: the HMI still sends its press
+        }
         switch (e.kind()) {
             case UiEntry.ITEM:
                 UiInputs.userPressed();
@@ -409,11 +686,17 @@ final class PageScreens implements PageRenderer {
                 table.input(new UiInput(UiInput.TOGGLE_REQUESTED, key, e.key(), !e.on()));
                 break;
             case UiEntry.LINK:
+            case UiEntry.CHOICE:
                 UiInputs.userPressed();
-                requestNav(new Nav(e.targetPageKey()));
+                requestNav(new Nav(Nav.PAGE, e.targetPageKey(), -1, e.kind() == UiEntry.CHOICE));
+                break;
+            case UiEntry.RADIO:
+                UiInputs.userPressed();
+                table.input(new UiInput(UiInput.ENTRY_SELECTED, key, e.key(), false));
+                requestNav(new Nav(null)); // the pick closes the choice page
                 break;
             default:
-                break; // INFO
+                break; // INFO, PROGRESS
         }
     }
 
@@ -435,28 +718,519 @@ final class PageScreens implements PageRenderer {
         }
     }
 
+    /** A dropdown row's option {@code value} was picked (its pooled ChoiceModel's listener). Never throws. */
+    static void typedChosen(int slot, int value) {
+        try {
+            PageScreens p = live;
+            if (p != null) {
+                p.chosen(slot, value);
+            }
+        } catch (Throwable t) {
+            // never propagate into the HMI
+        }
+    }
+
+    private void chosen(int slot, int value) {
+        if (down || orphanPending) {
+            poster.post(retryJob);
+            return;
+        }
+        Shown sp = shownPage;
+        PageLayout.TypedRow r = sp == null ? null : sp.layout.typedAt(slot);
+        if (r == null || r.kind != UiEntry.DROPDOWN || value < 0 || value >= r.optionCount()) {
+            return;
+        }
+        UiInputs.userPressed();
+        table.input(new UiInput(UiInput.VALUE_REQUESTED, sp.pageKey, r.entryKey, false, value, null));
+    }
+
+    /**
+     * SELECT on a slider row (its key handler consumed the key): opens the slider edit screen, in a job, if the slot
+     * holds a live SLIDER entry and the screen may change. Never throws.
+     */
+    static void sliderPressed(int slot) {
+        try {
+            PageScreens p = live;
+            if (p != null) {
+                p.sliderPress(slot);
+            }
+        } catch (Throwable t) {
+            // never propagate into the HMI
+        }
+    }
+
+    private void sliderPress(int slot) {
+        if (down || orphanPending) {
+            poster.post(retryJob);
+            return;
+        }
+        Shown sp = shownPage;
+        if (sp == null || shown == null || sub != null || sliderEntry(sp, slot, table.snapshot()) == null
+                || !changeAllowed()) {
+            return; // no live slider there (sliders cannot be disabled), or a popup / parking display is up
+        }
+        UiInputs.userPressed();
+        requestNav(new Nav(Nav.SLIDER, null, slot));
+    }
+
+    /** A knob turn of {@code n} on the slider screen (the RangeModel's listener, +/- by direction). Never throws. */
+    static void sliderTurned(int slot, int n) {
+        try {
+            PageScreens p = live;
+            if (p != null) {
+                p.turned(slot, n);
+            }
+        } catch (Throwable t) {
+            // never propagate into the HMI
+        }
+    }
+
+    private void turned(int slot, int n) {
+        if (down || orphanPending) {
+            poster.post(retryJob);
+            return;
+        }
+        SliderSession ss = slider;
+        Shown sp = shownPage;
+        PageLayout.TypedRow r = sp == null ? null : sp.layout.typedAt(slot);
+        if (ss == null || sub == null || ss.slot() != slot || r == null || r.kind != UiEntry.SLIDER) {
+            return; // not the open slider's model: the page's rotary row is a preview
+        }
+        int was = ss.index();
+        int value = ss.onTurn(n);
+        if (ss.index() == was) {
+            return; // at an end already
+        }
+        UiInputs.userPressed();
+        table.input(new UiInput(UiInput.VALUE_REQUESTED, sp.pageKey, r.entryKey, false, value, null));
+    }
+
+    /**
+     * Shows {@code screen} (sub-screen {@code screenId}, 609501..609503) over the page, in a job: the page stays open
+     * (its leaving is not the user leaving) and input keeps going to its key until {@link #subBack} or a stock screen.
+     */
+    void openSub(int screenId, Object screen) {
+        rememberFocus(); // the page shown again after it focuses the same entry
+        sub = screen;
+        subId = screenId;
+        subShownAt = UiInputs.now();
+        subWaiting = true;
+        lastSub = screen;
+        lastSubId = screenId;
+        lastSubSlot = -1;
+        lastSubShown = shownPage;
+        try {
+            screens.show(screen);
+        } catch (Throwable t) {
+            failed("show sub-screen " + screenId, t);
+            clearSub();
+        }
+    }
+
+    /**
+     * BACK on a sub-screen (it consumed the key): a dialog up is answered (confirm No; the speller is done with its
+     * text), then the page again, same rows, no stack pop, in a job. Never throws.
+     */
+    void subBack() {
+        try {
+            if (down || orphanPending) {
+                poster.post(retryJob);
+                return;
+            }
+            answerDialog(0);
+            requestNav(new Nav(Nav.SUB_BACK, null, -1));
+        } catch (Throwable t) {
+            // never propagate into the HMI
+        }
+    }
+
+    /**
+     * A sub-screen connected. The one shown: nothing to do (the page stays open). The one shown last, after the user
+     * had left the page (a stock screen came over it, and the HMI went back to it): the page it was over is the open
+     * page again, as {@link #screenConnected} does for the page screen; a slider whose entry is gone goes back to the
+     * page at once. Never throws.
+     */
+    void subConnected(Object screen) {
+        try {
+            if (down) {
+                poster.post(retryJob);
+                return;
+            }
+            if (screen != null && screen == sub) {
+                subWaiting = false;
+                dialogSeen = dialogUp != null;
+                retryDialog();
+                return;
+            }
+            if (screen != null && screen == lastSub && sub == null && shown == null && lastSubShown != null) {
+                readoptSub(screen);
+            }
+        } catch (Throwable t) {
+            failed("sub connect", t);
+        }
+    }
+
+    private void readoptSub(Object screen) {
+        Shown was = lastSubShown;
+        orphanPending = false;
+        UiSnapshot s = table.snapshot();
+        stack.open(was.pageKey, stockReturn);
+        stack.reconcile(s);
+        live = this;
+        shown = screen; // the sub-screen stands for the page until BACK shows the page screen
+        lastShown = screen;
+        sub = screen;
+        subId = lastSubId;
+        subWaiting = false;
+        shownPage = new Shown(was.pageKey, was.layout, ++generations);
+        UiEntry e = lastSubId == HqcUiIds.SLIDER_SCREEN_ID && was.pageKey.equals(stack.top())
+                ? sliderEntry(shownPage, lastSubSlot, s) : null;
+        PageLayout.TypedRow r = was.layout.typedAt(lastSubSlot);
+        if (e != null && PageLayout.TypedRow.of(e).equals(r)) {
+            slider = new SliderSession(r.min, r.step, r.steps, e.number(), lastSubSlot);
+        } else {
+            requestNav(new Nav(Nav.SUB_BACK, null, -1)); // nothing to edit here now: the page
+        }
+    }
+
+    /** The SDK owns {@code screen} (a sub-screen) now: its BACK and knob are the SDK's; otherwise stock's. */
+    boolean ownsSub(Object screen) {
+        return !down && screen != null && screen == sub;
+    }
+
+    /**
+     * A shown sub-screen that has not connected within {@link #SUB_CONNECT_MS} (its show was dropped or overtaken),
+     * is not on screen and no screen change is on its way to it.
+     */
+    private boolean subOverdue() {
+        if (sub == null || !subWaiting || subShownAt < 0) {
+            return false;
+        }
+        long now = UiInputs.now();
+        return now >= 0 && now - subShownAt > SUB_CONNECT_MS && !screens.isCurrent(sub)
+                && screens.pendingId() != subId;
+    }
+
+    /**
+     * Gives up a sub-screen that never connected: with the page still on screen it is only forgotten; otherwise the
+     * page's leaving (ignored for the sub-screen) was the user leaving. The same screen connecting later re-adopts.
+     */
+    private void giveUpSub() {
+        log.append("INFO", SOURCE, "ui page: sub-screen " + subId + " never connected; given up");
+        boolean pageOn = shown != null && shown != sub && screens.isCurrent(shown);
+        clearSub();
+        if (!pageOn) {
+            shown = null;
+            rebuildPending = false;
+            clearNavs();
+            stack.clear();
+        }
+    }
+
+    /** A sub-screen is leaving. If it is ours and we did not replace it, the user left the page. Never throws. */
+    void subDisconnecting(Object screen) {
+        try {
+            if (screen != null && screen == sub) {
+                clearSub();
+                shown = null;
+                rebuildPending = false;
+                clearNavs();
+                stack.clear();
+            }
+        } catch (Throwable t) {
+            failed("sub disconnect", t);
+        }
+    }
+
+    /**
+     * Forgets the sub-screen. A dialog's screen leaving unanswered (a stock screen over it, never connected, the page
+     * rebuilt) is answered here as dismissed (confirm 0, the speller with its text): before any page-closed handling,
+     * which the callers do after this.
+     */
+    private void clearSub() {
+        answerDialog(0);
+        sub = null;
+        slider = null;
+        subWaiting = false;
+        dialog = null;
+    }
+
+    // ---- dialogs (Task 6): confirm 609502 and speller 609503, sub-screens over their owner's page --------------------
+
+    public void dialogChanged(UiDialog d) {
+        try {
+            long seq = d == null ? 0 : d.seq();
+            if (seq == dialogSeq) {
+                return; // the same dialog (or none) again
+            }
+            if (d != null && waitForPage(d)) {
+                return; // its page has not connected yet: retried, the seq not consumed
+            }
+            dialogDeferred = false;
+            dialogSeq = seq;
+            boolean wasUp = dialogUp != null;
+            dropDialog(); // withdrawn, or replaced by d: it gets no answer from us
+            if (d != null && dialogAllowed(d)) {
+                showDialog(d); // replaces whatever sub-screen is up
+                return;
+            }
+            if (wasUp && sub != null) {
+                subBack(); // its screen goes; the page again
+            }
+            if (d != null) {
+                log.append("INFO", SOURCE, "ui dialog " + seq + " not shown: " + d.ownerPageKey()
+                        + " is not on screen, or the screen may not change");
+                answer(d, 0, null);
+            }
+        } catch (Throwable t) {
+            failed("dialog", t);
+            if (d != null && dialogUp != d && answeredSeq != d.seq()) {
+                dialogDeferred = false;
+                dialogSeq = d.seq();
+                answer(d, 0, null); // never left unanswered: the runtime's one dialog slot would stay taken
+            }
+        }
+    }
+
+    /** In a connect callback: a dialog waiting for the page is retried in a job. */
+    private void retryDialog() {
+        if (dialogDeferred) {
+            poster.post(dialogJob); // false: a job is pending; the tick retries (rebuildPending)
+        }
+    }
+
+    /**
+     * {@code d} is for the page shown, whose screen (or the sub-screen over it) has not connected yet: wait, for at
+     * most {@link #SUB_CONNECT_MS} from the first wait for this seq (monotonic clock; without one, as long as it
+     * takes). False once that bound has passed: it is not shown then.
+     */
+    private boolean waitForPage(UiDialog d) {
+        if (!overOwner(d) || screens.isCurrent(shown) || (sub != null && screens.isCurrent(sub))) {
+            return false;
+        }
+        long now = UiInputs.now();
+        if (deferredSeq != d.seq()) {
+            deferredSeq = d.seq();
+            deferredAt = now;
+        }
+        if (now >= 0 && deferredAt >= 0 && now - deferredAt > SUB_CONNECT_MS) {
+            return false;
+        }
+        dialogDeferred = true;
+        return true;
+    }
+
+    /** The page shown (ours, up or on its way) is {@code d}'s owner's page or a {@code #} child of it. */
+    private boolean overOwner(UiDialog d) {
+        Shown sp = shownPage;
+        if (down || orphanPending || shown == null || sp == null) {
+            return false;
+        }
+        String owner = d.ownerPageKey();
+        return sp.pageKey.equals(owner) || sp.pageKey.startsWith(owner + "#");
+    }
+
+    /**
+     * {@code d} may show now: its owner's page (or a {@code #} child of it) is ours and connected (or the sub-screen
+     * over it is), and the screen may change.
+     */
+    private boolean dialogAllowed(UiDialog d) {
+        boolean up = screens.isCurrent(shown) || (sub != null && screens.isCurrent(sub));
+        return overOwner(d) && up && changeAllowed();
+    }
+
+    /** Builds and shows {@code d}'s screen as the sub-screen; a build that fails answers it as not shown. */
+    private void showDialog(UiDialog d) {
+        boolean isSpeller = d.kind() == UiDialog.SPELLER;
+        Object screen;
+        try {
+            screen = isSpeller ? screens.buildSpeller(d, this) : screens.buildConfirm(d, this);
+        } catch (Throwable t) {
+            failed("build dialog " + d.seq(), t);
+            answer(d, 0, null);
+            return;
+        }
+        clearSub(); // a slider under it closes
+        dialog = d; // its texts, served at connect
+        dialogUp = d;
+        dialogSeen = false;
+        spellerSession = isSpeller ? new SpellerSession(d.seq(), d.text()) : null;
+        openSub(isSpeller ? HqcUiIds.SPELLER_SCREEN_ID : HqcUiIds.CONFIRM_SCREEN_ID, screen);
+    }
+
+    /**
+     * Answers the dialog up, once, and forgets it: a confirm with {@code value}. A speller (whatever {@code value})
+     * the user saw (its screen connected: BACK, a stock screen over it) is done with the model's text, else the last
+     * typed, else its initial text; one that never showed (its show failed, it never connected) gets null. Nothing
+     * without a dialog.
+     */
+    private void answerDialog(int value) {
+        UiDialog d = dialogUp;
+        SpellerSession ss = spellerSession;
+        boolean seen = dialogSeen;
+        dropDialog();
+        if (d == null) {
+            return;
+        }
+        if (ss == null) {
+            answer(d, value, null);
+        } else if (ss.takeDone()) {
+            answer(d, 0, seen ? ss.doneText(spellerModelText()) : null);
+        }
+    }
+
+    /** Forgets the dialog up with no answer. */
+    private void dropDialog() {
+        dialogUp = null;
+        spellerSession = null;
+        dialogSeen = false;
+    }
+
+    private void answer(UiDialog d, int value, String text) {
+        answeredSeq = d.seq();
+        table.input(new UiInput(UiInput.DIALOG_DONE, d.ownerPageKey(), String.valueOf(d.seq()), false, value, text));
+    }
+
+    private String spellerModelText() {
+        try {
+            return screens.spellerText();
+        } catch (Throwable t) {
+            return null; // the session's last text then
+        }
+    }
+
+    /** A row of the confirm list was selected (its ListListener): row 0 Yes (1), row 1 No (0). Never throws. */
+    static void confirmSelected(int row) {
+        try {
+            PageScreens p = live;
+            if (p != null) {
+                p.confirmPick(row);
+            }
+        } catch (Throwable t) {
+            // never propagate into the HMI
+        }
+    }
+
+    private void confirmPick(int row) {
+        if (down || orphanPending) {
+            poster.post(retryJob);
+            return;
+        }
+        UiDialog d = dialogUp;
+        if (d == null || d.kind() != UiDialog.CONFIRM || sub == null || row < 0 || row > 1) {
+            return; // answered already, or no confirm of ours
+        }
+        UiInputs.userPressed();
+        answerDialog(row == 0 ? 1 : 0);
+        subBack();
+    }
+
+    /** The speller's text changed (its SpellerListener). Never throws. */
+    static void spellerTextChanged(String text) {
+        try {
+            PageScreens p = live;
+            SpellerSession ss = p == null ? null : p.spellerSession;
+            if (ss != null) {
+                ss.onTextChanged(text);
+            }
+        } catch (Throwable t) {
+            // never propagate into the HMI
+        }
+    }
+
+    /** The speller's band opened or closed (its SpellerListener's {@code commandPressed}). Never throws. */
+    static void spellerCommand(int command) {
+        try {
+            PageScreens p = live;
+            SpellerSession ss = p == null ? null : p.spellerSession;
+            if (ss != null) {
+                ss.onCommand(command);
+            }
+        } catch (Throwable t) {
+            // never propagate into the HMI
+        }
+    }
+
+    /** The live SLIDER entry of typed slot {@code slot} of {@code sp} in {@code s}, or null. */
+    private static UiEntry sliderEntry(Shown sp, int slot, UiSnapshot s) {
+        PageLayout.TypedRow r = sp.layout.typedAt(slot);
+        if (r == null || r.kind != UiEntry.SLIDER) {
+            return null;
+        }
+        UiPage p = s == null ? null : s.pages().get(sp.pageKey);
+        UiEntry e = p == null ? null : entry(p, r.entryKey);
+        return e != null && e.kind() == UiEntry.SLIDER ? e : null;
+    }
+
+    /** The entry keyed {@code key} of {@code p}, or null; keyless entries (INFO: the hub gives them none) never match. */
+    private static UiEntry entry(UiPage p, String key) {
+        List<UiEntry> all = p.entries();
+        for (int i = 0; key != null && i < all.size(); i++) {
+            if (key.equals(all.get(i).key())) {
+                return all.get(i);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * In a refresh with a sub-screen up: the open slider follows the plugin's value. False if its entry is gone (the
+     * slider must close); true otherwise (also for a sub-screen that is no slider).
+     */
+    private boolean syncSlider(UiPage p) {
+        SliderSession ss = slider;
+        Shown sp = shownPage;
+        if (ss == null || sp == null) {
+            return true;
+        }
+        PageLayout.TypedRow r = sp.layout.typedAt(ss.slot());
+        UiEntry e = r == null ? null : entry(p, r.entryKey);
+        if (e == null || e.kind() != UiEntry.SLIDER || !PageLayout.TypedRow.of(e).equals(r)) {
+            return false;
+        }
+        ss.onModel(e.number());
+        return true;
+    }
+
+    /** In a job: leaves the sub-screen for the page screen, rebuilt with the same stack top and the current rows. */
+    private void backFromSub(UiSnapshot s) {
+        clearSub();
+        if (!changeAllowed()) {
+            log.append("INFO", SOURCE, "ui page: back from the sub-screen dropped: a popup, parking display or"
+                    + " screen change is under way");
+            return;
+        }
+        showTop(s);
+    }
+
     /**
      * A page screen connected. Ours, shown last: nothing to do. Ours, after the user had left it (a popup or the
      * RVC ended and the HMI went back to it): it is the open page again. Never throws.
      */
-    void screenConnected(Object screen, String pageKey) {
+    void screenConnected(Object screen, String pageKey, PageLayout layout) {
         try {
             if (down) {
                 poster.post(retryJob); // a dead page came back: take it off screen (a pending job retries too)
                 return;
             }
-            if (screen == shown || shown != null) {
-                return; // the one we showed, or an older one on its way out
+            if (screen == shown) {
+                clearSub(); // the page is back: whatever sub-screen was over it is gone
+                retryDialog();
+                return;
+            }
+            if (shown != null) {
+                return; // an older one on its way out
             }
             orphanPending = false; // our own page is up: whatever was orphaned is gone
             shown = screen;
             lastShown = screen;
-            shownKey = pageKey;
+            shownPage = new Shown(pageKey, layout, ++generations);
             live = this;
             stack.open(pageKey, stockReturn);
             UiSnapshot s = table.snapshot();
             stack.reconcile(s);
-            writeRows(pageOf(stack.top(), s));
+            writeRows(pageOf(stack.top(), s), shownLayout());
+            retryDialog();
         } catch (Throwable t) {
             failed("connect", t);
         }
@@ -466,8 +1240,12 @@ final class PageScreens implements PageRenderer {
     void screenDisconnecting(Object screen) {
         try {
             if (screen != null && screen == shown) {
+                if (sub != null) {
+                    return; // our sub-screen replaced it: the page stays open
+                }
                 shown = null;
-                navs.clear();
+                rebuildPending = false;
+                clearNavs();
                 stack.clear();
             }
         } catch (Throwable t) {
@@ -481,45 +1259,102 @@ final class PageScreens implements PageRenderer {
         if (navs.size() < MAX_NAV) {
             navs.add(n);
         }
-        poster.post(navJob); // false: a job is pending, and it runs the navigation first
+        navPending = true;
+        poster.post(navJob); // false: a job is pending (the applier's combined job), and it runs the navigation
+    }
+
+    private void clearNavs() {
+        navs.clear();
+        navPending = false;
     }
 
     /** In a job: the navigation asked for since the last one, in order. */
     private void runNav(UiSnapshot s) {
+        try {
+            runNavs(s);
+        } finally {
+            navPending = !navs.isEmpty();
+        }
+    }
+
+    private void runNavs(UiSnapshot s) {
         if (down || orphanPending) {
-            navs.clear();
+            clearNavs();
             retryClose();
             return;
         }
         while (!navs.isEmpty()) {
             Nav n = navs.remove(0);
             if (shown == null || stack.top() == null) {
-                navs.clear();
+                clearNavs();
                 return; // the page was left meanwhile
             }
             if (!changeAllowed()) {
                 log.append("INFO", SOURCE, "ui page navigation dropped: a popup, parking display or screen change"
                         + " is under way");
-                navs.clear();
+                clearNavs();
                 return;
             }
             try {
-                if (n.target != null) {
-                    stack.push(n.target, null, s);
-                    showTop(s);
-                } else {
-                    stack.reconcile(s);
-                    stack.back();
-                    if (stack.top() == null) {
-                        shown = null;
-                        returnToStock();
-                    } else {
-                        showTop(s);
+                if (n.kind == Nav.SLIDER) {
+                    showSlider(n.slot, s);
+                } else if (n.kind == Nav.SUB_BACK) {
+                    if (sub != null) {
+                        backFromSub(s);
                     }
+                } else if (n.target != null) {
+                    push(n, s);
+                } else {
+                    back(s);
                 }
             } catch (Throwable t) {
                 failed("navigation", t);
             }
+        }
+    }
+
+    /** In a job: LINK or CHOICE to {@code n.target}; BACK from it returns to the entry focused now. */
+    private void push(Nav n, UiSnapshot s) {
+        rememberFocus();
+        focus.remove(n.target); // the child opens fresh, a choice page on its marked option
+        if (n.choice) {
+            focusMarkedOption(n.target, s);
+        }
+        stack.push(n.target, null, s);
+        showTop(s);
+    }
+
+    /** In a job: BACK to the page under the top (its remembered focus), or out to the stock screen. */
+    private void back(UiSnapshot s) {
+        stack.reconcile(s);
+        String left = stack.top();
+        stack.back();
+        if (left != null) {
+            focus.remove(left); // opened again later, it starts fresh
+        }
+        if (stack.top() == null) {
+            shown = null;
+            returnToStock();
+        } else {
+            showTop(s);
+        }
+    }
+
+    /** Builds and shows the slider screen of typed slot {@code slot}, if it still holds a live SLIDER entry. */
+    private void showSlider(int slot, UiSnapshot s) throws Exception {
+        Shown sp = shownPage;
+        UiEntry e = sp == null || sub != null || !sp.pageKey.equals(stack.top()) ? null : sliderEntry(sp, slot, s);
+        if (e == null) {
+            return; // gone meanwhile
+        }
+        PageLayout.TypedRow r = sp.layout.typedAt(slot);
+        slider = new SliderSession(r.min, r.step, r.steps, e.number(), slot); // its texts are served at connect
+        try {
+            openSub(HqcUiIds.SLIDER_SCREEN_ID, screens.buildSlider(slot, sp.layout, this));
+            lastSubSlot = slot;
+        } catch (Exception x) {
+            clearSub();
+            throw x;
         }
     }
 
@@ -531,11 +1366,15 @@ final class PageScreens implements PageRenderer {
                 log.append("INFO", SOURCE, "ui page " + key + " not shown: the screen may not change now");
                 return;
             }
+            rebuildPending = false; // whatever was deferred is built now
+            clearSub(); // a page shown replaces any sub-screen
+            lastSub = null;
             UiPage p = pageOf(key, s);
             String t = p.title() == null ? "" : p.title();
-            writeRows(p);
+            PageLayout layout = PageLayout.of(p, itemIcons);
+            writeRows(p, layout);
             title = t;
-            Object screen = screens.build(key, t, this);
+            Object screen = screens.build(key, t, this, layout, focusOf(key, layout));
             PageScreens prev = live;
             if (prev != null && prev != this) {
                 prev.shown = null; // a replaced applier's page: its leaving is not the user leaving
@@ -543,13 +1382,90 @@ final class PageScreens implements PageRenderer {
             live = this;
             shown = screen;
             lastShown = screen;
-            shownKey = key;
+            shownPage = new Shown(key, layout, ++generations);
             shownTitle = t;
             screens.show(screen);
         } catch (Throwable t) {
             failed("show " + key, t);
             shown = null;
             stack.clear();
+        }
+    }
+
+    // ---- focus (bench B, C) -------------------------------------------------------------------------------------
+
+    /**
+     * Remembers the focused entry of the page on screen (only while its screen is the connected one: a page under a
+     * sub-screen keeps what it had when it was left). Never throws.
+     */
+    private void rememberFocus() {
+        try {
+            Shown sp = shownPage;
+            if (sp == null || shown == null || sub != null || !screens.isCurrent(shown)) {
+                return;
+            }
+            int code = screens.focused(shown);
+            List<UiEntry> rows = rowEntries;
+            int slot = typedSlot(code);
+            PageLayout.TypedRow r = slot < 0 ? null : sp.layout.typedAt(slot);
+            if (code >= 0 && code < rows.size()) {
+                focus.put(sp.pageKey, new Focus(rows.get(code).key(), code));
+            } else if (r != null) {
+                focus.put(sp.pageKey, new Focus(r.entryKey, rows.size() + slot));
+            }
+        } catch (Throwable t) {
+            failed("focus", t); // the page shows again on what it had
+        }
+    }
+
+    /**
+     * The focus code to build page {@code key} with ({@link #rowEntries} just written for {@code layout}): its
+     * remembered entry where it is now; if gone, or keyless (an INFO row: the hub gives it no key), the row at its place
+     * (or the last row); {@link #NO_FOCUS} if nothing is remembered or the page is empty.
+     */
+    private int focusOf(String key, PageLayout layout) {
+        Focus f = focus.get(key);
+        if (f == null) {
+            return NO_FOCUS;
+        }
+        List<UiEntry> rows = rowEntries;
+        PageLayout.TypedRow[] typed = layout.typed();
+        for (int i = 0; f.entryKey != null && i < rows.size(); i++) {
+            if (f.entryKey.equals(rows.get(i).key())) {
+                return i;
+            }
+        }
+        for (int s = 0; f.entryKey != null && s < typed.length; s++) {
+            if (f.entryKey.equals(typed[s].entryKey)) {
+                return typedFocus(s);
+            }
+        }
+        int places = rows.size() + typed.length;
+        if (places == 0) {
+            return NO_FOCUS;
+        }
+        int place = Math.min(Math.max(f.place, 0), places - 1);
+        return place < rows.size() ? place : typedFocus(place - rows.size());
+    }
+
+    /** Choice page {@code key} opens on its marked option (bench C): the first list row of a RADIO that is on. */
+    private void focusMarkedOption(String key, UiSnapshot s) {
+        UiPage p = s.pages().get(key);
+        if (p == null) {
+            return;
+        }
+        int row = 0;
+        List<UiEntry> all = p.entries();
+        for (int i = 0; i < all.size(); i++) {
+            UiEntry e = all.get(i);
+            if (!isListEntry(e)) {
+                continue;
+            }
+            if (e.kind() == UiEntry.RADIO && e.on()) {
+                focus.put(key, new Focus(e.key(), row));
+                return;
+            }
+            row++;
         }
     }
 
@@ -578,17 +1494,31 @@ final class PageScreens implements PageRenderer {
         return screenChangeAllowed(screens.currentBlocked(), screens.pendingId());
     }
 
-    private void writeRows(UiPage p) {
-        List<UiEntry> entries = p.entries();
-        String[] texts = new String[entries.size()];
-        int[] kinds = new int[texts.length];
-        for (int i = 0; i < texts.length; i++) {
-            texts[i] = rowText(entries.get(i));
-            kinds[i] = rowKind(entries.get(i));
+    /** The layout of the page screen shown last ({@link PageLayout#EMPTY} before one). */
+    private PageLayout shownLayout() {
+        Shown sp = shownPage;
+        return sp == null ? PageLayout.EMPTY : sp.layout;
+    }
+
+    /** Writes {@code p}'s list rows for a screen built with {@code layout}: an icon not in it is not drawn. */
+    private void writeRows(UiPage p, PageLayout layout) {
+        List<UiEntry> all = p.entries();
+        List<UiEntry> entries = new ArrayList<UiEntry>(all.size());
+        for (int i = 0; i < all.size(); i++) {
+            if (isListEntry(all.get(i))) {
+                entries.add(all.get(i));
+            }
+        }
+        PageRow[] rows = new PageRow[entries.size()];
+        int keyless = 0;
+        for (int i = 0; i < rows.length; i++) {
+            UiEntry e = entries.get(i);
+            rows[i] = PageRow.of(e, e.kind() == UiEntry.ITEM ? layout.iconIndex(e.icon()) : -1, keyless);
+            keyless += e.key() == null ? 1 : 0; // INFO rows: ids by place among them
         }
         rowEntries = entries;
         try {
-            screens.writeRows(texts, kinds);
+            screens.writeRows(rows);
         } catch (Throwable t) {
             failed("rows", t);
         }
@@ -634,5 +1564,6 @@ final class PageScreens implements PageRenderer {
         live = null;
         stockReturn = null;
         title = "";
+        dialog = null;
     }
 }

@@ -77,7 +77,7 @@ class MpkStageTest {
                 + "units = [\"MHI2Q\"]\n"
                 + "\n"
                 + "[sdk]\n"
-                + "api = 4\n"
+                + "api = 5\n"
                 + "min_api = 1\n"
                 + "hmi = [\"HMI_AU_MIB2_HQC_NAR_G22_C10_180803\"]\n"
                 + "jars = [\"mibsdk-runtime.jar\", \"mibsdk-adapter-hqc.jar\", \"mibsdk-rt-retrotranslator.jar\"]\n"

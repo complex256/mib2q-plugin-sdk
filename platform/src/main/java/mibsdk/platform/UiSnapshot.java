@@ -14,6 +14,9 @@ import java.util.Map;
  * <p>The status line comes twice: {@link #statusParts} (indicators, then each item with its icon, each already cut to
  * its share) for a popup that draws icons, and {@link #statusLine}, the same items composed as text only, without
  * icons, for the text-only popup-65 fallback.
+ *
+ * <p>{@link #dialog} is the confirm or speller to show over the plugin's open page, {@link #toast} the latest toast;
+ * each is null for none.
  */
 public final class UiSnapshot {
 
@@ -28,20 +31,30 @@ public final class UiSnapshot {
     private final long openSeq;
     private final String openPageKey;
     private final boolean down;
+    private final UiDialog dialog;
+    private final UiToast toast;
 
     public UiSnapshot(long version, List<UiRow> carRows, String statusLine,
                       Map<String, UiPage> pages, long openSeq, String openPageKey) {
-        this(version, carRows, statusLine, pages, openSeq, openPageKey, textPart(statusLine), false);
+        this(version, carRows, statusLine, pages, openSeq, openPageKey, textPart(statusLine), null, null, false);
     }
 
     /** @param statusParts the status line with icons; null is none. {@code statusLine} is the text-only line. */
     public UiSnapshot(long version, List<UiRow> carRows, String statusLine,
                       Map<String, UiPage> pages, long openSeq, String openPageKey, List<UiStatusPart> statusParts) {
-        this(version, carRows, statusLine, pages, openSeq, openPageKey, statusParts, false);
+        this(version, carRows, statusLine, pages, openSeq, openPageKey, statusParts, null, null, false);
+    }
+
+    /** As above, with the dialog and the toast to show; null is none. */
+    public UiSnapshot(long version, List<UiRow> carRows, String statusLine, Map<String, UiPage> pages,
+                      long openSeq, String openPageKey, List<UiStatusPart> statusParts, UiDialog dialog,
+                      UiToast toast) {
+        this(version, carRows, statusLine, pages, openSeq, openPageKey, statusParts, dialog, toast, false);
     }
 
     private UiSnapshot(long version, List<UiRow> carRows, String statusLine, Map<String, UiPage> pages,
-                       long openSeq, String openPageKey, List<UiStatusPart> statusParts, boolean down) {
+                       long openSeq, String openPageKey, List<UiStatusPart> statusParts, UiDialog dialog,
+                       UiToast toast, boolean down) {
         this.version = version;
         this.carRows = carRows == null
                 ? Collections.<UiRow>emptyList()
@@ -56,6 +69,8 @@ public final class UiSnapshot {
         this.openSeq = openSeq;
         this.openPageKey = openPageKey;
         this.down = down;
+        this.dialog = dialog;
+        this.toast = toast;
     }
 
     /**
@@ -63,7 +78,7 @@ public final class UiSnapshot {
      * screen (an open SDK page returns to the stock screen it came from, not to the stopped notice).
      */
     public static UiSnapshot down(long version) {
-        return new UiSnapshot(version, null, "", null, 0L, null, null, true);
+        return new UiSnapshot(version, null, "", null, 0L, null, null, null, null, true);
     }
 
     /** One text part, not marked as indicators, for a non-empty line; none otherwise. */
@@ -108,5 +123,15 @@ public final class UiSnapshot {
 
     public String openPageKey() {
         return openPageKey;
+    }
+
+    /** The confirm or speller to show over its owner's page; null for none. */
+    public UiDialog dialog() {
+        return dialog;
+    }
+
+    /** The latest toast; null for none. */
+    public UiToast toast() {
+        return toast;
     }
 }

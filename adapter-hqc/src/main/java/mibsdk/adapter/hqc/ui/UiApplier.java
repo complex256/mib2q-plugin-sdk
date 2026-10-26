@@ -1,18 +1,23 @@
 package mibsdk.adapter.hqc.ui;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import mibsdk.adapter.hqc.SdkGlobals;
+import mibsdk.api.Ui;
 import mibsdk.platform.UiEntry;
+import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiRow;
 import mibsdk.platform.UiSnapshot;
 import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiTable;
+import mibsdk.platform.UiToast;
 import mibsdk.runtime.Clock;
 import mibsdk.runtime.RingLog;
 
@@ -20,11 +25,13 @@ import mibsdk.runtime.RingLog;
  * Applies the runtime's UI snapshots to the HMI on the SDK thread {@code mibsdk-ui}: Car drawer slots and row
  * visibility and icons, the status line, and SDK pages (through one combined {@link HmiPoster} job).
  *
- * <p>Each pass waits up to {@link #AWAIT_MS} for a newer snapshot, then runs four isolated phases (a failure in one is
+ * <p>Each pass waits up to {@link #AWAIT_MS} (less while a toast is up: until its deadline, {@link #nextWaitMs}) for a
+ * newer snapshot, then runs six isolated phases (a failure in one is
  * logged once per phase and message, and never starves the others):
  * <ul>
  * <li>slots: assigns the Car rows to drawer slots ({@link DrawerSlots}, which gives their icons image ids from
- * {@code ids}), swaps {@code SdkGlobals.uiSlots}, and publishes the wanted {@link HmiWidgetState};</li>
+ * {@code ids}), swaps {@code SdkGlobals.uiSlots}, and publishes the wanted {@link HmiWidgetState}; gives the page
+ * items' icons their image ids ({@link #assignItemIcons}) and publishes them to the page renderer;</li>
  * <li>rows: writes changed row visibility through {@code rows}, only while {@code SdkGlobals.uiRowModels} exists, and
  * every slot again when those models first appear (the drawer is built on HMIEvent, at a time of the HMI's
  * choosing). Slot 0, the Plugins row, is wanted visible only while the main menu has no Plugins row of its own
@@ -32,6 +39,10 @@ import mibsdk.runtime.RingLog;
  * menu that fails after the drawer hid its row brings the row back within {@link #AWAIT_MS}. This phase also
  * publishes the main menu's Plugins row into the wanted {@link HmiWidgetState}: visible iff not down and the main
  * menu is ACTIVE;</li>
+ * <li>inputs: writes the typed rows' pooled models ({@link TypedModels}: a dropdown's index, a slider's index-space
+ * range and index) for the entries of the shown page's layout only ({@link PageRenderer#shown}), each when its value
+ * changed, and all of them again when the shown screen's generation changed (a new screen). The plugin-facing models
+ * are written here, on {@code mibsdk-ui}, never in the HMI job;</li>
  * <li>status: shows or hides the status line ({@link StatusSinks}: the SDK popup {@link HqcUiIds#POPUP_SDK_STATUS}
  * with icons, popup 65 as text only and only as the fallback), and re-asserts a non-empty one every
  * {@link #STATUS_REASSERT_MS} on the monotonic clock (on popup 65, stock engineering code also writes model 416). It
@@ -40,9 +51,16 @@ import mibsdk.runtime.RingLog;
  * popup's bounds and built-in icons); an empty line (down included) publishes {@link StatusLayout#EMPTY}, so the
  * popup's id icon cells are cleared. Popup 65 belongs to stock EngineeringApp until the SDK has shown text on it: it
  * is never hidden before that;</li>
+ * <li>toast: on a new toast seq writes the toast popup's label and file icon, then its visibility 1 (its own models,
+ * never a status model), publishes its {@link SdkToastPopup.Part} into the wanted {@link HmiWidgetState} and hides
+ * it {@code Ui.TOAST_MS} later on the monotonic clock (a newer toast restarts the timer). Hidden when the UI is down
+ * or the toast left the snapshot. While {@code SdkGlobals.toastPopup} is -1 (sticky) toasts are dropped, logged
+ * once, and a toast still up is hidden;</li>
  * <li>hmi: once the drawer, the status popup or the main menu's Plugins row exists (so the first screen is up: before
  * it the stock StartupFilter discards posted jobs), posts the one HMI job when {@code openSeq} or the page content
- * moved past what was last <b>rendered</b>, or the wanted {@link HmiWidgetState} differs from the one
+ * moved past what was last <b>rendered</b> (the item icons' ids included), or a page asked for navigation
+ * ({@link PageRenderer#navPending}, F2: the job always runs it), or the wanted {@link HmiWidgetState} differs from
+ * the one
  * {@link HmiWidgets} applied (its status layout only once the popup is built; the main-menu row against the row it
  * was applied to), or, on the pass only, a new main wizard still waits for its wrench (it may not be connected
  * yet). The job re-evaluates both when it
@@ -67,8 +85,24 @@ public final class UiApplier {
     static final long STOP_JOIN_MS = 3000;
     private static final String SOURCE = "mibsdk";
     private static final int UNKNOWN = -1;
+    /** {@link #renderedDialogSeq} for no dialog (the runtime's seqs start at 1). */
+    private static final long NO_DIALOG = 0;
     private static final int MAX_LOGGED_FAILURES = 32;
-    private static final String[] PHASES = {"slots", "rows", "status", "hmi"};
+    private static final String[] PHASES = {"slots", "rows", "inputs", "status", "toast", "hmi"};
+
+    /** The typed rows' pooled models, written on {@code mibsdk-ui} only. */
+    interface TypedModels {
+        /** Dropdown slot {@code slot}: the selected option. */
+        void choice(int slot, int index);
+
+        /** Slider slot {@code slot}, in index space: {@code setLimits(0, steps, 1)}, the medial position, the index. */
+        void range(int slot, int steps, int medial, int index);
+    }
+
+    /** Where the typed models come from (the bank's, once it exists); null for none yet. */
+    interface TypedSource {
+        TypedModels get();
+    }
 
     /**
      * The generation of the applier that owns the HMI (the last one started); others post and render nothing, and
@@ -89,6 +123,8 @@ public final class UiApplier {
     private final IconIds ids;
     private final BuiltinIcons builtins;
     private final HmiWidgets widgets;
+    private final TypedSource typedSource;
+    private final SdkToastPopup.Source toastSource;
     private final Runnable hmiJob = new Runnable() {
         public void run() {
             runHmiJob();
@@ -109,19 +145,34 @@ public final class UiApplier {
     private String shownParts; // the parts of the last show (UiStatusPart has no equals: compared as text)
     private int shownSink = UNKNOWN; // StatusSinks.active() at the last show
     private long statusShownAt;
+    private int typedGeneration = Integer.MIN_VALUE; // the Shown generation the typed models were written for
+    private final String[] typedWritten = new String[HqcUiIds.TYPED_ROWS]; // what each slot got; null: unknown
+    private long toastSeq; // the newest toast seq taken (the runtime's seqs start at 1)
+    private boolean toastShown; // visibility 1 written, 0 not yet
+    private long toastHideAt; // when the toast shown hides (monotonic)
+    private boolean toastDropLogged;
+    private UiToast pendingToast; // the newest toast that came while the Car bank did not exist yet; null for none
+    private long pendingToastAt; // when it came (monotonic)
 
     // Read by both threads; the page state is written by the page job (HMIEvent; one at a time).
     private volatile boolean down;
     private volatile boolean closedRendered;
     private volatile long renderedOpenSeq;
+    /** The dialog seq the last page render handed the renderer; {@link #NO_DIALOG} for none (F3). */
+    private volatile long renderedDialogSeq = NO_DIALOG;
     /** The newest openSeq the applier saw, and when (monotonic): an open request's age is measured from here. */
     private volatile long seenOpenSeq = Long.MIN_VALUE;
     private volatile long seenOpenAt;
     private volatile Map<String, UiPage> renderedPages;
+    /** The page items' icon ids: given on {@code mibsdk-ui}; the ones the last page render saw. */
+    private volatile ItemIcons itemIcons = ItemIcons.NONE;
+    private volatile ItemIcons renderedIcons = ItemIcons.NONE;
     /** What the stock widgets should show; published by {@code mibsdk-ui}, applied by the HMI job. */
     private volatile HmiWidgetState wantWidgets = HmiWidgetState.EMPTY;
     /** Set by a pass that saw a deferred close: the next HMI job retries it (never the after-hook's own re-post). */
     private volatile boolean closeRetry;
+    /** The same for a page rebuild the renderer deferred ({@link PageRenderer#rebuildPending}). */
+    private volatile boolean rebuildRetry;
 
     private volatile boolean stopping;
     private Thread thread; // guarded by this
@@ -132,6 +183,29 @@ public final class UiApplier {
      */
     UiApplier(UiTable t, RowModels rows, StatusLineSink s, PageRenderer pages, HmiPoster p, Clock clock,
               RingLog log, IconIds ids, BuiltinIcons builtins, HmiWidgets widgets) {
+        this(t, rows, s, pages, p, clock, log, ids, builtins, widgets, new TypedSource() {
+            public TypedModels get() {
+                return SdkCarModelBank.typedModels();
+            }
+        });
+    }
+
+    /** As above, with the typed rows' models from {@code typed}. */
+    UiApplier(UiTable t, RowModels rows, StatusLineSink s, PageRenderer pages, HmiPoster p, Clock clock,
+              RingLog log, IconIds ids, BuiltinIcons builtins, HmiWidgets widgets, TypedSource typed) {
+        this(t, rows, s, pages, p, clock, log, ids, builtins, widgets, typed, new SdkToastPopup.Source() {
+            public SdkToastPopup.Models get() {
+                return SdkCarModelBank.toastModels();
+            }
+        });
+    }
+
+    /** As above, with the toast popup's models from {@code toasts}. */
+    UiApplier(UiTable t, RowModels rows, StatusLineSink s, PageRenderer pages, HmiPoster p, Clock clock,
+              RingLog log, IconIds ids, BuiltinIcons builtins, HmiWidgets widgets, TypedSource typed,
+              SdkToastPopup.Source toasts) {
+        this.typedSource = typed;
+        this.toastSource = toasts;
         this.table = t;
         this.rows = rows;
         this.status = s;
@@ -273,7 +347,7 @@ public final class UiApplier {
     private void loop() {
         while (!stopping) {
             try {
-                step(AWAIT_MS);
+                step(nextWaitMs());
             } catch (Throwable t) {
                 failed("wait", t);
             }
@@ -286,7 +360,18 @@ public final class UiApplier {
         }
     }
 
-    /** One pass (the thread's body; tests call it directly): wait for a newer snapshot, then the four phases. */
+    /**
+     * How long the next pass may wait for a snapshot: {@link #AWAIT_MS}, or less while a toast is up, so it hides on
+     * time (at least 1 ms: a zero wait would spin). {@code mibsdk-ui}.
+     */
+    long nextWaitMs() {
+        if (!toastShown) {
+            return AWAIT_MS;
+        }
+        return Math.max(1, Math.min(AWAIT_MS, toastHideAt - clock.uptimeMs()));
+    }
+
+    /** One pass (the thread's body; tests call it directly): wait for a newer snapshot, then the six phases. */
     void step(long waitMs) throws InterruptedException {
         UiSnapshot s = table.awaitNewer(lastVersion, waitMs);
         if (s != null) {
@@ -330,13 +415,20 @@ public final class UiApplier {
                         if (freshSnapshot) {
                             freshSnapshot = false;
                             assignSlots(current);
+                            assignItemIcons(current);
                         }
                         break;
                     case 1:
                         applyRows();
                         break;
                     case 2:
+                        applyTyped(current);
+                        break;
+                    case 3:
                         applyStatus(current);
+                        break;
+                    case 4:
+                        applyToast(current);
                         break;
                     default:
                         postJobIfNeeded(true);
@@ -366,7 +458,8 @@ public final class UiApplier {
             bitmaps[slot] = a.iconAt(slot);
             unserved |= bitmaps[slot] == null && hasIcon(s.carRows(), a.keyAt(slot));
         }
-        wantWidgets = new HmiWidgetState(bitmaps, wantWidgets.status(), wantWidgets.mainMenuRowVisible());
+        wantWidgets = new HmiWidgetState(bitmaps, wantWidgets.status(), wantWidgets.mainMenuRowVisible(),
+                wantWidgets.toast());
         if (unserved && !warnedIdsSpent && ids != null && ids.exhausted()) {
             warnedIdsSpent = true;
             log.append("WARN", SOURCE, "ui icon ids " + HqcUiIds.ICON_ID_FIRST + ".." + HqcUiIds.ICON_ID_LAST
@@ -379,6 +472,45 @@ public final class UiApplier {
                 log.append("WARN", SOURCE, "ui car row " + key + " has no drawer slot; reachable from the Plugins menu");
             }
         }
+    }
+
+    /**
+     * On {@code mibsdk-ui}: gives every page item's icon its image id (a built-in its {@link HqcUiIds#ITEM_ICON_PX}
+     * variant, an installed file its own, through {@link DrawerSlots#id}; the same icon keeps its id), and publishes
+     * the result to the page renderer when it changed. Stock-thread code never gives ids. Returns what is published.
+     */
+    ItemIcons assignItemIcons(UiSnapshot s) {
+        Map<UiIcon, Integer> m = new HashMap<UiIcon, Integer>();
+        for (Iterator<UiPage> it = s.pages().values().iterator(); it.hasNext();) {
+            List<UiEntry> entries = it.next().entries();
+            for (int i = 0; i < entries.size(); i++) {
+                UiEntry e = entries.get(i);
+                UiIcon icon = e.kind() == UiEntry.ITEM ? e.icon() : null;
+                if (icon != null && !m.containsKey(icon)) {
+                    int id = itemIconId(icon);
+                    if (id >= 0) {
+                        m.put(icon, new Integer(id));
+                    }
+                }
+            }
+        }
+        ItemIcons next = new ItemIcons(m);
+        if (!next.equals(itemIcons)) {
+            // The renderer first: a job running in between then counts the old ids as rendered and renders again.
+            pages.itemIcons(next);
+            itemIcons = next;
+        }
+        return itemIcons;
+    }
+
+    private int itemIconId(UiIcon icon) {
+        if (ids == null) {
+            return -1;
+        }
+        if (icon.kind() == UiIcon.STOCK) {
+            return builtins == null ? -1 : DrawerSlots.id(builtins.get(icon.name(), HqcUiIds.ITEM_ICON_PX, false), ids);
+        }
+        return DrawerSlots.id(icon, ids);
     }
 
     /** True if the row {@code key} of {@code rows} has an icon. */
@@ -418,6 +550,63 @@ public final class UiApplier {
         }
     }
 
+    /**
+     * Writes the typed models for the shown layout's entries in {@code s}: each slot when what it shows changed, every
+     * slot again for a new screen generation. A slot whose entry is not in {@code s} (yet) is left alone.
+     */
+    private void applyTyped(UiSnapshot s) {
+        PageScreens.Shown sp = down ? null : pages.shown();
+        if (sp == null) {
+            return;
+        }
+        if (sp.generation != typedGeneration) {
+            typedGeneration = sp.generation;
+            Arrays.fill(typedWritten, null);
+        }
+        PageLayout.TypedRow[] typed = sp.layout.typed();
+        UiPage p = typed.length == 0 ? null : s.pages().get(sp.pageKey);
+        if (p == null) {
+            return;
+        }
+        TypedModels m = typedSource.get();
+        if (m == null) {
+            return;
+        }
+        List<UiEntry> entries = p.entries();
+        for (int slot = 0; slot < typed.length && slot < typedWritten.length; slot++) {
+            PageLayout.TypedRow r = typed[slot];
+            UiEntry e = null;
+            for (int i = 0; e == null && i < entries.size(); i++) {
+                if (eq(r.entryKey, entries.get(i).key()) && entries.get(i).kind() == r.kind) {
+                    e = entries.get(i);
+                }
+            }
+            if (e == null) {
+                continue;
+            }
+            if (r.kind == UiEntry.DROPDOWN) {
+                int v = clamp(e.number(), 0, r.optionCount() - 1);
+                String key = "c" + v;
+                if (!key.equals(typedWritten[slot])) {
+                    m.choice(slot, v);
+                    typedWritten[slot] = key;
+                }
+            } else {
+                int index = clamp((e.number() - r.min) / r.step, 0, r.steps);
+                int medial = r.centred ? r.steps / 2 : 0;
+                String key = "r" + r.steps + "/" + medial + "/" + index;
+                if (!key.equals(typedWritten[slot])) {
+                    m.range(slot, r.steps, medial, index);
+                    typedWritten[slot] = key;
+                }
+            }
+        }
+    }
+
+    private static int clamp(int v, int lo, int hi) {
+        return v < lo ? lo : v > hi ? hi : v;
+    }
+
     private void applyStatus(UiSnapshot s) {
         String text = s.statusLine();
         long now = clock.uptimeMs();
@@ -447,46 +636,132 @@ public final class UiApplier {
         }
     }
 
+    /**
+     * The toast phase (class comment). Writes the toast's own models only ({@link SdkToastPopup.Models}). A toast that
+     * comes while the models cannot be had (no Car bank yet) is kept, the newest only, and shown once they can if it
+     * came less than {@code Ui.TOAST_MS} ago, its time counted from the show; else it is dropped with one log line.
+     */
+    private void applyToast(UiSnapshot s) {
+        UiToast t = down ? null : s.toast();
+        long now = clock.uptimeMs();
+        if (SdkGlobals.toastPopup == -1) {
+            pendingToast = null;
+            if (toastShown) {
+                hideToast(); // the popup failed while this one was up
+            }
+            if (t != null && t.seq() != toastSeq) {
+                toastSeq = t.seq();
+                if (!toastDropLogged) {
+                    toastDropLogged = true;
+                    log.append("WARN", SOURCE, "ui toast dropped: popup " + HqcUiIds.POPUP_SDK_TOAST
+                            + " is off this boot (further toasts are dropped silently)");
+                }
+            }
+            return;
+        }
+        if (t != null && t.seq() != toastSeq) {
+            toastSeq = t.seq();
+            pendingToast = t; // replaces an older pending one
+            pendingToastAt = now;
+        }
+        if (pendingToast != null && t == null) {
+            pendingToast = null; // down, or its owner was removed
+        }
+        if (pendingToast != null) {
+            if (now - pendingToastAt >= Ui.TOAST_MS) {
+                log.append("WARN", SOURCE, "ui toast dropped: no Car models within " + Ui.TOAST_MS + " ms");
+                pendingToast = null;
+            } else {
+                SdkToastPopup.Models m = toastSource.get();
+                if (m != null) {
+                    showToast(pendingToast, m, now);
+                    pendingToast = null;
+                }
+            }
+        }
+        if (toastShown && (t == null || now >= toastHideAt)) {
+            hideToast();
+        }
+        SdkToastPopup.up = toastShown && SdkGlobals.toastPopup == 2; // on screen only once the popup is built
+    }
+
+    /** Writes {@code t}: the label and the file icon, then visibility 1; it hides {@code Ui.TOAST_MS} from now. */
+    private void showToast(UiToast t, SdkToastPopup.Models m, long now) {
+        SdkToastPopup.Part part = SdkToastPopup.Part.of(t, ids, builtins);
+        SdkToastPopup.wanted = part; // a popup built from now on starts from it
+        wantWidgets = wantWidgets.withToast(part);
+        m.label(part.text);
+        m.fileIcon(part.filePath);
+        toastShown = true; // before the write: a throwing write is hidden again at the deadline
+        toastHideAt = now + Ui.TOAST_MS;
+        m.visible(true);
+    }
+
+    /** Writes the toast's visibility 0; recorded hidden first, so a throwing model is not retried every pass. */
+    private void hideToast() {
+        toastShown = false;
+        SdkToastPopup.up = false;
+        SdkToastPopup.wanted = SdkToastPopup.wanted.hidden();
+        wantWidgets = wantWidgets.withToast(wantWidgets.toast().hidden());
+        SdkToastPopup.Models m = toastSource.get();
+        if (m != null) {
+            m.visible(false);
+        }
+    }
+
     /** {@code tick}: called from the applier's pass (not the job's after-hook), so a deferred close may be retried. */
     private void postJobIfNeeded(boolean tick) {
         if (!isLive() || (stopping && !down)) {
             return; // replaced, or stopping before the teardown took the UI down
         }
-        if (SdkGlobals.uiRowModels == null && SdkStatusPopup.current == null && SdkGlobals.mainMenuRow == null) {
+        if (SdkGlobals.uiRowModels == null && SdkStatusPopup.current == null && SdkToastPopup.current == null
+                && SdkGlobals.mainMenuRow == null) {
             return; // no drawer, popup or screen 46 yet, so no first screen yet: the StartupFilter would discard the job
         }
         boolean render = needsRender(table.snapshot(), tick);
         if (render && tick && down && closedRendered) {
             closeRetry = true; // the job's own re-evaluation (tick false) would not retry it
         }
-        if (render || widgetsNeedJob() || (tick && widgets.wrenchPending())) {
+        if (render && tick && !down && pages.rebuildPending()) {
+            rebuildRetry = true; // likewise: once per pass, never from the after-hook
+        }
+        if (render || pages.navPending() || widgetsNeedJob() || (tick && widgets.wrenchPending())) {
             poster.post(hmiJob); // false: a job is pending; its wake() re-checks when it is done
         }
     }
 
     /**
-     * True if the wanted widget state differs from the applied one in what exists: the status layout counts only once
-     * the popup is built (a popup built later starts from {@code SdkStatusPopup.wanted}).
+     * True if the wanted widget state differs from the applied one in what exists: the status layout and the toast
+     * count only once their popup is built (a popup built later starts from its {@code wanted}).
      */
     private boolean widgetsNeedJob() {
         HmiWidgetState applied = widgets.applied();
-        if (widgets.mainMenuRowNeedsJob(wantWidgets)) {
+        HmiWidgetState want = wantWidgets;
+        if (widgets.mainMenuRowNeedsJob(want)) {
             return true;
         }
-        return SdkStatusPopup.current != null ? !wantWidgets.equals(applied) : !wantWidgets.sameRows(applied);
+        return !want.sameRows(applied) || (SdkStatusPopup.current != null && !want.sameStatus(applied))
+                || (SdkToastPopup.current != null && !want.sameToast(applied));
     }
 
     /**
-     * The one HMI job, on HMIEvent: renders pages if they still need it, then applies the wanted widget state. Each
-     * part is isolated. A replaced applier's job does nothing.
+     * The one HMI job, on HMIEvent: runs the pages' pending navigation (always: a nav asked for while this job was
+     * pending waits for it, F2), renders pages if they still need it, then applies the wanted widget state. Each part
+     * is isolated. A replaced applier's job does nothing.
      */
     private void runHmiJob() {
         if (!isLive()) {
             return;
         }
         try {
-            boolean retry = closeRetry;
+            pages.runPendingNav();
+        } catch (Throwable t) {
+            // pages still get rendered
+        }
+        try {
+            boolean retry = closeRetry || rebuildRetry;
             closeRetry = false;
+            rebuildRetry = false;
             if (retry || needsRender(table.snapshot(), false)) {
                 renderPages();
             }
@@ -505,7 +780,13 @@ public final class UiApplier {
             // A close deferred by RVC/PDC is retried once per pass (AWAIT_MS), never in a loop of jobs.
             return !closedRendered || (tick && pages.closePending());
         }
-        return isOpenRequest(s) || !samePages(s.pages(), renderedPages);
+        return isOpenRequest(s) || !samePages(s.pages(), renderedPages) || itemIcons != renderedIcons
+                || dialogSeq(s) != renderedDialogSeq || (tick && pages.rebuildPending());
+    }
+
+    /** The snapshot's dialog seq, or {@link #NO_DIALOG}. */
+    private static long dialogSeq(UiSnapshot s) {
+        return s.dialog() == null ? NO_DIALOG : s.dialog().seq();
     }
 
     private boolean isOpenRequest(UiSnapshot s) {
@@ -530,6 +811,10 @@ public final class UiApplier {
         boolean open = isOpenRequest(s);
         renderedOpenSeq = s.openSeq();
         renderedPages = s.pages();
+        ItemIcons icons = itemIcons;
+        renderedIcons = icons;
+        pages.itemIcons(icons); // the renderer draws with exactly the ids counted as rendered
+        renderedDialogSeq = dialogSeq(s);
         if (open) {
             // A request this thread has not seen yet was published just now: age 0.
             long age = s.openSeq() == seenOpenSeq ? clock.uptimeMs() - seenOpenAt : 0;
@@ -537,6 +822,7 @@ public final class UiApplier {
         } else {
             pages.refresh(s);
         }
+        pages.dialogChanged(s.dialog()); // over the page just rendered (F3)
     }
 
     /** Same page keys, titles and entries (UiPage has no equals: the runtime rebuilds them every snapshot). */
@@ -559,7 +845,8 @@ public final class UiApplier {
         return true;
     }
 
-    private static boolean samePage(UiPage x, UiPage y) {
+    /** Every field of every entry: a change in only {@code enabled}, the number, an option, the range or the icon. */
+    static boolean samePage(UiPage x, UiPage y) {
         if (x == y) {
             return true;
         }
@@ -570,7 +857,10 @@ public final class UiApplier {
             UiEntry p = x.entries().get(i);
             UiEntry q = y.entries().get(i);
             if (p.kind() != q.kind() || p.on() != q.on() || !eq(p.key(), q.key()) || !eq(p.label(), q.label())
-                    || !eq(p.value(), q.value()) || !eq(p.targetPageKey(), q.targetPageKey())) {
+                    || !eq(p.value(), q.value()) || !eq(p.targetPageKey(), q.targetPageKey())
+                    || p.number() != q.number() || !Arrays.equals(p.options(), q.options()) || p.min() != q.min()
+                    || p.max() != q.max() || p.step() != q.step() || p.centred() != q.centred()
+                    || p.enabled() != q.enabled() || !eq(p.icon(), q.icon())) {
                 return false;
             }
         }

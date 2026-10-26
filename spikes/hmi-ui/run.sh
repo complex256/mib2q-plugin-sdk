@@ -5,12 +5,16 @@
 # the bundles file's HMICar= line at mibsdk.spike.ui.SpikeCarActivator and (unless --car-only) its HMISystem= line at
 # mibsdk.spike.ui.SpikeSystemActivator.
 #
-#   install [--car-only]  save a byte copy of the live bundles file to /mnt/persist/mibsdk-spike/bundles.before,
-#                         push the jar and the icons (lsd/mibsdk-spike/icons/), rewrite the line(s)
+#   install [--car-only]  save a byte copy of the live bundles file to /mnt/persist/mibsdk-spike/bundles.before-d,
+#                         push the jar and the icons (lsd/mibsdk-spike/icons/), rewrite the line(s). --car-only
+#                         rewrites HMICar= only and keeps HMISystem= byte for byte, whatever it is (stock, or the
+#                         SDK's SdkSystemActivator since the main-menu takeover); without it HMISystem= must be stock
 #   add-system            spike already installed --car-only: rewrite HMISystem= too; bundles.before is kept
 #                         (it stays the pre-spike copy, so uninstall goes all the way back)
 #   push-jar              spike installed: replace the jar only (takes effect at the next restart)
-#   uninstall             write bundles.before back (cmp-verified), remove the jar and the icons dir
+#   uninstall             write bundles.before-d back (host cmp before and after), remove the jar and the icons dir;
+#                         refuses unless the live file, with the spike line(s) put back, equals the backup byte for
+#                         byte (so nothing else changed while the spike was installed)
 #   status                the two lines, jar/icons/backup presence, /mnt/app mount flags
 #
 # Self-contained (sources nothing): push via `cat >` to a temp file, verify byte for byte, rename. /mnt/app is
@@ -32,7 +36,8 @@ HOST="${ARGS[1]:-10.20.0.23}"
 LSD="/mnt/app/eso/hmi/lsd"
 BUNDLES="$LSD/bundles_dsitracer_enabled.properties"
 PERSIST="/mnt/persist/mibsdk-spike"
-BACKUP="$PERSIST/bundles.before"
+# Spike D: its own name, so the spike C copy (bundles.before, a pre-takeover SDK state) is never reused.
+BACKUP="$PERSIST/bundles.before-d"
 JAR_NAME="mibsdk-spike-ui.jar"
 JAR_DST="$LSD/jars/$JAR_NAME"
 ICONS_DST="$LSD/mibsdk-spike/icons"
@@ -112,7 +117,12 @@ case "$CMD" in
     for i in "${ICONS[@]}"; do [ -f "$ICONS_SRC/$i.png" ] || die "$ICONS_SRC/$i.png missing; run make_icons.py"; done
     fetch "$BUNDLES" "$TMP/cur" || die "cannot read $BUNDLES"
     [ "$(line_of "$TMP/cur" HMICar)" = "$SDK_CAR_LINE" ] || die "live HMICar= is not '$SDK_CAR_LINE'; refusing"
-    [ "$(line_of "$TMP/cur" HMISystem)" = "$STOCK_SYS_LINE" ] || die "live HMISystem= is not stock; refusing"
+    LIVE_SYS="$(line_of "$TMP/cur" HMISystem)"
+    [ -n "$LIVE_SYS" ] || die "live bundles file has no single HMISystem= line; refusing"
+    [ "$LIVE_SYS" != "$SPIKE_SYS_LINE" ] || die "live HMISystem= is already the spike line; refusing"
+    if [ "$CAR_ONLY" != 1 ]; then
+      [ "$LIVE_SYS" = "$STOCK_SYS_LINE" ] || die "live HMISystem= is not stock ('$LIVE_SYS'); use --car-only; refusing"
+    fi
     check_mode
     # bundles.before: a byte copy of the live file. An existing copy must be identical (a stale one would undo
     # whatever happened since).
@@ -128,6 +138,7 @@ case "$CMD" in
     rewrite "$TMP/cur" "$TMP/new1" "$SDK_CAR_LINE" "$SPIKE_CAR_LINE" || die "HMICar= rewrite failed"
     if [ "$CAR_ONLY" = 1 ]; then
       cp "$TMP/new1" "$TMP/new"
+      [ "$(line_of "$TMP/new" HMISystem)" = "$LIVE_SYS" ] || die "HMISystem= changed in the rewrite; refusing"
     else
       rewrite "$TMP/new1" "$TMP/new" "$STOCK_SYS_LINE" "$SPIKE_SYS_LINE" || die "HMISystem= rewrite failed"
     fi
@@ -139,7 +150,7 @@ case "$CMD" in
     push_bundles "$TMP/new"
     rw_end
     echo "rewrote: $SDK_CAR_LINE -> $SPIKE_CAR_LINE"
-    if [ "$CAR_ONLY" = 1 ]; then echo "kept:    $STOCK_SYS_LINE (--car-only)"
+    if [ "$CAR_ONLY" = 1 ]; then echo "kept:    $LIVE_SYS (--car-only, byte for byte)"
     else echo "rewrote: $STOCK_SYS_LINE -> $SPIKE_SYS_LINE"; fi
     echo "spike installed; restart: installer/mibsdk-dev restart"
     ;;
@@ -168,7 +179,20 @@ case "$CMD" in
   uninstall)
     fetch "$BACKUP" "$TMP/backup" || die "cannot read $BACKUP"
     [ "$(line_of "$TMP/backup" HMICar)" = "$SDK_CAR_LINE" ] || die "$BACKUP has no '$SDK_CAR_LINE'; refusing"
-    [ "$(line_of "$TMP/backup" HMISystem)" = "$STOCK_SYS_LINE" ] || die "$BACKUP has a non-stock HMISystem=; refusing"
+    BACKUP_SYS="$(line_of "$TMP/backup" HMISystem)"
+    [ -n "$BACKUP_SYS" ] && [ "$BACKUP_SYS" != "$SPIKE_SYS_LINE" ] || die "$BACKUP has no usable HMISystem=; refusing"
+    # The live file with the spike line(s) put back must be the backup byte for byte: nothing else may have changed.
+    fetch "$BUNDLES" "$TMP/cur" || die "cannot read $BUNDLES"
+    cp "$TMP/cur" "$TMP/undo"
+    if [ "$(line_of "$TMP/undo" HMICar)" = "$SPIKE_CAR_LINE" ]; then
+      rewrite "$TMP/undo" "$TMP/undo1" "$SPIKE_CAR_LINE" "$SDK_CAR_LINE" || die "HMICar= undo failed"
+      mv "$TMP/undo1" "$TMP/undo"
+    fi
+    if [ "$(line_of "$TMP/undo" HMISystem)" = "$SPIKE_SYS_LINE" ]; then
+      rewrite "$TMP/undo" "$TMP/undo1" "$SPIKE_SYS_LINE" "$BACKUP_SYS" || die "HMISystem= undo failed"
+      mv "$TMP/undo1" "$TMP/undo"
+    fi
+    cmp -s "$TMP/undo" "$TMP/backup" || die "live file differs from $BACKUP beyond the spike lines; resolve by hand"
     rw_begin
     push_bundles "$TMP/backup"
     fetch "$BUNDLES" "$TMP/after" && cmp "$TMP/backup" "$TMP/after" || die "bundles file differs from $BACKUP after restore"
@@ -177,7 +201,7 @@ case "$CMD" in
       || die "cannot remove $JAR_DST / $ICONS_DST"
     rw_end
     rsh "[ ! -e '$JAR_DST' ] && [ ! -e '$LSD/mibsdk-spike' ]" || die "jar or icons dir still present"
-    echo "bundles file restored from $BACKUP (cmp identical); jar and icons removed; restart: installer/mibsdk-dev restart"
+    echo "bundles file restored from $BACKUP (host cmp identical); jar and icons removed; restart: installer/mibsdk-dev restart"
     ;;
   status)
     fetch "$BUNDLES" "$TMP/cur" || die "cannot read $BUNDLES"

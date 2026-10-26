@@ -1,7 +1,9 @@
 package mibsdk.adapter.hqc.ui;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -14,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import mibsdk.adapter.hqc.SdkGlobals;
 import mibsdk.platform.PageStack;
+import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
@@ -51,6 +54,15 @@ class PageScreensNavigationTest {
         int built;
         boolean failBuild;
         boolean failScreenManager;
+        final List<PageLayout> layouts = new ArrayList<PageLayout>();
+        PageRow[] lastRows;
+        String spellerText; // the SpellerModel's text (null: none)
+        boolean connectLater; // a shown screen stays pending until the test connects it
+        boolean failBlocked;
+        boolean failShow;
+        Object lastShownScreen;
+        int focused = PageScreens.NO_FOCUS; // the connected page's focus, as Screens.focused reports it
+        final List<Integer> focuses = new ArrayList<Integer>(); // each build's focus to set at connect
 
         public int currentId() {
             if (failScreenManager) {
@@ -60,6 +72,9 @@ class PageScreensNavigationTest {
         }
 
         public boolean currentBlocked() {
+            if (failBlocked) {
+                throw new IllegalStateException("no screen data");
+            }
             return blocked;
         }
 
@@ -75,18 +90,26 @@ class PageScreensNavigationTest {
             return screen != null && screen == current;
         }
 
-        public Object build(String pageKey, String title, PageScreens owner) {
+        public Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus) {
             if (failBuild) {
                 throw new IllegalStateException("no factory");
             }
             calls.add("build " + pageKey + " '" + title + "'");
+            layouts.add(layout);
+            focuses.add(focus);
             return "screen" + (++built) + ":" + pageKey;
         }
 
         public void show(Object screen) {
+            if (failShow) {
+                throw new IllegalStateException("show failed");
+            }
             calls.add("show " + screen);
-            current = screen; // connects at once here; on the unit it connects later
-            currentId = HqcUiIds.PAGE_SCREEN_ID;
+            lastShownScreen = screen;
+            if (!connectLater) {
+                current = screen; // connects at once here; on the unit it connects later
+                currentId = HqcUiIds.PAGE_SCREEN_ID;
+            }
         }
 
         public void showStock(Object data) {
@@ -101,8 +124,39 @@ class PageScreensNavigationTest {
             currentId = id;
         }
 
-        public void writeRows(String[] texts, int[] kinds) {
-            calls.add("rows " + Arrays.asList(texts));
+        public Object buildSlider(int slot, PageLayout layout, PageScreens owner) {
+            if (failBuild) {
+                throw new IllegalStateException("no factory");
+            }
+            calls.add("slider " + slot);
+            return "slider" + (++built);
+        }
+
+        public Object buildConfirm(UiDialog d, PageScreens owner) {
+            calls.add("confirm " + d.seq() + " [" + d.yes() + ", " + d.no() + "]");
+            return "confirm" + (++built);
+        }
+
+        public Object buildSpeller(UiDialog d, PageScreens owner) {
+            calls.add("speller " + d.seq() + " '" + d.text() + "' max " + d.maxLen());
+            return "speller" + (++built);
+        }
+
+        public String spellerText() {
+            return spellerText;
+        }
+
+        public int focused(Object screen) {
+            return focused;
+        }
+
+        public void writeRows(PageRow[] rows) {
+            List<String> labels = new ArrayList<String>();
+            for (PageRow r : rows) {
+                labels.add(r.label);
+            }
+            calls.add("rows " + labels);
+            lastRows = rows;
         }
     }
 
@@ -144,7 +198,7 @@ class PageScreensNavigationTest {
     }
 
     private static UiEntry info(String text) {
-        return new UiEntry(UiEntry.INFO, "i", text, null, false, null);
+        return new UiEntry(UiEntry.INFO, null, text, null, false, null); // the hub gives INFO rows no key
     }
 
     private UiSnapshot publish(UiPage... ps) {
@@ -163,9 +217,12 @@ class PageScreensNavigationTest {
         while ((in = table.poll(0)) != null) {
             String k = in.kind() == UiInput.PAGE_SHOWN ? "shown" : in.kind() == UiInput.PAGE_CLOSED ? "closed"
                     : in.kind() == UiInput.ENTRY_SELECTED ? "selected" : in.kind() == UiInput.TOGGLE_REQUESTED
-                    ? "toggle" : "other";
+                    ? "toggle" : in.kind() == UiInput.VALUE_REQUESTED ? "value" : in.kind() == UiInput.DIALOG_DONE
+                    ? "done" : "other";
             out.add(k + " " + in.pageKey() + (in.entryKey() == null ? "" : "/" + in.entryKey())
-                    + (in.kind() == UiInput.TOGGLE_REQUESTED ? "=" + in.on() : ""));
+                    + (in.kind() == UiInput.TOGGLE_REQUESTED ? "=" + in.on() : "")
+                    + (in.kind() == UiInput.VALUE_REQUESTED ? "=" + in.value() : "")
+                    + (in.kind() == UiInput.DIALOG_DONE ? "=" + in.value() + ":" + in.text() : ""));
         }
         return out;
     }
@@ -320,7 +377,7 @@ class PageScreensNavigationTest {
 
         hmi.current = screen;
         hmi.currentId = HqcUiIds.PAGE_SCREEN_ID;
-        pages.screenConnected(screen, "a/p");
+        pages.screenConnected(screen, "a/p", PageLayout.EMPTY);
         assertEquals(Collections.singletonList("shown a/p"), inputs());
         assertEquals(Collections.singletonList("rows [Y]"), calls(), "the rows catch up with the snapshot");
         pages.backPressed();
@@ -335,7 +392,8 @@ class PageScreensNavigationTest {
         calls();
         inputs();
         pages.refresh(publish(page("a/p", "Alpha", toggle("t", "Rack", true))));
-        assertEquals(Collections.singletonList("rows [[on] Rack]"), calls());
+        assertEquals(Collections.singletonList("rows [Rack]"), calls());
+        assertEquals(new PageRow("Rack", 1, PageScreens.ROW_TOGGLE, true, null), hmi.lastRows[0], "the checkbox is on");
         PageScreens.listSelected(0);
         assertEquals(Collections.singletonList("toggle a/p/t=false"), inputs(), "the new state is the truth");
 
@@ -531,7 +589,7 @@ class PageScreensNavigationTest {
         assertEquals(Collections.singletonList("closed a/p"), inputs());
 
         hmi.pendingId = -1; // the RVC ended; the HMI goes back to the page
-        pages.screenConnected(screen, "a/p");
+        pages.screenConnected(screen, "a/p", PageLayout.EMPTY);
         runJobs();
         assertEquals(Collections.singletonList("stock " + STOCK), calls(), "the close is retried");
         assertEquals(Collections.emptyList(), inputs(), "not adopted again: the runtime is down");
@@ -705,7 +763,7 @@ class PageScreensNavigationTest {
 
         hmi.current = screen;
         hmi.currentId = HqcUiIds.PAGE_SCREEN_ID;
-        pages.screenConnected(screen, "a/p"); // the HMI went back to the dead page
+        pages.screenConnected(screen, "a/p", PageLayout.EMPTY); // the HMI went back to the dead page
         runJobs();
         assertEquals(Collections.singletonList("stock " + STOCK), calls());
         inputs();
@@ -731,7 +789,7 @@ class PageScreensNavigationTest {
         inputs();
 
         Object mine = "mine:a/p";
-        pages.screenConnected(mine, "a/p"); // one of the new renderer's own pages connects
+        pages.screenConnected(mine, "a/p", PageLayout.EMPTY); // one of the new renderer's own pages connects
         assertEquals(Collections.singletonList("shown a/p"), inputs(), "adopted");
 
         hmi.blocked = false;
@@ -754,5 +812,1001 @@ class PageScreensNavigationTest {
         pages.backPressed();
         runJobs();
         assertEquals(Collections.singletonList("car " + HqcUiIds.CAR_MAIN_SCREEN), calls());
+    }
+
+    // ---- native inputs (Task 4): disabled rows, the choice sub-page, item icons --------------------------------
+
+    private static final mibsdk.platform.UiIcon ICON_A = mibsdk.platform.UiIcon.stock("a");
+    private static final mibsdk.platform.UiIcon ICON_B = mibsdk.platform.UiIcon.stock("b");
+
+    private static UiEntry iconItem(String key, mibsdk.platform.UiIcon icon, String value) {
+        return new UiEntry(UiEntry.ITEM, key, key, value, false, null).withIcon(icon);
+    }
+
+    private static ItemIcons icons(mibsdk.platform.UiIcon... is) {
+        Map<mibsdk.platform.UiIcon, Integer> m = new HashMap<mibsdk.platform.UiIcon, Integer>();
+        for (int i = 0; i < is.length; i++) {
+            m.put(is[i], 609100 + i);
+        }
+        return new ItemIcons(m);
+    }
+
+    private static UiPage languages(boolean english) {
+        return page("p/main#lang", "Language", new UiEntry(UiEntry.RADIO, "0", "Deutsch", null, !english, null),
+                new UiEntry(UiEntry.RADIO, "1", "English", null, english, null));
+    }
+
+    private static UiEntry language(int selected) {
+        return new UiEntry(UiEntry.CHOICE, "lang", "Language", null, false, "p/main#lang")
+                .withOptions(new String[] {"Deutsch", "English"}).withNumber(selected);
+    }
+
+    private long builds() {
+        long n = 0;
+        for (String c : calls()) {
+            n += c.startsWith("build ") ? 1 : 0;
+        }
+        return n;
+    }
+
+    /** The HMI still sends a press on a greyed row: the adapter drops it (no input, no job). */
+    @Test
+    void disabledRowPressIsDropped() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go").withEnabled(false),
+                toggle("t", "Rack", true).withEnabled(false), link("more", "More", "a/q").withEnabled(false),
+                language(0).withEnabled(false)), page("a/q", "Beta", item("x", "X")), languages(false));
+        pages.open("a/p", s, 0);
+        calls();
+        inputs();
+        for (int row = 0; row < 4; row++) {
+            PageScreens.listSelected(row);
+        }
+        assertEquals(Collections.emptyList(), inputs());
+        assertEquals(0, sink.size(), "no navigation job");
+        assertFalse(pages.navPending());
+        assertFalse(hmi.lastRows[0].enabled, "written greyed");
+    }
+
+    /** F26: DROPDOWN and SLIDER are not list rows, so list row i is the i-th list entry. */
+    @Test
+    void listRowsSkipDropdownAndSlider() throws Exception {
+        UiEntry dropdown = new UiEntry(UiEntry.DROPDOWN, "d", "Mode", null, false, null)
+                .withOptions(new String[] {"a", "b"});
+        UiEntry slider = new UiEntry(UiEntry.SLIDER, "s", "Bass", null, false, null).withRange(-6, 6, 1, true);
+        UiSnapshot s = publish(page("a/p", "Alpha", dropdown, item("go", "Go"), slider, toggle("t", "Rack", false)));
+        pages.open("a/p", s, 0);
+        assertEquals(Arrays.asList("rows [Go, Rack]", "build a/p 'Alpha'", "show screen1:a/p"), calls());
+        inputs();
+        PageScreens.listSelected(0);
+        PageScreens.listSelected(1);
+        assertEquals(Arrays.asList("selected a/p/go", "toggle a/p/t=true"), inputs());
+    }
+
+    /**
+     * F16: a CHOICE row opens its choice page; a pick there is sent on the choice page's key and goes back. The page
+     * events are CLOSED(old) before SHOWN(new) both ways; the hub's {@code #} mapping (Task 2) keeps {@code p/main}
+     * open, so the plugin sees no PAGE_CLOSED for it.
+     */
+    @Test
+    void choiceOpensSubPageAndPickReturns() throws Exception {
+        UiSnapshot s = publish(page("p/main", "Main", language(0)), languages(false));
+        pages.open("p/main", s, 0);
+        assertEquals(new PageRow("Language", 0, PageScreens.ROW_VALUE, true, "Deutsch"), hmi.lastRows[0]);
+        calls();
+        inputs();
+
+        PageScreens.listSelected(0);
+        runJobs();
+        assertEquals(Arrays.asList("rows [Deutsch, English]", "build p/main#lang 'Language'",
+                "show screen2:p/main#lang"), calls());
+        assertEquals(Arrays.asList("closed p/main", "shown p/main#lang"), inputs());
+        assertEquals(new PageRow("Deutsch", 1, PageScreens.ROW_RADIO, true, null), hmi.lastRows[0]);
+
+        PageScreens.listSelected(1);
+        assertTrue(pages.navPending(), "the back is posted");
+        runJobs();
+        assertEquals(Arrays.asList("selected p/main#lang/1", "closed p/main#lang", "shown p/main"), inputs());
+        assertEquals(Arrays.asList("rows [Language]", "build p/main 'Main'", "show screen3:p/main"), calls());
+        assertFalse(pages.navPending());
+    }
+
+    @Test
+    void choiceBackReturnsWithoutAction() throws Exception {
+        UiSnapshot s = publish(page("p/main", "Main", language(1)), languages(true));
+        pages.open("p/main", s, 0);
+        PageScreens.listSelected(0);
+        runJobs();
+        calls();
+        inputs();
+        pages.backPressed();
+        runJobs();
+        assertEquals(Arrays.asList("closed p/main#lang", "shown p/main"), inputs(), "no ENTRY_SELECTED");
+        assertTrue(calls().contains("show screen3:p/main"));
+    }
+
+    /** C7: a row's icon indexes the screen's icon bitmaps, so a new icon id needs a new screen; a new index not. */
+    @Test
+    void iconSetChangeRebuildsScreen() throws Exception {
+        pages.itemIcons(icons(ICON_A, ICON_B));
+        UiSnapshot s = publish(page("a/p", "Alpha", iconItem("x", ICON_A, null), item("y", "Y")));
+        pages.open("a/p", s, 0);
+        assertEquals(1, builds());
+        assertArrayEquals(new int[] {609100}, hmi.layouts.get(0).iconIds());
+        assertEquals(new PageRow("x", 0, PageScreens.ROW_ICON, true, null), hmi.lastRows[0]);
+
+        pages.refresh(publish(page("a/p", "Alpha", iconItem("x", ICON_A, null), iconItem("y", ICON_B, null),
+                iconItem("z", ICON_A, null))));
+        assertEquals(1, builds(), "a new icon id: a new screen");
+        assertArrayEquals(new int[] {609100, 609101}, hmi.layouts.get(1).iconIds());
+        assertEquals(new PageRow("y", 1, PageScreens.ROW_ICON, true, null), hmi.lastRows[1]);
+
+        pages.refresh(publish(page("a/p", "Alpha", iconItem("x", ICON_A, null), iconItem("y", ICON_B, null),
+                iconItem("z", ICON_B, null))));
+        assertEquals(0, builds(), "only a new index: rows only");
+        assertEquals(new PageRow("z", 1, PageScreens.ROW_ICON, true, null), hmi.lastRows[2]);
+    }
+
+    /** B4: while the screen may not change, a row whose icon the shown screen lacks is written without it. */
+    @Test
+    void iconChangeWhileBlockedWritesNoIconKind() throws Exception {
+        pages.itemIcons(icons(ICON_A, ICON_B));
+        UiSnapshot s = publish(page("a/p", "Alpha", iconItem("x", ICON_A, null)));
+        pages.open("a/p", s, 0);
+        calls();
+        hmi.blocked = true; // a popup or the parking display
+        UiSnapshot next = publish(page("a/p", "Alpha", iconItem("x", ICON_A, null), iconItem("y", ICON_B, "on"),
+                iconItem("z", ICON_B, null)));
+        pages.refresh(next);
+        assertEquals(0, builds(), "no rebuild while blocked");
+        assertEquals(new PageRow("x", 0, PageScreens.ROW_ICON, true, null), hmi.lastRows[0], "a shown icon stays");
+        assertEquals(new PageRow("y", 0, PageScreens.ROW_VALUE, true, "on"), hmi.lastRows[1]);
+        assertEquals(new PageRow("z", 0, PageScreens.ROW_ACTION, true, null), hmi.lastRows[2]);
+
+        assertTrue(pages.rebuildPending(), "the applier retries it on its tick");
+        pages.refresh(next);
+        assertEquals(0, builds(), "still blocked");
+        assertTrue(pages.rebuildPending());
+
+        hmi.blocked = false;
+        pages.refresh(next);
+        assertEquals(1, builds(), "the deferred rebuild");
+        assertFalse(pages.rebuildPending());
+        assertEquals(new PageRow("y", 1, PageScreens.ROW_ICON_VALUE, true, "on"), hmi.lastRows[1]);
+        assertEquals(new PageRow("z", 1, PageScreens.ROW_ICON, true, null), hmi.lastRows[2]);
+    }
+
+    // ---- typed rows and the slider screen (Task 5) -----------------------------------------------------------------
+
+    private static UiEntry dropdown(String key, String label, int selected, String... options) {
+        return new UiEntry(UiEntry.DROPDOWN, key, label, null, false, null).withOptions(options).withNumber(selected);
+    }
+
+    private static UiEntry slider(String key, String label, int min, int max, int value) {
+        return new UiEntry(UiEntry.SLIDER, key, label, null, false, null).withRange(min, max, 1, min < 0)
+                .withNumber(value);
+    }
+
+    /** Opens {@code p}'s slider at typed slot {@code slot}: SELECT, the job, the page leaves, the slider connects. */
+    private Object openSlider(int slot) {
+        Object page = hmi.current;
+        PageScreens.sliderPressed(slot);
+        assertTrue(pages.navPending(), "the slider screen opens in a job");
+        runJobs();
+        pages.screenDisconnecting(page); // the slider screen replaced the page
+        pages.subConnected(hmi.current);
+        return hmi.current;
+    }
+
+    @Test
+    void subScreenKeepsPageOpen() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        inputs();
+        Object page = hmi.current;
+        pages.openSub(HqcUiIds.SLIDER_SCREEN_ID, "sub");
+        assertEquals(Collections.singletonList("show sub"), calls());
+        pages.screenDisconnecting(page);
+        pages.subConnected("sub");
+        assertEquals(Collections.emptyList(), inputs(), "no PAGE_CLOSED: the page stays open");
+        assertSame(pages.shown(), PageScreens.shownNow(), "the page's key keeps routing input");
+        assertEquals("a/p", pages.shown().pageKey);
+
+        pages.refresh(publish(page("a/p", "Alpha 2", item("go", "Go"), slider("bass", "Bass", -6, 6, 0))));
+        assertEquals(Collections.singletonList("rows [Go]"), calls(), "no rebuild under the sub-screen");
+        assertEquals(Collections.emptyList(), inputs());
+    }
+
+    @Test
+    void backFromSubScreenReshowsPageWithoutPop() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", link("more", "More", "a/q")),
+                page("a/q", "Beta", item("x", "X"), slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        PageScreens.listSelected(0);
+        runJobs();
+        calls();
+        inputs();
+        int before = pages.shown().generation;
+
+        Object sub = openSlider(0);
+        assertEquals(Collections.singletonList("slider 0"), calls().subList(0, 1));
+        assertEquals("slider3", sub);
+        assertEquals(Collections.emptyList(), inputs());
+
+        pages.subBack();
+        runJobs();
+        assertEquals(Arrays.asList("rows [X]", "build a/q 'Beta'", "show screen4:a/q"), calls(),
+                "the page again, its rows written");
+        pages.subDisconnecting(sub); // the slider leaves: we replaced it, not the user
+        assertEquals(Collections.emptyList(), inputs(), "no stack pop, no page events");
+        assertTrue(pages.shown().generation > before, "a new screen: a new generation");
+        assertNull(PageScreens.sliderNow());
+
+        pages.backPressed();
+        runJobs();
+        assertEquals(Arrays.asList("closed a/q", "shown a/p"), inputs(), "the stack still holds a/p under a/q");
+    }
+
+    @Test
+    void sliderTurnsAccumulateAndAStockScreenLeavesThePage() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", dropdown("mode", "Mode", 0, "Off", "On"),
+                slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        inputs();
+        Object sub = openSlider(1);
+        SliderSession ss = PageScreens.sliderNow();
+        assertEquals(1, ss.slot());
+        assertEquals(6, ss.index());
+
+        PageScreens.sliderTurned(1, 2);
+        PageScreens.sliderTurned(1, 3);
+        PageScreens.sliderTurned(0, 1); // not the open slider's slot
+        assertEquals(Arrays.asList("value a/p/bass=2", "value a/p/bass=5"), inputs(), "from the last request");
+        PageScreens.sliderTurned(1, 10);
+        PageScreens.sliderTurned(1, 1); // at the end already: nothing to ask
+        assertEquals(Collections.singletonList("value a/p/bass=6"), inputs());
+
+        pages.refresh(publish(page("a/p", "Alpha", dropdown("mode", "Mode", 0, "Off", "On"),
+                slider("bass", "Bass", -6, 6, 3))));
+        assertEquals(9, ss.index(), "the plugin's value resets the index");
+        calls();
+
+        hmi.current = "stock:radio";
+        hmi.currentId = 1300014;
+        pages.subDisconnecting(sub);
+        assertEquals(Collections.singletonList("closed a/p"), inputs(), "a stock screen over it: the user left");
+        assertNull(PageScreens.sliderNow());
+        PageScreens.sliderTurned(1, 1);
+        assertEquals(Collections.emptyList(), inputs());
+    }
+
+    @Test
+    void sliderEntryGoneClosesTheSliderScreen() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        openSlider(0);
+        calls();
+        pages.refresh(publish(page("a/p", "Alpha", item("go", "Go"))));
+        assertEquals(Arrays.asList("rows [Go]", "build a/p 'Alpha'", "show screen3:a/p"), calls());
+        assertNull(PageScreens.sliderNow());
+    }
+
+    @Test
+    void dropdownPickSendsTheIndex() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", dropdown("mode", "Mode", 0, "Off", "Low", "High")));
+        pages.open("a/p", s, 0);
+        inputs();
+        PageScreens.typedChosen(0, 2);
+        PageScreens.typedChosen(0, 3); // no such option
+        PageScreens.typedChosen(1, 0); // no such slot
+        assertEquals(Collections.singletonList("value a/p/mode=2"), inputs());
+    }
+
+    @Test
+    void typedRowChangeRebuildsScreen() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go")));
+        pages.open("a/p", s, 0);
+        calls();
+        pages.refresh(publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 0))));
+        assertEquals(1, builds(), "a new typed row: a new screen");
+        assertEquals(1, hmi.layouts.get(1).typed().length);
+        pages.refresh(publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 4))));
+        assertEquals(0, builds(), "a new value only: the model (the applier's), no rebuild");
+        pages.refresh(publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Treble", -6, 6, 4))));
+        assertEquals(1, builds(), "a new label: its text id is the screen's");
+    }
+
+    /** F26: list row indexes skip typed entries. */
+    @Test
+    void typedEntryBetweenListRowsKeepsRowIndexes() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", toggle("t", "Rack", false), dropdown("mode", "Mode", 0, "a"),
+                item("go", "Go")));
+        pages.open("a/p", s, 0);
+        inputs();
+        PageScreens.listSelected(1);
+        assertEquals(Collections.singletonList("selected a/p/go"), inputs());
+    }
+
+    @Test
+    void sliderPressOnStaleSlotDoesNothing() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", dropdown("mode", "Mode", 0, "a"),
+                slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        PageScreens.sliderPressed(0); // a dropdown
+        PageScreens.sliderPressed(2); // no such slot
+        publish(page("a/p", "Alpha", dropdown("mode", "Mode", 0, "a"))); // the slider is gone (no refresh yet)
+        PageScreens.sliderPressed(1);
+        assertFalse(pages.navPending());
+        runJobs();
+        assertEquals(Collections.emptyList(), calls());
+    }
+
+    @Test
+    void sliderPressWhileBlockedDoesNothing() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        hmi.blocked = true;
+        PageScreens.sliderPressed(0);
+        assertFalse(pages.navPending());
+        runJobs();
+        assertEquals(Collections.emptyList(), calls());
+        assertNull(PageScreens.sliderNow());
+    }
+
+    // ---- fix round 1 (Task 5 review) -------------------------------------------------------------------------------
+
+    /**
+     * I1: a stock screen closed the page over the slider, then the HMI came back to that same 609501. It is the open
+     * page again (as the page screen is in that case): turns reach the plugin and BACK shows the page.
+     */
+    @Test
+    void sliderScreenComingBackAfterAStockScreenIsReadopted() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        inputs();
+        Object sub = openSlider(0);
+        calls();
+        hmi.current = "rvc";
+        hmi.currentId = 2100001;
+        pages.subDisconnecting(sub);
+        assertEquals(Collections.singletonList("closed a/p"), inputs());
+        assertFalse(pages.ownsSub(sub), "left: the SDK does not own it now");
+
+        hmi.current = sub;
+        hmi.currentId = HqcUiIds.SLIDER_SCREEN_ID;
+        pages.subConnected(sub);
+        assertEquals(Collections.singletonList("shown a/p"), inputs(), "the page is open again");
+        assertTrue(pages.ownsSub(sub), "BACK and the knob are the SDK's again");
+        PageScreens.sliderTurned(0, 1);
+        assertEquals(Collections.singletonList("value a/p/bass=1"), inputs());
+
+        pages.subBack();
+        runJobs();
+        assertEquals(Arrays.asList("rows [Go]", "build a/p 'Alpha'", "show screen3:a/p"), calls());
+        assertNull(PageScreens.sliderNow());
+    }
+
+    /** I1: a re-adopted slider whose entry is gone goes straight back to the page. */
+    @Test
+    void readoptedSliderWithoutItsEntryGoesBackToThePage() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        Object sub = openSlider(0);
+        hmi.current = "rvc";
+        pages.subDisconnecting(sub);
+        publish(page("a/p", "Alpha", item("go", "Go")));
+        calls();
+        inputs();
+        hmi.current = sub;
+        pages.subConnected(sub);
+        assertEquals(Collections.singletonList("shown a/p"), inputs());
+        runJobs();
+        assertEquals(Arrays.asList("rows [Go]", "build a/p 'Alpha'", "show screen3:a/p"), calls());
+    }
+
+    /** I1: a sub-screen the SDK does not own (unknown, or the runtime is down) leaves BACK to stock. */
+    @Test
+    void foreignOrDeadSubScreenIsNotOwned() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        assertFalse(pages.ownsSub("other"));
+        Object sub = openSlider(0);
+        assertTrue(pages.ownsSub(sub));
+        pages.subConnected("other"); // not one of ours: nothing adopted
+        assertTrue(pages.ownsSub(sub));
+        pages.close();
+        assertFalse(pages.ownsSub(sub), "down: stock handles its keys");
+    }
+
+    /**
+     * M1: a sub-screen that never connects (its show dropped or overtaken by a stock screen) is given up after
+     * {@link PageScreens#SUB_CONNECT_MS} on the monotonic clock: the page counts as left (PAGE_CLOSED).
+     */
+    @Test
+    void subScreenThatNeverConnectsUnderAStockScreenClosesThePage() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        Object page = hmi.current;
+        PageScreens.sliderPressed(0);
+        runJobs();
+        hmi.current = "stock:radio"; // a stock screen overtook the slider before it connected
+        hmi.currentId = 1300014;
+        pages.screenDisconnecting(page);
+        inputs();
+        calls();
+        assertTrue(pages.rebuildPending(), "the applier's tick runs the job that checks it");
+        now += PageScreens.SUB_CONNECT_MS - 1;
+        pages.refresh(s);
+        assertEquals(Collections.emptyList(), inputs(), "still within the bound");
+        calls(); // the rows, written under the sub-screen as usual
+        now += 2;
+        pages.refresh(s);
+        assertEquals(Collections.singletonList("closed a/p"), inputs());
+        assertFalse(pages.rebuildPending());
+        assertNull(PageScreens.sliderNow());
+        assertEquals(Collections.emptyList(), calls(), "no screen change: the user is elsewhere");
+    }
+
+    /** M1: the show was dropped and the page stayed: the sub is forgotten, the page stays open, presses work. */
+    @Test
+    void subScreenThatNeverConnectsOverThePageIsForgotten() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        Object page = hmi.current;
+        PageScreens.sliderPressed(0);
+        runJobs();
+        hmi.current = page; // the HMI never left the page
+        hmi.currentId = HqcUiIds.PAGE_SCREEN_ID;
+        inputs();
+        now += PageScreens.SUB_CONNECT_MS + 1;
+        pages.refresh(s);
+        assertEquals(Collections.emptyList(), inputs(), "the page is still open");
+        assertNull(PageScreens.sliderNow());
+        PageScreens.sliderPressed(0);
+        assertTrue(pages.navPending(), "the slider row works again");
+    }
+
+    /** M1: a pending change to the sub-screen, or a connect, is not given up. */
+    @Test
+    void subScreenOnItsWayIsKept() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        Object page = hmi.current;
+        PageScreens.sliderPressed(0);
+        runJobs();
+        Object sub = hmi.current;
+        hmi.current = page;
+        hmi.pendingId = HqcUiIds.SLIDER_SCREEN_ID;
+        now += PageScreens.SUB_CONNECT_MS + 1;
+        pages.refresh(s);
+        assertTrue(pages.ownsSub(sub), "on its way");
+        hmi.pendingId = -1;
+        hmi.current = sub;
+        pages.subConnected(sub);
+        assertFalse(pages.rebuildPending());
+        now += PageScreens.SUB_CONNECT_MS + 1;
+        pages.refresh(s);
+        assertTrue(pages.ownsSub(sub), "connected: kept");
+        assertTrue(PageScreens.sliderNow() != null);
+    }
+
+    // ---- dialogs (Task 6) ------------------------------------------------------------------------------------------
+
+    private static UiDialog confirm(long seq, String owner) {
+        return new UiDialog(seq, UiDialog.CONFIRM, owner, "Reset?", "All settings\nare lost", "Yes", "No", 0);
+    }
+
+    private static UiDialog speller(long seq, String owner, String initial) {
+        return new UiDialog(seq, UiDialog.SPELLER, owner, "Name", initial, null, null, 20);
+    }
+
+    /** Opens a/p if no page is up, then shows {@code d} over it and connects its screen; returns the screen. */
+    private Object showDialog(UiDialog d) throws Exception {
+        if (pages.shown() == null) {
+            pages.open("a/p", publish(page("a/p", "Alpha", item("go", "Go"))), 0);
+        }
+        Object page = hmi.current;
+        calls();
+        inputs();
+        pages.dialogChanged(d);
+        Object sub = hmi.current;
+        assertTrue(sub != page, "the dialog's screen is shown");
+        pages.screenDisconnecting(page); // the dialog screen replaced the page
+        pages.subConnected(sub);
+        calls();
+        // The runtime dismisses a dialog on another page's PAGE_SHOWN: its own screen must send no page event.
+        assertEquals(Collections.emptyList(), inputs(), "a dialog's screen sends no page event");
+        return sub;
+    }
+
+    /** Another page on screen (or a popup up): not shown, answered 0 at once with the owner's key. */
+    @Test
+    void dialogShownOnlyOverOwnersPage() throws Exception {
+        UiSnapshot s = publish(page("a/q", "Other", item("x", "X")), page("a/p", "Alpha", item("go", "Go")));
+        pages.open("a/q", s, 0);
+        calls();
+        inputs();
+        pages.dialogChanged(confirm(3, "a/p"));
+        assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs(), "not shown");
+        assertEquals(Collections.emptyList(), calls());
+        pages.dialogChanged(confirm(3, "a/p"));
+        assertEquals(Collections.emptyList(), inputs(), "answered once");
+
+        pages.dialogChanged(confirm(4, "a/q"));
+        assertEquals(Collections.emptyList(), inputs(), "over its owner's page: shown");
+        assertEquals(Arrays.asList("confirm 4 [Yes, No]", "show confirm2"), calls());
+        pages.subBack();
+        runJobs();
+        calls();
+        inputs();
+        hmi.blocked = true; // a popup over the page
+        pages.dialogChanged(speller(5, "a/q", "Bob"));
+        assertEquals(Collections.singletonList("done a/q/5=0:null"), inputs(), "the screen may not change");
+        assertEquals(Collections.emptyList(), calls());
+    }
+
+    /** A dialog over a CHOICE's sub-page: the shown key is the owner's {@code #} child. */
+    @Test
+    void dialogShownOverChoiceSubPage() throws Exception {
+        UiSnapshot s = publish(page("p/main#lang", "Language", new UiEntry(UiEntry.RADIO, "en", "English", null,
+                true, null)), page("p/main", "Main", item("go", "Go")));
+        pages.open("p/main#lang", s, 0);
+        calls();
+        inputs();
+        pages.dialogChanged(confirm(3, "p/main"));
+        assertEquals(Arrays.asList("confirm 3 [Yes, No]", "show confirm2"), calls());
+        assertEquals(Collections.emptyList(), inputs());
+        assertEquals("Reset?", PageScreens.dialogNow().title(), "its texts are served");
+        pages.dialogChanged(confirm(4, "p/mainx")); // a prefix, not a child: not shown
+        assertEquals(Collections.singletonList("done p/mainx/4=0:null"), inputs());
+    }
+
+    /** Row 0 is 1, row 1 is 0, BACK is 0; each answers once and re-shows the page (same rows, no pop). */
+    @Test
+    void confirmRowsAndBackAnswer() throws Exception {
+        long seq = 3;
+        for (int how = 0; how < 3; how++) {
+            Object sub = showDialog(confirm(seq, "a/p"));
+            assertTrue(pages.ownsSub(sub));
+            if (how < 2) {
+                PageScreens.confirmSelected(how);
+            } else {
+                pages.subBack();
+            }
+            assertEquals(Collections.singletonList("done a/p/" + seq + "=" + (how == 0 ? 1 : 0) + ":null"),
+                    inputs(), "answer " + how);
+            PageScreens.confirmSelected(0); // a second press before the page is back
+            pages.subBack();
+            assertEquals(Collections.emptyList(), inputs(), "one answer, " + how);
+            runJobs();
+            List<String> c = calls();
+            assertEquals(Arrays.asList("rows [Go]", "build a/p 'Alpha'"), c.subList(0, 2), "the page again");
+            assertEquals(Collections.emptyList(), inputs(), "no stack pop, no page event");
+            assertEquals("a/p", pages.shown().pageKey);
+            seq++;
+        }
+    }
+
+    /** The runtime withdrew the dialog: back to the page with no answer; a new seq replaces the screen. */
+    @Test
+    void withdrawnDialogReturnsWithoutAnswer() throws Exception {
+        showDialog(confirm(3, "a/p"));
+        pages.dialogChanged(null);
+        runJobs();
+        assertEquals(Arrays.asList("rows [Go]", "build a/p 'Alpha'", "show screen3:a/p"), calls());
+        assertEquals(Collections.emptyList(), inputs(), "no answer");
+        assertNull(PageScreens.dialogNow());
+
+        Object sub = showDialog(speller(4, "a/p", ""));
+        assertEquals(Collections.emptyList(), inputs());
+        pages.dialogChanged(confirm(5, "a/p")); // 4 withdrawn, 5 up at once
+        assertEquals(Arrays.asList("confirm 5 [Yes, No]", "show confirm5"), calls());
+        assertFalse(pages.ownsSub(sub));
+        pages.subDisconnecting(sub); // the old screen leaving is no user leaving
+        assertEquals(Collections.emptyList(), inputs(), "4 has no answer, the page stays open");
+        PageScreens.confirmSelected(0);
+        assertEquals(Collections.singletonList("done a/p/5=1:null"), inputs());
+    }
+
+    /** A stock screen over the dialog: DIALOG_DONE (dismissed) before the page's PAGE_CLOSED. */
+    @Test
+    void stockScreenOverDialogAnswersThenCloses() throws Exception {
+        Object sub = showDialog(confirm(3, "a/p"));
+        hmi.current = "stock:radio";
+        hmi.currentId = 1300014;
+        pages.subDisconnecting(sub);
+        assertEquals(Arrays.asList("done a/p/3=0:null", "closed a/p"), inputs());
+        assertFalse(pages.ownsSub(sub));
+        PageScreens.confirmSelected(0);
+        assertEquals(Collections.emptyList(), inputs());
+    }
+
+    /** The speller's screen leaving without BACK delivers its text once, before PAGE_CLOSED. */
+    @Test
+    void spellerDisconnectDeliversText() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("go", "Go"))), 0);
+        Object page = hmi.current;
+        calls();
+        inputs();
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Arrays.asList("speller 3 'Bob' max 20", "show speller2"), calls());
+        Object sub = hmi.current;
+        pages.screenDisconnecting(page);
+        pages.subConnected(sub);
+        PageScreens.spellerCommand(HqcUiIds.SPELLER_OPENED);
+        PageScreens.spellerTextChanged("Bo");
+        PageScreens.spellerTextChanged("Bon");
+        PageScreens.spellerCommand(HqcUiIds.SPELLER_CLOSED);
+        assertEquals(Collections.emptyList(), inputs(), "the band closing is not done");
+        hmi.current = "stock:phone";
+        pages.subDisconnecting(sub);
+        assertEquals(Arrays.asList("done a/p/3=0:Bon", "closed a/p"), inputs());
+    }
+
+    /** BACK on the speller is done with the model's text, once; its screen leaving after it adds nothing. */
+    @Test
+    void spellerBackIsDoneOnce() throws Exception {
+        Object sub = showDialog(speller(3, "a/p", "Bob"));
+        PageScreens.spellerTextChanged("Al");
+        hmi.spellerText = "Alf";
+        pages.subBack();
+        assertEquals(Collections.singletonList("done a/p/3=0:Alf"), inputs());
+        runJobs();
+        pages.subDisconnecting(sub);
+        assertEquals(Collections.emptyList(), inputs());
+    }
+
+    /** A dialog screen that never connects is answered (dismissed) when it is given up. */
+    @Test
+    void dialogThatNeverConnectsIsAnswered() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go")));
+        pages.open("a/p", s, 0);
+        Object page = hmi.current;
+        pages.dialogChanged(confirm(3, "a/p"));
+        hmi.current = page; // the show was dropped
+        inputs();
+        now += PageScreens.SUB_CONNECT_MS + 1;
+        pages.refresh(s);
+        assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs(), "the page stays open");
+    }
+
+    // ---- fix round 1 (Task 6 review) -------------------------------------------------------------------------------
+
+    private UiSnapshot publishWith(UiDialog d, UiPage... ps) {
+        Map<String, UiPage> m = new HashMap<String, UiPage>();
+        for (UiPage p : ps) {
+            m.put(p.key(), p);
+        }
+        UiSnapshot s = new UiSnapshot(++version, null, "", m, version, ps[0].key(), null, d, null);
+        table.publish(s);
+        return s;
+    }
+
+    /**
+     * I1: the page open and its dialog in one snapshot (PAGE_SHOWN went out before the page connected): the dialog
+     * waits for the page to connect, is not answered by that connect, and then shows and works.
+     */
+    @Test
+    void dialogWaitsForItsPageToConnect() throws Exception {
+        hmi.connectLater = true;
+        UiSnapshot s = publishWith(confirm(3, "a/p"), page("a/p", "Alpha", item("go", "Go")));
+        pages.open("a/p", s, 0);
+        pages.dialogChanged(s.dialog());
+        assertEquals(Arrays.asList("rows [Go]", "build a/p 'Alpha'", "show screen1:a/p"), calls(),
+                "no dialog over a pending page");
+        assertEquals(Collections.singletonList("shown a/p"), inputs(), "not answered");
+        assertTrue(pages.rebuildPending(), "the tick retries it");
+
+        Object page = hmi.lastShownScreen;
+        hmi.current = page;
+        hmi.currentId = HqcUiIds.PAGE_SCREEN_ID;
+        pages.screenConnected(page, "a/p", pages.shown().layout);
+        runJobs();
+        assertEquals(Arrays.asList("confirm 3 [Yes, No]", "show confirm2"), calls(), "shown once the page is up");
+        assertEquals(Collections.emptyList(), inputs());
+        hmi.current = hmi.lastShownScreen;
+        pages.subConnected(hmi.current);
+        PageScreens.confirmSelected(0);
+        assertEquals(Collections.singletonList("done a/p/3=1:null"), inputs());
+    }
+
+    /** I1: a dialog right after PAGE_SHOWN, the page never connecting: answered "not shown" after the bound. */
+    @Test
+    void dialogOverAPageThatNeverConnectsIsNotShown() throws Exception {
+        hmi.connectLater = true;
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go")));
+        pages.open("a/p", s, 0);
+        calls();
+        inputs();
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.emptyList(), inputs());
+        now += PageScreens.SUB_CONNECT_MS - 1;
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.emptyList(), inputs(), "still within the bound");
+        now += 2;
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs());
+        assertEquals(Collections.emptyList(), calls());
+        assertFalse(pages.rebuildPending());
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.emptyList(), inputs(), "once");
+    }
+
+    /** I2: the HMI throwing while a dialog is handled: it is answered (0, null) exactly once. */
+    @Test
+    void dialogChangedThatThrowsAnswersOnce() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("go", "Go"))), 0);
+        calls();
+        inputs();
+        hmi.failBlocked = true;
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs());
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        hmi.failBlocked = false;
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.emptyList(), inputs(), "once");
+        assertEquals(Collections.emptyList(), calls());
+    }
+
+    /** I3: a speller whose show throws never showed: answered null, not its initial text. */
+    @Test
+    void spellerWhoseShowFailsAnswersNull() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("go", "Go"))), 0);
+        inputs();
+        hmi.spellerText = "Bob"; // the model got the initial text before the show
+        hmi.failShow = true;
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs());
+    }
+
+    /** I3: a speller whose screen never connects never showed: answered null when it is given up. */
+    @Test
+    void spellerThatNeverConnectsAnswersNull() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go")));
+        pages.open("a/p", s, 0);
+        Object page = hmi.current;
+        hmi.spellerText = "Bob";
+        pages.dialogChanged(speller(3, "a/p", "Bob"));
+        hmi.current = page; // the show was dropped
+        inputs();
+        now += PageScreens.SUB_CONNECT_MS + 1;
+        pages.refresh(s);
+        assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs());
+    }
+
+    // ---- focus (bench findings B and C) ----------------------------------------------------------------------------
+
+    /** The focus the last page screen was built with (set by its menu once it connects). */
+    private int lastFocus() {
+        assertFalse(hmi.focuses.isEmpty(), "a page was built");
+        return hmi.focuses.get(hmi.focuses.size() - 1);
+    }
+
+    /**
+     * C: the choice sub-page opens on its marked option, every time (not on the row picked last). B: the pick and BACK
+     * both return to the CHOICE row. A fresh open is stock's first item.
+     */
+    @Test
+    void choicePageOpensOnTheMarkedOptionAndReturnsToTheChoiceRow() throws Exception {
+        UiSnapshot s = publish(page("p/main", "Main", item("a", "A"), item("b", "B"), language(1)), languages(true));
+        pages.open("p/main", s, 0);
+        assertEquals(PageScreens.NO_FOCUS, lastFocus(), "a fresh open: stock's first item");
+
+        hmi.focused = 2;
+        PageScreens.listSelected(2);
+        runJobs();
+        assertEquals("p/main#lang", pages.shown().pageKey);
+        assertEquals(1, lastFocus(), "English, the marked option");
+
+        hmi.focused = 0;
+        PageScreens.listSelected(0); // Deutsch
+        runJobs();
+        assertEquals("p/main", pages.shown().pageKey);
+        assertEquals(2, lastFocus(), "back on Language");
+
+        publish(page("p/main", "Main", item("a", "A"), item("b", "B"), language(0)), languages(false));
+        hmi.focused = 2;
+        PageScreens.listSelected(2);
+        runJobs();
+        assertEquals(0, lastFocus(), "opened again: Deutsch, now marked");
+        hmi.focused = 1;
+        pages.backPressed();
+        runJobs();
+        assertEquals("p/main", pages.shown().pageKey);
+        assertEquals(2, lastFocus(), "BACK without a pick: on Language too");
+    }
+
+    /** A choice page with no marked option opens on stock's first item. */
+    @Test
+    void choicePageWithoutAMarkOpensOnTheFirstItem() throws Exception {
+        UiPage none = page("p/main#lang", "Language", new UiEntry(UiEntry.RADIO, "0", "Deutsch", null, false, null),
+                new UiEntry(UiEntry.RADIO, "1", "English", null, false, null));
+        UiSnapshot s = publish(page("p/main", "Main", language(0)), none);
+        pages.open("p/main", s, 0);
+        PageScreens.listSelected(0);
+        runJobs();
+        assertEquals(PageScreens.NO_FOCUS, lastFocus());
+    }
+
+    /** B: slider BACK returns to the slider's own (typed) row. */
+    @Test
+    void sliderBackReturnsToTheSliderRow() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 0),
+                item("x", "X")));
+        pages.open("a/p", s, 0);
+        hmi.focused = PageScreens.typedFocus(0);
+        Object sub = openSlider(0);
+        hmi.focused = PageScreens.NO_FOCUS; // the page is off screen: its menu has no say
+        pages.subBack();
+        runJobs();
+        pages.subDisconnecting(sub);
+        assertEquals("a/p", pages.shown().pageKey);
+        assertEquals(PageScreens.typedFocus(0), lastFocus());
+    }
+
+    /** B: a confirm's answer returns to the row the page was on. */
+    @Test
+    void confirmAnswerReturnsToTheFocusedRow() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("go", "Go"), item("reset", "Reset"))), 0);
+        hmi.focused = 1;
+        showDialog(confirm(3, "a/p"));
+        PageScreens.confirmSelected(0);
+        runJobs();
+        assertEquals("a/p", pages.shown().pageKey);
+        assertEquals(1, lastFocus());
+    }
+
+    /** B, by entry key: rows added before the focused entry while the speller was up move the focus with it. */
+    @Test
+    void spellerDoneReturnsToTheSameEntryAfterRowsMoved() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("go", "Go"), item("name", "Name"))), 0);
+        hmi.focused = 1;
+        showDialog(speller(3, "a/p", "Bob"));
+        publish(page("a/p", "Alpha", item("new", "New"), item("go", "Go"), item("name", "Name"),
+                item("save", "Save name")));
+        pages.subBack();
+        runJobs();
+        assertEquals(Arrays.asList("rows [New, Go, Name, Save name]", "build a/p 'Alpha'"), calls().subList(0, 2));
+        assertEquals(2, lastFocus(), "still on Name");
+    }
+
+    /** B: the focused entry is gone when the page shows again: the nearest remaining row (same place, or the last). */
+    @Test
+    void goneEntryFocusesTheNearestRow() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("a", "A"), item("b", "B"), item("c", "C"))), 0);
+        hmi.focused = 1;
+        showDialog(confirm(3, "a/p"));
+        publish(page("a/p", "Alpha", item("a", "A"), item("c", "C")));
+        pages.subBack();
+        runJobs();
+        assertEquals(1, lastFocus(), "B's place: now C");
+
+        hmi.focused = 1;
+        showDialog(confirm(4, "a/p"));
+        publish(page("a/p", "Alpha", item("a", "A")));
+        pages.subBack();
+        runJobs();
+        assertEquals(0, lastFocus(), "past the end: the last row");
+
+        hmi.focused = 0;
+        showDialog(confirm(5, "a/p"));
+        publish(page("a/p", "Alpha", item("x", "X"), slider("bass", "Bass", -6, 6, 0)));
+        pages.subBack();
+        runJobs();
+        assertEquals(0, lastFocus(), "the first row's place");
+    }
+
+    /** B: a LINK's child page opens fresh; BACK from it returns to the LINK row. */
+    @Test
+    void linkChildOpensFreshAndBackReturnsToTheLinkRow() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go"), link("more", "More", "a/q")),
+                page("a/q", "Beta", item("x", "X"), item("y", "Y")));
+        pages.open("a/p", s, 0);
+        hmi.focused = 1;
+        PageScreens.listSelected(1);
+        runJobs();
+        assertEquals(PageScreens.NO_FOCUS, lastFocus(), "the child: stock's first item");
+        hmi.focused = 1;
+        pages.backPressed();
+        runJobs();
+        assertEquals(1, lastFocus(), "back on More");
+
+        PageScreens.listSelected(1);
+        runJobs();
+        assertEquals(PageScreens.NO_FOCUS, lastFocus(), "the child opened again: fresh, not where it was left");
+    }
+
+    /** A rebuild on refresh (new title) keeps the focus on the same entry; a new open starts fresh. */
+    @Test
+    void rebuildKeepsTheFocusedEntryAndANewOpenStartsFresh() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("a", "A"), item("b", "B"))), 0);
+        calls();
+        hmi.focused = 1;
+        pages.refresh(publish(page("a/p", "Alpha 2", item("new", "New"), item("a", "A"), item("b", "B"))));
+        assertEquals(Arrays.asList("rows [New, A, B]", "build a/p 'Alpha 2'"), calls().subList(0, 2));
+        assertEquals(2, lastFocus(), "still on B");
+
+        pages.backPressed();
+        runJobs();
+        UiInputs.userPressed();
+        pages.open("a/p", publish(page("a/p", "Alpha", item("a", "A"), item("b", "B"))), 0);
+        assertEquals(PageScreens.NO_FOCUS, lastFocus(), "a new open: stock's first item");
+    }
+
+    // ---- final review: INFO rows have no key (the hub's UiHub.toUiPage, PluginsMenu.info) --------------------------
+
+    /** Critical 1: slider BACK on a page with INFO rows above and below (inputs-demo's "Last:" row) shows the page. */
+    @Test
+    void sliderBackWithKeylessInfoRowsShowsThePage() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", info("v1.0"), item("go", "Go"), slider("bass", "Bass", -6, 6, 0),
+                info("Last: none")));
+        pages.open("a/p", s, 0);
+        hmi.focused = PageScreens.typedFocus(0);
+        Object sub = openSlider(0);
+        pages.subBack();
+        runJobs();
+        pages.subDisconnecting(sub);
+        assertNotNull(pages.shown(), "the page is shown again");
+        assertEquals("a/p", pages.shown().pageKey);
+        assertEquals(PageScreens.typedFocus(0), lastFocus());
+        assertFalse(log.snapshot().toString().contains("failed"), log.snapshot().toString());
+    }
+
+    /** Critical 1: MENU → Plugins → a plugin page → BACK: Plugins starts with an INFO row; BACK lands on it. */
+    @Test
+    void backOntoAPageThatStartsWithAKeylessInfoRow() throws Exception {
+        UiSnapshot s = publish(page("mibsdk/plugins", "Plugins", info("3 plugins"), link("a", "Alpha", "a/p"),
+                link("b", "Beta", "b/p")), page("a/p", "Alpha", info("v1.0 by x"), item("go", "Go")));
+        pages.open("mibsdk/plugins", s, 0);
+        hmi.focused = 2;
+        PageScreens.listSelected(2); // Beta: no page published, the stopped notice
+        runJobs();
+        pages.backPressed();
+        runJobs();
+        assertEquals("mibsdk/plugins", pages.shown().pageKey);
+        assertEquals(2, lastFocus(), "back on Beta");
+        hmi.focused = 1;
+        PageScreens.listSelected(1);
+        runJobs();
+        assertEquals("a/p", pages.shown().pageKey);
+        pages.backPressed();
+        runJobs();
+        assertEquals("mibsdk/plugins", pages.shown().pageKey, "BACK works from a page that starts with INFO too");
+        assertEquals(1, lastFocus());
+        assertFalse(log.snapshot().toString().contains("failed"), log.snapshot().toString());
+    }
+
+    /** Critical 1: a remembered INFO row (no key) is restored by its place; a rebuild on refresh too. */
+    @Test
+    void keylessInfoRowFocusIsRestoredByPlace() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("a", "A"), info("note"), item("b", "B"))), 0);
+        calls();
+        hmi.focused = 1;
+        pages.refresh(publish(page("a/p", "Alpha 2", item("a", "A"), info("note"), item("b", "B"), info("end"))));
+        assertEquals(Arrays.asList("rows [A, note, B, end]", "build a/p 'Alpha 2'"), calls().subList(0, 2));
+        assertEquals(1, lastFocus(), "the INFO row's place");
+        hmi.focused = 2;
+        pages.refresh(publish(page("a/p", "Alpha 3", info("new"), item("a", "A"), info("note"), item("b", "B"))));
+        assertEquals(3, lastFocus(), "a keyed row is found past the INFO rows");
+    }
+
+    /** Important 2: a slider below an INFO row opens; and a refresh with it open keeps it in sync. */
+    @Test
+    void sliderBelowAKeylessInfoRowOpens() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", info("hint"), slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        Object sub = openSlider(0);
+        assertEquals("slider 0", calls().get(0));
+        assertNotNull(PageScreens.sliderNow());
+        pages.refresh(publish(page("a/p", "Alpha", info("hint"), slider("bass", "Bass", -6, 6, 4))));
+        assertNotNull(PageScreens.sliderNow(), "still open: its entry is found past the INFO row");
+        assertTrue(pages.ownsSub(sub));
+        assertFalse(log.snapshot().toString().contains("failed"), log.snapshot().toString());
     }
 }

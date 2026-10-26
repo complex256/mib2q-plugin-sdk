@@ -1,0 +1,58 @@
+0 INFO mibsdk.hqc configurator: hmi=HMI_AU_MIB2_HQC_NAR_G22_C10_180803 safeMode=false wrapLoop=false wrappingEnabled=true uiEnabled=true hookServices=[org.dsi.ifc.carparkingsystem.DSICarParkingSystem]
+0 INFO mibsdk.hqc configurator: chain=de.audi.tghu.dsitrace.TraceConfigurator
+0 STATUS mibsdk ui system=sdk
+0 INFO mibsdk.hqc wrapped org.dsi.ifc.carparkingsystem.DSICarParkingSystem chain=TraceConfigurator
+0 INFO mibsdk.hqc activator: hmi=HMI_AU_MIB2_HQC_NAR_G22_C10_180803 adapter=hqc-nar-g22-c10
+0 STATUS mibsdk seam configurator=seen wrapping=true raw.parking=true
+0 STATUS mibsdk state persist=/mnt/persist/mibsdk ok ram=/ramdisk/mibsdk ok bootGuard=armed
+0 STATUS mibsdk durability persist=/mnt/persist/mibsdk fileSync=ok dirSync=unsupported (java.io.FileNotFoundException: /mnt/persist/mibsdk at java.io.RandomAccessFile.<init>(Unknown Source)) fsyncMs=0
+0 INFO mibsdk.hqc org.dsi.ifc.carparkingsystem.DSICarParkingSystem available after 0 ms (1 lookups)
+0 INFO mibsdk.hqc org.dsi.ifc.powermanagement.DSIPowerManagement available after 0 ms (1 lookups)
+0 STATUS mibsdk seam configurator=seen wrapping=true raw.parking=true
+0 STATUS mibsdk features=[hook.parking, slot.carmenu, slot.statusbar, ui.icons, ui.inputs, ui.pages, vehicle.ignition, vehicle.parking]
+0 STATUS mibsdk features=[hook.parking, slot.carmenu, slot.statusbar, ui.icons, ui.inputs, ui.pages, vehicle.ignition, vehicle.parking]
+0 INFO mibsdk.hqc de.audi.atip.base.IFrameworkAccess available after 0 ms (1 lookups)
+0 STATUS mibsdk runtime started adapter=hqc-nar-g22-c10 safeMode=false
+0 STATUS mibsdk heap free=50251140 total=62914560
+1007 INFO mibsdk plugins load in 30000 ms
+8009 STATUS mibsdk ui car=sdk
+8009 STATUS mibsdk ui status popup 609600 registered
+8009 STATUS mibsdk ui toast popup 609601 registered
+31660 STATUS bike-rack DISCOVERED discovered
+31660 STATUS crashy DISCOVERED discovered
+31660 STATUS daemon-status DISCOVERED discovered
+31660 STATUS hello-menu DISCOVERED discovered
+31660 STATUS hello DISCOVERED discovered
+31660 STATUS inputs-demo DISCOVERED discovered
+31660 STATUS bike-rack ENABLED enabled
+31660 INFO crashy mode=
+31660 INFO crashy no crash mode set; idle
+31660 STATUS crashy ENABLED enabled
+31660 STATUS daemon-status ENABLED enabled
+31660 STATUS hello-menu ENABLED enabled
+31660 INFO hello hello enabled
+31660 STATUS hello ENABLED enabled
+31660 STATUS inputs-demo ENABLED enabled
+32660 STATUS mibsdk ui status popup 609600 built
+32660 INFO mibsdk getImagePath 609105 -> ../mibsdk/icons-sdk/b22e926cb7632baa.png
+91670 INFO mibsdk boot healthy: 6 plugin(s) enabled for 60000 ms
+477736 INFO mibsdk getImagePath 609104 -> ../mibsdk/icons/inputs-demo/e8995a53ea8ea9f6.png
+512741 INFO inputs-demo action UiAction{page=inputs, item=lang, requestedOn=null, value=1, text=null}
+553748 INFO inputs-demo action UiAction{page=inputs, item=prog-next, requestedOn=null, value=null, text=null}
+564750 INFO inputs-demo action UiAction{page=inputs, item=swap, requestedOn=null, value=null, text=null}
+568750 INFO inputs-demo action UiAction{page=inputs, item=swap, requestedOn=null, value=null, text=null}
+584756 INFO inputs-demo action UiAction{page=inputs, item=confirm, requestedOn=null, value=null, text=null}
+587756 INFO inputs-demo action UiAction{page=inputs, item=null, requestedOn=null, value=1, text=null}
+599759 INFO inputs-demo action UiAction{page=inputs, item=confirm2, requestedOn=null, value=null, text=null}
+604759 INFO inputs-demo action UiAction{page=inputs, item=null, requestedOn=null, value=0, text=null}
+617761 INFO inputs-demo action UiAction{page=inputs, item=toast, requestedOn=null, value=null, text=null}
+617761 STATUS mibsdk ui toast popup 609601 built
+617761 INFO mibsdk getImagePath 609106 -> ../mibsdk/icons-sdk/938a64766c10ac49.png
+639765 INFO inputs-demo action UiAction{page=inputs, item=toast, requestedOn=null, value=null, text=null}
+658769 INFO inputs-demo action UiAction{page=inputs, item=name, requestedOn=null, value=null, text=null}
+680786 INFO inputs-demo action UiAction{page=inputs, item=null, requestedOn=null, value=null, text=BCA}
+694788 INFO inputs-demo action UiAction{page=inputs, item=save, requestedOn=null, value=null, text=null}
+737811 INFO inputs-demo action UiAction{page=inputs, item=vol, requestedOn=null, value=6, text=null}
+760814 INFO inputs-demo action UiAction{page=inputs, item=level, requestedOn=null, value=3, text=null}
+831837 INFO inputs-demo action UiAction{page=inputs, item=wifi, requestedOn=true, value=null, text=null}
+834837 INFO inputs-demo action UiAction{page=inputs, item=wifi, requestedOn=false, value=null, text=null}

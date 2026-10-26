@@ -153,5 +153,25 @@ class PluginBikeRackTest(unittest.TestCase):
             self.assertEqual(255, big[int(0.785 * 72)][x][3], "the rim at %s" % cx)
 
 
+INPUTS_DEMO_ICONS = os.path.join(REPO, "plugins", "inputs-demo", "src", "main", "icons")
+
+
+class InputsDemoTest(unittest.TestCase):
+    def test_committed_icon_is_tool_output(self):
+        with tempfile.TemporaryDirectory() as t:
+            run("--inputs-demo", t)
+            self.assertEqual(["plug-24.png"], sorted(os.listdir(t)))
+            self.assertEqual(listing(INPUTS_DEMO_ICONS), listing(t), "inputs-demo's icon is stale: rerun --inputs-demo")
+
+    def test_a_white_plug_on_transparent(self):
+        w, h, rows = decode(load_tool().plugin_inputs_demo()["plug-24.png"])
+        self.assertEqual((24, 24), (w, h))
+        self.assertTrue(all(p[:3] == (255, 255, 255) for r in rows for p in r))
+        self.assertTrue(any(p[3] == 255 for r in rows for p in r))
+        self.assertTrue(any(p[3] == 0 for r in rows for p in r))
+        self.assertEqual(0, rows[4][12][3], "the gap between the two prongs")
+        self.assertEqual(255, rows[10][12][3], "the body")
+
+
 if __name__ == "__main__":
     unittest.main()

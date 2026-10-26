@@ -16,8 +16,8 @@ import mibsdk.platform.UiText;
  * The SDK's own pages (owner {@code mibsdk}): the Plugins menu, one page per plugin and the SDK page; and the
  * mapping of input on them to runtime actions. Pure functions: every text, including plugin-supplied names, is
  * cleaned and cut to the {@link PageSpec} limits here. LINK entries are navigated by the adapter; only toggles, the
- * status move items and the reset item reach {@link #handle}. Toggles render as {@code [on]}/{@code [off]} text and
- * the move items are plain knob-selectable rows: neither needs a widget unproven on this HMI.
+ * status move items and the reset item reach {@link #handle}. Toggles render as native checkboxes on the HMI
+ * ({@code [on]}/{@code [off]} text only in FakeUi) and the move items are plain knob-selectable rows.
  */
 final class PluginsMenu {
 

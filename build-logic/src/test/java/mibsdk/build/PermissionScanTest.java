@@ -180,4 +180,59 @@ class PermissionScanTest {
         assertEquals(1, PermissionScan.run(own).needsApi());
         assertEquals(List.of(), PermissionScan.run(own).apiFindings());
     }
+
+    private static final String PAGESPEC_STUB = "package mibsdk.api; public final class PageSpec {"
+            + " public enum Kind { ITEM, TOGGLE, INFO, LINK, CHOICE, DROPDOWN, SLIDER, PROGRESS }"
+            + " public PageSpec toggle(String id, String label, boolean on) { return this; }"
+            + " public PageSpec choice(String id, String label, String[] options, int selected) { return this; } }";
+
+    @Test
+    void findsApi5MembersAndKindFields() throws Exception {
+        // The stub is on the classpath, not scanned: a plugin's classes never include the SDK's own.
+        File stub = Fixtures.compileV48(tmp.resolve("stub"), Map.of("mibsdk.api.PageSpec", PAGESPEC_STUB));
+        File choice = Fixtures.compileV48(tmp.resolve("choice"), Map.of(
+                "fixture.C", "package fixture; import mibsdk.api.*; public class C {"
+                        + " public PageSpec page(PageSpec p) { return p.choice(\"c\", \"C\", new String[] {\"a\"}, 0); } }"), stub);
+        PermissionScan.Result r = PermissionScan.run(choice);
+        assertEquals(5, r.needsApi());
+        assertEquals(List.of("fixture/C.page -> PageSpec.choice"), r.apiFindings());
+
+        File kind = Fixtures.compileV48(tmp.resolve("kind"), Map.of(
+                "fixture.K", "package fixture; import mibsdk.api.*; public class K {"
+                        + " public boolean slider(PageSpec.Kind k) { return k == PageSpec.Kind.SLIDER; }"
+                        + " public boolean toggle(PageSpec.Kind k) { return k == PageSpec.Kind.TOGGLE; } }"), stub);
+        r = PermissionScan.run(kind);
+        assertEquals(5, r.needsApi());
+        assertEquals(List.of("fixture/K.slider -> PageSpec.Kind.SLIDER"), r.apiFindings());
+
+        File toggle = Fixtures.compileV48(tmp.resolve("toggle"), Map.of(
+                "fixture.T", "package fixture; import mibsdk.api.*; public class T {"
+                        + " public PageSpec page(PageSpec p) { return p.toggle(\"t\", \"T\", true); } }"), stub);
+        assertEquals(1, PermissionScan.run(toggle).needsApi());
+        assertEquals(List.of(), PermissionScan.run(toggle).apiFindings());
+
+        assertEquals(1, ApiLevels.since("mibsdk/api/PageSpec", "toggle", "(Ljava/lang/String;Ljava/lang/String;Z)Lmibsdk/api/PageSpec;"));
+        assertEquals(4, ApiLevels.since("mibsdk/api/Ui", "icon", "(Ljava/lang/String;I)Lmibsdk/api/Icon;"));
+        assertEquals(5, ApiLevels.since("mibsdk/api/UiAction", "<init>",
+                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/Integer;Ljava/lang/String;)V"));
+        assertEquals(1, ApiLevels.since("mibsdk/api/UiAction", "<init>",
+                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;)V"));
+    }
+
+    @Test
+    void tooNewReportsEachSitesOwnLevel() throws Exception {
+        String ui = "package mibsdk.api; public interface Ui {"
+                + " Icon icon(String name); Icon icon(String name, int colour); void toast(String text, Icon icon); }";
+        File both = Fixtures.compileV48(tmp.resolve("both"), Map.of("mibsdk.api.Icon", ICON_STUB,
+                "mibsdk.api.Ui", ui, "fixture.B",
+                "package fixture; import mibsdk.api.*; public class B {"
+                        + " public void status(Ui ui) { ui.icon(\"x\", Icon.OWN_COLOURS); }"
+                        + " public void toast(Ui ui) { ui.toast(\"hi\", null); } }"));
+        PermissionScan.Result r = PermissionScan.run(both);
+        assertEquals(5, r.needsApi());
+        assertEquals(List.of("fixture/B.status -> Ui.icon(String,int) needs api 4",
+                "fixture/B.toast -> Ui.toast needs api 5"), r.tooNew(3));
+        assertEquals(List.of("fixture/B.toast -> Ui.toast needs api 5"), r.tooNew(4));
+        assertEquals(List.of(), r.tooNew(5));
+    }
 }

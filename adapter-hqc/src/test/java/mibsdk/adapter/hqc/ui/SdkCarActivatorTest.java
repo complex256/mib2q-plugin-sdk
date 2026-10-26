@@ -176,20 +176,22 @@ class SdkCarActivatorTest {
         assertNotNull(SdkCarModelBank.statusModels());
         int[] ids = bank.getAllModelIds();
         assertEquals(before.length, ids.length);
-        int popup = HqcUiIds.MODEL_COUNT - HqcUiIds.STATUS_POPUP_VISIBLE_MODEL + HqcUiIds.MODEL_BASE;
-        int sdk = HqcUiIds.ROW_MODEL_COUNT + 1 + popup;
+        int sdk = HqcUiIds.MODEL_COUNT - 4; // +10, +34, +40, +41 are reserved
         int at = ids.length - sdk;
-        for (int i = 0; i < HqcUiIds.ROW_MODEL_COUNT; i++) {
-            assertEquals(HqcUiIds.MODEL_BASE + i, ids[at++]);
+        for (int i = 0; i < HqcUiIds.MODEL_COUNT; i++) {
+            if (i == HqcUiIds.ROW_MODEL_COUNT || i == 34 || i >= 40) {
+                continue;
+            }
+            assertEquals(HqcUiIds.MODEL_BASE + i, ids[at++], "the SDK ids ascending, without the reserved ones");
         }
-        assertEquals(HqcUiIds.PAGE_LIST_MODEL, ids[at++], "then the page list");
-        for (int i = 0; i < popup; i++) {
-            assertEquals(HqcUiIds.STATUS_POPUP_VISIBLE_MODEL + i, ids[at++], "then the status popup's");
-        }
+        assertEquals(ids.length, at);
         assertEquals(1147 + sdk, ids.length, "CarModelBank's 1147 stock ids, then the SDK's");
     }
 
-    /** Task 11: the page ListModel (3 columns) exists on demand; the reserved id between it and the rows has none. */
+    /**
+     * Task 11: the page ListModel (5 columns since native inputs, F14) exists on demand; the reserved id between it
+     * and the rows has none.
+     */
     @Test
     void bankGrowsThePageListModel() throws Exception {
         SdkGlobals.uiEnabled = true;
@@ -197,7 +199,7 @@ class SdkCarActivatorTest {
         de.audi.atip.hmi.model.ListModel list = SdkCarModelBank.pageList();
         assertNotNull(list);
         assertSame(list, SdkCarModelBank.pageList(), "created once");
-        assertEquals(3, list.getMaxColumns());
+        assertEquals(6, list.getMaxColumns()); // + the row id column (bench B)
         int reserved = BASE_INDEX + HqcUiIds.ROW_MODEL_COUNT;
         bank.createModel(reserved);
         Field f = de.audi.atip.hmi.model.AbstractModelBank.class.getDeclaredField("models");

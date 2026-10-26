@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -16,8 +17,13 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import mibsdk.api.Features;
 import mibsdk.api.Icon;
+import mibsdk.api.Listener;
 import mibsdk.api.Page;
 import mibsdk.api.PageSpec;
 import mibsdk.api.PermissionDeniedException;
@@ -25,6 +31,8 @@ import mibsdk.api.Permissions;
 import mibsdk.api.StatusItem;
 import mibsdk.api.StockIcons;
 import mibsdk.api.Subscription;
+import mibsdk.api.Ui;
+import mibsdk.api.UiAction;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiPage;
@@ -654,5 +662,316 @@ class UiImplTest {
         assertFalse(before.equals(after), "a new snapshot");
         item.set("Hello");
         assertTrue(published().statusParts().get(0).icon().ownColours(), "set(text) keeps the colour too");
+    }
+
+    // ---- api 5: inputs ----
+
+    private static final String[] LEVELS = {"Low", "Mid", "High"};
+
+    @Test
+    void withoutInputsNewKindsAreInfoText() {
+        UiImpl a = ui("a");
+        PageSpec spec = PageSpec.of("main", "A")
+                .choice("lvl", "Level", LEVELS, 1)
+                .slider("bass", "Bass", -6, 6, 1, 3, true)
+                .progress("pg", "Progress", 60)
+                .dropdown("lang", "Language", new String[] {"English", "Deutsch"}, 0)
+                .toggle("t", "Toggle", true)
+                .choice("dis", "Disabled", LEVELS, 2)
+                .enabled("dis", false) // A1: becomes INFO, so enabled(...) is not re-applied to it
+                .enabled("t", false);
+        Page p = a.page(spec, null);
+        List<UiEntry> e = published().pages().get("a/main").entries();
+        String[] want = {"Level: Mid", "Bass: 3", "Progress: 60%", "Language: English"};
+        for (int i = 0; i < want.length; i++) {
+            assertEquals(UiEntry.INFO, e.get(i).kind(), want[i]);
+            assertEquals(want[i], e.get(i).label());
+        }
+        assertEquals(UiEntry.TOGGLE, e.get(4).kind());
+        assertTrue(e.get(4).on());
+        assertEquals(UiEntry.INFO, e.get(5).kind());
+        assertEquals("Disabled: High", e.get(5).label());
+
+        p.update(spec.slider("treble", "Treble", 0, 10, 2, 4, false));
+        e = published().pages().get("a/main").entries();
+        assertEquals("Treble: 4", e.get(6).label(), "update() fits the spec too");
+
+        PageSpec fitted = UiImpl.forUnit(spec, false, true);
+        assertFalse(fitted.entries().get(4).enabled(), "a list row keeps enabled(false)");
+        assertEquals(PageSpec.Kind.INFO, fitted.entries().get(5).kind());
+        assertSame(spec, UiImpl.forUnit(spec, true, true), "nothing to fit");
+    }
+
+    @Test
+    void withoutIconsItemIconsAreDropped() throws Exception {
+        File dir = installIcons("a", "hello-20=fedcba9876543210,20,20\n");
+        UiImpl a = ui("a", UiTestRuntime.UI_FEATURES, ALL_PERMS, new Registrations(), DECLARED, dir);
+        Icon icon = a.icon("hello-20");
+        PageSpec spec = PageSpec.of("main", "A").item("i", "Item", "v", icon).enabled("i", false);
+        PageSpec fitted = UiImpl.forUnit(spec, true, false);
+        assertNull(fitted.entries().get(0).icon());
+        assertEquals("v", fitted.entries().get(0).value());
+        assertFalse(fitted.entries().get(0).enabled());
+        assertSame(icon, UiImpl.forUnit(spec, false, true).entries().get(0).icon());
+        a.page(spec, null);
+        UiEntry item = published().pages().get("a/main").entries().get(0);
+        assertEquals(UiEntry.ITEM, item.kind());
+        assertEquals("v", item.value());
+    }
+
+    @Test
+    void itemIconLargerThan24Throws() throws Exception {
+        File dir = installIcons("a", "big=0123456789abcdef,72,72\nhello-20=fedcba9876543210,20,20\n");
+        for (Set<String> f : Arrays.asList(withIcons(UiTestRuntime.UI_FEATURES), Collections.<String>emptySet())) {
+            final UiImpl a = ui("a", f, ALL_PERMS, new Registrations(), DECLARED, dir);
+            final PageSpec big = PageSpec.of("main", "A").item("i", "I", null, a.icon("big"));
+            IllegalArgumentException x = assertThrows(IllegalArgumentException.class, () -> a.page(big, null));
+            assertEquals("item icon 'big' is 72x72; page items take at most 24x24", x.getMessage());
+            final Page p = a.page(PageSpec.of("main", "A").item("i", "I", null, a.icon("hello-20"))
+                    .item("s", "S", null, a.stockIcon(StockIcons.STAR)), null);
+            assertThrows(IllegalArgumentException.class, () -> p.update(big), "update checks too");
+            p.cancel();
+        }
+    }
+
+    @Test
+    void itemIconOfAnotherPluginThrows() throws Exception {
+        File dir = installIcons("a", "hello-20=fedcba9876543210,20,20\n");
+        final UiImpl a = ui("a", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        UiImpl b = ui("b", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        final PageSpec foreign = PageSpec.of("main", "A").item("i", "I", null, b.icon("hello-20"));
+        assertThrows(IllegalArgumentException.class, () -> a.page(foreign, null));
+        final PageSpec made = PageSpec.of("main", "A").item("i", "I", null, new Icon() {
+        });
+        assertThrows(IllegalArgumentException.class, () -> a.page(made, null));
+        assertTrue(published().pages().isEmpty());
+    }
+
+    /** Runs nothing on {@code exec} until the returned latch is counted down. */
+    private static CountDownLatch block(SerialExecutor exec) {
+        final CountDownLatch gate = new CountDownLatch(1);
+        exec.submit("block", new Runnable() {
+            public void run() {
+                try {
+                    gate.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        return gate;
+    }
+
+    private static void drain(SerialExecutor exec) throws InterruptedException {
+        final CountDownLatch done = new CountDownLatch(1);
+        exec.submit("drain", new Runnable() {
+            public void run() {
+                done.countDown();
+            }
+        });
+        assertTrue(done.await(10, TimeUnit.SECONDS));
+    }
+
+    private UiImpl ui(String id, SerialExecutor exec, Set<String> perms) {
+        return new UiImpl(id, hub, new LiveFeatures(UiTestRuntime.UI_FEATURES), perms, exec, new Registrations(),
+                Collections.<String>emptyList(), new File(tmp, "icons/" + id));
+    }
+
+    private static Listener<UiAction> recorder(final AtomicInteger calls, final AtomicReference<UiAction> last) {
+        return new Listener<UiAction>() {
+            public void on(UiAction a) {
+                calls.incrementAndGet();
+                last.set(a);
+            }
+        };
+    }
+
+    @Test
+    void inertConfirmAnswersNoOnce() throws Exception {
+        SerialExecutor exec = executor("plugin-a");
+        UiImpl a = ui("a", exec, ALL_PERMS);
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<UiAction> last = new AtomicReference<UiAction>();
+        assertNotNull(a.confirm("Reset?", "All settings\nare lost", null, null, recorder(calls, last)));
+        drain(exec);
+        drain(exec);
+        assertEquals(1, calls.get());
+        assertEquals(Integer.valueOf(0), last.get().value());
+
+        CountDownLatch gate = block(exec);
+        AtomicInteger cancelled = new AtomicInteger();
+        a.confirm("T", "x", "Ja", "Nein", recorder(cancelled, last)).cancel();
+        gate.countDown();
+        drain(exec);
+        assertEquals(0, cancelled.get(), "cancel() before the executor ran withdraws the answer");
+        a.confirm("T", "x", null, null, null); // no listener: nothing to answer, not an error
+    }
+
+    @Test
+    void inertSpellerAnswersNullOnce() throws Exception {
+        SerialExecutor exec = executor("plugin-a");
+        UiImpl a = ui("a", exec, ALL_PERMS);
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<UiAction> last = new AtomicReference<UiAction>();
+        a.speller("Name", "abc", 12, recorder(calls, last));
+        drain(exec);
+        drain(exec);
+        assertEquals(1, calls.get());
+        assertNotNull(last.get());
+        assertNull(last.get().text());
+
+        CountDownLatch gate = block(exec);
+        AtomicInteger cancelled = new AtomicInteger();
+        Subscription s = a.speller("Name", null, Ui.MAX_SPELLER, recorder(cancelled, last));
+        s.cancel();
+        s.cancel();
+        gate.countDown();
+        drain(exec);
+        assertEquals(0, cancelled.get());
+    }
+
+    @Test
+    void toastNeedsStatusbarPermission() throws Exception {
+        final UiImpl noPerm = ui("b", executor("plugin-b"), Collections.<String>emptySet());
+        PermissionDeniedException d = assertThrows(PermissionDeniedException.class, () -> noPerm.toast("hi", null));
+        assertEquals(Permissions.UI_SLOT_STATUS_BAR, d.permission());
+
+        File dir = installIcons("a", "big=0123456789abcdef,72,72\nhello-20=fedcba9876543210,20,20\n");
+        final UiImpl a = ui("a", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        a.toast("Saved", a.icon("hello-20"));
+        a.toast("Saved", null);
+        a.toast(null, a.stockIcon(StockIcons.CHECK));
+        final Icon big = a.icon("big");
+        assertThrows(IllegalArgumentException.class, () -> a.toast("x", big), "the status-icon rule");
+        UiImpl b = ui("b2", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations(), DECLARED, dir);
+        final Icon foreign = b.icon("hello-20");
+        assertThrows(IllegalArgumentException.class, () -> a.toast("x", foreign));
+    }
+
+    @Test
+    void spellerMaxLenOutOfRangeThrows() {
+        final UiImpl a = ui("a");
+        for (final int bad : new int[] {0, 33, -1}) {
+            assertThrows(IllegalArgumentException.class, () -> a.speller("T", "", bad, null), "maxLen " + bad);
+        }
+        a.speller("T", "", 1, null);
+        a.speller("T", "", 32, null);
+    }
+
+    // ---- live confirm, speller and toast (Task 3) ----
+
+    private static Set<String> withInputs(Set<String> features) {
+        Set<String> s = new HashSet<String>(features);
+        s.add(Features.UI_INPUTS);
+        return s;
+    }
+
+    /** Hands every input the FakeUi queued to the hub, as the dispatcher does, then publishes. */
+    private void pump() throws InterruptedException {
+        mibsdk.platform.UiInput in;
+        while ((in = table.poll(0)) != null) {
+            hub.dispatch(in);
+        }
+        hub.publishNow();
+    }
+
+    /** Plugin {@code a} with UI_INPUTS (and icons), its page {@code main} open in {@code fake}. */
+    private UiImpl openOn(mibsdk.adapter.fake.FakeUi fake, SerialExecutor exec, List<String> icons, File iconDir)
+            throws InterruptedException {
+        UiImpl a = new UiImpl("a", hub, new LiveFeatures(withIcons(withInputs(UiTestRuntime.UI_FEATURES))),
+                ALL_PERMS, exec, new Registrations(), icons, iconDir);
+        a.page(PageSpec.of("main", "Main").item("x", "X", null), null).open();
+        hub.publishNow();
+        assertEquals("a/main", fake.openPageKey());
+        pump(); // PAGE_SHOWN
+        return a;
+    }
+
+    @Test
+    void confirmRoundTripThroughFakeUi() throws Exception {
+        mibsdk.adapter.fake.FakeUi fake = new mibsdk.adapter.fake.FakeUi(table);
+        SerialExecutor exec = executor("plugin-a");
+        UiImpl a = openOn(fake, exec, Collections.<String>emptyList(), null);
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<UiAction> last = new AtomicReference<UiAction>();
+        a.confirm("Reset?", "All settings\nare lost", null, "Keep", recorder(calls, last));
+        hub.publishNow();
+        assertEquals("confirm:Reset?|All settings\nare lost|Yes|Keep", fake.dialog());
+        fake.answer(1);
+        assertNull(fake.dialog(), "answered: the screen is gone");
+        pump();
+        drain(exec);
+        assertEquals(1, calls.get());
+        assertEquals("main", last.get().pageId());
+        assertEquals(Integer.valueOf(1), last.get().value());
+
+        a.confirm("Again?", "x", null, null, recorder(calls, last));
+        hub.publishNow();
+        fake.leave(); // BACK = No
+        pump();
+        drain(exec);
+        assertEquals(2, calls.get());
+        assertEquals(Integer.valueOf(0), last.get().value());
+
+        Subscription s = a.confirm("Gone?", "x", null, null, recorder(calls, last));
+        hub.publishNow();
+        assertNotNull(fake.dialog());
+        s.cancel();
+        hub.publishNow();
+        assertNull(fake.dialog(), "cancel takes it off screen");
+        drain(exec);
+        assertEquals(2, calls.get(), "and never answers");
+    }
+
+    @Test
+    void spellerLeaveDeliversTypedText() throws Exception {
+        mibsdk.adapter.fake.FakeUi fake = new mibsdk.adapter.fake.FakeUi(table);
+        SerialExecutor exec = executor("plugin-a");
+        UiImpl a = openOn(fake, exec, Collections.<String>emptyList(), null);
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<UiAction> last = new AtomicReference<UiAction>();
+        a.speller("Name", "Bo", 6, recorder(calls, last));
+        hub.publishNow();
+        assertEquals("speller:Name|Bo", fake.dialog());
+        fake.type("Bob Smith");
+        assertEquals("speller:Name|Bob Smith", fake.dialog());
+        fake.leave();
+        pump();
+        drain(exec);
+        assertEquals(1, calls.get());
+        assertEquals("main", last.get().pageId());
+        assertEquals("Bob Sm", last.get().text(), "cut hard to maxLen, no \"...\"");
+
+        a.speller("Name", "Al", 6, recorder(calls, last));
+        hub.publishNow();
+        fake.leave(); // nothing typed: the initial text
+        pump();
+        drain(exec);
+        assertEquals(2, calls.get());
+        assertEquals("Al", last.get().text());
+    }
+
+    @Test
+    void toastShowsWithOwnIconTag() throws Exception {
+        mibsdk.adapter.fake.FakeUi fake = new mibsdk.adapter.fake.FakeUi(table);
+        File dir = installIcons("a", "hello-20=fedcba9876543210,20,20\nbig=0123456789abcdef,72,72\n");
+        final UiImpl a = openOn(fake, executor("plugin-a"), DECLARED, dir);
+        assertNull(fake.toast());
+        a.toast("Saved", a.icon("hello-20", Icon.OWN_COLOURS));
+        hub.publishNow();
+        assertEquals("[png:fedcba9876543210+own] Saved", fake.toast());
+        a.toast("Done", a.stockIcon(StockIcons.CHECK));
+        hub.publishNow();
+        assertEquals("[check] Done", fake.toast());
+        a.toast("Plain", null);
+        hub.publishNow();
+        assertEquals("Plain", fake.toast());
+        final Icon big = a.icon("big");
+        assertThrows(IllegalArgumentException.class, () -> a.toast("x", big), "the status-icon rule");
+
+        UiImpl noInputs = ui("b", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations());
+        noInputs.toast("Inert", null);
+        hub.publishNow();
+        assertEquals("Plain", fake.toast(), "inert without UI_INPUTS");
     }
 }

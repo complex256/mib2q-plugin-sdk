@@ -22,6 +22,7 @@ Usage (python3 -I tools/make_builtin_icons.py ...):
   --fixtures DIR       writes the named PNG test vectors (build-logic/src/test/resources/png/; mibpkg copies them)
   --plugin-sample DIR  writes hello-menu's hello.png (72x72) and hello-20.png (20x20): half white, half blue
   --plugin-bike-rack DIR  writes bike-rack's bike.png (72x72) and bike-20.png (20x20): a white bicycle
+  --inputs-demo DIR    writes inputs-demo's plug-24.png (24x24, an item icon): the built-in white plug
 """
 import math
 import os
@@ -311,6 +312,11 @@ def plugin_bike_rack():
     return {"bike.png": png(72, 72, render(72, 72, BIKE)), "bike-20.png": status(BIKE)}
 
 
+def plugin_inputs_demo():
+    """inputs-demo's plug-24.png: the built-in plug glyph drawn over the whole 24x24 item-icon cell (tinted)."""
+    return {"plug-24.png": png(24, 24, render(24, 24, GLYPHS["plug"]))}
+
+
 # --------------------------------------------------------------------------------------------------------- fixtures
 
 def _paeth(a, b, c):
@@ -430,9 +436,10 @@ def write_all(directory, files):
 def main(argv):
     opts, i = {}, 0
     while i < len(argv):
-        if argv[i] not in ("--icons", "--fixtures", "--plugin-sample", "--plugin-bike-rack") or i + 1 >= len(argv):
+        if argv[i] not in ("--icons", "--fixtures", "--plugin-sample", "--plugin-bike-rack",
+                           "--inputs-demo") or i + 1 >= len(argv):
             sys.exit("usage: make_builtin_icons.py [--icons DIR] [--fixtures DIR] [--plugin-sample DIR]"
-                     " [--plugin-bike-rack DIR]")
+                     " [--plugin-bike-rack DIR] [--inputs-demo DIR]")
         opts[argv[i]] = argv[i + 1]
         i += 2
     if not opts:
@@ -445,6 +452,8 @@ def main(argv):
         write_all(opts["--plugin-sample"], plugin_sample())
     if "--plugin-bike-rack" in opts:
         write_all(opts["--plugin-bike-rack"], plugin_bike_rack())
+    if "--inputs-demo" in opts:
+        write_all(opts["--inputs-demo"], plugin_inputs_demo())
 
 
 if __name__ == "__main__":

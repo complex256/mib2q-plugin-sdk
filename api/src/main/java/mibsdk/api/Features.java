@@ -13,6 +13,14 @@ public final class Features {
      * rows and items show without them.
      */
     public static final String UI_ICONS = "ui.icons";
+    /**
+     * The unit draws api 5 input entries (choice, dropdown, slider, progress) and shows {@link Ui#confirm},
+     * {@link Ui#toast} and {@link Ui#speller}. Without it those entries show as text lines and confirm/toast/speller
+     * are inert; fixed for a boot. Item icons follow {@link #UI_ICONS}, and disabled rows need neither. Needs api 5.
+     *
+     * @since api 5
+     */
+    public static final String UI_INPUTS = "ui.inputs";
 
     private Features() {
     }

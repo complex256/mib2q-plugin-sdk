@@ -213,7 +213,7 @@ class SdkRuntimeUiTest {
         UiSnapshot s = r.await(x -> x.pages().containsKey("mibsdk/sdk"), "publishes the SDK page");
         assertEquals("Plugins", s.carRows().get(0).label());
         assertEquals("", s.statusLine());
-        assertTrue(hasInfo(s, "mibsdk/sdk", "API 4 · adapter " + r.fake.id()));
+        assertTrue(hasInfo(s, "mibsdk/sdk", "API 5 · adapter " + r.fake.id()));
         assertTrue(hasInfo(s, "mibsdk/sdk", "Safe mode: off"));
         assertTrue(hasInfo(s, "mibsdk/sdk", "Boot guard: ok"));
 
@@ -467,5 +467,48 @@ class SdkRuntimeUiTest {
         r.rt.reload("alpha");
         r.awaitState("alpha", PluginState.ENABLED);
         r.await(s -> "ZZ AA".equals(s.statusLine()), "the file is re-read at reload");
+    }
+
+    /** A page with every input kind; logs "action <item> <value> <requestedOn>" per action. */
+    private static final String INPUTS_PAGE = ""
+            + "ctx.ui().page(PageSpec.of(\"main\", \"Inputs\")\n"
+            + "    .choice(\"lang\", \"Language\", new String[] {\"English\", \"Deutsch\"}, 0)\n"
+            + "    .dropdown(\"lvl\", \"Level\", new String[] {\"Off\", \"Low\", \"Mid\"}, 0)\n"
+            + "    .slider(\"bal\", \"Balance\", -6, 6, 1, 0, true)\n"
+            + "    .progress(\"dl\", \"Download\", 60)\n"
+            + "    .toggle(\"wifi\", \"Wi-Fi\", false)\n"
+            + "    .item(\"off\", \"Off\", null).enabled(\"off\", false),\n"
+            + "  a -> ctx.log().info(\"action \" + a.itemId() + \" \" + a.value() + \" \" + a.requestedOn()));\n";
+
+    @Test
+    void pluginSeesEveryInputAction() throws Exception {
+        runtime(Features.UI_INPUTS);
+        r.plugin("inp", "Inputs", UI_PERMS, INPUTS_PAGE, null);
+        r.start();
+        r.await(s -> s.pages().containsKey("inp/main#lang"), "publishes the page and its choice sub-page");
+        mibsdk.adapter.fake.FakeUi ui = new mibsdk.adapter.fake.FakeUi(r.table);
+        ui.select("inp/main", "lang");
+        ui.select("inp/main#lang", "1");
+        r.awaitCount("inp", "action lang 1 null", 1);
+        ui.pick("inp/main", "lvl", 2);
+        r.awaitCount("inp", "action lvl 2 null", 1);
+        ui.pick("inp/main", "lvl", 7); // out of range: dropped
+        ui.turn("inp/main", "bal", 99); // clamped to max
+        r.awaitCount("inp", "action bal 6 null", 1);
+        ui.turn("inp/main", "bal", -2);
+        r.awaitCount("inp", "action bal -2 null", 1);
+        ui.toggle("inp/main", "wifi");
+        r.awaitCount("inp", "action wifi null true", 1);
+        ui.select("inp/main", "off"); // disabled: FakeUi sends nothing
+        r.table.input(new UiInput(UiInput.ENTRY_SELECTED, "inp/main", "off", false)); // nor does the hub pass it
+        r.table.input(new UiInput(UiInput.ENTRY_SELECTED, "inp/main", "dl", false)); // progress: no input
+        Thread.sleep(200);
+        int actions = 0;
+        for (String line : r.rt.log().snapshot()) {
+            if (line.indexOf(" inp action ") >= 0) {
+                actions++;
+            }
+        }
+        assertEquals(5, actions, r.rt.log().snapshot().toString());
     }
 }

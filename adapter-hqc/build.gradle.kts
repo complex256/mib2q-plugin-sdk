@@ -49,6 +49,8 @@ val hostStockJar = tasks.register<HostStockJarTask>("hostStockJar") {
         // The System activator and factory (HMISystem= takeover); also the status popup's label font, popup 65's.
         "de/audi/tghu/system/hmi/",
         "de/audi/tghu/hmi/",
+        // The speller screen's field and band fonts (Connectivity's FontFactory, F11).
+        "de/audi/tghu/connectivity/",
         "de/esolutions/hmi/",
         "de/esolutions/fw/util/commons/"))
     outputJar.set(layout.buildDirectory.file("host-stock/stock-host.jar"))

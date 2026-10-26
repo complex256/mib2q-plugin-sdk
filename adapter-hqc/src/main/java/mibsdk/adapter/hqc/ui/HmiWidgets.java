@@ -18,6 +18,11 @@ import mibsdk.adapter.hqc.SdkGlobals;
  * text-length change moves every cell. A popup built later starts from
  * {@link SdkStatusPopup#wanted} itself.
  *
+ * <p>The toast popup ({@link SdkToastPopup#current}, once built) gets its icons' place when the toast's text length
+ * moved it, its id icon's bitmaps when the built-in icon changed, and both icons' colour indices when the colour flag
+ * changed, then one repaint (F5). A hidden toast is left as it is: hiding it is a model write. A popup built later
+ * starts from {@link SdkToastPopup#wanted}.
+ *
  * <p>The main menu's Plugins row ({@code SdkGlobals.mainMenuRow}, read from SdkGlobals so no System factory class is
  * loaded) gets {@code setVisible} when its wanted visibility changed or screen 46 was rebuilt with a new row; per Boot B
  * the change shows at the next ring re-layout. Each new {@code SdkGlobals.mainMenuWizard} gets
@@ -65,6 +70,7 @@ final class HmiWidgets {
             HmiWidgetState last = applied;
             applied = want;
             applyStatus(want.status(), last.status());
+            applyToast(want.toast(), last.toast());
             applyMainMenu(want.mainMenuRowVisible());
             MenuItemController[] rows = SdkCarScreenFactory.sdkRows;
             for (int slot = 0; rows != null && slot < rows.length && slot < HqcUiIds.ROW_SLOTS; slot++) {
@@ -126,6 +132,30 @@ final class HmiWidgets {
             }
         } catch (Throwable t) {
             // the popup keeps its bounds and icons; the rows go on
+        }
+    }
+
+    /** The toast popup's icon place, id icon and colours; isolated from the rest. */
+    private static void applyToast(SdkToastPopup.Part want, SdkToastPopup.Part last) {
+        try {
+            SdkToastPopup p = SdkToastPopup.current;
+            if (p == null || !want.visible || want.sameDrawn(last)) {
+                return;
+            }
+            SdkToastPopup.Part from = last.visible ? last : null; // after a hidden one: set everything again
+            boolean repaint = false;
+            if (from == null || want.iconX() != from.iconX()) {
+                p.place(want);
+                repaint = true;
+            }
+            if (p.icons(want, from)) {
+                repaint = true;
+            }
+            if (repaint) {
+                p.redraw(); // once per job
+            }
+        } catch (Throwable t) {
+            // the toast keeps its icon; the rest goes on
         }
     }
 

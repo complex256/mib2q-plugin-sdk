@@ -41,10 +41,11 @@ public final class HqcPlatform implements PlatformAdapter {
             Arrays.asList(new String[] {Features.PARKING, Features.IGNITION, Features.HOOK_PARKING})));
     private static final Set<String> FEATURES_UI = Collections.unmodifiableSet(new HashSet<String>(
             Arrays.asList(new String[] {Features.PARKING, Features.IGNITION, Features.SLOT_CAR_MENU, Features.UI_PAGES,
-                Features.SLOT_STATUS_BAR, Features.UI_ICONS})));
+                Features.SLOT_STATUS_BAR, Features.UI_ICONS, Features.UI_INPUTS})));
     private static final Set<String> FEATURES_HOOKED_UI = Collections.unmodifiableSet(new HashSet<String>(
             Arrays.asList(new String[] {Features.PARKING, Features.IGNITION, Features.HOOK_PARKING,
-                Features.SLOT_CAR_MENU, Features.UI_PAGES, Features.SLOT_STATUS_BAR, Features.UI_ICONS})));
+                Features.SLOT_CAR_MENU, Features.UI_PAGES, Features.SLOT_STATUS_BAR, Features.UI_ICONS,
+                Features.UI_INPUTS})));
 
     private final BundleContext ctx;
     private final Clock clock;
@@ -91,7 +92,7 @@ public final class HqcPlatform implements PlatformAdapter {
      * (wrapping enabled and its raw object recorded): otherwise no parking hook point ever fires, and plugins must
      * see {@code has(HOOK_PARKING) == false}. The runtime reads this again before it loads plugins and on every
      * {@link PlatformHost#featuresChanged()}. With {@code SdkGlobals.uiEnabled} (fixed for the boot) also
-     * SLOT_CAR_MENU, UI_PAGES, SLOT_STATUS_BAR and UI_ICONS.
+     * SLOT_CAR_MENU, UI_PAGES, SLOT_STATUS_BAR, UI_ICONS and UI_INPUTS (every native input widget exists, Task 7).
      */
     public Set<String> features() {
         boolean hooked = SdkGlobals.wrappingEnabled && RawServices.get(DSICarParkingSystem.class.getName()) != null;

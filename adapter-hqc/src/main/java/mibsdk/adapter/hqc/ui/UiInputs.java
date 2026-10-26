@@ -46,6 +46,12 @@ final class UiInputs {
     }
 
     /** Milliseconds since the last SDK press, or {@code Long.MAX_VALUE} if none was recorded. Never throws. */
+    /** Now on {@link #clock}, or -1 without one. */
+    static long now() {
+        Clock c = clock;
+        return c == null ? -1 : c.uptimeMs();
+    }
+
     static long sinceLastPress() {
         try {
             Clock c = clock;

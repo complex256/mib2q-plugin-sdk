@@ -18,9 +18,9 @@ import mibsdk.adapter.hqc.SdkGlobals;
  * CarScreenFactory plus the SDK's pre-allocated rows at the end of the Car selection drawer: the Plugins row (slot
  * 0, visible) and {@link HqcUiIds#PLUGIN_ROW_SLOTS} plugin rows shown or hidden by their visibility models. Labels
  * come from {@link #getText} (live, from {@code SdkGlobals.uiSlots}), and so does the SDK page title
- * ({@link HqcUiIds#TEXT_PAGE_TITLE}). It also registers and builds the SDK status popup
- * {@link HqcUiIds#POPUP_SDK_STATUS} ({@link SdkStatusPopup}), recording how that went in
- * {@code SdkGlobals.statusPopup}.
+ * ({@link HqcUiIds#TEXT_PAGE_TITLE}) and the input texts ({@link InputTextIds}). It also registers and builds the SDK status popup
+ * {@link HqcUiIds#POPUP_SDK_STATUS} ({@link SdkStatusPopup}) and the toast popup {@link HqcUiIds#POPUP_SDK_TOAST}
+ * ({@link SdkToastPopup}), recording how that went in {@code SdkGlobals.statusPopup} and {@code toastPopup}.
  * Every override runs on a stock thread (HMIEvent; the popup stubs on the startup dispatcher): it reads only volatile
  * SDK state, builds stock widgets, catches Throwable and falls back to the stock result.
  */
@@ -39,7 +39,7 @@ final class SdkCarScreenFactory extends CarScreenFactory {
 
     private final TextIds texts = new TextIds(HqcUiIds.TEXT_BASE);
 
-    /** Orders the {@code SdkGlobals.statusPopup} moves (stock threads only; a few instructions under it). */
+    /** Orders the {@code SdkGlobals.statusPopup} and {@code toastPopup} moves (stock threads; a few instructions). */
     private static final Object POPUP_STATE_LOCK = new Object();
 
     SdkCarScreenFactory(IFrameworkAccess fw) {
@@ -197,35 +197,72 @@ final class SdkCarScreenFactory extends CarScreenFactory {
     }
 
     /**
-     * The stock stubs plus the SDK status popup's ({@code SdkGlobals.statusPopup} := 1), unless the popup already
-     * failed this boot (-1, sticky: no stub). On any Throwable: the stock stubs, and -1.
+     * The stock stubs, then the SDK status popup's ({@code SdkGlobals.statusPopup} := 1) and the toast popup's
+     * ({@code SdkGlobals.toastPopup} := 1), each unless that popup already failed this boot (-1, sticky: no stub). The
+     * two are independent (F24): the toast has its own slot, so its stub stays while the status line is on popup 65,
+     * and a stub that throws marks only its own popup -1. On any other Throwable: the stock stubs.
      */
     public IPartialPopupController[] getPartialPopupStubs(int terminal) {
         IPartialPopupController[] stock = super.getPartialPopupStubs(terminal);
         try {
-            if (SdkGlobals.statusPopup == -1) {
+            IPartialPopupController status = null;
+            if (SdkGlobals.statusPopup != -1) {
+                try {
+                    status = stub(HqcUiIds.POPUP_SDK_STATUS, HqcUiIds.STATUS_POPUP_VISIBLE_MODEL,
+                            HqcUiIds.POPUP_SDK_PRIORITY, HqcUiIds.POPUP_SDK_SLOT, HqcUiIds.POPUP_SDK_ZPM_SLOT,
+                            HqcUiIds.POPUP_SDK_TYPE, terminal);
+                } catch (Throwable t) {
+                    popupState(-1, "failed reason=stub " + t);
+                }
+            }
+            IPartialPopupController toast = null;
+            if (SdkGlobals.toastPopup != -1) {
+                try {
+                    toast = stub(HqcUiIds.POPUP_SDK_TOAST, HqcUiIds.TOAST_VISIBLE_MODEL, HqcUiIds.POPUP_TOAST_PRIORITY,
+                            HqcUiIds.POPUP_TOAST_SLOT, HqcUiIds.POPUP_TOAST_ZPM_SLOT, HqcUiIds.POPUP_TOAST_TYPE,
+                            terminal);
+                } catch (Throwable t) {
+                    toastState(-1, "failed reason=stub " + t);
+                }
+            }
+            if (status == null && toast == null) {
                 return stock;
             }
             int n = stock == null ? 0 : stock.length;
-            IPartialPopupController[] all = new IPartialPopupController[n + 1];
+            IPartialPopupController[] all =
+                    new IPartialPopupController[n + (status != null ? 1 : 0) + (toast != null ? 1 : 0)];
             if (n > 0) {
                 System.arraycopy(stock, 0, all, 0, n);
             }
-            all[n] = new PartialPopupStub(HqcUiIds.POPUP_SDK_STATUS, HqcUiIds.STATUS_POPUP_VISIBLE_MODEL,
-                    HqcUiIds.POPUP_SDK_STUB_NO_MODEL, HqcUiIds.POPUP_SDK_PRIORITY, HqcUiIds.POPUP_SDK_SLOT,
-                    HqcUiIds.POPUP_SDK_ZPM_SLOT, true, HqcUiIds.POPUP_SDK_TYPE, terminal, HqcUiIds.POPUP_SDK_STUB_KIND,
-                    null, true, true);
-            popupState(1, "registered");
+            if (status != null) {
+                all[n++] = status;
+            }
+            if (toast != null) {
+                all[n] = toast;
+            }
+            if (status != null) {
+                popupState(1, "registered");
+            }
+            if (toast != null) {
+                toastState(1, "registered");
+            }
             return all;
         } catch (Throwable t) {
-            popupState(-1, "failed reason=stub " + t);
             return stock;
         }
     }
 
+    /** An SDK popup's stub: popup 65's arguments ({@code SystemScreenFactory.getPartialPopupStubs}) but these. */
+    private static PartialPopupStub stub(int id, int model, int priority, int slot, int zpmSlot, int type,
+            int terminal) {
+        return new PartialPopupStub(id, model, HqcUiIds.POPUP_SDK_STUB_NO_MODEL, priority, slot, zpmSlot, true, type,
+                terminal, HqcUiIds.POPUP_SDK_STUB_KIND, null, true, true);
+    }
+
     /**
-     * Builds the SDK status popup ({@code SdkGlobals.statusPopup} := 2); on any Throwable null, and -1. Once the popup
-     * failed this boot, null without a build. Other ids: stock.
+     * Builds the SDK status popup ({@code SdkGlobals.statusPopup} := 2) or the toast popup ({@code toastPopup} := 2);
+     * on any Throwable null, and that popup's state -1 (the other's untouched). Once a popup failed this boot, null
+     * without a build. Other ids: stock.
      */
     public IPartialPopupController getPartialPopup(int id, int terminal) {
         if (id == HqcUiIds.POPUP_SDK_STATUS) {
@@ -241,26 +278,53 @@ final class SdkCarScreenFactory extends CarScreenFactory {
                 return null;
             }
         }
+        if (id == HqcUiIds.POPUP_SDK_TOAST) {
+            try {
+                if (SdkGlobals.toastPopup == -1) {
+                    return null;
+                }
+                IPartialPopupController p = SdkToastPopup.build(this, terminal);
+                toastState(2, "built");
+                return p;
+            } catch (Throwable t) {
+                toastState(-1, "failed reason=build " + t);
+                return null;
+            }
+        }
         return super.getPartialPopup(id, terminal);
     }
 
-    /**
-     * Moves {@code SdkGlobals.statusPopup} to {@code state}, never away from -1 (sticky) and never from 2 back to 1;
-     * logs each move once. Never throws.
-     */
+    /** {@code SdkGlobals.statusPopup}, as {@link #move}. */
     private static void popupState(int state, String what) {
+        move(false, state, what);
+    }
+
+    /** {@code SdkGlobals.toastPopup}, as {@link #move}. Never throws. */
+    private static void toastState(int state, String what) {
+        move(true, state, what);
+    }
+
+    /**
+     * Moves the status popup's state ({@code toast} false) or the toast popup's to {@code state}, never away from -1
+     * (sticky) and never from 2 back to 1; logs each move once. Never throws.
+     */
+    private static void move(boolean toast, int state, String what) {
         boolean moved;
         synchronized (POPUP_STATE_LOCK) {
-            int now = SdkGlobals.statusPopup;
+            int now = toast ? SdkGlobals.toastPopup : SdkGlobals.statusPopup;
             moved = now != -1 && now != state && !(now == 2 && state == 1);
             if (moved) {
-                SdkGlobals.statusPopup = state;
+                if (toast) {
+                    SdkGlobals.toastPopup = state;
+                } else {
+                    SdkGlobals.statusPopup = state;
+                }
             }
         }
         if (moved) {
             try {
-                SdkGlobals.LOG.append(state == -1 ? "ERROR" : "STATUS", "mibsdk", "ui status popup "
-                        + HqcUiIds.POPUP_SDK_STATUS + " " + what);
+                SdkGlobals.LOG.append(state == -1 ? "ERROR" : "STATUS", "mibsdk", "ui " + (toast ? "toast" : "status")
+                        + " popup " + (toast ? HqcUiIds.POPUP_SDK_TOAST : HqcUiIds.POPUP_SDK_STATUS) + " " + what);
             } catch (Throwable ignored) {
                 // logging never breaks the HMI
             }
@@ -269,7 +333,7 @@ final class SdkCarScreenFactory extends CarScreenFactory {
 
     public String getText(int id) {
         try {
-            String s = id == HqcUiIds.TEXT_PAGE_TITLE ? PageScreens.title() : texts.textFor(id, SdkGlobals.uiSlots);
+            String s = sdkText(id);
             if (s != null) {
                 return s;
             }
@@ -281,7 +345,7 @@ final class SdkCarScreenFactory extends CarScreenFactory {
 
     public String getAltText(int id) {
         try {
-            String s = id == HqcUiIds.TEXT_PAGE_TITLE ? PageScreens.title() : texts.textFor(id, SdkGlobals.uiSlots);
+            String s = sdkText(id);
             if (s != null) {
                 return s;
             }
@@ -289,5 +353,17 @@ final class SdkCarScreenFactory extends CarScreenFactory {
             // stock text
         }
         return super.getAltText(id);
+    }
+
+    /**
+     * The SDK's text for {@code id}, or null for a stock id: the input texts first ({@link InputTextIds}: typed rows,
+     * the slider screen, dialogs), then the page title and the drawer rows' labels. Reads volatile state only.
+     */
+    private String sdkText(int id) {
+        String s = InputTextIds.textFor(id, PageScreens.shownNow(), PageScreens.sliderNow(), PageScreens.dialogNow());
+        if (s != null) {
+            return s;
+        }
+        return id == HqcUiIds.TEXT_PAGE_TITLE ? PageScreens.title() : texts.textFor(id, SdkGlobals.uiSlots);
     }
 }
