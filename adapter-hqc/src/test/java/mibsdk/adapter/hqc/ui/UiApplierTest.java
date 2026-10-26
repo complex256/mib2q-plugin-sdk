@@ -99,7 +99,12 @@ class UiApplierTest {
         public boolean rebuildPending() {
             return rebuildPending;
         }
+
+        public PageScreens.Shown shown() {
+            return shownPage;
+        }
     };
+    private volatile PageScreens.Shown shownPage;
     private volatile Runnable onItemIcons = () -> { };
     private volatile ItemIcons rendererIcons = ItemIcons.NONE;
     private final List<Integer> refreshIcons = new java.util.concurrent.CopyOnWriteArrayList<Integer>();
@@ -1149,5 +1154,63 @@ class UiApplierTest {
         sink.runHeld();
         assertTrue(drain().contains("menu=on"));
         assertTrue(drainPopup().contains("id0.bitmaps=[609100]"));
+    }
+
+    /**
+     * F6: the typed rows' pooled models are written on mibsdk-ui for the shown layout's entries only (not another
+     * page's, not an entry the shown screen lacks), each on a change, and all again for a new screen generation.
+     */
+    @Test
+    void typedModelsFollowShownLayout() throws Exception {
+        List<String> typed = new ArrayList<String>();
+        UiApplier.TypedModels m = new UiApplier.TypedModels() {
+            public void choice(int slot, int index) {
+                typed.add("c" + slot + "=" + index);
+            }
+
+            public void range(int slot, int steps, int medial, int index) {
+                typed.add("r" + slot + "=" + steps + "/" + medial + "/" + index);
+            }
+        };
+        Clock clock = () -> now;
+        UiApplier[] self = new UiApplier[1];
+        HmiPoster poster = new HmiPoster(sink, () -> self[0].wake(), clock, HmiPoster.PENDING_DEADLINE_MS);
+        self[0] = new UiApplier(table, rows, status, pages, poster, clock, log, ids, BuiltinIcons.NONE,
+                new HmiWidgets(), () -> m);
+        self[0].claimLive();
+        UiApplier a = self[0];
+
+        UiEntry mode = new UiEntry(UiEntry.DROPDOWN, "mode", "Mode", null, false, null)
+                .withOptions(new String[] {"a", "b", "c"}).withNumber(1);
+        UiEntry bass = new UiEntry(UiEntry.SLIDER, "bass", "Bass", null, false, null).withRange(-6, 6, 1, true)
+                .withNumber(2);
+        UiEntry level = new UiEntry(UiEntry.SLIDER, "lvl", "Level", null, false, null).withRange(0, 10, 2, false)
+                .withNumber(4);
+        UiPage shownMain = new UiPage("p/main", "Main", Arrays.asList(mode, bass));
+        Map<String, UiPage> pm = new HashMap<String, UiPage>();
+        pm.put("p/main", new UiPage("p/main", "Main", Arrays.asList(mode, bass, level)));
+        pm.put("p/other", new UiPage("p/other", "Other", Collections.singletonList(
+                new UiEntry(UiEntry.DROPDOWN, "x", "X", null, false, null).withOptions(new String[] {"a", "b"}))));
+        publish("", Collections.<String>emptyList(), pm, 0, null);
+        a.step(0);
+        assertEquals(Collections.emptyList(), typed, "no page shown: nothing");
+
+        shownPage = new PageScreens.Shown("p/main", PageLayout.of(shownMain, ItemIcons.NONE), 1);
+        a.step(0);
+        assertEquals(Arrays.asList("c0=1", "r1=12/6/8"), typed, "the shown layout's slots only, in index space");
+        typed.clear();
+        a.step(0);
+        assertEquals(Collections.emptyList(), typed, "unchanged: no writes");
+
+        pm.put("p/main", new UiPage("p/main", "Main", Arrays.asList(mode, bass.withNumber(-6), level)));
+        publish("", Collections.<String>emptyList(), pm, 0, null);
+        a.step(0);
+        assertEquals(Collections.singletonList("r1=12/6/0"), typed, "a changed value: that slot only");
+        typed.clear();
+
+        PageLayout both = PageLayout.of(pm.get("p/main"), ItemIcons.NONE);
+        shownPage = new PageScreens.Shown("p/main", both, 2);
+        a.step(0);
+        assertEquals(Arrays.asList("c0=1", "r1=12/6/0", "r2=5/0/2"), typed, "a new screen: every slot again");
     }
 }

@@ -4,8 +4,8 @@ import mibsdk.platform.UiSnapshot;
 
 /**
  * Draws SDK pages. {@link #open}, {@link #refresh}, {@link #close} and {@link #runPendingNav} run inside an
- * {@link HmiPoster} job, on HMIEvent; {@link #closePending}, {@link #navPending} and {@link #itemIcons} are called on
- * {@code mibsdk-ui}.
+ * {@link HmiPoster} job, on HMIEvent; {@link #closePending}, {@link #navPending}, {@link #itemIcons} and
+ * {@link #shown} are called on {@code mibsdk-ui}.
  */
 interface PageRenderer {
 
@@ -49,6 +49,12 @@ interface PageRenderer {
     /** On {@code mibsdk-ui}: the item icons' image ids for the pages drawn from now on (kept in a volatile field). */
     void itemIcons(ItemIcons ids);
 
+    /**
+     * The page screen shown last (its key, layout and generation), or null: the applier writes the typed rows' pooled
+     * models for it. Read on {@code mibsdk-ui} (a volatile field).
+     */
+    PageScreens.Shown shown();
+
     /** No SDK pages. */
     PageRenderer NONE = new PageRenderer() {
         public void open(String pageKey, UiSnapshot s, long requestAgeMs) {
@@ -76,6 +82,10 @@ interface PageRenderer {
         }
 
         public void itemIcons(ItemIcons ids) {
+        }
+
+        public PageScreens.Shown shown() {
+            return null;
         }
     };
 }

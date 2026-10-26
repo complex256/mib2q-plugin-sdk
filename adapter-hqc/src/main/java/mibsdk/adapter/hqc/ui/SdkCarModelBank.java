@@ -5,7 +5,10 @@ import de.audi.atip.hmi.model.HMIModel;
 import de.audi.atip.hmi.model.LabelModel;
 import de.audi.atip.hmi.model.ListListener;
 import de.audi.atip.hmi.model.ListModel;
+import de.audi.atip.hmi.model.RangeListener;
+import de.audi.atip.hmi.model.RangeModel;
 import de.audi.atip.hmi.model.ResourceLocatorModel;
+import de.audi.atip.hmi.model.SpellerModel;
 import de.audi.atip.hmi.model.listener.DefaultChoiceListener;
 import de.audi.atip.model.CarModelBank;
 import mibsdk.adapter.hqc.SdkGlobals;
@@ -14,12 +17,17 @@ import mibsdk.adapter.hqc.SdkGlobals;
  * CarModelBank grown at {@link HqcUiIds#MODEL_BASE} (spike A's technique): a visibility ChoiceModel per drawer slot,
  * the selection ChoiceModel shared by the SDK rows, the SDK page's ListModel ({@link HqcUiIds#PAGE_LIST_MODEL}), and
  * the status popup's models (its visibility ChoiceModel, 7 LabelModels and 6 ResourceLocatorModels, from
- * {@link HqcUiIds#STATUS_POPUP_VISIBLE_MODEL}).
+ * {@link HqcUiIds#STATUS_POPUP_VISIBLE_MODEL}), the typed rows' pooled models (4 ChoiceModels from
+ * {@link HqcUiIds#TYPED_CHOICE_MODEL_0}, 4 RangeModels from {@link HqcUiIds#TYPED_RANGE_MODEL_0}), the confirm
+ * ListModel, the SpellerModel and the toast's ChoiceModel, LabelModel and ResourceLocatorModel. {@code +10},
+ * {@code +34}, {@code +40} and {@code +41} are reserved with no model.
  *
  * <p>Built on LSD's startup thread (arrays only: no thread, no I/O). The stock framework creates the models on
  * HMIEvent, through {@link #createModel}, when the drawer is first built; once every row model exists the bank
  * publishes them as {@code SdkGlobals.uiRowModels}. The selection listener only drops the press into
- * {@code SdkGlobals.UI}; the page list's listener only hands the row to {@link PageScreens#listSelected}.
+ * {@code SdkGlobals.UI}; the page list's listener only hands the row to {@link PageScreens#listSelected}; the typed
+ * ChoiceModels' listener hands the pick to {@link PageScreens#typedChosen} and the RangeModels' the knob turn to
+ * {@link PageScreens#sliderTurned}. The typed models are written only on {@code mibsdk-ui} ({@link #typedModels}).
  */
 final class SdkCarModelBank extends CarModelBank {
 
@@ -27,10 +35,14 @@ final class SdkCarModelBank extends CarModelBank {
     private static final int BASE_INDEX = HqcUiIds.MODEL_BASE - HqcUiIds.CAR_MODULE * 100000;
     /** Index of the page ListModel; the reserved ids between the row models and it have no model. */
     private static final int PAGE_LIST_INDEX = BASE_INDEX + HqcUiIds.PAGE_LIST_MODEL - HqcUiIds.MODEL_BASE;
-    /** Index of the status popup's first model; it and the rest of the SDK range are the popup's. */
+    /** Index of the status popup's first model; it and the next {@link #POPUP_MODELS} are the popup's (+12..+25). */
     private static final int POPUP_INDEX = BASE_INDEX + HqcUiIds.STATUS_POPUP_VISIBLE_MODEL - HqcUiIds.MODEL_BASE;
-    private static final int POPUP_MODELS = HqcUiIds.MODEL_COUNT - (POPUP_INDEX - BASE_INDEX);
-    /** The SDK model ids the bank serves: the row models, then the page list, then the status popup's. */
+    private static final int POPUP_MODELS = HqcUiIds.STATUS_FILE_ICON_MODEL_1 + HqcUiIds.STATUS_CELLS
+            - HqcUiIds.STATUS_POPUP_VISIBLE_MODEL;
+    /** Indices of the typed rows' first ChoiceModel and first RangeModel. */
+    private static final int TYPED_CHOICE_INDEX = index(HqcUiIds.TYPED_CHOICE_MODEL_0);
+    private static final int TYPED_RANGE_INDEX = index(HqcUiIds.TYPED_RANGE_MODEL_0);
+    /** The SDK model ids the bank serves, ascending: every id of the SDK range but the reserved ones. */
     private static final int[] SDK_IDS = sdkIds();
 
     /** The bank SDK pages write their rows to; null until built. */
@@ -43,6 +55,8 @@ final class SdkCarModelBank extends CarModelBank {
     private final ChoiceModel[] rowVisibility = new ChoiceModel[HqcUiIds.ROW_SLOTS];
     /** The status popup's models, by handle; created once with them ({@link #statusModels}). */
     private StatusModels statusModels; // guarded by this
+    /** The typed rows' pooled models, by handle; created once with them ({@link #typedModels}). */
+    private TypedHandle typedModels; // guarded by this
 
     SdkCarModelBank() {
         int stockLen = this.models.length;
@@ -61,15 +75,25 @@ final class SdkCarModelBank extends CarModelBank {
     }
 
     private static int[] sdkIds() {
-        int[] ids = new int[HqcUiIds.ROW_MODEL_COUNT + 1 + POPUP_MODELS];
-        for (int i = 0; i < HqcUiIds.ROW_MODEL_COUNT; i++) {
-            ids[i] = HqcUiIds.MODEL_BASE + i;
+        int n = 0;
+        for (int i = 0; i < HqcUiIds.MODEL_COUNT; i++) {
+            n += reserved(HqcUiIds.MODEL_BASE + i) ? 0 : 1;
         }
-        ids[HqcUiIds.ROW_MODEL_COUNT] = HqcUiIds.PAGE_LIST_MODEL;
-        for (int i = 0; i < POPUP_MODELS; i++) {
-            ids[HqcUiIds.ROW_MODEL_COUNT + 1 + i] = HqcUiIds.STATUS_POPUP_VISIBLE_MODEL + i;
+        int[] ids = new int[n];
+        int k = 0;
+        for (int i = 0; i < HqcUiIds.MODEL_COUNT; i++) {
+            if (!reserved(HqcUiIds.MODEL_BASE + i)) {
+                ids[k++] = HqcUiIds.MODEL_BASE + i;
+            }
         }
         return ids;
+    }
+
+    /** The SDK ids with no model: {@code +10}, {@code +34}, {@code +40} and {@code +41} (F22). */
+    static boolean reserved(int id) {
+        int off = id - HqcUiIds.MODEL_BASE;
+        return off == HqcUiIds.ROW_MODEL_COUNT || id == HqcUiIds.CONFIRM_TEXT_RESERVED
+                || off >= HqcUiIds.TOAST_FILE_ICON_MODEL + 1 - HqcUiIds.MODEL_BASE;
     }
 
     /** The SDK page's ListModel (created on first use), or null before the bank exists. HMIEvent. */
@@ -121,6 +145,36 @@ final class SdkCarModelBank extends CarModelBank {
         return BASE_INDEX + id - HqcUiIds.MODEL_BASE;
     }
 
+    /**
+     * The typed rows' pooled models, created on first use, or null before the bank exists. Called on
+     * {@code mibsdk-ui} only (the applier writes them; Global Constraints, F15). Never throws.
+     */
+    static UiApplier.TypedModels typedModels() {
+        SdkCarModelBank b = current;
+        return b == null ? null : b.typedHandle();
+    }
+
+    private synchronized UiApplier.TypedModels typedHandle() {
+        if (typedModels == null) {
+            try {
+                ChoiceModel[] choices = new ChoiceModel[HqcUiIds.TYPED_ROWS];
+                RangeModel[] ranges = new RangeModel[HqcUiIds.TYPED_ROWS];
+                for (int s = 0; s < HqcUiIds.TYPED_ROWS; s++) {
+                    createModel(TYPED_CHOICE_INDEX + s);
+                    createModel(TYPED_RANGE_INDEX + s);
+                    choices[s] = (ChoiceModel) this.models[TYPED_CHOICE_INDEX + s];
+                    ranges[s] = (RangeModel) this.models[TYPED_RANGE_INDEX + s];
+                }
+                if (!contains(choices, null) && !contains(ranges, null)) {
+                    typedModels = new TypedHandle(choices, ranges);
+                }
+            } catch (Throwable t) {
+                // no handle yet: the applier asks again on its next pass
+            }
+        }
+        return typedModels;
+    }
+
     private static boolean contains(Object[] a, Object x) {
         for (int i = 0; i < a.length; i++) {
             if (a[i] == x) {
@@ -156,12 +210,13 @@ final class SdkCarModelBank extends CarModelBank {
             createPageList();
             return;
         }
-        if (i >= POPUP_INDEX) {
+        if (i >= POPUP_INDEX && i < POPUP_INDEX + POPUP_MODELS) {
             createPopupModel(i);
             return;
         }
         if (i >= BASE_INDEX + HqcUiIds.ROW_MODEL_COUNT) {
-            return; // reserved, no model
+            createInputModel(i); // the typed rows', the dialogs' and the toast's; none for a reserved id
+            return;
         }
         try {
             int id = HqcUiIds.MODEL_BASE + (i - BASE_INDEX);
@@ -227,6 +282,52 @@ final class SdkCarModelBank extends CarModelBank {
         }
     }
 
+    /**
+     * The typed rows' pooled models (a ChoiceModel with its pick listener, a RangeModel in index space with its knob
+     * listener; written on {@code mibsdk-ui}), the confirm ListModel (5 columns, as the page list), the SpellerModel
+     * and the toast's models (hidden, empty, no icon). A reserved id gets none. Never throws.
+     */
+    private void createInputModel(int i) {
+        try {
+            int id = HqcUiIds.MODEL_BASE + (i - BASE_INDEX);
+            HMIModel m;
+            if (i >= TYPED_CHOICE_INDEX && i < TYPED_CHOICE_INDEX + HqcUiIds.TYPED_ROWS) {
+                ChoiceModel c = new ChoiceModel(id);
+                c.setValue(0);
+                c.setChoiceListener(new TypedChoiceListener(i - TYPED_CHOICE_INDEX));
+                m = c;
+            } else if (i >= TYPED_RANGE_INDEX && i < TYPED_RANGE_INDEX + HqcUiIds.TYPED_ROWS) {
+                RangeModel r = new RangeModel(id);
+                r.setLimits(0, 1, 1); // a one-step range until the applier writes the shown slider's
+                r.setValue(0);
+                r.setRangeListener(new SliderRangeListener(i - TYPED_RANGE_INDEX));
+                m = r;
+            } else if (id == HqcUiIds.CONFIRM_LIST_MODEL) {
+                ListModel l = new ListModel(id);
+                l.setMaxColumns(HqcUiIds.PAGE_COLUMNS);
+                l.setMaxRows(2);
+                m = l;
+            } else if (id == HqcUiIds.SPELLER_MODEL) {
+                m = new SpellerModel(id);
+            } else if (id == HqcUiIds.TOAST_VISIBLE_MODEL) {
+                ChoiceModel c = new ChoiceModel(id);
+                c.setValue(0);
+                m = c;
+            } else if (id == HqcUiIds.TOAST_LABEL_MODEL) {
+                LabelModel l = new LabelModel(id);
+                l.setText("");
+                m = l;
+            } else if (id == HqcUiIds.TOAST_FILE_ICON_MODEL) {
+                m = new ResourceLocatorModel(id);
+            } else {
+                return; // reserved, no model
+            }
+            this.models[i] = m;
+        } catch (Throwable t) {
+            // the model stays absent: the widget it backs is not drawn
+        }
+    }
+
     private void publishRowModelsOnceComplete() {
         if (SdkGlobals.uiRowModels != null) {
             return;
@@ -288,6 +389,95 @@ final class SdkCarModelBank extends CarModelBank {
 
         public void visible(boolean on) {
             visible.setValue(on ? 1 : 0);
+        }
+    }
+
+    /**
+     * The {@code mibsdk-ui} thread's handle on the typed rows' pooled models: a dropdown's selected index; a slider in
+     * index space ({@code setLimits(0, steps, 1)}, its medial position, the index), F13.
+     */
+    private static final class TypedHandle implements UiApplier.TypedModels {
+        private final ChoiceModel[] choices;
+        private final RangeModel[] ranges;
+
+        TypedHandle(ChoiceModel[] choices, RangeModel[] ranges) {
+            this.choices = choices;
+            this.ranges = ranges;
+        }
+
+        public void choice(int slot, int index) {
+            if (slot >= 0 && slot < choices.length) {
+                choices[slot].setValue(index);
+            }
+        }
+
+        public void range(int slot, int steps, int medial, int index) {
+            if (slot >= 0 && slot < ranges.length) {
+                RangeModel r = ranges[slot];
+                r.setMedialPosition(medial);
+                r.setLimits(0, steps, 1);
+                r.setValue(index);
+            }
+        }
+    }
+
+    /** A dropdown option picked (HMIEvent): its index to PageScreens, which only sends input. Focus is ignored. */
+    private static final class TypedChoiceListener extends DefaultChoiceListener {
+        private final int slot;
+
+        TypedChoiceListener(int slot) {
+            this.slot = slot;
+        }
+
+        public void itemSelected(int modelId, int value, int unused, int terminal) {
+            try {
+                PageScreens.typedChosen(slot, value);
+            } catch (Throwable ignored) {
+                // never propagate into the HMI
+            }
+        }
+
+        public void itemFocused(int modelId, int value, int unused, int terminal) {
+        }
+    }
+
+    /**
+     * A knob turn on the slider screen (HMIEvent; {@code n} already limited by the HMI against the model's value):
+     * +n / -n to PageScreens, which only sends input. The other keys are ignored.
+     */
+    private static final class SliderRangeListener implements RangeListener {
+        private final int slot;
+
+        SliderRangeListener(int slot) {
+            this.slot = slot;
+        }
+
+        public void increment(int modelId, int n, int terminal) {
+            try {
+                PageScreens.sliderTurned(slot, n);
+            } catch (Throwable ignored) {
+                // never propagate into the HMI
+            }
+        }
+
+        public void decrement(int modelId, int n, int terminal) {
+            try {
+                PageScreens.sliderTurned(slot, -n);
+            } catch (Throwable ignored) {
+                // never propagate into the HMI
+            }
+        }
+
+        public void keyPressed(int modelId, int key, int terminal) {
+        }
+
+        public void keyReleased(int modelId, int key, int terminal) {
+        }
+
+        public void keyTyped(int modelId, int key, int terminal) {
+        }
+
+        public void keyLongTyped(int modelId, int key, int terminal) {
         }
     }
 

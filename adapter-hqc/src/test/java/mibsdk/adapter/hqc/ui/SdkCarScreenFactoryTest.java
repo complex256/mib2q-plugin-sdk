@@ -91,7 +91,7 @@ class SdkCarScreenFactoryTest {
     }
 
     /** A framework whose every call answers a default: a fake for interfaces, "" for strings, 0 / false. */
-    private static IFrameworkAccess fw() {
+    static IFrameworkAccess fw() {
         return (IFrameworkAccess) deep(IFrameworkAccess.class);
     }
 
@@ -387,5 +387,100 @@ class SdkCarScreenFactoryTest {
         Field fd = SdkStatusPopup.class.getDeclaredField(name);
         fd.setAccessible(true);
         return fd.get(SdkStatusPopup.current);
+    }
+
+    /** The bank's model for SDK id {@code id}, created on demand (getModel's index maths is byte-swapped on the host). */
+    private static Object model(SdkCarModelBank bank, int id) throws Exception {
+        int i = id - HqcUiIds.CAR_MODULE * 100000;
+        bank.createModel(i);
+        Field f = de.audi.atip.hmi.model.AbstractModelBank.class.getDeclaredField("models");
+        f.setAccessible(true);
+        return ((Object[]) f.get(bank))[i];
+    }
+
+    /** F4, F22: each SDK index gets its own kind of model; the reserved ones none, and none is a stray locator. */
+    @Test
+    void bankModelKindsByIndex() throws Exception {
+        // the models' log channel, as the activator sets it (a failed model class initializer stays failed)
+        de.audi.atip.hmi.model.AbstractModelBank.initLogging(name -> de.audi.atip.log.NullLogChannel.getInstance());
+        boolean was = SdkGlobals.uiEnabled;
+        try {
+            SdkGlobals.uiEnabled = true;
+            SdkCarModelBank bank = new SdkCarModelBank();
+            int base = HqcUiIds.MODEL_BASE;
+            assertEquals(42, HqcUiIds.MODEL_COUNT);
+            int popup = 0;
+            for (int off = 12; off <= 25; off++) {
+                Object m = model(bank, base + off);
+                assertTrue(m instanceof de.audi.atip.hmi.model.ChoiceModel
+                        || m instanceof de.audi.atip.hmi.model.LabelModel
+                        || m instanceof de.audi.atip.hmi.model.ResourceLocatorModel, "+" + off + ": " + m);
+                popup++;
+            }
+            assertEquals(14, popup);
+            assertTrue(model(bank, base + 20) instanceof de.audi.atip.hmi.model.ResourceLocatorModel);
+            for (int s = 0; s < 4; s++) {
+                assertSame(de.audi.atip.hmi.model.ChoiceModel.class, model(bank, base + 26 + s).getClass(),
+                        "+" + (26 + s));
+                assertSame(de.audi.atip.hmi.model.RangeModel.class, model(bank, base + 30 + s).getClass(),
+                        "+" + (30 + s));
+            }
+            Object list = model(bank, base + 35);
+            assertSame(de.audi.atip.hmi.model.ListModel.class, list.getClass());
+            assertEquals(5, ((de.audi.atip.hmi.model.ListModel) list).getMaxColumns());
+            assertSame(de.audi.atip.hmi.model.SpellerModel.class, model(bank, base + 36).getClass());
+            assertSame(de.audi.atip.hmi.model.ChoiceModel.class, model(bank, base + 37).getClass());
+            assertSame(de.audi.atip.hmi.model.LabelModel.class, model(bank, base + 38).getClass());
+            assertSame(de.audi.atip.hmi.model.ResourceLocatorModel.class, model(bank, base + 39).getClass());
+            for (int off : new int[] {10, 34, 40, 41}) {
+                assertNull(model(bank, base + off), "+" + off + " is reserved");
+            }
+            int[] all = bank.getAllModelIds();
+            List<Integer> sdk = new ArrayList<Integer>();
+            for (int id : all) {
+                if (id >= base && id < base + HqcUiIds.MODEL_COUNT) {
+                    sdk.add(id - base);
+                }
+            }
+            assertEquals(38, sdk.size(), "42 ids, 4 reserved: " + sdk);
+            assertFalse(sdk.contains(10) || sdk.contains(34) || sdk.contains(40) || sdk.contains(41));
+            assertEquals(0, (int) sdk.get(0));
+            assertEquals(39, (int) sdk.get(sdk.size() - 1));
+        } finally {
+            SdkGlobals.uiEnabled = was;
+        }
+    }
+
+    /** F19: getAltText serves the input texts as getText does (one helper), and the page title as before. */
+    @Test
+    void altTextServesInputTexts() throws Exception {
+        PageScreens.forgetForTests();
+        try {
+            mibsdk.platform.UiTable table = new mibsdk.platform.UiTable(8);
+            PageScreensNavigationTest.FakeScreens hmi = new PageScreensNavigationTest.FakeScreens();
+            mibsdk.platform.PageStack stack = new mibsdk.platform.PageStack(new PageEvents(table));
+            HmiPoster poster = new HmiPoster(new HmiPosterTest.HeldSink(), null, () -> 0L,
+                    HmiPoster.PENDING_DEADLINE_MS);
+            PageScreens pages = new PageScreens(hmi, stack, table, poster, new mibsdk.runtime.RingLog(10));
+            UiInputs.clock = () -> 0L;
+            UiInputs.userPressed();
+            mibsdk.platform.UiPage p = new mibsdk.platform.UiPage("a/p", "Alpha", java.util.Arrays.asList(
+                    new mibsdk.platform.UiEntry(mibsdk.platform.UiEntry.DROPDOWN, "mode", "Mode", null, false, null)
+                            .withOptions(new String[] {"Off", "On"})));
+            java.util.Map<String, mibsdk.platform.UiPage> m = new java.util.HashMap<String, mibsdk.platform.UiPage>();
+            m.put("a/p", p);
+            mibsdk.platform.UiSnapshot s = new mibsdk.platform.UiSnapshot(1, null, "", m, 1, "a/p");
+            table.publish(s);
+            pages.open("a/p", s, 0);
+
+            SdkCarScreenFactory f = new SdkCarScreenFactory(fw());
+            assertEquals("Mode", f.getAltText(609040));
+            assertEquals("On", f.getAltText(609042));
+            assertEquals("Mode", f.getText(609040));
+            assertEquals("", f.getAltText(609077), "ours, nothing to serve: never the stock text");
+            assertEquals("Alpha", f.getAltText(HqcUiIds.TEXT_PAGE_TITLE));
+        } finally {
+            PageScreens.forgetForTests();
+        }
     }
 }

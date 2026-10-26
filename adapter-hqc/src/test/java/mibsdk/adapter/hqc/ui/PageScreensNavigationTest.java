@@ -105,6 +105,14 @@ class PageScreensNavigationTest {
             currentId = id;
         }
 
+        public Object buildSlider(int slot, PageLayout layout, PageScreens owner) {
+            if (failBuild) {
+                throw new IllegalStateException("no factory");
+            }
+            calls.add("slider " + slot);
+            return "slider" + (++built);
+        }
+
         public void writeRows(PageRow[] rows) {
             List<String> labels = new ArrayList<String>();
             for (PageRow r : rows) {
@@ -172,9 +180,10 @@ class PageScreensNavigationTest {
         while ((in = table.poll(0)) != null) {
             String k = in.kind() == UiInput.PAGE_SHOWN ? "shown" : in.kind() == UiInput.PAGE_CLOSED ? "closed"
                     : in.kind() == UiInput.ENTRY_SELECTED ? "selected" : in.kind() == UiInput.TOGGLE_REQUESTED
-                    ? "toggle" : "other";
+                    ? "toggle" : in.kind() == UiInput.VALUE_REQUESTED ? "value" : "other";
             out.add(k + " " + in.pageKey() + (in.entryKey() == null ? "" : "/" + in.entryKey())
-                    + (in.kind() == UiInput.TOGGLE_REQUESTED ? "=" + in.on() : ""));
+                    + (in.kind() == UiInput.TOGGLE_REQUESTED ? "=" + in.on() : "")
+                    + (in.kind() == UiInput.VALUE_REQUESTED ? "=" + in.value() : ""));
         }
         return out;
     }
@@ -925,5 +934,187 @@ class PageScreensNavigationTest {
         assertFalse(pages.rebuildPending());
         assertEquals(new PageRow("y", 1, PageScreens.ROW_ICON_VALUE, true, "on"), hmi.lastRows[1]);
         assertEquals(new PageRow("z", 1, PageScreens.ROW_ICON, true, null), hmi.lastRows[2]);
+    }
+
+    // ---- typed rows and the slider screen (Task 5) -----------------------------------------------------------------
+
+    private static UiEntry dropdown(String key, String label, int selected, String... options) {
+        return new UiEntry(UiEntry.DROPDOWN, key, label, null, false, null).withOptions(options).withNumber(selected);
+    }
+
+    private static UiEntry slider(String key, String label, int min, int max, int value) {
+        return new UiEntry(UiEntry.SLIDER, key, label, null, false, null).withRange(min, max, 1, min < 0)
+                .withNumber(value);
+    }
+
+    /** Opens {@code p}'s slider at typed slot {@code slot}: SELECT, the job, the page leaves, the slider connects. */
+    private Object openSlider(int slot) {
+        Object page = hmi.current;
+        PageScreens.sliderPressed(slot);
+        assertTrue(pages.navPending(), "the slider screen opens in a job");
+        runJobs();
+        pages.screenDisconnecting(page); // the slider screen replaced the page
+        pages.subConnected(hmi.current);
+        return hmi.current;
+    }
+
+    @Test
+    void subScreenKeepsPageOpen() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        inputs();
+        Object page = hmi.current;
+        pages.openSub(HqcUiIds.SLIDER_SCREEN_ID, "sub");
+        assertEquals(Collections.singletonList("show sub"), calls());
+        pages.screenDisconnecting(page);
+        pages.subConnected("sub");
+        assertEquals(Collections.emptyList(), inputs(), "no PAGE_CLOSED: the page stays open");
+        assertSame(pages.shown(), PageScreens.shownNow(), "the page's key keeps routing input");
+        assertEquals("a/p", pages.shown().pageKey);
+
+        pages.refresh(publish(page("a/p", "Alpha 2", item("go", "Go"), slider("bass", "Bass", -6, 6, 0))));
+        assertEquals(Collections.singletonList("rows [Go]"), calls(), "no rebuild under the sub-screen");
+        assertEquals(Collections.emptyList(), inputs());
+    }
+
+    @Test
+    void backFromSubScreenReshowsPageWithoutPop() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", link("more", "More", "a/q")),
+                page("a/q", "Beta", item("x", "X"), slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        PageScreens.listSelected(0);
+        runJobs();
+        calls();
+        inputs();
+        int before = pages.shown().generation;
+
+        Object sub = openSlider(0);
+        assertEquals(Collections.singletonList("slider 0"), calls().subList(0, 1));
+        assertEquals("slider3", sub);
+        assertEquals(Collections.emptyList(), inputs());
+
+        pages.subBack();
+        runJobs();
+        assertEquals(Arrays.asList("rows [X]", "build a/q 'Beta'", "show screen4:a/q"), calls(),
+                "the page again, its rows written");
+        pages.subDisconnecting(sub); // the slider leaves: we replaced it, not the user
+        assertEquals(Collections.emptyList(), inputs(), "no stack pop, no page events");
+        assertTrue(pages.shown().generation > before, "a new screen: a new generation");
+        assertNull(PageScreens.sliderNow());
+
+        pages.backPressed();
+        runJobs();
+        assertEquals(Arrays.asList("closed a/q", "shown a/p"), inputs(), "the stack still holds a/p under a/q");
+    }
+
+    @Test
+    void sliderTurnsAccumulateAndAStockScreenLeavesThePage() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", dropdown("mode", "Mode", 0, "Off", "On"),
+                slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        inputs();
+        Object sub = openSlider(1);
+        SliderSession ss = PageScreens.sliderNow();
+        assertEquals(1, ss.slot());
+        assertEquals(6, ss.index());
+
+        PageScreens.sliderTurned(1, 2);
+        PageScreens.sliderTurned(1, 3);
+        PageScreens.sliderTurned(0, 1); // not the open slider's slot
+        assertEquals(Arrays.asList("value a/p/bass=2", "value a/p/bass=5"), inputs(), "from the last request");
+        PageScreens.sliderTurned(1, 10);
+        PageScreens.sliderTurned(1, 1); // at the end already: nothing to ask
+        assertEquals(Collections.singletonList("value a/p/bass=6"), inputs());
+
+        pages.refresh(publish(page("a/p", "Alpha", dropdown("mode", "Mode", 0, "Off", "On"),
+                slider("bass", "Bass", -6, 6, 3))));
+        assertEquals(9, ss.index(), "the plugin's value resets the index");
+        calls();
+
+        hmi.current = "stock:radio";
+        hmi.currentId = 1300014;
+        pages.subDisconnecting(sub);
+        assertEquals(Collections.singletonList("closed a/p"), inputs(), "a stock screen over it: the user left");
+        assertNull(PageScreens.sliderNow());
+        PageScreens.sliderTurned(1, 1);
+        assertEquals(Collections.emptyList(), inputs());
+    }
+
+    @Test
+    void sliderEntryGoneClosesTheSliderScreen() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        openSlider(0);
+        calls();
+        pages.refresh(publish(page("a/p", "Alpha", item("go", "Go"))));
+        assertEquals(Arrays.asList("rows [Go]", "build a/p 'Alpha'", "show screen3:a/p"), calls());
+        assertNull(PageScreens.sliderNow());
+    }
+
+    @Test
+    void dropdownPickSendsTheIndex() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", dropdown("mode", "Mode", 0, "Off", "Low", "High")));
+        pages.open("a/p", s, 0);
+        inputs();
+        PageScreens.typedChosen(0, 2);
+        PageScreens.typedChosen(0, 3); // no such option
+        PageScreens.typedChosen(1, 0); // no such slot
+        assertEquals(Collections.singletonList("value a/p/mode=2"), inputs());
+    }
+
+    @Test
+    void typedRowChangeRebuildsScreen() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go")));
+        pages.open("a/p", s, 0);
+        calls();
+        pages.refresh(publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 0))));
+        assertEquals(1, builds(), "a new typed row: a new screen");
+        assertEquals(1, hmi.layouts.get(1).typed().length);
+        pages.refresh(publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 4))));
+        assertEquals(0, builds(), "a new value only: the model (the applier's), no rebuild");
+        pages.refresh(publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Treble", -6, 6, 4))));
+        assertEquals(1, builds(), "a new label: its text id is the screen's");
+    }
+
+    /** F26: list row indexes skip typed entries. */
+    @Test
+    void typedEntryBetweenListRowsKeepsRowIndexes() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", toggle("t", "Rack", false), dropdown("mode", "Mode", 0, "a"),
+                item("go", "Go")));
+        pages.open("a/p", s, 0);
+        inputs();
+        PageScreens.listSelected(1);
+        assertEquals(Collections.singletonList("selected a/p/go"), inputs());
+    }
+
+    @Test
+    void sliderPressOnStaleSlotDoesNothing() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", dropdown("mode", "Mode", 0, "a"),
+                slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        PageScreens.sliderPressed(0); // a dropdown
+        PageScreens.sliderPressed(2); // no such slot
+        publish(page("a/p", "Alpha", dropdown("mode", "Mode", 0, "a"))); // the slider is gone (no refresh yet)
+        PageScreens.sliderPressed(1);
+        assertFalse(pages.navPending());
+        runJobs();
+        assertEquals(Collections.emptyList(), calls());
+    }
+
+    @Test
+    void sliderPressWhileBlockedDoesNothing() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        hmi.blocked = true;
+        PageScreens.sliderPressed(0);
+        assertFalse(pages.navPending());
+        runJobs();
+        assertEquals(Collections.emptyList(), calls());
+        assertNull(PageScreens.sliderNow());
     }
 }

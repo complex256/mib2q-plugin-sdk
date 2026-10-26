@@ -18,7 +18,7 @@ import mibsdk.adapter.hqc.SdkGlobals;
  * CarScreenFactory plus the SDK's pre-allocated rows at the end of the Car selection drawer: the Plugins row (slot
  * 0, visible) and {@link HqcUiIds#PLUGIN_ROW_SLOTS} plugin rows shown or hidden by their visibility models. Labels
  * come from {@link #getText} (live, from {@code SdkGlobals.uiSlots}), and so does the SDK page title
- * ({@link HqcUiIds#TEXT_PAGE_TITLE}). It also registers and builds the SDK status popup
+ * ({@link HqcUiIds#TEXT_PAGE_TITLE}) and the input texts ({@link InputTextIds}). It also registers and builds the SDK status popup
  * {@link HqcUiIds#POPUP_SDK_STATUS} ({@link SdkStatusPopup}), recording how that went in
  * {@code SdkGlobals.statusPopup}.
  * Every override runs on a stock thread (HMIEvent; the popup stubs on the startup dispatcher): it reads only volatile
@@ -269,7 +269,7 @@ final class SdkCarScreenFactory extends CarScreenFactory {
 
     public String getText(int id) {
         try {
-            String s = id == HqcUiIds.TEXT_PAGE_TITLE ? PageScreens.title() : texts.textFor(id, SdkGlobals.uiSlots);
+            String s = sdkText(id);
             if (s != null) {
                 return s;
             }
@@ -281,7 +281,7 @@ final class SdkCarScreenFactory extends CarScreenFactory {
 
     public String getAltText(int id) {
         try {
-            String s = id == HqcUiIds.TEXT_PAGE_TITLE ? PageScreens.title() : texts.textFor(id, SdkGlobals.uiSlots);
+            String s = sdkText(id);
             if (s != null) {
                 return s;
             }
@@ -289,5 +289,17 @@ final class SdkCarScreenFactory extends CarScreenFactory {
             // stock text
         }
         return super.getAltText(id);
+    }
+
+    /**
+     * The SDK's text for {@code id}, or null for a stock id: the input texts first ({@link InputTextIds}: typed rows,
+     * the slider screen, dialogs), then the page title and the drawer rows' labels. Reads volatile state only.
+     */
+    private String sdkText(int id) {
+        String s = InputTextIds.textFor(id, PageScreens.shownNow(), PageScreens.sliderNow(), PageScreens.dialogNow());
+        if (s != null) {
+            return s;
+        }
+        return id == HqcUiIds.TEXT_PAGE_TITLE ? PageScreens.title() : texts.textFor(id, SdkGlobals.uiSlots);
     }
 }

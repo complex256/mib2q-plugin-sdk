@@ -23,6 +23,7 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.menu.ListController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import mibsdk.adapter.hqc.SdkGlobals;
 import mibsdk.platform.UiEntry;
@@ -206,5 +207,81 @@ class PageWidgetsTest {
         assertArrayEquals(a, b);
         assertNotSame(a, b);
         assertNull(PageWidgets.copy(null));
+    }
+
+    /** The Car fonts the page takes, cached (as once the Car bundle loaded them): the host has no font loader. */
+    static void carFonts() throws Exception {
+        java.lang.reflect.Field arrays = de.audi.tghu.car.hmi.evohigh.FontFactory.class.getDeclaredField("fontArrays");
+        arrays.setAccessible(true);
+        Object[] a = (Object[]) arrays.get(null);
+        for (int i = 0; i < a.length; i++) {
+            if (a[i] == null) {
+                a[i] = new de.esolutions.hmi.widgets.audi.base.eal.IWrappedFont[0];
+            }
+        }
+    }
+
+    /**
+     * §7.2: the typed rows follow the list in the menu, in spec order: the combo row (type 64) on slot 0's
+     * ChoiceModel with its option text ids and internal id 609960, the rotary row (type 128) on slot 1's RangeModel
+     * with its own key handler and internal id 609961. The screen's views are sorted by id.
+     */
+    @Test
+    void typedRowsFollowTheList() throws Exception {
+        HostWidgets.init();
+        carFonts();
+        UiPage p = new UiPage("p/main", "Main", Arrays.asList(
+                new UiEntry(UiEntry.DROPDOWN, "mode", "Mode", null, false, null)
+                        .withOptions(new String[] {"Off", "Low", "High"}),
+                new UiEntry(UiEntry.ITEM, "go", "Go", null, false, null),
+                new UiEntry(UiEntry.SLIDER, "bass", "Bass", null, false, null).withRange(-6, 6, 1, true)));
+        SdkCarScreenFactory f = new SdkCarScreenFactory(SdkCarScreenFactoryTest.fw());
+        de.audi.atip.hmi.view.Screen screen = PageWidgets.build(f, 0, null, "p/main",
+                PageLayout.of(p, ItemIcons.NONE));
+        de.esolutions.hmi.widgets.audi.base.AbstractScreenWidget sw =
+                (de.esolutions.hmi.widgets.audi.base.AbstractScreenWidget) screen;
+        assertEquals(HqcUiIds.PAGE_SCREEN_ID, sw.getID());
+        int[] ids = sw.getViewIDs();
+        int[] sorted = ids.clone();
+        Arrays.sort(sorted);
+        assertArrayEquals(sorted, ids, "findViews binary-searches them");
+        assertArrayEquals(new int[] {138, HqcUiIds.PAGE_LIST_MODEL, 602764, 602769}, ids);
+
+        ListController list = (ListController) sw.findViews(HqcUiIds.PAGE_LIST_MODEL)[0];
+        MenuItemController combo = (MenuItemController) sw.findViews(602764)[0];
+        MenuItemController rotary = (MenuItemController) sw.findViews(602769)[0];
+        List<?> menu = ((de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuController) list.getParent())
+                .getChildren();
+        int at = menu.indexOf(list);
+        assertSame(combo, menu.get(at + 1), "the combo row right after the list");
+        assertSame(rotary, menu.get(at + 2), "then the rotary row");
+
+        assertEquals(64, combo.getType());
+        assertEquals(HqcUiIds.TYPED_CHOICE_MODEL_0, combo.getModelID());
+        assertArrayEquals(new int[] {609041, 609042, 609043}, combo.getTextIds());
+        assertEquals(609040, combo.getLabelId());
+        assertEquals(609960, combo.getInternalID());
+        assertEquals(44, combo.getBitmapIndices().length);
+        assertEquals(332, combo.getBitmapIndices()[43]);
+
+        assertEquals(128, rotary.getType());
+        assertEquals(HqcUiIds.TYPED_RANGE_MODEL_0 + 1, rotary.getModelID());
+        assertEquals(609049, rotary.getLabelId());
+        assertEquals(609961, rotary.getInternalID());
+        assertTrue(rotary.getKeyHandler() instanceof PageWidgets.SliderKeys, "its own key handler");
+        assertEquals(1, ((PageWidgets.SliderKeys) rotary.getKeyHandler()).slot);
+    }
+
+    /** D6: the slider screen 609501 on slot 1's RangeModel, titled with its label, its views sorted. */
+    @Test
+    void sliderScreenOnTheSlotsRangeModel() throws Exception {
+        HostWidgets.init();
+        carFonts();
+        SdkCarScreenFactory f = new SdkCarScreenFactory(SdkCarScreenFactoryTest.fw());
+        SliderScreen.Screen s = SliderScreen.build(f, 0, 1, PageLayout.EMPTY, null);
+        assertEquals(HqcUiIds.SLIDER_SCREEN_ID, s.getID());
+        assertArrayEquals(new int[] {138, HqcUiIds.TYPED_RANGE_MODEL_0 + 1}, s.getViewIDs());
+        assertTrue(s.findViews(HqcUiIds.TYPED_RANGE_MODEL_0 + 1)[0] instanceof SliderScreen.Knob);
+        assertEquals(3, s.getSmallStageType());
     }
 }

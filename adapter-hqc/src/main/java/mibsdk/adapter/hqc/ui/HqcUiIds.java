@@ -44,15 +44,34 @@ public final class HqcUiIds {
     public static final int STATUS_LABEL_MODEL_0 = MODEL_BASE + 13;
     /** The popup's ResourceLocatorModels, one per cell ({@code +0 .. +STATUS_CELLS - 1}): a file icon's path. */
     public static final int STATUS_FILE_ICON_MODEL_1 = MODEL_BASE + 20;
+    /** The typed rows (dropdown, slider) a page has at most ({@code PageSpec.MAX_INPUT_ROWS}): one pooled model each. */
+    public static final int TYPED_ROWS = 4;
+    /** The dropdown rows' pooled ChoiceModels, one per typed slot ({@code +0 .. +3}, 602764..602767): the index. */
+    public static final int TYPED_CHOICE_MODEL_0 = MODEL_BASE + 26;
+    /** The slider rows' pooled RangeModels, one per typed slot ({@code +0 .. +3}, 602768..602771), in index space. */
+    public static final int TYPED_RANGE_MODEL_0 = MODEL_BASE + 30;
+    /** Reserved with no model (F9: the confirm body is a factory text, {@link #TEXT_CONFIRM_TEXT}). */
+    public static final int CONFIRM_TEXT_RESERVED = MODEL_BASE + 34;
+    /** The confirm screen's Yes/No ListModel (5 columns, as the page list). */
+    public static final int CONFIRM_LIST_MODEL = MODEL_BASE + 35;
+    /** The speller screen's SpellerModel. */
+    public static final int SPELLER_MODEL = MODEL_BASE + 36;
+    /** The toast popup's visibility ChoiceModel, its LabelModel and its file icon's ResourceLocatorModel. */
+    public static final int TOAST_VISIBLE_MODEL = MODEL_BASE + 37;
+    public static final int TOAST_LABEL_MODEL = MODEL_BASE + 38;
+    public static final int TOAST_FILE_ICON_MODEL = MODEL_BASE + 39;
     /**
-     * Model ids the SDK bank reserves: {@code MODEL_BASE .. MODEL_BASE + MODEL_COUNT - 1} (602738..602763).
-     * Spike C proved 602738..602753 on the bench. Checked in {@code lsd-src} (Task 5 Step 0): CarModelBank is built
-     * with 2738 models ({@code super(6, 2738, 1147)}), so every id from 602738 is past its {@code models[]}; no stock
-     * source uses 602738..602763 as a model id, decoded or byte-swapped. The only hits are a few byte-swapped
-     * {@code setTextIds} values (text ids, another namespace) and condition 602738 in CarConditionBank (condition
-     * ids, another namespace).
+     * Model ids the SDK bank reserves: {@code MODEL_BASE .. MODEL_BASE + MODEL_COUNT - 1} (602738..602779). {@code +10},
+     * {@link #CONFIRM_TEXT_RESERVED} ({@code +34}), {@code +40} and {@code +41} are reserved with no model (F22).
+     * Spike C proved 602738..602753 on the bench, spike D 602754..602759. Checked in {@code lsd-src} (native inputs
+     * Task 5 Step 0): CarModelBank is built with 2738 models ({@code super(6, 2738, 1147)},
+     * {@code CarModelBank.java:4734}), so every id from 602738 is past its {@code models[]}; no stock source uses
+     * 602738..602779 as a model id, decoded or byte-swapped. The only hits are byte-swapped text ids
+     * ({@code setTextIds}, {@code setInfolineTextIdsDisabled}, {@code setDefaultDisabledInfolineTextId}: another
+     * namespace) and condition 602738 in CarConditionBank (condition ids, another namespace). The same check found no
+     * Car text id 609040..609082 and no menu-item internal id 609960..609963, decoded or byte-swapped.
      */
-    public static final int MODEL_COUNT = STATUS_FILE_ICON_MODEL_1 + HqcUiIds.STATUS_CELLS - MODEL_BASE;
+    public static final int MODEL_COUNT = 42;
     /** SDK rows' menu-item internal ids, one per slot (as spike A wired them). */
     public static final int ROW_INTERNAL_ID_BASE = 609900;
     /**
@@ -217,6 +236,73 @@ public final class HqcUiIds {
     public static final int MAIN_MENU_INTERNAL_ID = 90100;
     /** Hard key ENTER / knob SELECT (KeyEvent code), as the spike's wizard key handler consumed it. */
     public static final int KEY_ENTER = 17;
+
+    // ---- typed rows and the slider screen (spike D, research note 2026-10-25 §7.2) ----------------------------------
+
+    /** The typed rows' menu-item internal ids, one per typed slot ({@code +0 .. +3}): clear of the rows' 609900..609908. */
+    public static final int TYPED_INTERNAL_ID_0 = 609960;
+    /**
+     * The input texts ({@code 609040..609082}): typed slot {@code s} has its label at {@code TEXT_INPUT_BASE + 9s} (also
+     * the slider screen's title, F10) and its options at {@code +1 .. +8}.
+     */
+    public static final int TEXT_INPUT_BASE = TEXT_BASE + 40;
+    public static final int TEXT_TYPED_STRIDE = 9;
+    /** The slider screen's min and max labels. */
+    public static final int TEXT_SLIDER_MIN = 609076;
+    public static final int TEXT_SLIDER_MAX = 609077;
+    /** The confirm and speller screens' texts (Task 6). */
+    public static final int TEXT_CONFIRM_TITLE = 609078;
+    public static final int TEXT_SPELLER_TITLE = 609079;
+    public static final int TEXT_CONFIRM_TEXT = 609080;
+    public static final int TEXT_SPELLER_INFO = 609081;
+    public static final int TEXT_SPELLER_HINT = 609082;
+
+    /** Combo (dropdown) row: menu-item type 64 ({@code tONESOUNDEFFECTMAIN}, {@code CarScreenBag3}). */
+    public static final int ROW_TYPE_COMBO = 64;
+    /** The combo row's bitmaps: 42 x 127, then 129 and 332. Never written to: widgets keep the reference. */
+    public static final int[] COMBO_BITMAPS = comboBitmaps();
+    /** The combo row's Car font set ({@code FontFactory.getFonts(5, ...)}). */
+    public static final int COMBO_FONTS = 5;
+    /** The combo row's widgetID. */
+    public static final int COMBO_WIDGET_ID = 1;
+    /** Glass-plate insets of the typed rows (as the spike's combo and rotary rows). */
+    public static final int TYPED_GLASSPLATE_INSET_TOP = 7;
+    public static final int TYPED_GLASSPLATE_INSET_BOTTOM = 6;
+    /** Rotary (slider) row: menu-item type 128, a knob preview on the RangeModel. */
+    public static final int ROW_TYPE_ROTARY = 128;
+
+    /** The slider edit screen (Car module, unused by the Car factory): the {@code tONESOUNDBASS} recipe. */
+    public static final int SLIDER_SCREEN_ID = 609501;
+    /** The last SDK sub-screen id: 609501 slider, 609502 confirm, 609503 speller (Task 6). */
+    public static final int SUB_SCREEN_LAST = 609503;
+    /** The screen's glassplate and the glassplate's coordinate set. */
+    public static final int[] SLIDER_GLASS_BOUNDS = {59, 77, 946, 324};
+    public static final int[] SLIDER_GLASS_COORDS = {1, 59, 77, 946, 324, 59, 77, 946, 324};
+    /** The big rotary ({@code RotaryBigRendererHigh}). */
+    public static final int[] SLIDER_ROTARY_BOUNDS = {397, 122, 100, 100};
+    /** The min and max labels: bounds, Car font set 2, colours; the min label right-aligned at the top (3, 4). */
+    public static final int[] SLIDER_MIN_BOUNDS = {226, 323, 202, 30};
+    public static final int[] SLIDER_MAX_BOUNDS = {621, 323, 202, 30};
+    public static final int SLIDER_LABEL_FONTS = 2;
+    public static final int[] SLIDER_LABEL_COLOURS = {1, 0, 4, 0};
+    public static final int SLIDER_MIN_ALIGN_H = 3;
+    public static final int SLIDER_MIN_ALIGN_V = 4;
+    /** The mirrored container around the rotary and the labels. */
+    public static final int[] SLIDER_MIRROR_BOUNDS = {0, 0, 1024, 480};
+    /** The screen's small-stage type (as the page). */
+    public static final int SLIDER_SMALL_STAGE = 3;
+    /** The rotary's widget state "focused and active" ({@code RangeModelKeyHandler} needs it; spike D: set at connect). */
+    public static final int SLIDER_KNOB_STATE = 36;
+
+    private static int[] comboBitmaps() {
+        int[] b = new int[44];
+        for (int i = 0; i < 42; i++) {
+            b[i] = 127;
+        }
+        b[42] = 129;
+        b[43] = 332;
+        return b;
+    }
 
     private HqcUiIds() {
     }

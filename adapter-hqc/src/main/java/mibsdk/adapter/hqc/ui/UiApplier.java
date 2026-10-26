@@ -23,7 +23,7 @@ import mibsdk.runtime.RingLog;
  * Applies the runtime's UI snapshots to the HMI on the SDK thread {@code mibsdk-ui}: Car drawer slots and row
  * visibility and icons, the status line, and SDK pages (through one combined {@link HmiPoster} job).
  *
- * <p>Each pass waits up to {@link #AWAIT_MS} for a newer snapshot, then runs four isolated phases (a failure in one is
+ * <p>Each pass waits up to {@link #AWAIT_MS} for a newer snapshot, then runs five isolated phases (a failure in one is
  * logged once per phase and message, and never starves the others):
  * <ul>
  * <li>slots: assigns the Car rows to drawer slots ({@link DrawerSlots}, which gives their icons image ids from
@@ -36,6 +36,10 @@ import mibsdk.runtime.RingLog;
  * menu that fails after the drawer hid its row brings the row back within {@link #AWAIT_MS}. This phase also
  * publishes the main menu's Plugins row into the wanted {@link HmiWidgetState}: visible iff not down and the main
  * menu is ACTIVE;</li>
+ * <li>inputs: writes the typed rows' pooled models ({@link TypedModels}: a dropdown's index, a slider's index-space
+ * range and index) for the entries of the shown page's layout only ({@link PageRenderer#shown}), each when its value
+ * changed, and all of them again when the shown screen's generation changed (a new screen). The plugin-facing models
+ * are written here, on {@code mibsdk-ui}, never in the HMI job;</li>
  * <li>status: shows or hides the status line ({@link StatusSinks}: the SDK popup {@link HqcUiIds#POPUP_SDK_STATUS}
  * with icons, popup 65 as text only and only as the fallback), and re-asserts a non-empty one every
  * {@link #STATUS_REASSERT_MS} on the monotonic clock (on popup 65, stock engineering code also writes model 416). It
@@ -74,7 +78,21 @@ public final class UiApplier {
     private static final String SOURCE = "mibsdk";
     private static final int UNKNOWN = -1;
     private static final int MAX_LOGGED_FAILURES = 32;
-    private static final String[] PHASES = {"slots", "rows", "status", "hmi"};
+    private static final String[] PHASES = {"slots", "rows", "inputs", "status", "hmi"};
+
+    /** The typed rows' pooled models, written on {@code mibsdk-ui} only. */
+    interface TypedModels {
+        /** Dropdown slot {@code slot}: the selected option. */
+        void choice(int slot, int index);
+
+        /** Slider slot {@code slot}, in index space: {@code setLimits(0, steps, 1)}, the medial position, the index. */
+        void range(int slot, int steps, int medial, int index);
+    }
+
+    /** Where the typed models come from (the bank's, once it exists); null for none yet. */
+    interface TypedSource {
+        TypedModels get();
+    }
 
     /**
      * The generation of the applier that owns the HMI (the last one started); others post and render nothing, and
@@ -95,6 +113,7 @@ public final class UiApplier {
     private final IconIds ids;
     private final BuiltinIcons builtins;
     private final HmiWidgets widgets;
+    private final TypedSource typedSource;
     private final Runnable hmiJob = new Runnable() {
         public void run() {
             runHmiJob();
@@ -115,6 +134,8 @@ public final class UiApplier {
     private String shownParts; // the parts of the last show (UiStatusPart has no equals: compared as text)
     private int shownSink = UNKNOWN; // StatusSinks.active() at the last show
     private long statusShownAt;
+    private int typedGeneration = Integer.MIN_VALUE; // the Shown generation the typed models were written for
+    private final String[] typedWritten = new String[HqcUiIds.TYPED_ROWS]; // what each slot got; null: unknown
 
     // Read by both threads; the page state is written by the page job (HMIEvent; one at a time).
     private volatile boolean down;
@@ -143,6 +164,17 @@ public final class UiApplier {
      */
     UiApplier(UiTable t, RowModels rows, StatusLineSink s, PageRenderer pages, HmiPoster p, Clock clock,
               RingLog log, IconIds ids, BuiltinIcons builtins, HmiWidgets widgets) {
+        this(t, rows, s, pages, p, clock, log, ids, builtins, widgets, new TypedSource() {
+            public TypedModels get() {
+                return SdkCarModelBank.typedModels();
+            }
+        });
+    }
+
+    /** As above, with the typed rows' models from {@code typed}. */
+    UiApplier(UiTable t, RowModels rows, StatusLineSink s, PageRenderer pages, HmiPoster p, Clock clock,
+              RingLog log, IconIds ids, BuiltinIcons builtins, HmiWidgets widgets, TypedSource typed) {
+        this.typedSource = typed;
         this.table = t;
         this.rows = rows;
         this.status = s;
@@ -297,7 +329,7 @@ public final class UiApplier {
         }
     }
 
-    /** One pass (the thread's body; tests call it directly): wait for a newer snapshot, then the four phases. */
+    /** One pass (the thread's body; tests call it directly): wait for a newer snapshot, then the five phases. */
     void step(long waitMs) throws InterruptedException {
         UiSnapshot s = table.awaitNewer(lastVersion, waitMs);
         if (s != null) {
@@ -348,6 +380,9 @@ public final class UiApplier {
                         applyRows();
                         break;
                     case 2:
+                        applyTyped(current);
+                        break;
+                    case 3:
                         applyStatus(current);
                         break;
                     default:
@@ -467,6 +502,63 @@ public final class UiApplier {
                 rowState[slot] = want;
             }
         }
+    }
+
+    /**
+     * Writes the typed models for the shown layout's entries in {@code s}: each slot when what it shows changed, every
+     * slot again for a new screen generation. A slot whose entry is not in {@code s} (yet) is left alone.
+     */
+    private void applyTyped(UiSnapshot s) {
+        PageScreens.Shown sp = down ? null : pages.shown();
+        if (sp == null) {
+            return;
+        }
+        if (sp.generation != typedGeneration) {
+            typedGeneration = sp.generation;
+            Arrays.fill(typedWritten, null);
+        }
+        PageLayout.TypedRow[] typed = sp.layout.typed();
+        UiPage p = typed.length == 0 ? null : s.pages().get(sp.pageKey);
+        if (p == null) {
+            return;
+        }
+        TypedModels m = typedSource.get();
+        if (m == null) {
+            return;
+        }
+        List<UiEntry> entries = p.entries();
+        for (int slot = 0; slot < typed.length && slot < typedWritten.length; slot++) {
+            PageLayout.TypedRow r = typed[slot];
+            UiEntry e = null;
+            for (int i = 0; e == null && i < entries.size(); i++) {
+                if (r.entryKey.equals(entries.get(i).key()) && entries.get(i).kind() == r.kind) {
+                    e = entries.get(i);
+                }
+            }
+            if (e == null) {
+                continue;
+            }
+            if (r.kind == UiEntry.DROPDOWN) {
+                int v = clamp(e.number(), 0, r.optionCount() - 1);
+                String key = "c" + v;
+                if (!key.equals(typedWritten[slot])) {
+                    m.choice(slot, v);
+                    typedWritten[slot] = key;
+                }
+            } else {
+                int index = clamp((e.number() - r.min) / r.step, 0, r.steps);
+                int medial = r.centred ? r.steps / 2 : 0;
+                String key = "r" + r.steps + "/" + medial + "/" + index;
+                if (!key.equals(typedWritten[slot])) {
+                    m.range(slot, r.steps, medial, index);
+                    typedWritten[slot] = key;
+                }
+            }
+        }
+    }
+
+    private static int clamp(int v, int lo, int hi) {
+        return v < lo ? lo : v > hi ? hi : v;
     }
 
     private void applyStatus(UiSnapshot s) {

@@ -25,7 +25,7 @@ class StockThreadCodeTest {
         "TextIds", "UiInputs", "DrawerAssignment", "HmiPoster", "PageEvents", "PageRenderer", "PageScreens",
         "PageWidgets", "IconIds", "HmiWidgets", "HmiWidgetState", "StatusLayout", "SdkStatusPopup",
         "SdkSystemActivator", "SdkSystemScreenFactory", "MainMenuKeyHandler", "MainMenuWrench", "PageRow",
-        "PageLayout", "ItemIcons"};
+        "PageLayout", "ItemIcons", "SliderSession", "SliderScreen", "InputTextIds"};
 
     private static final Pattern FORBIDDEN = Pattern.compile("java\\.io\\.|java\\.nio\\.|java\\.net\\.|\\bnew Thread\\b"
             + "|\\bThread\\.sleep\\b|\\.start\\(\\)|\\.join\\(|\\.wait\\(|\\bnew Timer\\b|System\\.(out|err)"
@@ -57,7 +57,7 @@ class StockThreadCodeTest {
         String[][] overrides = {
             {"SdkCarScreenFactory", "getSelectionDrawers"},
             {"SdkCarScreenFactory", "getText"},
-            {"SdkCarScreenFactory", "getAltText"},
+            {"SdkCarScreenFactory", "String getAltText"},
             {"SdkCarScreenFactory", "getImagePath"},
             {"SdkCarScreenFactory", "getPartialPopupStubs"},
             {"SdkCarScreenFactory", "getPartialPopup"},
@@ -88,6 +88,18 @@ class StockThreadCodeTest {
             {"SdkSystemScreenFactory", "String getAltText"},
             {"MainMenuKeyHandler", "void keyPressed"},
             {"MainMenuWrench", "boolean apply"},
+            {"PageScreens", "void typedChosen"},
+            {"PageScreens", "void sliderPressed"},
+            {"PageScreens", "void sliderTurned"},
+            {"PageScreens", "void subBack"},
+            {"PageScreens", "void subConnected"},
+            {"PageScreens", "void subDisconnecting"},
+            {"SdkCarModelBank", "void increment"},
+            {"SdkCarModelBank", "void decrement"},
+            {"SdkCarModelBank", "void createInputModel"},
+            {"SdkCarModelBank", "UiApplier.TypedModels typedHandle"},
+            {"SliderScreen", "void keyPressed"},
+            {"SliderScreen", "void keyReleased"},
         };
         for (String[] o : overrides) {
             String src = source(o[0]);
@@ -97,9 +109,17 @@ class StockThreadCodeTest {
             while (at >= 0) {
                 int next = src.indexOf("\n    }", at); // end of the method (4-space indented class member)
                 String body = src.substring(at, next < 0 ? src.length() : next);
-                assertTrue(body.contains("catch (Throwable"), o[0] + "." + o[1] + " must catch Throwable");
+                assertTrue(body.contains("catch (Throwable") || emptyBody(src, at),
+                        o[0] + "." + o[1] + " must catch Throwable");
                 at = o[1].indexOf(' ') < 0 ? -1 : src.indexOf(" " + o[1] + "(", at + 1);
             }
         }
+    }
+
+    /** The method declared at {@code at} has an empty body (a no-op override: nothing in it can throw). */
+    private static boolean emptyBody(String src, int at) {
+        int open = src.indexOf('{', at);
+        int close = src.indexOf('}', open + 1);
+        return open >= 0 && close > open && src.substring(open + 1, close).trim().isEmpty();
     }
 }

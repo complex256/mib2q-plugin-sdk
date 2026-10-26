@@ -1,7 +1,9 @@
 package mibsdk.adapter.hqc.ui;
 
 import de.audi.atip.base.IFrameworkAccess;
+import de.audi.atip.hmi.event.JoystickEvent;
 import de.audi.atip.hmi.event.KeyEvent;
+import de.audi.atip.hmi.event.WheelButtonEvent;
 import de.audi.atip.hmi.model.IntegerListCell;
 import de.audi.atip.hmi.model.ListCell;
 import de.audi.atip.hmi.model.ListModel;
@@ -15,11 +17,13 @@ import de.audi.tghu.car.hmi.evohigh.FontFactory;
 import de.audi.tghu.fwhmi.FwHMI;
 import de.esolutions.hmi.widgets.audi.base.InitializationContext;
 import de.esolutions.hmi.widgets.audi.base.widgets.AbstractWidgetController;
+import de.esolutions.hmi.widgets.audi.evo.IWidgetKeyHandler;
 import de.esolutions.hmi.widgets.audi.evo.ScreenWidgetEVO;
 import de.esolutions.hmi.widgets.audi.evo.gridlayout.AxisConstraints;
 import de.esolutions.hmi.widgets.audi.evo.gridlayout.GridLayout;
 import de.esolutions.hmi.widgets.audi.evo.gridlayout.GridLayoutHints;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.CheckboxRendererHigh;
+import de.esolutions.hmi.widgets.audi.evo.high.widgets.CompositeRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.ContainerRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.FocusCursorRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.GlassplateRendererHigh;
@@ -49,6 +53,7 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemColumnsConstraints;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.list.ListItemFactory;
+import mibsdk.platform.UiEntry;
 
 /**
  * The stock side of SDK pages: spike B's page recipe (research note §8, modelled on
@@ -59,8 +64,11 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.menu.list.ListItemFactory;
  * {@code ListController} on {@link HqcUiIds#PAGE_LIST_MODEL}, and a head title bar whose title is factory text
  * {@link HqcUiIds#TEXT_PAGE_TITLE}. Every row is a list item with a label cell (column 0) and, by row kind (the
  * list's record-set column), a checkbox, radio, progress, value-text or item-icon cell ({@link Rows}, spike D's
- * recipes, research note 2026-10-25 §7.2). Layout numbers (bounds, palettes, fonts) are the stock bag's decoded
- * values, as spike B used them; the cells' literals are in {@link HqcUiIds}.
+ * recipes, research note 2026-10-25 §7.2). The layout's typed rows follow the list in the menu, in spec order: a
+ * type-64 combo row on its slot's pooled ChoiceModel, or a type-128 rotary row on its slot's pooled RangeModel whose
+ * own key handler ({@link SliderKeys}) opens the slider screen ({@link SliderScreen}). Layout numbers (bounds,
+ * palettes, fonts) are the stock bag's decoded values, as spike B used them; the cells' and typed rows' literals are
+ * in {@link HqcUiIds}.
  */
 final class PageWidgets implements PageScreens.Screens {
 
@@ -120,16 +128,25 @@ final class PageWidgets implements PageScreens.Screens {
     }
 
     public Object build(String pageKey, String title, PageScreens owner, PageLayout layout) {
+        return build(factory(), TERMINAL, owner, pageKey, layout);
+    }
+
+    public Object buildSlider(int slot, PageLayout layout, PageScreens owner) {
+        return SliderScreen.build(factory(), TERMINAL, slot, layout, owner);
+    }
+
+    private static SdkCarScreenFactory factory() {
         SdkCarScreenFactory f = SdkCarScreenFactory.current;
         if (f == null) {
             throw new IllegalStateException("no SDK Car screen factory");
         }
-        return build(f, TERMINAL, owner, pageKey, layout);
+        return f;
     }
 
     /**
-     * Shows a prebuilt page: it needs its terminal set (the cache path that does it is bypassed) and the current
-     * screen's partial popups, colour scheme and screen mode (spike B, S2a).
+     * Shows a prebuilt SDK screen (the page or a sub-screen, under its own id): it needs its terminal set (the cache
+     * path that does it is bypassed) and the current screen's partial popups, colour scheme and screen mode (spike B,
+     * S2a).
      */
     public void show(Object screen) {
         FwHMI fw = fw();
@@ -139,7 +156,7 @@ final class PageWidgets implements PageScreens.Screens {
         int[] popups = cur == null ? null : copy(cur.getPartialPopups());
         int scheme = cur == null ? 0 : cur.getColorScheme();
         int mode = cur == null ? 0 : cur.getScreenMode();
-        fw.showScreen(TERMINAL, 0, new ScreenData(HqcUiIds.PAGE_SCREEN_ID, false, false, null, false, page, popups,
+        fw.showScreen(TERMINAL, 0, new ScreenData(page.getID(), false, false, null, false, page, popups,
                 null, -1L, -1L, 0, scheme, mode, null));
     }
 
@@ -313,6 +330,97 @@ final class PageWidgets implements PageScreens.Screens {
         menu.add(scroll, 3);
         menu.add(list);
 
+        PageLayout.TypedRow[] typed = layout == null ? new PageLayout.TypedRow[0] : layout.typed();
+        int[] ids = new int[1 + typed.length];
+        HMIView[][] views = new HMIView[ids.length][];
+        ids[0] = HqcUiIds.PAGE_LIST_MODEL;
+        views[0] = new HMIView[] {list};
+        for (int s = 0; s < typed.length; s++) {
+            MenuItemController row = typedRow(typed[s], s, f, t);
+            menu.add(row);
+            ids[1 + s] = row.getModelID();
+            views[1 + s] = new HMIView[] {row};
+        }
+        ScreenWidgetEVO s = new PageScreen(HqcUiIds.PAGE_SCREEN_ID, owner, pageKey, layout);
+        return shell(s, f, t, ref0, menu, HqcUiIds.TEXT_PAGE_TITLE, 3, ids, views);
+    }
+
+    /**
+     * Typed slot {@code slot}'s row (§7.2): a dropdown is a type-64 combo row on the slot's pooled ChoiceModel, its
+     * options' text ids as {@code setTextIds}; a slider is a type-128 rotary row on the slot's pooled RangeModel with
+     * its own key handler (set before connect). Both carry the slot's label text id and internal id.
+     */
+    static MenuItemController typedRow(PageLayout.TypedRow r, int slot, SdkCarScreenFactory f, int t) {
+        MenuItemController row = new MenuItemController();
+        int label = HqcUiIds.TEXT_INPUT_BASE + HqcUiIds.TEXT_TYPED_STRIDE * slot;
+        if (r.kind == UiEntry.DROPDOWN) {
+            CompositeRendererHigh cr = new CompositeRendererHigh(row);
+            row.setRenderer(cr);
+            row.setBitmaps(HqcUiIds.COMBO_BITMAPS);
+            cr.setFonts(FontFactory.getFonts(HqcUiIds.COMBO_FONTS, t, f.framework()));
+            row.setModelID(HqcUiIds.TYPED_CHOICE_MODEL_0 + slot);
+            int[] options = new int[r.optionCount()];
+            for (int i = 0; i < options.length; i++) {
+                options[i] = label + 1 + i;
+            }
+            row.setTextIds(options);
+            row.setLabelId(label);
+            row.setGlassplateInsetsBottom(HqcUiIds.TYPED_GLASSPLATE_INSET_BOTTOM);
+            row.setGlassplateInsetsTop(HqcUiIds.TYPED_GLASSPLATE_INSET_TOP);
+            row.setInternalID(HqcUiIds.TYPED_INTERNAL_ID_0 + slot);
+            row.setType(HqcUiIds.ROW_TYPE_COMBO);
+            row.setWidgetID(HqcUiIds.COMBO_WIDGET_ID);
+        } else {
+            row.setRenderer(new CompositeRendererHigh(row));
+            row.setModelID(HqcUiIds.TYPED_RANGE_MODEL_0 + slot);
+            row.setLabelId(label);
+            row.setGlassplateInsetsBottom(HqcUiIds.TYPED_GLASSPLATE_INSET_BOTTOM);
+            row.setGlassplateInsetsTop(HqcUiIds.TYPED_GLASSPLATE_INSET_TOP);
+            row.setHasInfolineDisclaimer(false);
+            row.setInternalID(HqcUiIds.TYPED_INTERNAL_ID_0 + slot);
+            row.setType(HqcUiIds.ROW_TYPE_ROTARY);
+            row.setKeyHandler(new SliderKeys(slot));
+        }
+        return row;
+    }
+
+    /** A slider row's key handler: SELECT (key 17) opens the slider screen (no SMM event); nothing else. */
+    static final class SliderKeys implements IWidgetKeyHandler {
+        final int slot;
+
+        SliderKeys(int slot) {
+            this.slot = slot;
+        }
+
+        public void keyPressed(AbstractWidgetController w, KeyEvent e) {
+            try {
+                if (e != null && e.getKeyCode() == HqcUiIds.KEY_ENTER) {
+                    e.consume(false);
+                    PageScreens.sliderPressed(slot); // never throws
+                }
+            } catch (Throwable t) {
+                // never propagate into the HMI
+            }
+        }
+
+        public void keyReleased(AbstractWidgetController w, KeyEvent e) {
+        }
+
+        public void keyTurned(AbstractWidgetController w, WheelButtonEvent e) {
+        }
+
+        public void keyMoved(AbstractWidgetController w, JoystickEvent e) {
+        }
+    }
+
+    /**
+     * The screen {@code s} around {@code bodyChild} (spike B's page shell): the body container (layer 1), the title bar
+     * with factory text {@code titleText} (layer 2), the status-bar stub, the ref widgets and the palettes. Its views:
+     * the stub's (138) and {@code ids}/{@code views}, sorted by id (findViews binary-searches them).
+     */
+    static ScreenWidgetEVO shell(ScreenWidgetEVO s, SdkCarScreenFactory f, int t, AbstractWidgetController ref0,
+                                 AbstractWidgetController bodyChild, int titleText, int smallStage, int[] ids,
+                                 HMIView[][] views) {
         ContainerController body = new ContainerController();
         body.setRenderer(new ContainerRendererHigh(body));
         body.setBounds(0, 0, 0, 0);
@@ -320,7 +428,7 @@ final class PageWidgets implements PageScreens.Screens {
         body.setOpacitySet(1.0f, 0.4f);
         body.setOptionMenuTransformation(-4.0f, 7.0f, 0.6f, 0.6f, 0.5f);
         body.setSelectionMenuTransformation(391.0f, 7.0f, 0.6f, 0.6f, 0.25f);
-        body.add(menu);
+        body.add(bodyChild);
 
         IconController icon = new IconController();
         icon.setRenderer(new IconRendererHigh(icon));
@@ -330,7 +438,7 @@ final class PageWidgets implements PageScreens.Screens {
         LabelRendererHigh titleR = new LabelRendererHigh(title);
         title.setRenderer(titleR);
         titleR.setFonts(FontFactory.getFonts(4, t, f.framework()));
-        title.setTextIds(new int[] {HqcUiIds.TEXT_PAGE_TITLE});
+        title.setTextIds(new int[] {titleText});
         title.setBounds(0, 0, 0, 30);
         title.setColorIndices(new int[] {1, 2, 4, 0});
         TitleBarWidget bar = new TitleBarWidget();
@@ -357,7 +465,6 @@ final class PageWidgets implements PageScreens.Screens {
         stub.setRenderStyle(2);
         AbstractWidgetController ref1 = f.getRefWidget(t, 1, f); // also sets refWidgets[t][2]
 
-        ScreenWidgetEVO s = new PageScreen(HqcUiIds.PAGE_SCREEN_ID, owner, pageKey, layout);
         s.setScreenFactory(f);
         ScreenRendererHigh sr = new ScreenRendererHigh(s);
         s.setRenderer(sr);
@@ -372,15 +479,40 @@ final class PageWidgets implements PageScreens.Screens {
             {-1, 255, -19456, -6123155, a, b, c, a, -6123155},
             {-1, 255, -14775126, -9594974, a, b, c, a, -9594974},
             {-1, 255, -10180096, -9200779, a, b, c, a, -9200779}});
-        s.setSmallStageType(3);
+        s.setSmallStageType(smallStage);
         s.add(ref0);
         s.add(body, 1);
         s.add(head, 2);
         s.add(stub);
         s.add(ref1, 15);
-        s.setViews(new int[] {HqcUiIds.STATUSBAR_STUB_MODEL, HqcUiIds.PAGE_LIST_MODEL},
-                new HMIView[][] {{stub, f.refWidgets[t][2]}, {list}});
+        int n = ids == null ? 0 : ids.length;
+        int[] all = new int[n + 1];
+        HMIView[][] allViews = new HMIView[n + 1][];
+        all[0] = HqcUiIds.STATUSBAR_STUB_MODEL;
+        allViews[0] = new HMIView[] {stub, f.refWidgets[t][2]};
+        for (int i = 0; i < n; i++) {
+            all[i + 1] = ids[i];
+            allViews[i + 1] = views[i];
+        }
+        sortViews(all, allViews);
+        s.setViews(all, allViews);
         return s;
+    }
+
+    /** Sorts {@code ids} ascending, moving {@code views} with them (a handful of entries: insertion sort). */
+    static void sortViews(int[] ids, HMIView[][] views) {
+        for (int i = 1; i < ids.length; i++) {
+            int id = ids[i];
+            HMIView[] v = views[i];
+            int j = i - 1;
+            while (j >= 0 && ids[j] > id) {
+                ids[j + 1] = ids[j];
+                views[j + 1] = views[j];
+                j--;
+            }
+            ids[j + 1] = id;
+            views[j + 1] = v;
+        }
     }
 
     /**
