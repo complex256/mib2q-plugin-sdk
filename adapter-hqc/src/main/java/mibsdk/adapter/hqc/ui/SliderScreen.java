@@ -32,7 +32,10 @@ final class SliderScreen {
     private SliderScreen() {
     }
 
-    /** The screen: BACK (press and release) is the SDK's; it tells its owner when it connects and leaves. */
+    /**
+     * The screen: BACK (press and release) is the SDK's while the SDK owns it ({@link PageScreens#ownsSub}), else
+     * stock's (never a BACK swallowed on a screen nothing handles); it tells its owner when it connects and leaves.
+     */
     static final class Screen extends ScreenWidgetEVO {
         private final PageScreens owner;
 
@@ -56,7 +59,7 @@ final class SliderScreen {
 
         public void keyPressed(KeyEvent e) {
             try {
-                if (e.getKeyCode() == HqcUiIds.KEY_BACK) {
+                if (e.getKeyCode() == HqcUiIds.KEY_BACK && owner.ownsSub(this)) {
                     e.consume(true);
                     owner.subBack(); // never throws
                     return;
@@ -69,7 +72,7 @@ final class SliderScreen {
 
         public void keyReleased(KeyEvent e) {
             try {
-                if (e.getKeyCode() == HqcUiIds.KEY_BACK) {
+                if (e.getKeyCode() == HqcUiIds.KEY_BACK && owner.ownsSub(this)) {
                     e.consume(true);
                     return;
                 }

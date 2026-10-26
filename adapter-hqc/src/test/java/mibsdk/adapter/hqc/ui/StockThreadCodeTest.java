@@ -103,23 +103,63 @@ class StockThreadCodeTest {
         };
         for (String[] o : overrides) {
             String src = source(o[0]);
-            int at = src.indexOf(" " + o[1] + "(");
+            int at = declaration(src, o[1], 0);
             assertTrue(at >= 0, o[0] + "." + o[1]);
             // A name with its return type ("String getText") only matches declarations: check every overload.
             while (at >= 0) {
-                int next = src.indexOf("\n    }", at); // end of the method (4-space indented class member)
-                String body = src.substring(at, next < 0 ? src.length() : next);
-                assertTrue(body.contains("catch (Throwable") || emptyBody(src, at),
-                        o[0] + "." + o[1] + " must catch Throwable");
-                at = o[1].indexOf(' ') < 0 ? -1 : src.indexOf(" " + o[1] + "(", at + 1);
+                String body = body(src, at);
+                assertTrue(body.contains("catch (Throwable") || body.trim().isEmpty(),
+                        o[0] + "." + o[1] + " must catch Throwable (or be an empty no-op): " + body);
+                at = o[1].indexOf(' ') < 0 ? -1 : declaration(src, o[1], at + 1);
             }
         }
     }
 
-    /** The method declared at {@code at} has an empty body (a no-op override: nothing in it can throw). */
-    private static boolean emptyBody(String src, int at) {
-        int open = src.indexOf('{', at);
-        int close = src.indexOf('}', open + 1);
-        return open >= 0 && close > open && src.substring(open + 1, close).trim().isEmpty();
+    /** The checker itself: a nested-class method's body ends at its own brace, not at a later sibling's. */
+    @Test
+    void methodBodyEndsAtItsOwnBrace() {
+        String src = "class A {\n    static final class B {\n        void f() {\n            g(\"}\");\n        }\n\n"
+                + "        void h() {\n            try { g(); } catch (Throwable t) { }\n        }\n    }\n}\n";
+        int f = declaration(src, "void f", 0);
+        assertEquals("\n            g(\"}\");\n        ", body(src, f), "a brace in a string is not the end");
+        assertTrue(!body(src, f).contains("catch (Throwable"), "h's catch is not f's");
+        assertTrue(body(src, declaration(src, "void h", 0)).contains("catch (Throwable"));
+        assertEquals(-1, declaration("class A { void x() { f(); } }", "f", 0), "a call is no declaration");
+    }
+
+    /** The next declaration of {@code name} at or after {@code from} (a call, followed by ';', is skipped); or -1. */
+    static int declaration(String src, String name, int from) {
+        int at = src.indexOf(" " + name + "(", from);
+        while (at >= 0) {
+            int paren = src.indexOf(')', at);
+            int open = src.indexOf('{', paren);
+            int semi = src.indexOf(';', paren);
+            if (open >= 0 && (semi < 0 || open < semi)) {
+                return at;
+            }
+            at = src.indexOf(" " + name + "(", at + 1);
+        }
+        return -1;
+    }
+
+    /** The body (between its braces) of the method declared at {@code at}, by brace depth; literals skipped. */
+    static String body(String src, int at) {
+        int open = src.indexOf('{', src.indexOf(')', at));
+        int depth = 0;
+        for (int i = open; i < src.length(); i++) {
+            char c = src.charAt(i);
+            if (c == '"' || c == '\'') {
+                for (i++; i < src.length() && src.charAt(i) != c; i++) {
+                    if (src.charAt(i) == '\\') {
+                        i++;
+                    }
+                }
+            } else if (c == '{') {
+                depth++;
+            } else if (c == '}' && --depth == 0) {
+                return src.substring(open + 1, i);
+            }
+        }
+        return src.substring(open + 1);
     }
 }

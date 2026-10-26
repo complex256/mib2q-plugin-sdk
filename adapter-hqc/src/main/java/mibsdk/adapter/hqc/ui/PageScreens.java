@@ -55,6 +55,8 @@ final class PageScreens implements PageRenderer {
 
     /** How old an open request may be when its job runs. */
     static final long OPEN_TTL_MS = 2000;
+    /** How long a shown sub-screen may take to connect before it is given up (monotonic clock). */
+    static final long SUB_CONNECT_MS = 3000;
     /** List row kinds: the list model's record-set column (2) picks the item factory's row. */
     static final int ROW_ACTION = 0;
     static final int ROW_TOGGLE = 1;
@@ -208,6 +210,19 @@ final class PageScreens implements PageRenderer {
     private List<UiEntry> rowEntries = Collections.<UiEntry>emptyList();
     /** The sub-screen over the page (609501..609503) shown last and not left; null for none. */
     private Object sub;
+    private int subId = -1;
+    /** {@link #sub} was shown and has not connected yet (read on {@code mibsdk-ui} by {@link #rebuildPending}). */
+    private volatile boolean subWaiting;
+    /** When {@link #sub} was shown ({@link UiInputs#now}; -1 without a clock: never given up). */
+    private long subShownAt;
+    /**
+     * The sub-screen shown last, the page it was over and its typed slot (-1 for none): kept after the user left, so
+     * the same screen connecting again re-adopts the page ({@link #subConnected}). Forgotten when a page is shown.
+     */
+    private Object lastSub;
+    private int lastSubId = -1;
+    private int lastSubSlot = -1;
+    private Shown lastSubShown;
     /** The open slider edit screen's session; null unless the sub-screen is the slider. Read by getText. */
     private volatile SliderSession slider;
 
@@ -370,6 +385,9 @@ final class PageScreens implements PageRenderer {
                 retryOrphan();
             }
             runNav(s);
+            if (subOverdue()) {
+                giveUpSub();
+            }
             String before = stack.top();
             if (before == null || shown == null) {
                 rebuildPending = false;
@@ -385,7 +403,7 @@ final class PageScreens implements PageRenderer {
             PageLayout shownLayout = shownLayout();
             boolean rebuild = !top.equals(before) || !eq(titleOf(top, s), shownTitle)
                     || !PageLayout.of(p, itemIcons).equals(shownLayout);
-            boolean current = screens.isCurrent(shown);
+            boolean current = sub == null && screens.isCurrent(shown); // never rebuilt from under a sub-screen
             boolean allowed = changeAllowed();
             rebuildPending = rebuild && current && !allowed;
             if (rebuild && current && allowed) {
@@ -413,6 +431,7 @@ final class PageScreens implements PageRenderer {
             boolean onScreen = shown != null || ownPageConnected();
             shown = null;
             clearSub();
+            lastSub = null;
             stack.clear();
             if (!onScreen) {
                 closePending = false;
@@ -441,8 +460,9 @@ final class PageScreens implements PageRenderer {
         return navPending;
     }
 
+    /** Also true while a shown sub-screen has not connected: the job that may give it up runs on the tick. */
     public boolean rebuildPending() {
-        return rebuildPending;
+        return rebuildPending || subWaiting;
     }
 
     public void runPendingNav() {
@@ -688,6 +708,13 @@ final class PageScreens implements PageRenderer {
      */
     void openSub(int screenId, Object screen) {
         sub = screen;
+        subId = screenId;
+        subShownAt = UiInputs.now();
+        subWaiting = true;
+        lastSub = screen;
+        lastSubId = screenId;
+        lastSubSlot = -1;
+        lastSubShown = shownPage;
         try {
             screens.show(screen);
         } catch (Throwable t) {
@@ -709,14 +736,84 @@ final class PageScreens implements PageRenderer {
         }
     }
 
-    /** A sub-screen connected; nothing to do (the page stays open). Never throws. */
+    /**
+     * A sub-screen connected. The one shown: nothing to do (the page stays open). The one shown last, after the user
+     * had left the page (a stock screen came over it, and the HMI went back to it): the page it was over is the open
+     * page again, as {@link #screenConnected} does for the page screen; a slider whose entry is gone goes back to the
+     * page at once. Never throws.
+     */
     void subConnected(Object screen) {
         try {
             if (down) {
                 poster.post(retryJob);
+                return;
+            }
+            if (screen != null && screen == sub) {
+                subWaiting = false;
+                return;
+            }
+            if (screen != null && screen == lastSub && sub == null && shown == null && lastSubShown != null) {
+                readoptSub(screen);
             }
         } catch (Throwable t) {
-            // never propagate into the HMI
+            failed("sub connect", t);
+        }
+    }
+
+    private void readoptSub(Object screen) {
+        Shown was = lastSubShown;
+        orphanPending = false;
+        UiSnapshot s = table.snapshot();
+        stack.open(was.pageKey, stockReturn);
+        stack.reconcile(s);
+        live = this;
+        shown = screen; // the sub-screen stands for the page until BACK shows the page screen
+        lastShown = screen;
+        sub = screen;
+        subId = lastSubId;
+        subWaiting = false;
+        shownPage = new Shown(was.pageKey, was.layout, ++generations);
+        UiEntry e = lastSubId == HqcUiIds.SLIDER_SCREEN_ID && was.pageKey.equals(stack.top())
+                ? sliderEntry(shownPage, lastSubSlot, s) : null;
+        PageLayout.TypedRow r = was.layout.typedAt(lastSubSlot);
+        if (e != null && PageLayout.TypedRow.of(e).equals(r)) {
+            slider = new SliderSession(r.min, r.step, r.steps, e.number(), lastSubSlot);
+        } else {
+            requestNav(new Nav(Nav.SUB_BACK, null, -1)); // nothing to edit here now: the page
+        }
+    }
+
+    /** The SDK owns {@code screen} (a sub-screen) now: its BACK and knob are the SDK's; otherwise stock's. */
+    boolean ownsSub(Object screen) {
+        return !down && screen != null && screen == sub;
+    }
+
+    /**
+     * A shown sub-screen that has not connected within {@link #SUB_CONNECT_MS} (its show was dropped or overtaken),
+     * is not on screen and no screen change is on its way to it.
+     */
+    private boolean subOverdue() {
+        if (sub == null || !subWaiting || subShownAt < 0) {
+            return false;
+        }
+        long now = UiInputs.now();
+        return now >= 0 && now - subShownAt > SUB_CONNECT_MS && !screens.isCurrent(sub)
+                && screens.pendingId() != subId;
+    }
+
+    /**
+     * Gives up a sub-screen that never connected: with the page still on screen it is only forgotten; otherwise the
+     * page's leaving (ignored for the sub-screen) was the user leaving. The same screen connecting later re-adopts.
+     */
+    private void giveUpSub() {
+        log.append("INFO", SOURCE, "ui page: sub-screen " + subId + " never connected; given up");
+        boolean pageOn = shown != null && shown != sub && screens.isCurrent(shown);
+        clearSub();
+        if (!pageOn) {
+            shown = null;
+            rebuildPending = false;
+            clearNavs();
+            stack.clear();
         }
     }
 
@@ -738,6 +835,7 @@ final class PageScreens implements PageRenderer {
     private void clearSub() {
         sub = null;
         slider = null;
+        subWaiting = false;
     }
 
     /** The live SLIDER entry of typed slot {@code slot} of {@code sp} in {@code s}, or null. */
@@ -918,6 +1016,7 @@ final class PageScreens implements PageRenderer {
         slider = new SliderSession(r.min, r.step, r.steps, e.number(), slot); // its texts are served at connect
         try {
             openSub(HqcUiIds.SLIDER_SCREEN_ID, screens.buildSlider(slot, sp.layout, this));
+            lastSubSlot = slot;
         } catch (Exception x) {
             clearSub();
             throw x;
@@ -934,6 +1033,7 @@ final class PageScreens implements PageRenderer {
             }
             rebuildPending = false; // whatever was deferred is built now
             clearSub(); // a page shown replaces any sub-screen
+            lastSub = null;
             UiPage p = pageOf(key, s);
             String t = p.title() == null ? "" : p.title();
             PageLayout layout = PageLayout.of(p, itemIcons);

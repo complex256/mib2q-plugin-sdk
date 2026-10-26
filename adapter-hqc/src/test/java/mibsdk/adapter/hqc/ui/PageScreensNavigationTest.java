@@ -1117,4 +1117,142 @@ class PageScreensNavigationTest {
         assertEquals(Collections.emptyList(), calls());
         assertNull(PageScreens.sliderNow());
     }
+
+    // ---- fix round 1 (Task 5 review) -------------------------------------------------------------------------------
+
+    /**
+     * I1: a stock screen closed the page over the slider, then the HMI came back to that same 609501. It is the open
+     * page again (as the page screen is in that case): turns reach the plugin and BACK shows the page.
+     */
+    @Test
+    void sliderScreenComingBackAfterAStockScreenIsReadopted() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        inputs();
+        Object sub = openSlider(0);
+        calls();
+        hmi.current = "rvc";
+        hmi.currentId = 2100001;
+        pages.subDisconnecting(sub);
+        assertEquals(Collections.singletonList("closed a/p"), inputs());
+        assertFalse(pages.ownsSub(sub), "left: the SDK does not own it now");
+
+        hmi.current = sub;
+        hmi.currentId = HqcUiIds.SLIDER_SCREEN_ID;
+        pages.subConnected(sub);
+        assertEquals(Collections.singletonList("shown a/p"), inputs(), "the page is open again");
+        assertTrue(pages.ownsSub(sub), "BACK and the knob are the SDK's again");
+        PageScreens.sliderTurned(0, 1);
+        assertEquals(Collections.singletonList("value a/p/bass=1"), inputs());
+
+        pages.subBack();
+        runJobs();
+        assertEquals(Arrays.asList("rows [Go]", "build a/p 'Alpha'", "show screen3:a/p"), calls());
+        assertNull(PageScreens.sliderNow());
+    }
+
+    /** I1: a re-adopted slider whose entry is gone goes straight back to the page. */
+    @Test
+    void readoptedSliderWithoutItsEntryGoesBackToThePage() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        Object sub = openSlider(0);
+        hmi.current = "rvc";
+        pages.subDisconnecting(sub);
+        publish(page("a/p", "Alpha", item("go", "Go")));
+        calls();
+        inputs();
+        hmi.current = sub;
+        pages.subConnected(sub);
+        assertEquals(Collections.singletonList("shown a/p"), inputs());
+        runJobs();
+        assertEquals(Arrays.asList("rows [Go]", "build a/p 'Alpha'", "show screen3:a/p"), calls());
+    }
+
+    /** I1: a sub-screen the SDK does not own (unknown, or the runtime is down) leaves BACK to stock. */
+    @Test
+    void foreignOrDeadSubScreenIsNotOwned() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        assertFalse(pages.ownsSub("other"));
+        Object sub = openSlider(0);
+        assertTrue(pages.ownsSub(sub));
+        pages.subConnected("other"); // not one of ours: nothing adopted
+        assertTrue(pages.ownsSub(sub));
+        pages.close();
+        assertFalse(pages.ownsSub(sub), "down: stock handles its keys");
+    }
+
+    /**
+     * M1: a sub-screen that never connects (its show dropped or overtaken by a stock screen) is given up after
+     * {@link PageScreens#SUB_CONNECT_MS} on the monotonic clock: the page counts as left (PAGE_CLOSED).
+     */
+    @Test
+    void subScreenThatNeverConnectsUnderAStockScreenClosesThePage() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        Object page = hmi.current;
+        PageScreens.sliderPressed(0);
+        runJobs();
+        hmi.current = "stock:radio"; // a stock screen overtook the slider before it connected
+        hmi.currentId = 1300014;
+        pages.screenDisconnecting(page);
+        inputs();
+        calls();
+        assertTrue(pages.rebuildPending(), "the applier's tick runs the job that checks it");
+        now += PageScreens.SUB_CONNECT_MS - 1;
+        pages.refresh(s);
+        assertEquals(Collections.emptyList(), inputs(), "still within the bound");
+        calls(); // the rows, written under the sub-screen as usual
+        now += 2;
+        pages.refresh(s);
+        assertEquals(Collections.singletonList("closed a/p"), inputs());
+        assertFalse(pages.rebuildPending());
+        assertNull(PageScreens.sliderNow());
+        assertEquals(Collections.emptyList(), calls(), "no screen change: the user is elsewhere");
+    }
+
+    /** M1: the show was dropped and the page stayed: the sub is forgotten, the page stays open, presses work. */
+    @Test
+    void subScreenThatNeverConnectsOverThePageIsForgotten() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        Object page = hmi.current;
+        PageScreens.sliderPressed(0);
+        runJobs();
+        hmi.current = page; // the HMI never left the page
+        hmi.currentId = HqcUiIds.PAGE_SCREEN_ID;
+        inputs();
+        now += PageScreens.SUB_CONNECT_MS + 1;
+        pages.refresh(s);
+        assertEquals(Collections.emptyList(), inputs(), "the page is still open");
+        assertNull(PageScreens.sliderNow());
+        PageScreens.sliderPressed(0);
+        assertTrue(pages.navPending(), "the slider row works again");
+    }
+
+    /** M1: a pending change to the sub-screen, or a connect, is not given up. */
+    @Test
+    void subScreenOnItsWayIsKept() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        Object page = hmi.current;
+        PageScreens.sliderPressed(0);
+        runJobs();
+        Object sub = hmi.current;
+        hmi.current = page;
+        hmi.pendingId = HqcUiIds.SLIDER_SCREEN_ID;
+        now += PageScreens.SUB_CONNECT_MS + 1;
+        pages.refresh(s);
+        assertTrue(pages.ownsSub(sub), "on its way");
+        hmi.pendingId = -1;
+        hmi.current = sub;
+        pages.subConnected(sub);
+        assertFalse(pages.rebuildPending());
+        now += PageScreens.SUB_CONNECT_MS + 1;
+        pages.refresh(s);
+        assertTrue(pages.ownsSub(sub), "connected: kept");
+        assertTrue(PageScreens.sliderNow() != null);
+    }
 }
