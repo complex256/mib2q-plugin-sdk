@@ -60,6 +60,8 @@ class PageScreensNavigationTest {
         boolean failBlocked;
         boolean failShow;
         Object lastShownScreen;
+        int focused = PageScreens.NO_FOCUS; // the connected page's focus, as Screens.focused reports it
+        final List<Integer> focuses = new ArrayList<Integer>(); // each build's focus to set at connect
 
         public int currentId() {
             if (failScreenManager) {
@@ -87,12 +89,13 @@ class PageScreensNavigationTest {
             return screen != null && screen == current;
         }
 
-        public Object build(String pageKey, String title, PageScreens owner, PageLayout layout) {
+        public Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus) {
             if (failBuild) {
                 throw new IllegalStateException("no factory");
             }
             calls.add("build " + pageKey + " '" + title + "'");
             layouts.add(layout);
+            focuses.add(focus);
             return "screen" + (++built) + ":" + pageKey;
         }
 
@@ -140,6 +143,10 @@ class PageScreensNavigationTest {
 
         public String spellerText() {
             return spellerText;
+        }
+
+        public int focused(Object screen) {
+            return focused;
         }
 
         public void writeRows(PageRow[] rows) {
@@ -1569,5 +1576,164 @@ class PageScreensNavigationTest {
         now += PageScreens.SUB_CONNECT_MS + 1;
         pages.refresh(s);
         assertEquals(Collections.singletonList("done a/p/3=0:null"), inputs());
+    }
+
+    // ---- focus (bench findings B and C) ----------------------------------------------------------------------------
+
+    /** The focus the last page screen was built with (set by its menu once it connects). */
+    private int lastFocus() {
+        assertFalse(hmi.focuses.isEmpty(), "a page was built");
+        return hmi.focuses.get(hmi.focuses.size() - 1);
+    }
+
+    /**
+     * C: the choice sub-page opens on its marked option, every time (not on the row picked last). B: the pick and BACK
+     * both return to the CHOICE row. A fresh open is stock's first item.
+     */
+    @Test
+    void choicePageOpensOnTheMarkedOptionAndReturnsToTheChoiceRow() throws Exception {
+        UiSnapshot s = publish(page("p/main", "Main", item("a", "A"), item("b", "B"), language(1)), languages(true));
+        pages.open("p/main", s, 0);
+        assertEquals(PageScreens.NO_FOCUS, lastFocus(), "a fresh open: stock's first item");
+
+        hmi.focused = 2;
+        PageScreens.listSelected(2);
+        runJobs();
+        assertEquals("p/main#lang", pages.shown().pageKey);
+        assertEquals(1, lastFocus(), "English, the marked option");
+
+        hmi.focused = 0;
+        PageScreens.listSelected(0); // Deutsch
+        runJobs();
+        assertEquals("p/main", pages.shown().pageKey);
+        assertEquals(2, lastFocus(), "back on Language");
+
+        publish(page("p/main", "Main", item("a", "A"), item("b", "B"), language(0)), languages(false));
+        hmi.focused = 2;
+        PageScreens.listSelected(2);
+        runJobs();
+        assertEquals(0, lastFocus(), "opened again: Deutsch, now marked");
+        hmi.focused = 1;
+        pages.backPressed();
+        runJobs();
+        assertEquals("p/main", pages.shown().pageKey);
+        assertEquals(2, lastFocus(), "BACK without a pick: on Language too");
+    }
+
+    /** A choice page with no marked option opens on stock's first item. */
+    @Test
+    void choicePageWithoutAMarkOpensOnTheFirstItem() throws Exception {
+        UiPage none = page("p/main#lang", "Language", new UiEntry(UiEntry.RADIO, "0", "Deutsch", null, false, null),
+                new UiEntry(UiEntry.RADIO, "1", "English", null, false, null));
+        UiSnapshot s = publish(page("p/main", "Main", language(0)), none);
+        pages.open("p/main", s, 0);
+        PageScreens.listSelected(0);
+        runJobs();
+        assertEquals(PageScreens.NO_FOCUS, lastFocus());
+    }
+
+    /** B: slider BACK returns to the slider's own (typed) row. */
+    @Test
+    void sliderBackReturnsToTheSliderRow() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go"), slider("bass", "Bass", -6, 6, 0),
+                item("x", "X")));
+        pages.open("a/p", s, 0);
+        hmi.focused = PageScreens.typedFocus(0);
+        Object sub = openSlider(0);
+        hmi.focused = PageScreens.NO_FOCUS; // the page is off screen: its menu has no say
+        pages.subBack();
+        runJobs();
+        pages.subDisconnecting(sub);
+        assertEquals("a/p", pages.shown().pageKey);
+        assertEquals(PageScreens.typedFocus(0), lastFocus());
+    }
+
+    /** B: a confirm's answer returns to the row the page was on. */
+    @Test
+    void confirmAnswerReturnsToTheFocusedRow() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("go", "Go"), item("reset", "Reset"))), 0);
+        hmi.focused = 1;
+        showDialog(confirm(3, "a/p"));
+        PageScreens.confirmSelected(0);
+        runJobs();
+        assertEquals("a/p", pages.shown().pageKey);
+        assertEquals(1, lastFocus());
+    }
+
+    /** B, by entry key: rows added before the focused entry while the speller was up move the focus with it. */
+    @Test
+    void spellerDoneReturnsToTheSameEntryAfterRowsMoved() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("go", "Go"), item("name", "Name"))), 0);
+        hmi.focused = 1;
+        showDialog(speller(3, "a/p", "Bob"));
+        publish(page("a/p", "Alpha", item("new", "New"), item("go", "Go"), item("name", "Name"),
+                item("save", "Save name")));
+        pages.subBack();
+        runJobs();
+        assertEquals(Arrays.asList("rows [New, Go, Name, Save name]", "build a/p 'Alpha'"), calls().subList(0, 2));
+        assertEquals(2, lastFocus(), "still on Name");
+    }
+
+    /** B: the focused entry is gone when the page shows again: the nearest remaining row (same place, or the last). */
+    @Test
+    void goneEntryFocusesTheNearestRow() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("a", "A"), item("b", "B"), item("c", "C"))), 0);
+        hmi.focused = 1;
+        showDialog(confirm(3, "a/p"));
+        publish(page("a/p", "Alpha", item("a", "A"), item("c", "C")));
+        pages.subBack();
+        runJobs();
+        assertEquals(1, lastFocus(), "B's place: now C");
+
+        hmi.focused = 1;
+        showDialog(confirm(4, "a/p"));
+        publish(page("a/p", "Alpha", item("a", "A")));
+        pages.subBack();
+        runJobs();
+        assertEquals(0, lastFocus(), "past the end: the last row");
+
+        hmi.focused = 0;
+        showDialog(confirm(5, "a/p"));
+        publish(page("a/p", "Alpha", item("x", "X"), slider("bass", "Bass", -6, 6, 0)));
+        pages.subBack();
+        runJobs();
+        assertEquals(0, lastFocus(), "the first row's place");
+    }
+
+    /** B: a LINK's child page opens fresh; BACK from it returns to the LINK row. */
+    @Test
+    void linkChildOpensFreshAndBackReturnsToTheLinkRow() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("go", "Go"), link("more", "More", "a/q")),
+                page("a/q", "Beta", item("x", "X"), item("y", "Y")));
+        pages.open("a/p", s, 0);
+        hmi.focused = 1;
+        PageScreens.listSelected(1);
+        runJobs();
+        assertEquals(PageScreens.NO_FOCUS, lastFocus(), "the child: stock's first item");
+        hmi.focused = 1;
+        pages.backPressed();
+        runJobs();
+        assertEquals(1, lastFocus(), "back on More");
+
+        PageScreens.listSelected(1);
+        runJobs();
+        assertEquals(PageScreens.NO_FOCUS, lastFocus(), "the child opened again: fresh, not where it was left");
+    }
+
+    /** A rebuild on refresh (new title) keeps the focus on the same entry; a new open starts fresh. */
+    @Test
+    void rebuildKeepsTheFocusedEntryAndANewOpenStartsFresh() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("a", "A"), item("b", "B"))), 0);
+        calls();
+        hmi.focused = 1;
+        pages.refresh(publish(page("a/p", "Alpha 2", item("new", "New"), item("a", "A"), item("b", "B"))));
+        assertEquals(Arrays.asList("rows [New, A, B]", "build a/p 'Alpha 2'"), calls().subList(0, 2));
+        assertEquals(2, lastFocus(), "still on B");
+
+        pages.backPressed();
+        runJobs();
+        UiInputs.userPressed();
+        pages.open("a/p", publish(page("a/p", "Alpha", item("a", "A"), item("b", "B"))), 0);
+        assertEquals(PageScreens.NO_FOCUS, lastFocus(), "a new open: stock's first item");
     }
 }

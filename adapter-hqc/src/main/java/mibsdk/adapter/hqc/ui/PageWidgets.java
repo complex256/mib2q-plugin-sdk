@@ -53,6 +53,7 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.menu.ListController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemColumnsConstraints;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
+import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemIndex;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.list.ListItemFactory;
 import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiEntry;
@@ -129,8 +130,17 @@ final class PageWidgets implements PageScreens.Screens {
         return screen != null && sm != null && sm.getCurrentConnectedScreen() == screen;
     }
 
-    public Object build(String pageKey, String title, PageScreens owner, PageLayout layout) {
-        return build(factory(), TERMINAL, owner, pageKey, layout);
+    public Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus) {
+        return build(factory(), TERMINAL, owner, pageKey, layout, focus);
+    }
+
+    /** The page menu's focus code ({@link PageMenu#codeOf}); {@link PageScreens#NO_FOCUS} if none. Never throws. */
+    public int focused(Object screen) {
+        try {
+            return screen instanceof PageScreen ? ((PageScreen) screen).menu.focusCode() : PageScreens.NO_FOCUS;
+        } catch (Throwable t) {
+            return PageScreens.NO_FOCUS;
+        }
     }
 
     public Object buildSlider(int slot, PageLayout layout, PageScreens owner) {
@@ -214,7 +224,7 @@ final class PageWidgets implements PageScreens.Screens {
         return a == null ? null : (int[]) a.clone();
     }
 
-    /** Rewrites the rows in place (so focus stays), then trims or extends the list. */
+    /** Writes the rows ({@link #write}: each kept entry stays in its own row, so the focus stays on it). */
     public void writeRows(PageRow[] rows) {
         ListModel m = SdkCarModelBank.pageList();
         if (m == null) {
@@ -223,23 +233,89 @@ final class PageWidgets implements PageScreens.Screens {
         write(m, rows);
     }
 
-    /** Rewrites {@code m}'s rows in place (so focus stays), then trims or extends it. */
+    /**
+     * Writes {@code rows} to {@code m} so that each entry already there stays in its own row (bench B): the rows of
+     * entries that are gone are removed, a new entry's row is inserted where it goes, every other row is rewritten in
+     * place. The stock menu sees each as its own event and keeps its focus on the focused row's id
+     * ({@link HqcUiIds#PAGE_COL_ID}). Rows that share no id with {@code m}'s (another page) are rewritten in place, then
+     * the list trimmed or extended, as before.
+     */
     static void write(ListModel m, PageRow[] rows) {
         int had = m.getLength();
+        if (!sharesAnId(m, rows)) {
+            for (int i = 0; i < rows.length; i++) {
+                ListCell[] row = cells(rows[i]);
+                if (i < had) {
+                    m.setRow(i, row);
+                } else {
+                    m.addRow(row);
+                }
+            }
+            trim(m, rows.length);
+            return;
+        }
+        for (int i = had - 1; i >= 0; i--) {
+            if (indexOf(rows, rowId(m, i)) < 0) {
+                m.removeRow(i); // its entry is gone (from the end: the rows before keep their indexes)
+            }
+        }
         for (int i = 0; i < rows.length; i++) {
             ListCell[] row = cells(rows[i]);
-            if (i < had) {
+            int len = m.getLength();
+            if (i < len && rowId(m, i) == rows[i].id) {
                 m.setRow(i, row);
+            } else if (indexOf(m, i, rows[i].id) >= 0) {
+                m.setRow(i, row); // moved: rewritten in place (its old row is rewritten or trimmed later)
+            } else if (i < len) {
+                m.insertRow(i, row); // a new entry
             } else {
                 m.addRow(row);
             }
         }
-        for (int i = had - 1; i >= rows.length; i--) {
+        trim(m, rows.length);
+    }
+
+    private static void trim(ListModel m, int length) {
+        for (int i = m.getLength() - 1; i >= length; i--) {
             m.removeRow(i);
         }
     }
 
-    /** One model row: label, value, kind, enabled 1/0, value text ("" for none). */
+    /** The id in row {@code i} of {@code m} ({@link HqcUiIds#PAGE_COL_ID}), or -1 (no row id is negative). */
+    private static int rowId(ListModel m, int i) {
+        ListCell c = m.getRow(i).getCell(HqcUiIds.PAGE_COL_ID);
+        return c instanceof IntegerListCell ? ((IntegerListCell) c).getValue() : -1;
+    }
+
+    private static boolean sharesAnId(ListModel m, PageRow[] rows) {
+        for (int i = m.getLength() - 1; i >= 0; i--) {
+            if (indexOf(rows, rowId(m, i)) >= 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int indexOf(PageRow[] rows, int id) {
+        for (int i = 0; i < rows.length; i++) {
+            if (rows[i].id == id) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** The first row at or after {@code from} of {@code m} with {@code id}, or -1. */
+    private static int indexOf(ListModel m, int from, int id) {
+        for (int i = from; i < m.getLength(); i++) {
+            if (rowId(m, i) == id) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** One model row: label, value, kind, enabled 1/0, value text ("" for none), row id. */
     static ListCell[] cells(PageRow r) {
         ListCell[] c = new ListCell[HqcUiIds.PAGE_COLUMNS];
         c[HqcUiIds.PAGE_COL_LABEL] = TextListCell.create(r.label == null ? "" : r.label);
@@ -247,6 +323,7 @@ final class PageWidgets implements PageScreens.Screens {
         c[HqcUiIds.PAGE_COL_KIND] = IntegerListCell.create(r.kind);
         c[HqcUiIds.PAGE_COL_ENABLED] = IntegerListCell.create(r.enabled ? 1 : 0);
         c[HqcUiIds.PAGE_COL_VALUE_TEXT] = TextListCell.create(r.valueText == null ? "" : r.valueText);
+        c[HqcUiIds.PAGE_COL_ID] = IntegerListCell.create(r.id);
         return c;
     }
 
@@ -257,12 +334,14 @@ final class PageWidgets implements PageScreens.Screens {
         private final PageScreens owner;
         private final String pageKey;
         private final PageLayout layout;
+        final PageMenu menu;
 
-        PageScreen(int id, PageScreens owner, String pageKey, PageLayout layout) {
+        PageScreen(int id, PageScreens owner, String pageKey, PageLayout layout, PageMenu menu) {
             super(id);
             this.owner = owner;
             this.pageKey = pageKey;
             this.layout = layout;
+            this.menu = menu;
         }
 
         public void connected(InitializationContext c) {
@@ -279,12 +358,99 @@ final class PageWidgets implements PageScreens.Screens {
         }
     }
 
-    /** The page's menu: BACK (press and release) is the SDK's; every other key is stock. */
+    /**
+     * The page's menu: BACK (press and release) is the SDK's; every other key is stock. Its focus (bench B, C) is a
+     * focus code ({@link PageScreens#NO_FOCUS}, list row {@code r >= 0}, or typed slot {@link PageScreens#typedFocus}):
+     * once connected it focuses the build's code, then, connecting again, the one it had when it left.
+     *
+     * <p>The focus is set with {@code MenuController.focusItemImmediately(MenuItemIndex)} (lsd-src
+     * {@code de/esolutions/hmi/widgets/audi/evo/widgets/menu/MenuController.java:1047-1054}, the stock combo box's
+     * "focus the selected item" on open, {@code .../evo/widgets/ComboBoxController.java:365-368}). It goes through
+     * {@code MenuAnimationManager.focus} ({@code .../menu/MenuAnimationManager.java:122-144}, its layout pass ending in
+     * {@code setViewport} and {@code setFocusedIndex}, {@code .../menu/MenuUpdateManager.java:50-51}, then
+     * {@code adjustCursor}): the menu's focused index (what a knob turn steps from,
+     * {@code MenuKeyEventHandler.getNewFocusItem}, {@code .../menu/MenuKeyEventHandler.java:462-463}), the viewport
+     * and the drawn cursor together; and it clears the key handler's cache. It runs after stock's own initial focus
+     * ({@code MenuController.afterConnected}, {@code MenuController.java:227-243}). Not {@code setFocusedIndex} (the index only, {@code MenuController.java:2283}) nor the list model's
+     * {@code setSelected} (the selection; it moves the focus only through a cursor-merge widget the page has none of,
+     * {@code .../menu/MenuLayoutInitialization.java:358-363}).
+     */
     static final class PageMenu extends MenuController {
         private final PageScreens owner;
+        private final ListController list;
+        private final int typedRows;
+        /** HMIEvent only. */
+        private int focusOnConnect;
 
-        PageMenu(PageScreens owner) {
+        PageMenu(PageScreens owner, ListController list, int typedRows, int focus) {
             this.owner = owner;
+            this.list = list;
+            this.typedRows = typedRows;
+            this.focusOnConnect = focus;
+        }
+
+        /** Stock's initial focus (the first item: the page has no model, persistence or merge widget), then ours. */
+        protected void afterConnected() {
+            super.afterConnected();
+            try {
+                MenuItemIndex i = indexOf(focusOnConnect);
+                if (i != null && isValidMenuItemIndex(i) && isMenuItemFocusable(i)) {
+                    focusItemImmediately(i);
+                }
+            } catch (Throwable t) {
+                // stock's first item stays
+            }
+        }
+
+        public void disconnecting() {
+            keepFocus();
+            super.disconnecting();
+        }
+
+        /** Leaving the screen: the focus to set if this menu connects again. Never throws. */
+        private void keepFocus() {
+            try {
+                int f = focusCode();
+                if (f != PageScreens.NO_FOCUS) {
+                    focusOnConnect = f;
+                }
+            } catch (Throwable t) {
+                // the build's focus stays
+            }
+        }
+
+        int focusOnConnect() {
+            return focusOnConnect;
+        }
+
+        int focusCode() {
+            return codeOf(getFocusedIndex());
+        }
+
+        /** The menu item of focus code {@code code}, or null (no focus, or no such row). */
+        MenuItemIndex indexOf(int code) {
+            int at = getChildren().indexOf(list);
+            if (at < 0 || code == PageScreens.NO_FOCUS) {
+                return null;
+            }
+            if (code >= 0) {
+                return new MenuItemIndex(at, code);
+            }
+            int slot = PageScreens.typedSlot(code);
+            return slot >= 0 && slot < typedRows ? new MenuItemIndex(at + 1 + slot, 0) : null;
+        }
+
+        /** The focus code of menu item {@code i}; {@link PageScreens#NO_FOCUS} for none or another child. */
+        int codeOf(MenuItemIndex i) {
+            int at = getChildren().indexOf(list);
+            if (i == null || at < 0) {
+                return PageScreens.NO_FOCUS;
+            }
+            if (i.widget == at) {
+                return i.widgetPart >= 0 ? i.widgetPart : PageScreens.NO_FOCUS;
+            }
+            int slot = i.widget - at - 1;
+            return slot >= 0 && slot < typedRows ? PageScreens.typedFocus(slot) : PageScreens.NO_FOCUS;
         }
 
         public void keyPressed(KeyEvent e) {
@@ -313,14 +479,16 @@ final class PageWidgets implements PageScreens.Screens {
         }
     }
 
-    static Screen build(SdkCarScreenFactory f, int t, PageScreens owner, String pageKey, PageLayout layout) {
+    /** The page screen; {@code focus}: the focus code its menu sets once connected ({@link PageMenu}). */
+    static Screen build(SdkCarScreenFactory f, int t, PageScreens owner, String pageKey, PageLayout layout,
+                        int focus) {
         AbstractWidgetController ref0 = f.getRefWidget(t, 0, f);
         ListController list = list(layout);
-        PageMenu menu = new PageMenu(owner);
+        PageLayout.TypedRow[] typed = layout == null ? new PageLayout.TypedRow[0] : layout.typed();
+        PageMenu menu = new PageMenu(owner, list, typed.length, focus);
         dressMenu(menu, f, t, 32);
         menu.add(list);
 
-        PageLayout.TypedRow[] typed = layout == null ? new PageLayout.TypedRow[0] : layout.typed();
         int[] ids = new int[1 + typed.length];
         HMIView[][] views = new HMIView[ids.length][];
         ids[0] = HqcUiIds.PAGE_LIST_MODEL;
@@ -331,7 +499,7 @@ final class PageWidgets implements PageScreens.Screens {
             ids[1 + s] = row.getModelID();
             views[1 + s] = new HMIView[] {row};
         }
-        ScreenWidgetEVO s = new PageScreen(HqcUiIds.PAGE_SCREEN_ID, owner, pageKey, layout);
+        ScreenWidgetEVO s = new PageScreen(HqcUiIds.PAGE_SCREEN_ID, owner, pageKey, layout, menu);
         return shell(s, f, t, ref0, menu, HqcUiIds.TEXT_PAGE_TITLE, 3, ids, views);
     }
 
@@ -545,8 +713,8 @@ final class PageWidgets implements PageScreens.Screens {
     }
 
     /**
-     * The page's list on {@link HqcUiIds#PAGE_LIST_MODEL}: the kind column is the id and record-set column (it picks
-     * the row's cells), the enabled column greys a row (spike D).
+     * The page's list on {@link HqcUiIds#PAGE_LIST_MODEL}: the kind column is the record-set column (it picks the
+     * row's cells), the enabled column greys a row (spike D), the row id column is the id column (bench B).
      */
     static ListController list(PageLayout layout) {
         return list(HqcUiIds.PAGE_LIST_MODEL, layout);
@@ -559,7 +727,7 @@ final class PageWidgets implements PageScreens.Screens {
         list.setBounds(0, 0, 0, 0);
         list.setGlassplateInsetsBottom(new int[0]);
         list.setGlassplateInsetsTop(new int[0]);
-        list.setIdColumn(HqcUiIds.PAGE_COL_KIND);
+        list.setIdColumn(HqcUiIds.PAGE_COL_ID);
         list.setRecordSetColumn(HqcUiIds.PAGE_COL_KIND);
         list.setEnabledColumn(HqcUiIds.PAGE_COL_ENABLED);
         list.setNoFocusAreasBottom(new int[0]);

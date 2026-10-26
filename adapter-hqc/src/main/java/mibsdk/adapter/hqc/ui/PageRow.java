@@ -6,7 +6,8 @@ import mibsdk.platform.UiPageText;
 /**
  * One row of the page's list model ({@link HqcUiIds#PAGE_LIST_MODEL}): the label (column 0), the value (1: a toggle's
  * or radio's 1/0, a progress percent, an icon index), the row kind (2, the record-set column: it picks the item
- * factory's row), enabled (3) and the value text (4). Immutable.
+ * factory's row), enabled (3), the value text (4) and the row id (5, the list's id column: its entry's
+ * {@link #rowId}, bench B). Immutable; {@link #equals} compares what is drawn, not the id.
  */
 final class PageRow {
 
@@ -16,13 +17,25 @@ final class PageRow {
     final boolean enabled;
     /** Null for none (written as ""). */
     final String valueText;
+    /** The row's identity in the list ({@link #rowId} of its entry's key); the stock menu keeps its focus by it. */
+    final int id;
 
     PageRow(String label, int value, int kind, boolean enabled, String valueText) {
+        this(label, value, kind, enabled, valueText, 0);
+    }
+
+    PageRow(String label, int value, int kind, boolean enabled, String valueText, int id) {
         this.label = label;
         this.value = value;
         this.kind = kind;
         this.enabled = enabled;
         this.valueText = valueText;
+        this.id = id;
+    }
+
+    /** The row id of the entry keyed {@code key} (unique within a page, but for a hash collision): never negative. */
+    static int rowId(String key) {
+        return key == null ? 0 : key.hashCode() & 0x7fffffff;
     }
 
     /** The row of list entry {@code e}; {@code iconIndex}: its icon's index in the shown layout, -1 for none. */
@@ -53,7 +66,7 @@ final class PageRow {
                 value = 0;
                 break;
         }
-        return new PageRow(UiPageText.label(e), value, kind, e.enabled(), text);
+        return new PageRow(UiPageText.label(e), value, kind, e.enabled(), text, rowId(e.key()));
     }
 
     public boolean equals(Object o) {
@@ -70,7 +83,7 @@ final class PageRow {
     }
 
     public String toString() {
-        return label + "{kind=" + kind + " value=" + value + (enabled ? "" : " disabled")
+        return label + "{id=" + id + " kind=" + kind + " value=" + value + (enabled ? "" : " disabled")
                 + (valueText == null ? "" : " text=" + valueText) + "}";
     }
 

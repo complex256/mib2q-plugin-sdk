@@ -30,8 +30,8 @@ public final class HqcUiIds {
     /** The drawer rows' models: the 9 visibility models and the selection model ({@code MODEL_BASE + 0..9}). */
     public static final int ROW_MODEL_COUNT = ROW_SLOTS + 1;
     /**
-     * The SDK page's ListModel (spike B, 5 columns since spike D): label, value, row kind, enabled, value text
-     * ({@link #PAGE_COL_LABEL} .. {@link #PAGE_COL_VALUE_TEXT}). The kind is the record-set column: it picks the item
+     * The SDK page's ListModel (spike B, 5 columns since spike D, 6 since bench B): label, value, row kind, enabled,
+     * value text, row id ({@link #PAGE_COL_LABEL} .. {@link #PAGE_COL_ID}). The kind is the record-set column: it picks the item
      * factory's row. Id {@code MODEL_BASE + 10} stays unused (spike B's row-label model).
      */
     public static final int PAGE_LIST_MODEL = MODEL_BASE + 11;
@@ -52,7 +52,7 @@ public final class HqcUiIds {
     public static final int TYPED_RANGE_MODEL_0 = MODEL_BASE + 30;
     /** Reserved with no model (F9: the confirm body is a factory text, {@link #TEXT_CONFIRM_TEXT}). */
     public static final int CONFIRM_TEXT_RESERVED = MODEL_BASE + 34;
-    /** The confirm screen's Yes/No ListModel (5 columns, as the page list). */
+    /** The confirm screen's Yes/No ListModel (the page list's columns; its rows' ids are 0 and 1). */
     public static final int CONFIRM_LIST_MODEL = MODEL_BASE + 35;
     /** The speller screen's SpellerModel. */
     public static final int SPELLER_MODEL = MODEL_BASE + 36;
@@ -99,15 +99,24 @@ public final class HqcUiIds {
     public static final int LIST_ITEM_TYPE = 16;
     /**
      * The page list's columns (spike D, research note 2026-10-25 §7.2): 0 {@code TextListCell} label, 1
-     * {@code IntegerListCell} value (checkbox/radio 1/0, progress percent, icon index), 2 row kind (the list's id and
-     * record-set column), 3 enabled ({@code > 0} enabled: the list's enabled column), 4 {@code TextListCell} value text.
+     * {@code IntegerListCell} value (checkbox/radio 1/0, progress percent, icon index), 2 row kind (the list's
+     * record-set column), 3 enabled ({@code > 0} enabled: the list's enabled column), 4 {@code TextListCell} value text,
+     * 5 {@code IntegerListCell} row id (the list's id column, {@link #PAGE_COL_ID}).
      */
     public static final int PAGE_COL_LABEL = 0;
     public static final int PAGE_COL_VALUE = 1;
     public static final int PAGE_COL_KIND = 2;
     public static final int PAGE_COL_ENABLED = 3;
     public static final int PAGE_COL_VALUE_TEXT = 4;
-    public static final int PAGE_COLUMNS = 5;
+    /**
+     * Bench B: the list's id column, each row's entry id ({@link PageRow#rowId}). The stock menu keeps its focus by it:
+     * after a row is added or removed it looks the focused row up again by this id ({@code MenuModelEventHandler
+     * .getFocusedIndexForRefresh}, lsd-src {@code de/esolutions/hmi/widgets/audi/evo/widgets/menu/
+     * MenuModelEventHandler.java:149-165}, via {@code OldListModelAccess.getRowId}, {@code .../menu/list/
+     * OldListModelAccess.java:85-117}). With the kind as the id (before), it went to the first row of the same kind.
+     */
+    public static final int PAGE_COL_ID = 5;
+    public static final int PAGE_COLUMNS = 6;
     /**
      * F12, [bench N4]: an item with an icon and a value is drawn with both (the 3-column icon + label + value row).
      * If bench N4 shows that row broken, this is set false and such an item drops its icon (a value row).

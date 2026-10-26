@@ -78,18 +78,23 @@ class PageWidgetsTest {
         assertNull(rows.createCell(1), "column 1's cell depends on the row kind");
     }
 
-    /** Spike D: the kind column is also the record-set column (it picks the row), column 3 greys a row. */
+    /**
+     * Spike D: the kind column is the record-set column (it picks the row), column 3 greys a row. Bench B: the id
+     * column is the entry's own row id (column 5), so the stock menu keeps the focus on the same entry when rows are
+     * added or removed (it re-finds the focused row by that id).
+     */
     @Test
-    void listUsesRecordSetAndEnabledColumns() {
+    void listUsesRecordSetEnabledAndIdColumns() {
         HostWidgets.init();
         ListController list = PageWidgets.list(PageLayout.EMPTY);
-        assertEquals(2, list.getIdColumn());
+        assertEquals(5, list.getIdColumn());
         assertEquals(2, list.getRecordSetColumn());
         assertEquals(3, list.getEnabledColumn());
         assertEquals(HqcUiIds.PAGE_LIST_MODEL, list.getModelID());
 
-        ListCell[] c = PageWidgets.cells(new PageRow("Wi-Fi", 1, PageScreens.ROW_TOGGLE, false, null));
-        assertEquals(5, c.length);
+        ListCell[] c = PageWidgets.cells(new PageRow("Wi-Fi", 1, PageScreens.ROW_TOGGLE, false, null, 42));
+        assertEquals(6, c.length);
+        assertEquals(42, ((IntegerListCell) c[5]).getValue());
         assertEquals("Wi-Fi", ((TextListCell) c[0]).getText());
         assertEquals(1, ((IntegerListCell) c[1]).getValue());
         assertEquals(PageScreens.ROW_TOGGLE, ((IntegerListCell) c[2]).getValue());
@@ -101,14 +106,15 @@ class PageWidgetsTest {
                 new PageRow("Wi-Fi", 0, PageScreens.ROW_VALUE, true, "on >"))[3]).getValue());
     }
 
-    /** F14: the bank's page ListModel has the 5 columns the rows write. */
+    /** F14: the bank's page and confirm ListModels have the 6 columns the rows write (bench B: + the row id). */
     @Test
-    void pageListModelHas5Columns() {
+    void pageListModelHas6Columns() {
         boolean was = SdkGlobals.uiEnabled;
         try {
             SdkGlobals.uiEnabled = true;
             new SdkCarModelBank();
-            assertEquals(5, SdkCarModelBank.pageList().getMaxColumns());
+            assertEquals(6, SdkCarModelBank.pageList().getMaxColumns());
+            assertEquals(6, SdkCarModelBank.confirmList().getMaxColumns());
         } finally {
             SdkGlobals.uiEnabled = was;
         }
@@ -237,7 +243,7 @@ class PageWidgetsTest {
                 new UiEntry(UiEntry.SLIDER, "bass", "Bass", null, false, null).withRange(-6, 6, 1, true)));
         SdkCarScreenFactory f = new SdkCarScreenFactory(SdkCarScreenFactoryTest.fw());
         de.audi.atip.hmi.view.Screen screen = PageWidgets.build(f, 0, null, "p/main",
-                PageLayout.of(p, ItemIcons.NONE));
+                PageLayout.of(p, ItemIcons.NONE), PageScreens.NO_FOCUS);
         de.esolutions.hmi.widgets.audi.base.AbstractScreenWidget sw =
                 (de.esolutions.hmi.widgets.audi.base.AbstractScreenWidget) screen;
         assertEquals(HqcUiIds.PAGE_SCREEN_ID, sw.getID());
@@ -372,5 +378,149 @@ class PageWidgetsTest {
                 instanceof de.esolutions.hmi.widgets.audi.evo.widgets.TouchController);
         assertEquals("Bob", m.getText());
         assertEquals(20, m.getMaxLength());
+    }
+
+    // ---- focus (bench findings B and C) ----------------------------------------------------------------------------
+
+    /** A page ListModel that records the row operations a write makes (the stock menu sees each as one event). */
+    static final class RecordingList extends de.audi.atip.hmi.model.ListModel {
+        final List<String> ops = new java.util.ArrayList<String>();
+
+        RecordingList() {
+            super(HqcUiIds.PAGE_LIST_MODEL);
+            setMaxColumns(HqcUiIds.PAGE_COLUMNS);
+            setMaxRows(64);
+        }
+
+        public void setRow(int i, ListCell[] c) {
+            ops.add("set " + i + " " + ((TextListCell) c[0]).getText());
+            super.setRow(i, c);
+        }
+
+        public void insertRow(int i, ListCell[] c) {
+            ops.add("insert " + i + " " + ((TextListCell) c[0]).getText());
+            super.insertRow(i, c);
+        }
+
+        public void addRow(ListCell[] c) {
+            ops.add("add " + ((TextListCell) c[0]).getText());
+            super.addRow(c);
+        }
+
+        public void removeRow(int i) {
+            ops.add("remove " + i);
+            super.removeRow(i);
+        }
+
+        List<String> labels() {
+            List<String> l = new java.util.ArrayList<String>();
+            for (int i = 0; i < getLength(); i++) {
+                l.add(getRow(i).getText(HqcUiIds.PAGE_COL_LABEL));
+            }
+            return l;
+        }
+
+        List<String> take() {
+            List<String> l = new java.util.ArrayList<String>(ops);
+            ops.clear();
+            return l;
+        }
+    }
+
+    private static PageRow[] rows(String... keys) {
+        PageRow[] r = new PageRow[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            r[i] = PageRow.of(new UiEntry(UiEntry.ITEM, keys[i], keys[i].toUpperCase(), null, false, null), -1);
+        }
+        return r;
+    }
+
+    /** Each entry's row id is its key's, never negative; equal content compares equal whatever the id. */
+    @Test
+    void rowIdIsTheEntryKeys() {
+        PageRow a = rows("a")[0];
+        assertEquals(PageRow.rowId("a"), a.id);
+        assertTrue(PageRow.rowId("a") != PageRow.rowId("b"));
+        for (String k : new String[] {"", "a", "lang", "polygenelubricants", "\u0000"}) {
+            assertTrue(PageRow.rowId(k) >= 0, k);
+        }
+        assertEquals(new PageRow("A", 0, PageScreens.ROW_ACTION, true, null), a, "the drawn content");
+    }
+
+    /**
+     * Bench B (in-place refresh): a write keeps each kept entry in its own row, so the stock menu's focus (by row id)
+     * stays on it: a removed entry's row is removed, a new entry's row is inserted where it goes, the rest rewritten
+     * in place. A page that shares no entry with the rows there (another page) is written in place, as before.
+     */
+    @Test
+    void writeKeepsEachEntrysRowWhenRowsAreAddedOrRemoved() {
+        RecordingList m = new RecordingList();
+        PageWidgets.write(m, rows("a", "b", "c"));
+        assertEquals(Arrays.asList("add A", "add B", "add C"), m.take());
+
+        PageWidgets.write(m, rows("a", "c"));
+        assertEquals(Arrays.asList("remove 1", "set 0 A", "set 1 C"), m.take(), "B's row goes");
+        assertEquals(Arrays.asList("A", "C"), m.labels());
+
+        PageWidgets.write(m, rows("a", "n", "c", "z"));
+        assertEquals(Arrays.asList("set 0 A", "insert 1 N", "set 2 C", "add Z"), m.take(), "N goes in before C");
+        assertEquals(Arrays.asList("A", "N", "C", "Z"), m.labels());
+
+        PageWidgets.write(m, rows("x", "y"));
+        assertEquals(Arrays.asList("set 0 X", "set 1 Y", "remove 3", "remove 2"), m.take(), "another page: in place");
+        assertEquals(Arrays.asList("X", "Y"), m.labels());
+
+        PageWidgets.write(m, rows("y", "x", "w"));
+        assertEquals(Arrays.asList("Y", "X", "W"), m.labels(), "a reorder ends right too");
+        PageWidgets.write(m, new PageRow[0]);
+        assertEquals(new java.util.ArrayList<String>(), m.labels());
+    }
+
+    /**
+     * The page menu's focus codes (bench B, C): list row {@code r} is the list's item {@code r}; typed slot {@code s}
+     * ({@link PageScreens#typedFocus}) is the {@code s}-th row after the list. The build's focus is the one set once
+     * the menu connects.
+     */
+    @Test
+    void pageMenuMapsFocusCodesToItsItems() throws Exception {
+        HostWidgets.init();
+        carFonts();
+        UiPage p = new UiPage("p/main", "Main", Arrays.asList(
+                new UiEntry(UiEntry.DROPDOWN, "mode", "Mode", null, false, null)
+                        .withOptions(new String[] {"Off", "Low", "High"}),
+                new UiEntry(UiEntry.ITEM, "go", "Go", null, false, null),
+                new UiEntry(UiEntry.SLIDER, "bass", "Bass", null, false, null).withRange(-6, 6, 1, true)));
+        SdkCarScreenFactory f = new SdkCarScreenFactory(SdkCarScreenFactoryTest.fw());
+        de.audi.atip.hmi.view.Screen screen = PageWidgets.build(f, 0, null, "p/main",
+                PageLayout.of(p, ItemIcons.NONE), PageScreens.typedFocus(1));
+        de.esolutions.hmi.widgets.audi.base.AbstractScreenWidget sw =
+                (de.esolutions.hmi.widgets.audi.base.AbstractScreenWidget) screen;
+        ListController list = (ListController) sw.findViews(HqcUiIds.PAGE_LIST_MODEL)[0];
+        PageWidgets.PageMenu menu = (PageWidgets.PageMenu) list.getParent();
+        int at = menu.getChildren().indexOf(list);
+        assertEquals(PageScreens.typedFocus(1), menu.focusOnConnect(), "the build's focus");
+
+        de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemIndex i = menu.indexOf(3);
+        assertEquals(at, i.widget);
+        assertEquals(3, i.widgetPart);
+        i = menu.indexOf(PageScreens.typedFocus(0));
+        assertEquals(at + 1, i.widget, "the combo row");
+        assertEquals(0, i.widgetPart);
+        assertEquals(at + 2, menu.indexOf(PageScreens.typedFocus(1)).widget, "the rotary row");
+        assertNull(menu.indexOf(PageScreens.typedFocus(2)), "only 2 typed rows");
+        assertNull(menu.indexOf(PageScreens.NO_FOCUS));
+
+        assertEquals(3, menu.codeOf(new de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemIndex(at, 3)));
+        assertEquals(PageScreens.typedFocus(1),
+                menu.codeOf(new de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemIndex(at + 2, 0)));
+        assertEquals(PageScreens.NO_FOCUS, menu.codeOf(null));
+        assertEquals(PageScreens.NO_FOCUS,
+                menu.codeOf(new de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemIndex(at + 3, 0)));
+        if (at > 0) {
+            assertEquals(PageScreens.NO_FOCUS,
+                    menu.codeOf(new de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemIndex(at - 1, 0)));
+        }
+        assertEquals(PageScreens.NO_FOCUS, new PageWidgets(null).focused(screen), "not connected: no focus");
+        assertEquals(PageScreens.NO_FOCUS, new PageWidgets(null).focused("not a page"));
     }
 }

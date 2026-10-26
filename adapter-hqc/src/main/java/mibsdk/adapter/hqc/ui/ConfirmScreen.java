@@ -24,11 +24,11 @@ final class ConfirmScreen {
     private ConfirmScreen() {
     }
 
-    /** The two rows: Yes then No, ACTION rows, enabled. */
+    /** The two rows: Yes then No (row ids 0 and 1), ACTION rows, enabled. */
     static PageRow[] rows(UiDialog d) {
         return new PageRow[] {
-            new PageRow(d.yes(), 0, PageScreens.ROW_ACTION, true, null),
-            new PageRow(d.no(), 0, PageScreens.ROW_ACTION, true, null)};
+            new PageRow(d.yes(), 0, PageScreens.ROW_ACTION, true, null, 0),
+            new PageRow(d.no(), 0, PageScreens.ROW_ACTION, true, null, 1)};
     }
 
     /** Writes {@code d}'s rows to the confirm ListModel {@code m} in place, then trims it. */

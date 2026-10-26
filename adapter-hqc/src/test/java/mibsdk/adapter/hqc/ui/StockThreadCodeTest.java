@@ -108,6 +108,11 @@ class StockThreadCodeTest {
             {"SdkCarModelBank", "void textChanged"},
             {"SdkCarModelBank", "void commandPressed"},
             {"StatusPopupController", "int hide"},
+            // bench B/C: the page menu sets and keeps its focus on connect/disconnect; the focus query and capture
+            {"PageWidgets", "void afterConnected"},
+            {"PageWidgets", "void keepFocus"},
+            {"PageWidgets", "int focused"},
+            {"PageScreens", "void rememberFocus"},
         };
         for (String[] o : overrides) {
             String src = source(o[0]);

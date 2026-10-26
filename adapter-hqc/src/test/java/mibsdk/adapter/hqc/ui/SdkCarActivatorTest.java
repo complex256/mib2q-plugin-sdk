@@ -199,7 +199,7 @@ class SdkCarActivatorTest {
         de.audi.atip.hmi.model.ListModel list = SdkCarModelBank.pageList();
         assertNotNull(list);
         assertSame(list, SdkCarModelBank.pageList(), "created once");
-        assertEquals(5, list.getMaxColumns());
+        assertEquals(6, list.getMaxColumns()); // + the row id column (bench B)
         int reserved = BASE_INDEX + HqcUiIds.ROW_MODEL_COUNT;
         bank.createModel(reserved);
         Field f = de.audi.atip.hmi.model.AbstractModelBank.class.getDeclaredField("models");

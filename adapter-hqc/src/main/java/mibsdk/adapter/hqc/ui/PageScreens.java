@@ -2,7 +2,9 @@ package mibsdk.adapter.hqc.ui;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import mibsdk.platform.PageStack;
 import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiEntry;
@@ -57,6 +59,12 @@ import mibsdk.runtime.RingLog;
  * screen. BACK on the bottom page returns to the screen the page was opened from (the Car screen's or screen 46's
  * saved data). A dropped request is logged and sent as {@code PAGE_CLOSED}, never replayed.
  *
+ * <p>Focus (bench B, C): leaving a page for a sub-screen or a child page (or rebuilding it on screen) remembers its
+ * focused entry by key ({@link Screens#focused}); the page built again focuses that entry where it is now, or the
+ * nearest remaining row (same place, or the last) if it is gone ({@link Screens#build}'s focus). A choice page opens on
+ * its marked option; a child page opens fresh, as does a new open. Rows added or removed in place keep the focus on the
+ * same entry through the list's row ids ({@link PageRow#rowId}).
+ *
  * <p>Vehicle safety: every screen change the SDK makes (show, BACK, return to stock, close) first checks
  * {@link #screenChangeAllowed}: no popup or parking/RVC overlay on the current screen, and no screen change under way
  * to a screen that is neither Car nor an SDK page. If the check fails, navigation and rebuilds are dropped, and a
@@ -83,6 +91,18 @@ final class PageScreens implements PageRenderer {
     static final String STOPPED_TEXT = "This page is no longer available.";
     private static final String SOURCE = "mibsdk";
     private static final int MAX_NAV = 8;
+    /** A focus code (bench B, C): none (stock's first item); list row {@code r} is {@code r}; typed slot: below. */
+    static final int NO_FOCUS = -1;
+
+    /** The focus code of typed slot {@code slot} (its row after the list): {@code -2 - slot}. */
+    static int typedFocus(int slot) {
+        return -2 - slot;
+    }
+
+    /** The typed slot of focus code {@code code}, or -1 if it is none. */
+    static int typedSlot(int code) {
+        return code <= -2 ? -2 - code : -1;
+    }
 
     /** The stock HMI, as the page logic needs it. Every method runs on HMIEvent and may throw. */
     interface Screens {
@@ -101,8 +121,15 @@ final class PageScreens implements PageRenderer {
         /** {@code screen} (from {@link #build}) is the connected screen. */
         boolean isCurrent(Object screen);
 
-        /** A new page screen for {@code pageKey}, its cells built for {@code layout}; callbacks go to {@code owner}. */
-        Object build(String pageKey, String title, PageScreens owner, PageLayout layout) throws Exception;
+        /**
+         * A new page screen for {@code pageKey}, its cells built for {@code layout}; callbacks go to {@code owner}. Once
+         * connected it focuses focus code {@code focus} (a list row, {@link #typedFocus}, or {@link #NO_FOCUS}: stock's
+         * first item), with the call that moves the knob's position and the drawn focus together.
+         */
+        Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus) throws Exception;
+
+        /** The focus code of page screen {@code screen}'s focused row, or {@link #NO_FOCUS}. */
+        int focused(Object screen);
 
         void show(Object screen) throws Exception;
 
@@ -146,15 +173,32 @@ final class PageScreens implements PageRenderer {
         final int kind;
         final String target; // PAGE: null is BACK
         final int slot; // SLIDER
+        final boolean choice; // PAGE: the target is a CHOICE's choice page (it opens on its marked option)
 
         Nav(String target) {
-            this(PAGE, target, -1);
+            this(PAGE, target, -1, false);
         }
 
         Nav(int kind, String target, int slot) {
+            this(kind, target, slot, false);
+        }
+
+        Nav(int kind, String target, int slot, boolean choice) {
             this.kind = kind;
             this.target = target;
             this.slot = slot;
+            this.choice = choice;
+        }
+    }
+
+    /** A page's remembered focus: its entry, and its place in the menu (list rows, then typed rows) for the nearest. */
+    private static final class Focus {
+        final String entryKey;
+        final int place;
+
+        Focus(String entryKey, int place) {
+            this.entryKey = entryKey;
+            this.place = place;
         }
     }
 
@@ -205,6 +249,8 @@ final class PageScreens implements PageRenderer {
     };
 
     private final List<Nav> navs = new ArrayList<Nav>();
+    /** The remembered focus of the stack's pages, by page key (bench B, C); HMIEvent only. */
+    private final Map<String, Focus> focus = new HashMap<String, Focus>();
     /** Navigation was asked for and has not run yet (read on {@code mibsdk-ui}: the applier posts a job for it). */
     private volatile boolean navPending;
     /**
@@ -408,6 +454,7 @@ final class PageScreens implements PageRenderer {
                 return;
             }
             clearNavs(); // the accepted open replaces whatever navigation was asked for before it
+            focus.clear(); // a new open starts on stock's first item
             down = false;
             closePending = false;
             orphanChecked = true;
@@ -456,6 +503,7 @@ final class PageScreens implements PageRenderer {
             boolean allowed = changeAllowed();
             rebuildPending = rebuild && current && !allowed;
             if (rebuild && current && allowed) {
+                rememberFocus(); // the rebuilt page keeps its focused entry
                 showTop(s);
             } else {
                 // not connected yet, or the screen may not change: the title and layout follow on a later refresh
@@ -484,6 +532,7 @@ final class PageScreens implements PageRenderer {
             clearSub();
             lastSub = null;
             stack.clear();
+            focus.clear();
             if (!onScreen) {
                 closePending = false;
                 return;
@@ -639,7 +688,7 @@ final class PageScreens implements PageRenderer {
             case UiEntry.LINK:
             case UiEntry.CHOICE:
                 UiInputs.userPressed();
-                requestNav(new Nav(e.targetPageKey()));
+                requestNav(new Nav(Nav.PAGE, e.targetPageKey(), -1, e.kind() == UiEntry.CHOICE));
                 break;
             case UiEntry.RADIO:
                 UiInputs.userPressed();
@@ -761,6 +810,7 @@ final class PageScreens implements PageRenderer {
      * (its leaving is not the user leaving) and input keeps going to its key until {@link #subBack} or a stock screen.
      */
     void openSub(int screenId, Object screen) {
+        rememberFocus(); // the page shown again after it focuses the same entry
         sub = screen;
         subId = screenId;
         subShownAt = UiInputs.now();
@@ -1252,21 +1302,40 @@ final class PageScreens implements PageRenderer {
                         backFromSub(s);
                     }
                 } else if (n.target != null) {
-                    stack.push(n.target, null, s);
-                    showTop(s);
+                    push(n, s);
                 } else {
-                    stack.reconcile(s);
-                    stack.back();
-                    if (stack.top() == null) {
-                        shown = null;
-                        returnToStock();
-                    } else {
-                        showTop(s);
-                    }
+                    back(s);
                 }
             } catch (Throwable t) {
                 failed("navigation", t);
             }
+        }
+    }
+
+    /** In a job: LINK or CHOICE to {@code n.target}; BACK from it returns to the entry focused now. */
+    private void push(Nav n, UiSnapshot s) {
+        rememberFocus();
+        focus.remove(n.target); // the child opens fresh, a choice page on its marked option
+        if (n.choice) {
+            focusMarkedOption(n.target, s);
+        }
+        stack.push(n.target, null, s);
+        showTop(s);
+    }
+
+    /** In a job: BACK to the page under the top (its remembered focus), or out to the stock screen. */
+    private void back(UiSnapshot s) {
+        stack.reconcile(s);
+        String left = stack.top();
+        stack.back();
+        if (left != null) {
+            focus.remove(left); // opened again later, it starts fresh
+        }
+        if (stack.top() == null) {
+            shown = null;
+            returnToStock();
+        } else {
+            showTop(s);
         }
     }
 
@@ -1304,7 +1373,7 @@ final class PageScreens implements PageRenderer {
             PageLayout layout = PageLayout.of(p, itemIcons);
             writeRows(p, layout);
             title = t;
-            Object screen = screens.build(key, t, this, layout);
+            Object screen = screens.build(key, t, this, layout, focusOf(key, layout));
             PageScreens prev = live;
             if (prev != null && prev != this) {
                 prev.shown = null; // a replaced applier's page: its leaving is not the user leaving
@@ -1319,6 +1388,83 @@ final class PageScreens implements PageRenderer {
             failed("show " + key, t);
             shown = null;
             stack.clear();
+        }
+    }
+
+    // ---- focus (bench B, C) -------------------------------------------------------------------------------------
+
+    /**
+     * Remembers the focused entry of the page on screen (only while its screen is the connected one: a page under a
+     * sub-screen keeps what it had when it was left). Never throws.
+     */
+    private void rememberFocus() {
+        try {
+            Shown sp = shownPage;
+            if (sp == null || shown == null || sub != null || !screens.isCurrent(shown)) {
+                return;
+            }
+            int code = screens.focused(shown);
+            List<UiEntry> rows = rowEntries;
+            int slot = typedSlot(code);
+            PageLayout.TypedRow r = slot < 0 ? null : sp.layout.typedAt(slot);
+            if (code >= 0 && code < rows.size()) {
+                focus.put(sp.pageKey, new Focus(rows.get(code).key(), code));
+            } else if (r != null) {
+                focus.put(sp.pageKey, new Focus(r.entryKey, rows.size() + slot));
+            }
+        } catch (Throwable t) {
+            failed("focus", t); // the page shows again on what it had
+        }
+    }
+
+    /**
+     * The focus code to build page {@code key} with ({@link #rowEntries} just written for {@code layout}): its
+     * remembered entry where it is now; if gone, the row at its place (or the last row); {@link #NO_FOCUS} if nothing
+     * is remembered or the page is empty.
+     */
+    private int focusOf(String key, PageLayout layout) {
+        Focus f = focus.get(key);
+        if (f == null) {
+            return NO_FOCUS;
+        }
+        List<UiEntry> rows = rowEntries;
+        PageLayout.TypedRow[] typed = layout.typed();
+        for (int i = 0; i < rows.size(); i++) {
+            if (rows.get(i).key().equals(f.entryKey)) {
+                return i;
+            }
+        }
+        for (int s = 0; s < typed.length; s++) {
+            if (typed[s].entryKey.equals(f.entryKey)) {
+                return typedFocus(s);
+            }
+        }
+        int places = rows.size() + typed.length;
+        if (places == 0) {
+            return NO_FOCUS;
+        }
+        int place = Math.min(Math.max(f.place, 0), places - 1);
+        return place < rows.size() ? place : typedFocus(place - rows.size());
+    }
+
+    /** Choice page {@code key} opens on its marked option (bench C): the first list row of a RADIO that is on. */
+    private void focusMarkedOption(String key, UiSnapshot s) {
+        UiPage p = s.pages().get(key);
+        if (p == null) {
+            return;
+        }
+        int row = 0;
+        List<UiEntry> all = p.entries();
+        for (int i = 0; i < all.size(); i++) {
+            UiEntry e = all.get(i);
+            if (!isListEntry(e)) {
+                continue;
+            }
+            if (e.kind() == UiEntry.RADIO && e.on()) {
+                focus.put(key, new Focus(e.key(), row));
+                return;
+            }
+            row++;
         }
     }
 

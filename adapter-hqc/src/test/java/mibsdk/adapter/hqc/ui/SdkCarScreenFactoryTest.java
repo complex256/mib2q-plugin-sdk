@@ -436,7 +436,7 @@ class SdkCarScreenFactoryTest {
             }
             Object list = model(bank, base + 35);
             assertSame(de.audi.atip.hmi.model.ListModel.class, list.getClass());
-            assertEquals(5, ((de.audi.atip.hmi.model.ListModel) list).getMaxColumns());
+            assertEquals(6, ((de.audi.atip.hmi.model.ListModel) list).getMaxColumns());
             assertSame(de.audi.atip.hmi.model.SpellerModel.class, model(bank, base + 36).getClass());
             assertSame(de.audi.atip.hmi.model.ChoiceModel.class, model(bank, base + 37).getClass());
             assertSame(de.audi.atip.hmi.model.LabelModel.class, model(bank, base + 38).getClass());

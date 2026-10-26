@@ -295,7 +295,7 @@ final class SdkCarModelBank extends CarModelBank {
 
     /**
      * {@link HqcUiIds#PAGE_COLUMNS} columns: label, value, row kind (the list's record-set column), enabled, value
-     * text (F14); rows are written by PageScreens. Never throws.
+     * text (F14), row id (the list's id column, bench B); rows are written by PageScreens. Never throws.
      */
     private void createPageList() {
         try {
@@ -336,7 +336,7 @@ final class SdkCarModelBank extends CarModelBank {
 
     /**
      * The typed rows' pooled models (a ChoiceModel with its pick listener, a RangeModel in index space with its knob
-     * listener; written on {@code mibsdk-ui}), the confirm ListModel (5 columns, as the page list), the SpellerModel
+     * listener; written on {@code mibsdk-ui}), the confirm ListModel (the page list's columns), the SpellerModel
      * and the toast's models (hidden, empty, no icon). A reserved id gets none. Never throws.
      */
     private void createInputModel(int i) {
