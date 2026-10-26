@@ -90,25 +90,48 @@ public final class FakeUi {
         }
     }
 
-    /** LINK: navigates locally; ITEM: ENTRY_SELECTED. */
+    /**
+     * LINK and CHOICE: navigate locally (to the target, or the choice's derived page); ITEM: ENTRY_SELECTED; RADIO:
+     * ENTRY_SELECTED, then back to the page the choice is on. A disabled entry sends nothing.
+     */
     public void select(String pageKey, String entryKey) {
         UiEntry e = entry(pageKey, entryKey);
-        if (e == null) {
+        if (e == null || !e.enabled()) {
             return;
         }
-        if (e.kind() == UiEntry.LINK) {
+        if (e.kind() == UiEntry.LINK || e.kind() == UiEntry.CHOICE) {
             sync();
             stack.push(e.targetPageKey(), null, table.snapshot());
         } else if (e.kind() == UiEntry.ITEM) {
             table.input(new UiInput(UiInput.ENTRY_SELECTED, pageKey, entryKey, false));
+        } else if (e.kind() == UiEntry.RADIO) {
+            table.input(new UiInput(UiInput.ENTRY_SELECTED, pageKey, entryKey, false));
+            back();
         }
     }
 
-    /** TOGGLE_REQUESTED with the opposite of the current state. */
+    /** TOGGLE_REQUESTED with the opposite of the current state; nothing for a disabled toggle. */
     public void toggle(String pageKey, String entryKey) {
         UiEntry e = entry(pageKey, entryKey);
-        if (e != null && e.kind() == UiEntry.TOGGLE) {
+        if (e != null && e.enabled() && e.kind() == UiEntry.TOGGLE) {
             table.input(new UiInput(UiInput.TOGGLE_REQUESTED, pageKey, entryKey, !e.on()));
+        }
+    }
+
+    /** DROPDOWN: VALUE_REQUESTED with option {@code index}, unchecked (the runtime drops one out of range). */
+    public void pick(String pageKey, String entryKey, int index) {
+        value(pageKey, entryKey, UiEntry.DROPDOWN, index);
+    }
+
+    /** SLIDER: VALUE_REQUESTED with the raw {@code value} (the runtime clamps and snaps it). */
+    public void turn(String pageKey, String entryKey, int value) {
+        value(pageKey, entryKey, UiEntry.SLIDER, value);
+    }
+
+    private void value(String pageKey, String entryKey, int kind, int value) {
+        UiEntry e = entry(pageKey, entryKey);
+        if (e != null && e.enabled() && e.kind() == kind) {
+            table.input(new UiInput(UiInput.VALUE_REQUESTED, pageKey, entryKey, false, value, null));
         }
     }
 

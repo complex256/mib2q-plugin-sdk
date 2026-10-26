@@ -682,4 +682,346 @@ class UiHubTest {
         assertEquals(star, s.statusParts().get(1).icon());
         assertEquals("BB l...", s.statusParts().get(2).text());
     }
+
+    // ---- input entries (api 5) ----
+
+    private static final String[] LANGS = {"English", "Deutsch"};
+
+    /** Collects the actions a page's listener receives (on its executor). */
+    private static final class Actions implements Listener<UiAction> {
+        final List<UiAction> got = java.util.Collections.synchronizedList(new ArrayList<UiAction>());
+
+        public void on(UiAction a) {
+            got.add(a);
+        }
+
+        List<UiAction> await(int n) throws InterruptedException {
+            for (int i = 0; i < 500 && got.size() < n; i++) {
+                Thread.sleep(10);
+            }
+            return new ArrayList<UiAction>(got);
+        }
+
+        /** Waits for {@code exec} to run everything queued, then the actions so far. */
+        List<UiAction> drained(SerialExecutor exec) throws InterruptedException {
+            final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+            exec.submit("drain", new Runnable() {
+                public void run() {
+                    done.countDown();
+                }
+            });
+            assertTrue(done.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            return new ArrayList<UiAction>(got);
+        }
+    }
+
+    /** Blocks {@code exec} until the returned latch is counted down. */
+    private static java.util.concurrent.CountDownLatch pause(SerialExecutor exec) {
+        final java.util.concurrent.CountDownLatch gate = new java.util.concurrent.CountDownLatch(1);
+        exec.submit("pause", new Runnable() {
+            public void run() {
+                try {
+                    gate.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        return gate;
+    }
+
+    private static UiInput value(String page, String entry, int v) {
+        return new UiInput(UiInput.VALUE_REQUESTED, page, entry, false, v, null);
+    }
+
+    @Test
+    void choiceKeyJoinsPageAndItem() {
+        assertEquals("p/main#lang", UiHub.choiceKey("p/main", "lang"));
+    }
+
+    @Test
+    void choicePublishesItsSubPage() throws Exception {
+        UiHub hub = hub(0);
+        hub.addPage("p", PageSpec.of("main", "Main").choice("lang", "Language", LANGS, 0), null,
+                executor("plugin-p"));
+        hub.publishNow();
+        UiSnapshot s = table.snapshot();
+        UiEntry choice = s.pages().get("p/main").entries().get(0);
+        assertEquals(UiEntry.CHOICE, choice.kind());
+        assertEquals("p/main#lang", choice.targetPageKey());
+        assertEquals(Arrays.asList(LANGS), Arrays.asList(choice.options()));
+        assertEquals(0, choice.number());
+        UiPage sub = s.pages().get("p/main#lang");
+        assertNotNull(sub, s.pages().keySet().toString());
+        assertEquals("p/main#lang", sub.key());
+        assertEquals("Language", sub.title());
+        assertEquals(2, sub.entries().size());
+        UiEntry r0 = sub.entries().get(0);
+        UiEntry r1 = sub.entries().get(1);
+        assertEquals(UiEntry.RADIO, r0.kind());
+        assertEquals("0", r0.key());
+        assertEquals("English", r0.label());
+        assertTrue(r0.on());
+        assertEquals(UiEntry.RADIO, r1.kind());
+        assertEquals("1", r1.key());
+        assertEquals("Deutsch", r1.label());
+        assertFalse(r1.on());
+
+        hub.updatePage("p", PageSpec.of("main", "Main").choice("lang", "Language", LANGS, 1));
+        hub.publishNow();
+        sub = table.snapshot().pages().get("p/main#lang");
+        assertFalse(sub.entries().get(0).on());
+        assertTrue(sub.entries().get(1).on(), "the sub-page follows the update");
+        hub.updatePage("p", PageSpec.of("main", "Main"));
+        hub.publishNow();
+        assertNull(table.snapshot().pages().get("p/main#lang"), "gone with its entry");
+    }
+
+    @Test
+    void choicePickIsAnIndexAction() throws Exception {
+        UiHub hub = hub(0);
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        hub.addPage("p", PageSpec.of("main", "Main").choice("lang", "Language", LANGS, 0), a, exec);
+        hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p/main#lang", "1", false));
+        hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p/main#lang", "2", false));
+        hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p/main#lang", "x", false));
+        hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p/main#lang", "-1", false));
+        hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p/main#nope", "0", false));
+        hub.dispatch(new UiInput(UiInput.TOGGLE_REQUESTED, "p/main#lang", "0", true));
+        List<UiAction> got = a.drained(exec);
+        assertEquals(1, got.size(), got.toString());
+        assertEquals("main", got.get(0).pageId());
+        assertEquals("lang", got.get(0).itemId());
+        assertEquals(Integer.valueOf(1), got.get(0).value());
+        assertNull(got.get(0).requestedOn());
+        assertNull(got.get(0).text());
+    }
+
+    @Test
+    void valueRequestedAsTheAdapterSendsIt() throws Exception {
+        UiHub hub = hub(0);
+        Actions a = new Actions();
+        hub.addPage("p", PageSpec.of("main", "Main").dropdown("lvl", "Level", new String[] {"Off", "Low", "Mid"}, 0),
+                a, executor("plugin-p"));
+        UiDispatcher d = new UiDispatcher(table, hub);
+        d.start();
+        List<UiAction> got;
+        try {
+            table.input(new UiInput(UiInput.VALUE_REQUESTED, "p/main", "lvl", false, 2, null));
+            got = a.await(1);
+        } finally {
+            d.stop();
+        }
+        assertEquals(1, got.size());
+        assertEquals("lvl", got.get(0).itemId());
+        assertEquals(Integer.valueOf(2), got.get(0).value());
+    }
+
+    @Test
+    void dropdownIndexOutOfRangeIsDropped() throws Exception {
+        UiHub hub = hub(0);
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        hub.addPage("p", PageSpec.of("main", "Main").dropdown("lvl", "Level", new String[] {"Off", "Low", "Mid"}, 0),
+                a, exec);
+        hub.dispatch(value("p/main", "lvl", 3));
+        hub.dispatch(value("p/main", "lvl", -1));
+        hub.dispatch(value("p/main", "lvl", 0));
+        List<UiAction> got = a.drained(exec);
+        assertEquals(1, got.size(), got.toString());
+        assertEquals(Integer.valueOf(0), got.get(0).value());
+    }
+
+    @Test
+    void sliderValuesAreClampedSnappedAndCoalesced() throws Exception {
+        UiHub hub = hub(0);
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        hub.addPage("p", PageSpec.of("main", "Main").slider("bal", "Balance", -6, 6, 1, 0, true)
+                .slider("vol", "Volume", 0, 10, 2, 4, false), a, exec);
+
+        java.util.concurrent.CountDownLatch gate = pause(exec);
+        hub.dispatch(value("p/main", "bal", 3));
+        hub.dispatch(value("p/main", "bal", 9));
+        hub.dispatch(value("p/main", "bal", 4));
+        gate.countDown();
+        List<UiAction> got = a.drained(exec);
+        assertEquals(1, got.size(), "coalesced into one waiting action: " + got);
+        assertEquals("bal", got.get(0).itemId());
+        assertEquals(Integer.valueOf(4), got.get(0).value(), "the newest value");
+
+        a.got.clear();
+        hub.dispatch(value("p/main", "vol", 9)); // between 8 and 10: the tie goes toward the current 4
+        assertEquals(Integer.valueOf(8), a.drained(exec).get(0).value());
+        a.got.clear();
+        hub.dispatch(value("p/main", "vol", 12));
+        assertEquals(Integer.valueOf(10), a.drained(exec).get(0).value(), "clamped to max");
+        a.got.clear();
+        hub.dispatch(value("p/main", "vol", -3));
+        assertEquals(Integer.valueOf(0), a.drained(exec).get(0).value(), "clamped to min");
+        a.got.clear();
+        hub.updatePage("p", PageSpec.of("main", "Main").slider("bal", "Balance", -6, 6, 1, 0, true)
+                .slider("vol", "Volume", 0, 10, 2, 10, false));
+        hub.dispatch(value("p/main", "vol", 9)); // the tie now goes toward the current 10
+        assertEquals(Integer.valueOf(10), a.drained(exec).get(0).value());
+        a.got.clear();
+
+        gate = pause(exec);
+        hub.dispatch(value("p/main", "bal", 1));
+        hub.dispatch(value("p/main", "vol", 2));
+        gate.countDown();
+        got = a.drained(exec);
+        assertEquals(2, got.size(), "one waiting action per slider: " + got);
+        hub.dispatch(value("p/main", "bal", -2));
+        got = a.drained(exec);
+        assertEquals(3, got.size(), "a value after the waiting one ran is a new action: " + got);
+        assertEquals(Integer.valueOf(-2), got.get(2).value());
+    }
+
+    @Test
+    void inputOnDisabledEntryIsDropped() throws Exception {
+        UiHub hub = hub(0);
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        hub.addPage("p", PageSpec.of("main", "Main").toggle("wifi", "Wi-Fi", false).enabled("wifi", false)
+                .item("go", "Go", null).enabled("go", false)
+                .choice("lang", "Language", LANGS, 0).enabled("lang", false), a, exec);
+        hub.dispatch(new UiInput(UiInput.TOGGLE_REQUESTED, "p/main", "wifi", true));
+        assertEquals(0, a.drained(exec).size());
+        assertEquals(1, logged("ui input for p/main dropped: disabled"));
+        hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p/main", "go", false));
+        hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p/main#lang", "1", false));
+        assertEquals(0, a.drained(exec).size(), "an item, and a pick on a disabled choice's sub-page");
+    }
+
+    private int logged(String msg) {
+        int n = 0;
+        for (String line : log.snapshot()) {
+            if (line.indexOf(msg) >= 0) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    @Test
+    void progressAndInfoInputsDoNothing() throws Exception {
+        UiHub hub = hub(0);
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        hub.addPage("p", PageSpec.of("main", "Main").progress("dl", "Download", 60).info("note")
+                .choice("lang", "Language", LANGS, 0), a, exec);
+        hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p/main", "dl", false));
+        hub.dispatch(value("p/main", "dl", 10));
+        hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p/main", null, false));
+        hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p/main", "lang", false)); // the adapter navigates
+        hub.dispatch(value("p/main", "lang", 1));
+        assertEquals(0, a.drained(exec).size());
+        assertEquals(0, logged("dropped"), log.snapshot().toString());
+    }
+
+    @Test
+    void shownPageKeyIsTheLastShownParent() {
+        UiHub hub = hub(0);
+        assertNull(hub.shownPageKey());
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "a/x", null, false));
+        assertEquals("a/x", hub.shownPageKey());
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "b/y#x", null, false));
+        assertEquals("b/y", hub.shownPageKey());
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "a/x", null, false));
+        assertEquals("b/y", hub.shownPageKey(), "a stale close leaves it");
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "b/y#x", null, false));
+        assertNull(hub.shownPageKey());
+    }
+
+    /** F16: the adapter's stack sends CLOSED/SHOWN pairs around a choice; the hub keeps the parent open. */
+    @Test
+    void choicePushAndPopShowThePluginNoClose() throws Exception {
+        UiHub hub = hub(0);
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        hub.addPage("p", PageSpec.of("main", "Main").choice("lang", "Language", LANGS, 0), a, exec);
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main", null, false));
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main", null, false)); // push
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main#lang", null, false));
+        assertEquals("p/main", hub.shownPageKey());
+        hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p/main#lang", "1", false));
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main#lang", null, false)); // pop
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main", null, false));
+        assertEquals("p/main", hub.shownPageKey());
+        assertEquals(1, a.drained(exec).size());
+
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main", null, false)); // push again, then stop
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main#lang", null, false));
+        hub.removeOwner("p", "P stopped");
+        hub.publishNow();
+        UiPage notice = table.snapshot().pages().get("p/main");
+        assertNotNull(notice, "the parent counts as open while its choice is shown");
+        assertEquals("P stopped", notice.entries().get(0).label());
+        assertEquals("Main", notice.title());
+    }
+
+    private UiImpl ui(String id, UiHub hub, String... features) {
+        return new UiImpl(id, hub, new LiveFeatures(new HashSet<String>(Arrays.asList(features))),
+                new HashSet<String>(Arrays.asList(Permissions.UI_SLOT_CAR_MENU, Permissions.UI_SLOT_STATUS_BAR)),
+                executor("plugin-" + id), new Registrations(), java.util.Collections.<String>emptyList(), null);
+    }
+
+    /** Task 1 review: with UI_INPUTS every new kind reaches the hub as itself (no LINK fall-through). */
+    @Test
+    void inputKindsReachTheHubWithUiInputs() throws Exception {
+        UiHub hub = hub(0);
+        UiImpl ui = ui("p", hub, mibsdk.api.Features.UI_PAGES, mibsdk.api.Features.UI_INPUTS,
+                mibsdk.api.Features.UI_ICONS);
+        ui.page(PageSpec.of("main", "Main")
+                .choice("lang", "Language", LANGS, 1)
+                .dropdown("lvl", "Level", new String[] {"Off", "a very long option text over twenty"}, 0)
+                .slider("bal", "Balance", -6, 6, 2, 2, true)
+                .progress("dl", "Download", 60)
+                .item("star", "Star", "v", ui.stockIcon(mibsdk.api.StockIcons.STAR))
+                .toggle("wifi", "Wi-Fi", true).enabled("wifi", false), null);
+        hub.publishNow();
+        List<UiEntry> e = table.snapshot().pages().get("p/main").entries();
+        assertEquals(UiEntry.CHOICE, e.get(0).kind());
+        assertEquals(1, e.get(0).number());
+        assertEquals(UiEntry.DROPDOWN, e.get(1).kind());
+        assertEquals(PageSpec.MAX_VALUE, e.get(1).options()[1].length(), "options are cut to MAX_VALUE");
+        assertEquals(UiEntry.SLIDER, e.get(2).kind());
+        assertEquals(2, e.get(2).number());
+        assertEquals(-6, e.get(2).min());
+        assertEquals(6, e.get(2).max());
+        assertEquals(2, e.get(2).step());
+        assertTrue(e.get(2).centred());
+        assertEquals(UiEntry.PROGRESS, e.get(3).kind());
+        assertEquals(60, e.get(3).number());
+        assertEquals(UiEntry.ITEM, e.get(4).kind());
+        assertEquals(UiIcon.stock(mibsdk.api.StockIcons.STAR), e.get(4).icon());
+        assertTrue(e.get(4).enabled());
+        assertFalse(e.get(5).enabled());
+        assertNotNull(table.snapshot().pages().get("p/main#lang"));
+    }
+
+    /** Task 1 review: disabled rows reach the hub without UI_INPUTS too, so the hub drops their input either way. */
+    @Test
+    void disabledRowsAreDroppedWithAndWithoutUiInputs() throws Exception {
+        String[][] sets = {{mibsdk.api.Features.UI_PAGES},
+                {mibsdk.api.Features.UI_PAGES, mibsdk.api.Features.UI_INPUTS}};
+        for (int i = 0; i < sets.length; i++) {
+            UiHub hub = hub(0);
+            Actions a = new Actions();
+            UiImpl ui = ui("p" + i, hub, sets[i]);
+            ui.page(PageSpec.of("main", "Main").item("go", "Go", null).enabled("go", false)
+                    .toggle("wifi", "Wi-Fi", false).enabled("wifi", false).item("ok", "Ok", null), a);
+            hub.publishNow();
+            assertFalse(table.snapshot().pages().get("p" + i + "/main").entries().get(0).enabled());
+            hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p" + i + "/main", "go", false));
+            hub.dispatch(new UiInput(UiInput.TOGGLE_REQUESTED, "p" + i + "/main", "wifi", true));
+            hub.dispatch(new UiInput(UiInput.ENTRY_SELECTED, "p" + i + "/main", "ok", false));
+            List<UiAction> got = a.await(1);
+            Thread.sleep(50);
+            assertEquals(1, a.got.size(), Arrays.toString(sets[i]) + ": " + a.got);
+            assertEquals("ok", got.get(0).itemId());
+        }
+    }
 }

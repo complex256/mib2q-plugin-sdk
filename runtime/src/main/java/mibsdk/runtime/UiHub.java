@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import mibsdk.api.Icon;
 import mibsdk.api.Listener;
 import mibsdk.api.Page;
 import mibsdk.api.PageSpec;
@@ -53,6 +54,12 @@ import mibsdk.platform.UiText;
  * <p>Open pages: a page counts as open from {@link #requestOpen} or {@code PAGE_SHOWN} until
  * {@code PAGE_CLOSED}. When its owner is removed with a notice, an open page is replaced by a notice
  * page under the same key (one INFO entry, no owner) until it is closed or the owner registers it again.
+ *
+ * <p>Input entries (api 5): each CHOICE entry gets a derived choice page {@link #choiceKey} ({@code <pageKey>#<itemId>},
+ * one RADIO per option); a pick there arrives as the CHOICE's index. Page events of a choice page count as its
+ * parent's, so opening and leaving it never closes the plugin's page. DROPDOWN indexes out of range are dropped;
+ * SLIDER values are clamped, snapped to the step and coalesced (one waiting action per slider). Any input on a
+ * disabled entry is dropped and logged once per page key, whatever the unit's features.
  */
 final class UiHub {
 
@@ -67,15 +74,22 @@ final class UiHub {
     private static final class PageRec {
         final String pageId;
         final UiPage page;
+        final List<UiPage> choicePages; // one derived page per CHOICE entry, built with the page
         final Listener<UiAction> listener; // may be null
         final SerialExecutor exec;
 
         PageRec(String pageId, UiPage page, Listener<UiAction> listener, SerialExecutor exec) {
             this.pageId = pageId;
             this.page = page;
+            this.choicePages = choicePages(page);
             this.listener = listener;
             this.exec = exec;
         }
+    }
+
+    /** The one SLIDER action waiting on a plugin's executor for one (page key, item id); newer values replace it. */
+    private static final class PendingSlider {
+        int value; // guarded by the hub's lock
     }
 
     private static final class Owner {
@@ -108,6 +122,9 @@ final class UiHub {
     private Listener<UiInput> sdkHandler;
     private long openSeq;
     private String openPageKey;
+    private String shownPageKey; // the parent key of the last PAGE_SHOWN, until its PAGE_CLOSED
+    /** By {@code <pageKey>#<itemId>}: the slider action waiting on its plugin's executor. */
+    private final Map<String, PendingSlider> pendingSliders = new HashMap<String, PendingSlider>();
     private boolean publishPending;
     private boolean published;
     private long lastPublishAt;
@@ -298,6 +315,11 @@ final class UiHub {
             changed = owners.remove(owner) != null;
             if (owner != null) {
                 removedOwners.add(owner);
+                for (Iterator it = pendingSliders.keySet().iterator(); it.hasNext();) {
+                    if (((String) it.next()).startsWith(owner + "/")) {
+                        it.remove(); // the queued task finds no holder and sends nothing
+                    }
+                }
             }
             if (stoppedNoticeOrNull != null && owner != null) {
                 String prefix = owner + "/";
@@ -425,6 +447,21 @@ final class UiHub {
         changed();
     }
 
+    /** The derived choice page of CHOICE entry {@code itemId} on page {@code pageKey}. */
+    static String choiceKey(String pageKey, String itemId) {
+        return pageKey + "#" + itemId;
+    }
+
+    /**
+     * The page key of the last {@code PAGE_SHOWN} (a choice page counts as its parent), or null once that page's
+     * {@code PAGE_CLOSED} arrived.
+     */
+    String shownPageKey() {
+        synchronized (lock) {
+            return shownPageKey;
+        }
+    }
+
     /** Receives input on SDK pages (owner {@code mibsdk}); runs on the dispatcher thread, so it must not block. */
     void setSdkHandler(Listener<UiInput> h) {
         synchronized (lock) {
@@ -496,10 +533,10 @@ final class UiHub {
             return;
         }
         if (kind == UiInput.PAGE_SHOWN || kind == UiInput.PAGE_CLOSED) {
-            pageShown(key, kind == UiInput.PAGE_SHOWN);
+            pageShown(parentKey(key), kind == UiInput.PAGE_SHOWN); // a choice page is its parent's
             return;
         }
-        if (kind != UiInput.ENTRY_SELECTED && kind != UiInput.TOGGLE_REQUESTED) {
+        if (kind != UiInput.ENTRY_SELECTED && kind != UiInput.TOGGLE_REQUESTED && kind != UiInput.VALUE_REQUESTED) {
             return;
         }
         if (key.startsWith(SDK_OWNER + "/")) {
@@ -512,20 +549,32 @@ final class UiHub {
             }
             return;
         }
+        String pageKey = parentKey(key);
         PageRec rec;
         synchronized (lock) {
-            rec = livePage(key);
+            rec = livePage(pageKey);
         }
         if (rec == null) {
             dropped(key, "no live page");
             return;
         }
-        UiEntry entry = entry(rec.page, in.entryKey());
+        boolean onChoicePage = pageKey.length() < key.length();
+        UiEntry entry = entry(rec.page, onChoicePage ? key.substring(pageKey.length() + 1) : in.entryKey());
         if (entry == null) {
             return;
         }
+        if (!entry.enabled()) {
+            dropped(key, "disabled");
+            return;
+        }
         final UiAction action;
-        if (kind == UiInput.ENTRY_SELECTED && entry.kind() == UiEntry.LINK) {
+        if (onChoicePage) {
+            int i = index(in.entryKey());
+            if (kind != UiInput.ENTRY_SELECTED || entry.kind() != UiEntry.CHOICE || i < 0 || i >= entry.optionCount()) {
+                return;
+            }
+            action = new UiAction(rec.pageId, entry.key(), null, new Integer(i), null);
+        } else if (kind == UiInput.ENTRY_SELECTED && entry.kind() == UiEntry.LINK) {
             boolean live;
             synchronized (lock) {
                 live = livePage(entry.targetPageKey()) != null;
@@ -538,9 +587,21 @@ final class UiHub {
             action = new UiAction(rec.pageId, entry.key(), null);
         } else if (kind == UiInput.TOGGLE_REQUESTED && entry.kind() == UiEntry.TOGGLE) {
             action = new UiAction(rec.pageId, entry.key(), in.on() ? Boolean.TRUE : Boolean.FALSE);
-        } else {
+        } else if (kind == UiInput.VALUE_REQUESTED && entry.kind() == UiEntry.DROPDOWN) {
+            if (in.value() < 0 || in.value() >= entry.optionCount()) {
+                return;
+            }
+            action = new UiAction(rec.pageId, entry.key(), null, new Integer(in.value()), null);
+        } else if (kind == UiInput.VALUE_REQUESTED && entry.kind() == UiEntry.SLIDER) {
+            submitSlider(rec, choiceKey(pageKey, entry.key()), entry, snap(entry, in.value()));
             return;
+        } else {
+            return; // PROGRESS, INFO, a CHOICE row (the adapter opens its page), a kind mismatch
         }
+        submit(rec, action);
+    }
+
+    private static void submit(PageRec rec, final UiAction action) {
         final Listener<UiAction> l = rec.listener;
         if (l == null) {
             return;
@@ -555,6 +616,96 @@ final class UiHub {
                 }
             }
         });
+    }
+
+    /**
+     * At most one SLIDER action per {@code pendingKey} waits on the plugin's executor: a value arriving while one
+     * waits replaces its value; the task reads the latest value as it starts.
+     */
+    private void submitSlider(PageRec rec, final String pendingKey, UiEntry entry, int value) {
+        final Listener<UiAction> l = rec.listener;
+        if (l == null) {
+            return;
+        }
+        final PendingSlider p;
+        synchronized (lock) {
+            PendingSlider waiting = (PendingSlider) pendingSliders.get(pendingKey);
+            if (waiting != null) {
+                waiting.value = value;
+                return;
+            }
+            p = new PendingSlider();
+            p.value = value;
+            pendingSliders.put(pendingKey, p);
+        }
+        final String pageId = rec.pageId;
+        final String itemId = entry.key();
+        boolean queued = rec.exec.submit("ui:" + pageId, new Runnable() {
+            public void run() {
+                int v;
+                synchronized (lock) {
+                    if (pendingSliders.get(pendingKey) != p) {
+                        return; // its owner was removed meanwhile
+                    }
+                    pendingSliders.remove(pendingKey);
+                    v = p.value;
+                }
+                try {
+                    l.on(new UiAction(pageId, itemId, null, new Integer(v), null));
+                } catch (Exception e) {
+                    EventBus.<RuntimeException>sneakyThrow(e);
+                }
+            }
+        });
+        if (!queued) {
+            synchronized (lock) {
+                if (pendingSliders.get(pendingKey) == p) {
+                    pendingSliders.remove(pendingKey);
+                }
+            }
+        }
+    }
+
+    /**
+     * {@code v} clamped to the slider's range and snapped to the nearest {@code min + k * step}; a tie goes toward the
+     * slider's current value.
+     */
+    private static int snap(UiEntry e, int v) {
+        long min = e.min();
+        long max = e.max();
+        long step = e.step() < 1 ? 1 : e.step();
+        long x = v < min ? min : v > max ? max : v;
+        long r = (x - min) % step;
+        if (r == 0) {
+            return (int) x;
+        }
+        long lo = x - r;
+        long hi = lo + step > max ? lo : lo + step;
+        long twice = 2 * r;
+        long out = twice < step ? lo : twice > step ? hi : (e.number() > x ? hi : lo);
+        return (int) out;
+    }
+
+    /** A choice page's entry key ({@code "0".."n-1"}) as its index; -1 for anything else. */
+    private static int index(String entryKey) {
+        if (entryKey == null || entryKey.length() == 0 || entryKey.length() > 2) {
+            return -1;
+        }
+        int n = 0;
+        for (int i = 0; i < entryKey.length(); i++) {
+            char c = entryKey.charAt(i);
+            if (c < '0' || c > '9') {
+                return -1;
+            }
+            n = n * 10 + (c - '0');
+        }
+        return String.valueOf(n).equals(entryKey) ? n : -1; // no leading zeros: exactly the keys published
+    }
+
+    /** The page a key belongs to: {@code <pageKey>} for a choice page {@code <pageKey>#<itemId>}, else the key. */
+    private static String parentKey(String key) {
+        int hash = key.indexOf('#');
+        return hash < 0 ? key : key.substring(0, hash);
     }
 
     private String rowTarget(String rowKey) {
@@ -577,7 +728,11 @@ final class UiHub {
         synchronized (lock) {
             if (shown) {
                 markOpen(key);
+                shownPageKey = key;
             } else {
+                if (key.equals(shownPageKey)) {
+                    shownPageKey = null;
+                }
                 openTitles.remove(key);
                 changed = notices.remove(key) != null;
             }
@@ -665,25 +820,85 @@ final class UiHub {
     private UiPage toUiPage(String owner, Owner o, PageSpec spec) {
         List<PageSpec.Entry> in = spec.entries();
         List<UiEntry> out = new ArrayList<UiEntry>(in.size());
+        String pageKey = owner + "/" + spec.id();
         for (int i = 0; i < in.size(); i++) {
             PageSpec.Entry e = (PageSpec.Entry) in.get(i);
             PageSpec.Kind k = e.kind();
+            String id = e.itemId();
+            String label = UiText.clean(e.label(), k == PageSpec.Kind.INFO ? PageSpec.MAX_INFO : PageSpec.MAX_LABEL);
+            UiEntry u;
             if (k == PageSpec.Kind.ITEM) {
-                out.add(new UiEntry(UiEntry.ITEM, e.itemId(), UiText.clean(e.label(), PageSpec.MAX_LABEL),
-                        e.value() == null ? null : UiText.clean(e.value(), PageSpec.MAX_VALUE), false, null));
+                u = new UiEntry(UiEntry.ITEM, id, label,
+                        e.value() == null ? null : UiText.clean(e.value(), PageSpec.MAX_VALUE), false, null)
+                        .withIcon(itemIcon(id, e.icon()));
             } else if (k == PageSpec.Kind.TOGGLE) {
-                out.add(new UiEntry(UiEntry.TOGGLE, e.itemId(), UiText.clean(e.label(), PageSpec.MAX_LABEL), null,
-                        e.on(), null));
+                u = new UiEntry(UiEntry.TOGGLE, id, label, null, e.on(), null);
             } else if (k == PageSpec.Kind.INFO) {
-                out.add(new UiEntry(UiEntry.INFO, null, UiText.clean(e.label(), PageSpec.MAX_INFO), null, false,
-                        null));
+                u = new UiEntry(UiEntry.INFO, null, label, null, false, null);
+            } else if (k == PageSpec.Kind.LINK) {
+                u = new UiEntry(UiEntry.LINK, id, label, null, false, linkTarget(owner, o, id, e.target()));
+            } else if (k == PageSpec.Kind.CHOICE) {
+                u = new UiEntry(UiEntry.CHOICE, id, label, null, false, choiceKey(pageKey, id))
+                        .withOptions(cleanOptions(e.options())).withNumber(e.number());
+            } else if (k == PageSpec.Kind.DROPDOWN) {
+                u = new UiEntry(UiEntry.DROPDOWN, id, label, null, false, null)
+                        .withOptions(cleanOptions(e.options())).withNumber(e.number());
+            } else if (k == PageSpec.Kind.SLIDER) {
+                u = new UiEntry(UiEntry.SLIDER, id, label, null, false, null).withNumber(e.number())
+                        .withRange(e.min(), e.max(), e.step(), e.centred());
+            } else if (k == PageSpec.Kind.PROGRESS) {
+                u = new UiEntry(UiEntry.PROGRESS, id, label, null, false, null).withNumber(e.number());
             } else {
-                out.add(new UiEntry(UiEntry.LINK, e.itemId(), UiText.clean(e.label(), PageSpec.MAX_LABEL), null,
-                        false, linkTarget(owner, o, e.itemId(), e.target())));
+                throw new IllegalArgumentException("entry '" + id + "': unknown kind " + k);
             }
+            out.add(e.enabled() ? u : u.withEnabled(false));
         }
-        return new UiPage(owner + "/" + spec.id(), UiText.clean(spec.title(), PageSpec.MAX_TITLE), out);
+        return new UiPage(pageKey, UiText.clean(spec.title(), PageSpec.MAX_TITLE), out);
     }
+
+    private static String[] cleanOptions(String[] options) {
+        String[] out = new String[options.length];
+        for (int i = 0; i < options.length; i++) {
+            out[i] = UiText.clean(options[i], PageSpec.MAX_VALUE);
+        }
+        return out;
+    }
+
+    /** An item icon: only the SDK's own handle, read through its field (null for an inert one), as LINK targets. */
+    private static UiIcon itemIcon(String itemId, Icon icon) {
+        if (icon == null) {
+            return null;
+        }
+        if (!(icon instanceof UiImpl.IconHandle)) {
+            throw new IllegalArgumentException("item '" + itemId + "' must use an icon from ui().icon()/stockIcon()");
+        }
+        return ((UiImpl.IconHandle) icon).icon;
+    }
+
+    /**
+     * One page per CHOICE entry of {@code page}: key {@link #choiceKey}, the entry's label as title, and a RADIO per
+     * option (keys {@code "0".."n-1"}, on for the selected one).
+     */
+    private static List<UiPage> choicePages(UiPage page) {
+        List<UiPage> out = null;
+        List<UiEntry> entries = page.entries();
+        for (int i = 0; i < entries.size(); i++) {
+            UiEntry e = (UiEntry) entries.get(i);
+            if (e.kind() != UiEntry.CHOICE) {
+                continue;
+            }
+            List<UiEntry> radios = new ArrayList<UiEntry>(e.optionCount());
+            for (int j = 0; j < e.optionCount(); j++) {
+                radios.add(new UiEntry(UiEntry.RADIO, String.valueOf(j), e.option(j), null, j == e.number(), null));
+            }
+            if (out == null) {
+                out = new ArrayList<UiPage>();
+            }
+            out.add(new UiPage(e.targetPageKey(), UiText.clean(e.label(), PageSpec.MAX_TITLE), radios));
+        }
+        return out == null ? Collections.<UiPage>emptyList() : out;
+    }
+
 
     private static String linkTarget(String owner, Owner o, String itemId, Page target) {
         if (!(target instanceof UiImpl.PageHandle)) {
@@ -710,8 +925,12 @@ final class UiHub {
             Map.Entry entry = (Map.Entry) e.next();
             Owner o = (Owner) entry.getValue();
             for (Iterator p = o.pages.values().iterator(); p.hasNext();) {
-                UiPage page = ((PageRec) p.next()).page;
-                pages.put(page.key(), page);
+                PageRec rec = (PageRec) p.next();
+                pages.put(rec.page.key(), rec.page);
+                for (int i = 0; i < rec.choicePages.size(); i++) {
+                    UiPage c = (UiPage) rec.choicePages.get(i);
+                    pages.put(c.key(), c);
+                }
             }
             for (Iterator r = o.rows.values().iterator(); r.hasNext();) {
                 UiRow row = (UiRow) r.next();
