@@ -142,6 +142,11 @@ final class PageScreens implements PageRenderer {
     private final List<Nav> navs = new ArrayList<Nav>();
     /** Navigation was asked for and has not run yet (read on {@code mibsdk-ui}: the applier posts a job for it). */
     private volatile boolean navPending;
+    /**
+     * The shown page needs a rebuild (title or layout) that the screen could not take (popup, parking display): the
+     * applier retries on its tick. Set and cleared on HMIEvent.
+     */
+    private volatile boolean rebuildPending;
     /** The item icons' image ids, given on {@code mibsdk-ui} ({@link UiApplier#assignItemIcons}). */
     private volatile ItemIcons itemIcons = ItemIcons.NONE;
     /** The runtime went down (close ran) and no open came since: this renderer's pages are dead. */
@@ -304,6 +309,7 @@ final class PageScreens implements PageRenderer {
             runNav(s);
             String before = stack.top();
             if (before == null || shown == null) {
+                rebuildPending = false;
                 return; // no SDK page of ours on screen: nothing to redraw
             }
             stack.reconcile(s);
@@ -312,7 +318,10 @@ final class PageScreens implements PageRenderer {
             PageLayout shownLayout = shownLayout();
             boolean rebuild = !top.equals(before) || !eq(titleOf(top, s), shownTitle)
                     || !PageLayout.of(p, itemIcons).equals(shownLayout);
-            if (rebuild && screens.isCurrent(shown) && changeAllowed()) {
+            boolean current = screens.isCurrent(shown);
+            boolean allowed = changeAllowed();
+            rebuildPending = rebuild && current && !allowed;
+            if (rebuild && current && allowed) {
                 showTop(s);
             } else {
                 // not connected yet, or the screen may not change: the title and layout follow on a later refresh
@@ -332,6 +341,7 @@ final class PageScreens implements PageRenderer {
     public void close() {
         try {
             clearNavs();
+            rebuildPending = false;
             down = true;
             boolean onScreen = shown != null || ownPageConnected();
             shown = null;
@@ -361,6 +371,10 @@ final class PageScreens implements PageRenderer {
 
     public boolean navPending() {
         return navPending;
+    }
+
+    public boolean rebuildPending() {
+        return rebuildPending;
     }
 
     public void runPendingNav() {
@@ -541,6 +555,7 @@ final class PageScreens implements PageRenderer {
         try {
             if (screen != null && screen == shown) {
                 shown = null;
+                rebuildPending = false;
                 clearNavs();
                 stack.clear();
             }
@@ -619,6 +634,7 @@ final class PageScreens implements PageRenderer {
                 log.append("INFO", SOURCE, "ui page " + key + " not shown: the screen may not change now");
                 return;
             }
+            rebuildPending = false; // whatever was deferred is built now
             UiPage p = pageOf(key, s);
             String t = p.title() == null ? "" : p.title();
             PageLayout layout = PageLayout.of(p, itemIcons);

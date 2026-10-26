@@ -66,6 +66,7 @@ class UiApplierTest {
 
         public void refresh(UiSnapshot s) {
             writes.add("refresh:" + new java.util.TreeSet<String>(s.pages().keySet()));
+            refreshIcons.add(rendererIcons.size());
         }
 
         public void close() {
@@ -88,9 +89,21 @@ class UiApplierTest {
         }
 
         public void itemIcons(ItemIcons ids) {
+            Runnable h = onItemIcons;
+            onItemIcons = () -> { };
+            h.run(); // before the ids land in the renderer
+            rendererIcons = ids;
             publishedIcons.add(ids);
         }
+
+        public boolean rebuildPending() {
+            return rebuildPending;
+        }
     };
+    private volatile Runnable onItemIcons = () -> { };
+    private volatile ItemIcons rendererIcons = ItemIcons.NONE;
+    private final List<Integer> refreshIcons = new java.util.concurrent.CopyOnWriteArrayList<Integer>();
+    private volatile boolean rebuildPending;
     private volatile boolean closePending;
     private volatile boolean navPending;
     private final List<ItemIcons> publishedIcons = new java.util.concurrent.CopyOnWriteArrayList<ItemIcons>();
@@ -386,6 +399,59 @@ class UiApplierTest {
         assertEquals(Collections.singletonList("refresh:[p1, p2]"), drain());
         applier.step(0);
         assertEquals(0, sink.size(), "rendered with its ids: nothing left");
+    }
+
+    /**
+     * Fix round 1 (Important 1): the HMI job may run while the pass publishes new item icon ids. Whatever it rendered
+     * with, the ids end up rendered: the renderer gets them before the applier counts them as rendered.
+     */
+    @Test
+    void itemIconIdsPublishedWhileTheJobRunsStillRender() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", Collections.singletonList("plugins"), pages("p1"), 0, null);
+        applier.step(0);
+        assertEquals(1, sink.size(), "a job pending");
+        String sha16 = "0123456789abcdef";
+        UiIcon file = UiIcon.file("hello", HqcUiIds.INSTALL_ROOT + "/icons/hello/" + sha16 + ".png", sha16, 24, 24);
+        Map<String, UiPage> m = new HashMap<String, UiPage>(pages("p1"));
+        m.put("p2", new UiPage("p2", "P2", Collections.singletonList(
+                new UiEntry(UiEntry.ITEM, "a", "A", null, false, null).withIcon(file))));
+        publish("", Collections.singletonList("plugins"), m, 0, null);
+        onItemIcons = () -> sink.runHeld(); // the job runs in the middle of the publish
+        applier.step(0);
+        sink.runHeld();
+        applier.step(0);
+        sink.runHeld();
+        assertFalse(refreshIcons.isEmpty());
+        assertEquals(Integer.valueOf(1), refreshIcons.get(refreshIcons.size() - 1),
+                "the last render had the icon's id");
+        applier.step(0);
+        assertEquals(0, sink.size(), "and nothing is left to render");
+    }
+
+    /**
+     * Fix round 1 (Minor 2): a rebuild the page deferred (popup, parking display) is retried once per pass, like a
+     * deferred close: the job re-renders though no page changed. Never a loop of jobs.
+     */
+    @Test
+    void deferredRebuildIsRetriedOncePerPass() throws Exception {
+        SdkGlobals.uiRowModels = rows;
+        publish("", Collections.singletonList("plugins"), pages("p1"), 0, null);
+        applier.step(0);
+        sink.runHeld();
+        drain();
+        rebuildPending = true;
+        applier.step(0);
+        assertEquals(1, sink.size(), "the pass posts the retry");
+        assertEquals(1, sink.runHeld());
+        assertEquals(Collections.singletonList("refresh:[p1]"), drain());
+        assertEquals(0, sink.size(), "the job's after-hook does not post it again");
+        applier.step(0);
+        assertEquals(1, sink.runHeld(), "still pending: the next pass retries");
+        assertEquals(Collections.singletonList("refresh:[p1]"), drain());
+        rebuildPending = false;
+        applier.step(0);
+        assertEquals(0, sink.size());
     }
 
     /** Review Focus 5: the drawer cap is logged once per overflowing key, not once per snapshot. */

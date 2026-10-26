@@ -914,9 +914,15 @@ class PageScreensNavigationTest {
         assertEquals(new PageRow("y", 0, PageScreens.ROW_VALUE, true, "on"), hmi.lastRows[1]);
         assertEquals(new PageRow("z", 0, PageScreens.ROW_ACTION, true, null), hmi.lastRows[2]);
 
+        assertTrue(pages.rebuildPending(), "the applier retries it on its tick");
+        pages.refresh(next);
+        assertEquals(0, builds(), "still blocked");
+        assertTrue(pages.rebuildPending());
+
         hmi.blocked = false;
         pages.refresh(next);
         assertEquals(1, builds(), "the deferred rebuild");
+        assertFalse(pages.rebuildPending());
         assertEquals(new PageRow("y", 1, PageScreens.ROW_ICON_VALUE, true, "on"), hmi.lastRows[1]);
         assertEquals(new PageRow("z", 1, PageScreens.ROW_ICON, true, null), hmi.lastRows[2]);
     }

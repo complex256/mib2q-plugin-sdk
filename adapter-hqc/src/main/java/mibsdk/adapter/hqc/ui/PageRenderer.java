@@ -36,6 +36,13 @@ interface PageRenderer {
      */
     boolean navPending();
 
+    /**
+     * A rebuild of the shown page (new title or icon layout) was deferred because the screen could not change
+     * (popup, parking display): while true, the applier renders again once per tick, as for {@link #closePending}.
+     * Read on {@code mibsdk-ui}.
+     */
+    boolean rebuildPending();
+
     /** In the applier's job: runs the navigation asked for since the last job, if any. Never throws. */
     void runPendingNav();
 
@@ -58,6 +65,10 @@ interface PageRenderer {
         }
 
         public boolean navPending() {
+            return false;
+        }
+
+        public boolean rebuildPending() {
             return false;
         }
 

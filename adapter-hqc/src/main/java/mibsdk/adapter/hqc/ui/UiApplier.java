@@ -131,6 +131,8 @@ public final class UiApplier {
     private volatile HmiWidgetState wantWidgets = HmiWidgetState.EMPTY;
     /** Set by a pass that saw a deferred close: the next HMI job retries it (never the after-hook's own re-post). */
     private volatile boolean closeRetry;
+    /** The same for a page rebuild the renderer deferred ({@link PageRenderer#rebuildPending}). */
+    private volatile boolean rebuildRetry;
 
     private volatile boolean stopping;
     private Thread thread; // guarded by this
@@ -413,8 +415,9 @@ public final class UiApplier {
         }
         ItemIcons next = new ItemIcons(m);
         if (!next.equals(itemIcons)) {
-            itemIcons = next;
+            // The renderer first: a job running in between then counts the old ids as rendered and renders again.
             pages.itemIcons(next);
+            itemIcons = next;
         }
         return itemIcons;
     }
@@ -507,6 +510,9 @@ public final class UiApplier {
         if (render && tick && down && closedRendered) {
             closeRetry = true; // the job's own re-evaluation (tick false) would not retry it
         }
+        if (render && tick && !down && pages.rebuildPending()) {
+            rebuildRetry = true; // likewise: once per pass, never from the after-hook
+        }
         if (render || pages.navPending() || widgetsNeedJob() || (tick && widgets.wrenchPending())) {
             poster.post(hmiJob); // false: a job is pending; its wake() re-checks when it is done
         }
@@ -539,8 +545,9 @@ public final class UiApplier {
             // pages still get rendered
         }
         try {
-            boolean retry = closeRetry;
+            boolean retry = closeRetry || rebuildRetry;
             closeRetry = false;
+            rebuildRetry = false;
             if (retry || needsRender(table.snapshot(), false)) {
                 renderPages();
             }
@@ -559,7 +566,8 @@ public final class UiApplier {
             // A close deferred by RVC/PDC is retried once per pass (AWAIT_MS), never in a loop of jobs.
             return !closedRendered || (tick && pages.closePending());
         }
-        return isOpenRequest(s) || !samePages(s.pages(), renderedPages) || itemIcons != renderedIcons;
+        return isOpenRequest(s) || !samePages(s.pages(), renderedPages) || itemIcons != renderedIcons
+                || (tick && pages.rebuildPending());
     }
 
     private boolean isOpenRequest(UiSnapshot s) {
@@ -584,7 +592,9 @@ public final class UiApplier {
         boolean open = isOpenRequest(s);
         renderedOpenSeq = s.openSeq();
         renderedPages = s.pages();
-        renderedIcons = itemIcons;
+        ItemIcons icons = itemIcons;
+        renderedIcons = icons;
+        pages.itemIcons(icons); // the renderer draws with exactly the ids counted as rendered
         if (open) {
             // A request this thread has not seen yet was published just now: age 0.
             long age = s.openSeq() == seenOpenSeq ? clock.uptimeMs() - seenOpenAt : 0;
