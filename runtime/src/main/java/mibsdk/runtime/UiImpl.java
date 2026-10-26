@@ -51,6 +51,13 @@ import mibsdk.platform.UiIcon;
  * (name, colour); the colours share the index entry and differ only in {@link UiIcon#ownColours}. Every check (declared name, own handle, the
  * {@link StatusItem#ICON_MAX_PX} limit) runs whether or not the unit has {@link Features#UI_ICONS}; without it a row or
  * item simply holds no icon.
+ *
+ * <p>Api 5 (inputs): {@link #page} and {@link PageHandle#update} check every item icon (this plugin's handle, at most
+ * {@link PageSpec#ITEM_ICON_MAX_PX} installed), then hand the hub {@link #forUnit} of the spec: the feature decision
+ * ({@link Features#UI_INPUTS}, {@link Features#UI_ICONS}) is made here, so the hub only ever sees entries the unit
+ * can draw. {@link #confirm} and {@link #speller} are inert for now: each posts its one inert answer (confirm
+ * {@code value 0}, speller {@code text null}) on the plugin's executor unless cancelled first; {@link #toast} checks
+ * its permission and arguments and shows nothing.
  */
 final class UiImpl implements Ui {
 
@@ -104,6 +111,7 @@ final class UiImpl implements Ui {
         if (spec == null) {
             throw new IllegalArgumentException("spec is required");
         }
+        checkItemIcons(spec);
         PageHandle h = new PageHandle(this, spec.id(), !features.has(Features.UI_PAGES));
         synchronized (lock) {
             if (closed) {
@@ -113,7 +121,7 @@ final class UiImpl implements Ui {
             reserve(PAGES);
             if (!h.inert) {
                 try {
-                    hub.addPage(pluginId, spec, onAction, exec);
+                    hub.addPage(pluginId, fitted(spec), onAction, exec);
                 } catch (RuntimeException e) {
                     release(PAGES);
                     throw e;
@@ -213,7 +221,7 @@ final class UiImpl implements Ui {
                     hub.warn(pluginId, "icon '" + name + "' is declared but not installed (jar pushed without its"
                             + " package?): shown without it");
                 }
-                h = new IconHandle(this, u == null ? null : u.withOwnColours(colour == Icon.OWN_COLOURS));
+                h = new IconHandle(this, name, u == null ? null : u.withOwnColours(colour == Icon.OWN_COLOURS));
                 icons.put(cacheKey, h);
             }
             return h;
@@ -225,7 +233,157 @@ final class UiImpl implements Ui {
         if (!StockIcons.isKnown(name)) {
             throw new IllegalArgumentException("unknown stock icon '" + name + "'");
         }
-        return new IconHandle(this, UiIcon.stock(name));
+        return new IconHandle(this, name, UiIcon.stock(name));
+    }
+
+    // ---- api 5: confirm, toast, speller (inert until the HMI side is wired) ----
+
+    @Override
+    public Subscription confirm(String title, String text, String yes, String no, Listener<UiAction> onAnswer) {
+        return inertAnswer(onAnswer, new UiAction(null, null, null, Integer.valueOf(0), null), "ui:confirm");
+    }
+
+    @Override
+    public void toast(String text, Icon icon) {
+        requirePermission(Permissions.UI_SLOT_STATUS_BAR);
+        ownIcon(icon, true);
+    }
+
+    @Override
+    public Subscription speller(String title, String initial, int maxLen, Listener<UiAction> onDone) {
+        if (maxLen < 1 || maxLen > MAX_SPELLER) {
+            throw new IllegalArgumentException("maxLen must be 1.." + MAX_SPELLER + ", not " + maxLen);
+        }
+        return inertAnswer(onDone, new UiAction(null, null, null, null, null), "ui:speller");
+    }
+
+    /**
+     * An inert confirm or speller: {@code answer} is posted once on the plugin's executor, unless the returned
+     * handle is cancelled before it runs. Once closed (the plugin is stopping) it comes back cancelled, unanswered.
+     */
+    private Subscription inertAnswer(final Listener<UiAction> l, final UiAction answer, String label) {
+        final AnswerHandle h = new AnswerHandle();
+        synchronized (lock) {
+            if (closed) {
+                h.cancel();
+                return h;
+            }
+        }
+        if (l != null) {
+            exec.submit(label, new Runnable() {
+                public void run() {
+                    if (!h.take()) {
+                        return;
+                    }
+                    try {
+                        l.on(answer);
+                    } catch (Exception e) {
+                        EventBus.<RuntimeException>sneakyThrow(e);
+                    }
+                }
+            });
+        }
+        return h;
+    }
+
+    // ---- api 5: fitting a page to the unit ----
+
+    /** {@link #forUnit} with this boot's features (fixed per boot, so fitting at page/update time is enough). */
+    private PageSpec fitted(PageSpec spec) {
+        return forUnit(spec, features.has(Features.UI_INPUTS), features.has(Features.UI_ICONS));
+    }
+
+    /**
+     * {@code spec} as this unit can draw it, rebuilt through the public builders only. Without {@code inputs} each
+     * CHOICE, DROPDOWN, SLIDER and PROGRESS entry becomes an INFO line in the {@code UiPageText.line} style
+     * ({@code "Level: Mid"}, {@code "Bass: 3"}, {@code "Progress: 60%"}); {@code enabled(false)} is re-applied only to
+     * entries that stay list rows. Without {@code icons} item icons are dropped. ITEM, TOGGLE, INFO and LINK pass
+     * through unchanged. Returns {@code spec} itself when nothing changes.
+     */
+    static PageSpec forUnit(PageSpec spec, boolean inputs, boolean icons) {
+        List<PageSpec.Entry> in = spec.entries();
+        boolean change = false;
+        for (int i = 0; i < in.size() && !change; i++) {
+            PageSpec.Entry e = (PageSpec.Entry) in.get(i);
+            change = (!inputs && isInputKind(e.kind())) || (!icons && e.icon() != null);
+        }
+        if (!change) {
+            return spec;
+        }
+        PageSpec out = PageSpec.of(spec.id(), spec.title());
+        for (int i = 0; i < in.size(); i++) {
+            PageSpec.Entry e = (PageSpec.Entry) in.get(i);
+            PageSpec.Kind k = e.kind();
+            String id = e.itemId();
+            boolean listRow = true;
+            if (k == PageSpec.Kind.ITEM) {
+                out = out.item(id, e.label(), e.value(), icons ? e.icon() : null);
+            } else if (k == PageSpec.Kind.TOGGLE) {
+                out = out.toggle(id, e.label(), e.on());
+            } else if (k == PageSpec.Kind.INFO) {
+                out = out.info(e.label());
+                listRow = false;
+            } else if (k == PageSpec.Kind.LINK) {
+                out = out.link(id, e.label(), e.target());
+            } else if (inputs) {
+                if (k == PageSpec.Kind.CHOICE) {
+                    out = out.choice(id, e.label(), e.options(), e.number());
+                } else if (k == PageSpec.Kind.DROPDOWN) {
+                    out = out.dropdown(id, e.label(), e.options(), e.number());
+                } else if (k == PageSpec.Kind.SLIDER) {
+                    out = out.slider(id, e.label(), e.min(), e.max(), e.step(), e.number(), e.centred());
+                } else {
+                    out = out.progress(id, e.label(), e.number());
+                }
+                listRow = k == PageSpec.Kind.CHOICE;
+            } else {
+                out = out.info(textLine(e));
+                listRow = false;
+            }
+            if (listRow && !e.enabled()) {
+                out = out.enabled(id, false);
+            }
+        }
+        return out;
+    }
+
+    private static boolean isInputKind(PageSpec.Kind k) {
+        return k == PageSpec.Kind.CHOICE || k == PageSpec.Kind.DROPDOWN || k == PageSpec.Kind.SLIDER
+                || k == PageSpec.Kind.PROGRESS;
+    }
+
+    /** "label: value" for an input entry shown as text: the option, the level, or the percent with "%". */
+    private static String textLine(PageSpec.Entry e) {
+        String v;
+        if (e.kind() == PageSpec.Kind.CHOICE || e.kind() == PageSpec.Kind.DROPDOWN) {
+            v = e.options()[e.number()];
+        } else if (e.kind() == PageSpec.Kind.PROGRESS) {
+            v = e.number() + "%";
+        } else {
+            v = String.valueOf(e.number());
+        }
+        String label = e.label();
+        return label == null || label.length() == 0 ? v : label + ": " + v;
+    }
+
+    /**
+     * Every item icon in {@code spec} must be this plugin's handle and, when installed, at most
+     * {@link PageSpec#ITEM_ICON_MAX_PX} either way; else {@link IllegalArgumentException}. Independent of the features.
+     */
+    private void checkItemIcons(PageSpec spec) {
+        List<PageSpec.Entry> in = spec.entries();
+        for (int i = 0; i < in.size(); i++) {
+            Icon icon = ((PageSpec.Entry) in.get(i)).icon();
+            if (icon == null) {
+                continue;
+            }
+            UiIcon u = ownIcon(icon, false);
+            if (u != null && (u.width() > PageSpec.ITEM_ICON_MAX_PX || u.height() > PageSpec.ITEM_ICON_MAX_PX)) {
+                throw new IllegalArgumentException("item icon '" + ((IconHandle) icon).name + "' is " + u.width()
+                        + "x" + u.height() + "; page items take at most " + PageSpec.ITEM_ICON_MAX_PX + "x"
+                        + PageSpec.ITEM_ICON_MAX_PX);
+            }
+        }
     }
 
     // ---- limits ----
@@ -350,11 +508,12 @@ final class UiImpl implements Ui {
             if (spec == null || !pageId.equals(spec.id())) {
                 throw new IllegalArgumentException("update must keep page id '" + pageId + "'");
             }
+            ui.checkItemIcons(spec);
             synchronized (lock) {
                 if (!cancelled && !inert) {
                     synchronized (ui.lock) {
                         if (!ui.closed) {
-                            ui.hub.updatePage(ui.pluginId, spec);
+                            ui.hub.updatePage(ui.pluginId, ui.fitted(spec));
                         }
                     }
                 }
@@ -393,12 +552,39 @@ final class UiImpl implements Ui {
     /** A plugin's icon: made only by {@link #icon} and {@link #stockIcon}, accepted only by the same object. */
     static final class IconHandle implements Icon {
         private final UiImpl ui;
+        /** The declared or stock name. */
+        final String name;
         /** Null when inert (declared but not installed). */
         final UiIcon icon;
 
-        IconHandle(UiImpl ui, UiIcon icon) {
+        IconHandle(UiImpl ui, String name, UiIcon icon) {
             this.ui = ui;
+            this.name = name;
             this.icon = icon;
+        }
+    }
+
+    /** An inert confirm or speller: answered at most once, never after {@link #cancel()}. */
+    static final class AnswerHandle implements Subscription {
+        private final Object hlock = new Object();
+        private boolean done; // guarded by hlock
+
+        /** True once: the answer may be delivered now. False after cancel() or an earlier take(). */
+        boolean take() {
+            synchronized (hlock) {
+                if (done) {
+                    return false;
+                }
+                done = true;
+                return true;
+            }
+        }
+
+        @Override
+        public void cancel() {
+            synchronized (hlock) {
+                done = true;
+            }
         }
     }
 

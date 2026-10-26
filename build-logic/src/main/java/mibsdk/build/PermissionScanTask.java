@@ -26,7 +26,7 @@ import org.gradle.api.tasks.TaskAction;
  * Lists calls that need {@code platform.unrestricted} (reflection, exec, exit, ...). Report-only unless
  * {@link #getFailOnFindings()} is set; the {@code mibsdk.plugin} convention sets it unless the manifest
  * grants {@code platform.unrestricted}. Always fails when the classes use API newer than {@link #getDeclaredApi()}
- * ({@link PermissionScan.Result#needsApi()}).
+ * ({@link ApiLevels}), naming each such site with its own level ({@link PermissionScan.Result#tooNew(int)}).
  */
 @CacheableTask
 public abstract class PermissionScanTask extends DefaultTask {
@@ -71,10 +71,8 @@ public abstract class PermissionScanTask extends DefaultTask {
             if (f.exists()) {
                 PermissionScan.Result r = PermissionScan.run(f, exempt);
                 findings.addAll(r.findings());
-                if (r.needsApi() > declared) {
-                    for (String site : r.apiFindings()) {
-                        tooNew.add(site + " needs api " + r.needsApi() + "; plugin.json declares api " + declared);
-                    }
+                for (String line : r.tooNew(declared)) {
+                    tooNew.add(line + "; plugin.json declares api " + declared);
                 }
             }
         }

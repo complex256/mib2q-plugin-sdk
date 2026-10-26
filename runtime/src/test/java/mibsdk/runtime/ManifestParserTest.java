@@ -53,16 +53,12 @@ class ManifestParserTest {
     }
 
     @Test
-    void acceptsApi1To4AndIconsOnlyWithApi3() throws Exception {
-        assertEquals(1, ManifestParser.parse(manifest("bike-rack", "1", "")).api());
-        assertEquals(2, ManifestParser.parse(manifest("bike-rack", "2", "")).api());
-        assertEquals(3, ManifestParser.parse(manifest("bike-rack", "3", "")).api());
-        assertEquals(4, ManifestParser.parse(manifest("bike-rack", "4", "")).api());
-        for (String bad : new String[] {"5", "0"}) {
-            ManifestException e = assertThrows(ManifestException.class,
-                    () -> ManifestParser.parse(manifest("bike-rack", bad, "")), bad);
-            assertEquals("unsupported api " + bad + ", this SDK implements api 1..4", e.getMessage());
+    void acceptsApi1To5AndIconsOnlyWithApi3() throws Exception {
+        for (int api = 1; api <= 5; api++) {
+            assertEquals(api, ManifestParser.parse(manifest("bike-rack", String.valueOf(api), "")).api());
         }
+        assertEquals(Arrays.asList("hello"),
+                ManifestParser.parse(manifest("bike-rack", "5", ",\"icons\":[\"hello\"]")).icons());
 
         assertEquals(Collections.emptyList(), ManifestParser.parse(manifest("bike-rack", "3", "")).icons());
         assertEquals(Collections.emptyList(), ManifestParser.parse(manifest("bike-rack", "2", "")).icons());
@@ -92,6 +88,15 @@ class ManifestParserTest {
             e = assertThrows(ManifestException.class,
                     () -> ManifestParser.parse(manifest("bike-rack", "3", ",\"icons\":" + bad)), bad);
             assertEquals("icons must be an array of strings", e.getMessage());
+        }
+    }
+
+    @Test
+    void apiAboveFiveIsRefused() {
+        for (String bad : new String[] {"6", "0", "-1"}) {
+            ManifestException e = assertThrows(ManifestException.class,
+                    () -> ManifestParser.parse(manifest("bike-rack", bad, "")), bad);
+            assertEquals("unsupported api " + bad + ", this SDK implements api 1..5", e.getMessage());
         }
     }
 
