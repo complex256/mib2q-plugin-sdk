@@ -299,8 +299,8 @@ final class SdkCarScreenFactory extends CarScreenFactory {
         move(false, state, what);
     }
 
-    /** {@code SdkGlobals.toastPopup}, as {@link #move}; also the status popup's fallback. Never throws. */
-    static void toastState(int state, String what) {
+    /** {@code SdkGlobals.toastPopup}, as {@link #move}. Never throws. */
+    private static void toastState(int state, String what) {
         move(true, state, what);
     }
 

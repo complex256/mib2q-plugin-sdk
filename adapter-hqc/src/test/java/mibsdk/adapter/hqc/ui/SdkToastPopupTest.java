@@ -80,4 +80,20 @@ class SdkToastPopupTest {
                 ids, null).iconX(), "never left of the padding");
         assertEquals(HqcUiIds.TOAST_MS, mibsdk.api.Ui.TOAST_MS, "the stock-thread literal follows the API");
     }
+
+    /** Fix round 1: the bench-proven popup recipe lives in one helper ({@link SdkPopups}) that both popups use. */
+    @Test
+    void popupRecipeIsShared() throws Exception {
+        String[] recipe = {"setColorPalettes", "setConsumeDDSPress", "setSmallStageType", "setSurviveScreenChange",
+            "POPUP_BACKDROP_BITMAP", "setScaleFactor", "triggerRepaint", "STATUS_ICON_OWN_COLOURS"};
+        for (String popup : new String[] {"SdkStatusPopup", "SdkToastPopup"}) {
+            String src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(
+                    "src/main/java/mibsdk/adapter/hqc/ui/" + popup + ".java")), "UTF-8")
+                    .replaceAll("//[^\\n]*|/\\*[\\s\\S]*?\\*/", " ");
+            for (String r : recipe) {
+                assertTrue(!src.contains(r), popup + " repeats the shared recipe: " + r);
+            }
+            assertTrue(src.contains("SdkPopups."), popup + " uses SdkPopups");
+        }
+    }
 }

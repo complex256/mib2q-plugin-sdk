@@ -609,8 +609,13 @@ class SdkCarScreenFactoryTest {
             HqcUiIds.TOAST_FILE_ICON_MODEL}, c.getViewIDs());
     }
 
+    /**
+     * Fix round 1 (ruling): a slot-6 toast cannot displace the slot-7 status popup (stock links slot 4 to 1/2 only),
+     * and routine stock passes (REM entry, block modes) hide 609600 with its model at 1. Such a hide during a toast is only
+     * logged, once per boot: toasts stay on, and the toast is not hidden from inside the manager's hide.
+     */
     @Test
-    void statusHiddenDuringToastDisablesToasts() throws Exception {
+    void statusHiddenDuringToastLogsOnceAndKeepsToasts() throws Exception {
         systemFonts(true);
         SdkCarScreenFactory f = new SdkCarScreenFactory(fw());
         f.getPartialPopupStubs(0);
@@ -631,25 +636,35 @@ class SdkCarScreenFactoryTest {
         de.audi.atip.hmi.model.ChoiceModel visible = new de.audi.atip.hmi.model.ChoiceModel(
                 HqcUiIds.STATUS_POPUP_VISIBLE_MODEL);
         c.setModel(visible);
+        StatusPopupController.warned = false;
+        int before = warnings();
 
-        // The status line hidden by its own model (0), or with no toast up: toasts stay on.
+        // The status line hidden by its own model (0), or with no toast up: nothing logged.
         visible.setValue(0);
         SdkToastPopup.up = true;
         hideOnHost(c);
         visible.setValue(1);
         SdkToastPopup.up = false;
         hideOnHost(c);
-        assertEquals(1, SdkGlobals.toastPopup);
-        assertEquals(new ArrayList<Integer>(), hidden);
+        assertEquals(before, warnings());
 
-        // The manager hides 609600 while its model says shown, during a toast: toasts off for the boot.
+        // A stock hide of 609600 while its model says shown, during a toast: one WARN line, twice over.
         SdkToastPopup.up = true;
         hideOnHost(c);
-        assertEquals(-1, SdkGlobals.toastPopup);
-        assertEquals(java.util.Collections.singletonList(HqcUiIds.POPUP_SDK_TOAST), hidden, "the toast hidden");
-        assertTrue(SdkGlobals.LOG.snapshot().toString().contains("disabled: status popup hidden"));
-        assertEquals(2, SdkGlobals.statusPopup, "the status popup itself is untouched");
-        assertNull(stub(f.getPartialPopupStubs(0), HqcUiIds.POPUP_SDK_TOAST), "sticky: no toast stub");
+        hideOnHost(c);
+        assertEquals(before + 1, warnings(), "once per boot: " + SdkGlobals.LOG.snapshot());
+        assertEquals(1, SdkGlobals.toastPopup, "toasts stay on (never disabled)");
+        assertEquals(new ArrayList<Integer>(), hidden, "the toast is not hidden from inside the manager's hide");
+        assertEquals(2, SdkGlobals.statusPopup);
+        assertTrue(stub(f.getPartialPopupStubs(0), HqcUiIds.POPUP_SDK_TOAST) != null, "the toast keeps its stub");
+    }
+
+    private static int warnings() {
+        int n = 0;
+        for (Object l : SdkGlobals.LOG.snapshot()) {
+            n += String.valueOf(l).contains("status popup hidden while a toast is up") ? 1 : 0;
+        }
+        return n;
     }
 
     /** Stock hide needs the HMI terminal, which the host lacks: the SDK part runs before it. */

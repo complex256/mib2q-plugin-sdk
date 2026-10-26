@@ -89,8 +89,8 @@ public final class SdkGlobals {
     /**
      * The SDK toast popup {@link HqcUiIds#POPUP_SDK_TOAST}, in its own slot: the states of {@link #statusPopup}, and
      * independent of it (the toast may show while the status line fell back to popup 65). -1 is sticky for the boot:
-     * the stub or the build threw, or the status popup was hidden while a toast was up. Written by the Car factory and
-     * the status popup's controller on stock threads; read by {@code mibsdk-ui}, which drops toasts while it is -1.
+     * the stub or the build threw. Written by the Car factory on stock threads; read by {@code mibsdk-ui}, which drops
+     * toasts while it is -1.
      */
     public static volatile int toastPopup;
 

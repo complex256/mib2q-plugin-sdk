@@ -1290,13 +1290,16 @@ class UiApplierTest {
         }
     };
 
-    /** A live applier writing the toast to {@link #toastModels}. */
+    /** The toast models the applier's source hands out: null while the Car bank does not exist yet. */
+    private volatile SdkToastPopup.Models bank = toastModels;
+
+    /** A live applier writing the toast to {@link #bank}. */
     private UiApplier toastApplier() {
         Clock clock = () -> now;
         UiApplier[] self = new UiApplier[1];
         HmiPoster poster = new HmiPoster(sink, () -> self[0].wake(), clock, HmiPoster.PENDING_DEADLINE_MS);
         self[0] = new UiApplier(table, rows, status, pages, poster, clock, log, ids, BuiltinIcons.NONE,
-                new HmiWidgets(), () -> null, () -> toastModels);
+                new HmiWidgets(), () -> null, () -> bank);
         self[0].claimLive();
         return self[0];
     }
@@ -1316,6 +1319,7 @@ class UiApplierTest {
     @Test
     void toastShowsThenHidesAfter3000ms() throws Exception {
         UiApplier a = toastApplier();
+        SdkGlobals.toastPopup = 2; // built
         now = 1000;
         String path = HqcUiIds.INSTALL_ROOT + "/icons/p/aaaa000000000000.png";
         publishToast(new mibsdk.platform.UiToast(1, "Saved", UiIcon.file("p", path, "aaaa000000000000", 20, 20)));
@@ -1399,5 +1403,66 @@ class UiApplierTest {
         SdkGlobals.toastPopup = -1;
         b.step(0);
         assertEquals(Collections.singletonList("visible:0"), drainToast());
+    }
+
+    /** Fix round 1: {@code SdkToastPopup.up} only while the toast popup is built (2) and its toast shown. */
+    @Test
+    void toastUpOnlyWhenPopupBuiltAndShown() throws Exception {
+        UiApplier a = toastApplier();
+        SdkGlobals.toastPopup = 1; // registered, not built
+        publishToast(new mibsdk.platform.UiToast(1, "One", null));
+        a.step(0);
+        assertEquals(Arrays.asList("label:One", "file:null", "visible:1"), drainToast());
+        assertFalse(SdkToastPopup.up, "nothing on screen: the popup is not built");
+        SdkGlobals.toastPopup = 2; // built while the toast shows
+        now = 500;
+        a.step(0);
+        assertTrue(SdkToastPopup.up);
+        now = 3000;
+        a.step(0);
+        assertEquals(Collections.singletonList("visible:0"), drainToast());
+        assertFalse(SdkToastPopup.up);
+    }
+
+    /**
+     * Fix round 1 (ruling): a toast that arrives before the Car bank exists is kept (the newest only) and shown when
+     * the bank appears if it arrived less than TOAST_MS ago, its 3 s counted from the show; else dropped, one log line.
+     */
+    @Test
+    void toastBeforeBankShownWhenBankAppearsIfFresh() throws Exception {
+        UiApplier a = toastApplier();
+        bank = null;
+        now = 0;
+        publishToast(new mibsdk.platform.UiToast(1, "Old", null));
+        a.step(0);
+        now = 500;
+        publishToast(new mibsdk.platform.UiToast(2, "New", null)); // the newest replaces the pending one
+        a.step(0);
+        assertEquals(Collections.emptyList(), drainToast(), "no bank: nothing written yet");
+        now = 2000;
+        bank = toastModels;
+        a.step(0);
+        assertEquals(Arrays.asList("label:New", "file:null", "visible:1"), drainToast(), "shown once the bank exists");
+        now = 4999;
+        a.step(0);
+        assertEquals(Collections.emptyList(), drainToast(), "3 s from the show, not from the arrival");
+        now = 5000;
+        a.step(0);
+        assertEquals(Collections.singletonList("visible:0"), drainToast());
+
+        bank = null;
+        now = 10000;
+        publishToast(new mibsdk.platform.UiToast(3, "Stale", null));
+        a.step(0);
+        now = 13000; // TOAST_MS after its arrival
+        bank = toastModels;
+        a.step(0);
+        a.step(0);
+        assertEquals(Collections.emptyList(), drainToast(), "too old: dropped");
+        int lines = 0;
+        for (String l : log.snapshot()) {
+            lines += l.contains("toast") ? 1 : 0;
+        }
+        assertEquals(1, lines, "one log line: " + log.snapshot());
     }
 }

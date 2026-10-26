@@ -3,11 +3,7 @@ package mibsdk.adapter.hqc.ui;
 import de.audi.atip.base.IFrameworkAccess;
 import de.audi.atip.hmi.view.HMIView;
 import de.audi.atip.hmi.view.IPartialPopupController;
-import de.audi.tghu.system.hmi.evohigh.FontFactory;
 import de.esolutions.hmi.widgets.audi.base.AbstractWidget;
-import de.esolutions.hmi.widgets.audi.evo.high.widgets.IconRendererHigh;
-import de.esolutions.hmi.widgets.audi.evo.high.widgets.LabelRendererHigh;
-import de.esolutions.hmi.widgets.audi.evo.high.widgets.PartialPopupRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.widgets.IconController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.LabelController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupController;
@@ -70,66 +66,28 @@ final class SdkStatusPopup {
         int w = HqcUiIds.POPUP_SDK_W;
         int h = HqcUiIds.POPUP_SDK_H;
 
-        IconController back = new IconController();
-        IconRendererHigh backR = new IconRendererHigh(back);
-        back.setRenderer(backR);
-        back.setBitmaps(new int[] {HqcUiIds.POPUP_BACKDROP_BITMAP});
-        back.setBounds(0, 0, w, h);
-        back.setColorIndices(new int[] {1, 1, 4, 1});
-        back.setProcessStateChange(2);
-        backR.setScaleFactor((float) w, (float) h); // the backdrop is 1x1
-
+        IconController back = SdkPopups.backdrop(w, h);
         int cells = HqcUiIds.STATUS_CELLS;
         LabelController[] labels = new LabelController[cells + 1];
         IconController[] ids = new IconController[cells];
         IconController[] files = new IconController[cells];
         for (int i = 0; i < labels.length; i++) {
-            LabelController l = new LabelController();
-            LabelRendererHigh lr = new LabelRendererHigh(l);
-            l.setRenderer(lr);
-            lr.setFonts(FontFactory.getFonts(10, terminal, fw)); // the System font popup 65's label uses
-            l.setModelID(HqcUiIds.STATUS_LABEL_MODEL_0 + i);
-            l.setColorIndices(new int[] {1, 0, 4, 0});
-            lr.setAlignment(1, 4); // ALIGN_LEFT: the layout places each label from its left edge (3 is ALIGN_RIGHT)
-            labels[i] = l;
+            // ALIGN_LEFT: the layout places each label from its left edge (3 is ALIGN_RIGHT)
+            labels[i] = SdkPopups.label(HqcUiIds.STATUS_LABEL_MODEL_0 + i, 1, terminal, fw);
         }
         for (int i = 0; i < cells; i++) {
-            ids[i] = icon();
-            files[i] = icon();
+            ids[i] = SdkPopups.icon();
+            files[i] = SdkPopups.icon();
             files[i].setModelID(HqcUiIds.STATUS_FILE_ICON_MODEL_1 + i);
         }
-        PartialPopupController p = new StatusPopupController(); // the toast's safety fallback (F1)
+        PartialPopupController p = new StatusPopupController();
         SdkStatusPopup s = new SdkStatusPopup(labels, ids, files, p);
         StatusLayout l = wanted;
         s.place(l);
         s.icons(l, StatusLayout.EMPTY); // no redraw: the popup is not shown yet, and showing it paints it
-        p.setScreenFactory(f);
-        PartialPopupRendererHigh pR = new PartialPopupRendererHigh(p);
-        p.setRenderer(pR);
-        pR.setFonts(FontFactory.getFonts(0, terminal, fw));
-        p.setModelID(HqcUiIds.STATUS_POPUP_VISIBLE_MODEL);
-        p.setBounds(HqcUiIds.POPUP_SDK_X, 0, w, h);
-        p.setColorIndices(new int[] {1, 2, 4, 0});
-        int c4 = -6645094;
-        int c5 = -5592406;
-        int c6 = -4868683;
-        p.setColorPalettes(new int[][] {
-            {-1, 255, -1, -1, c4, c5, c6, c4, -1},
-            {-1, 255, -65511, -5546136, c4, c5, c6, c4, -4703671},
-            {-1, 255, -19456, -6123155, c4, c5, c6, c4, -6123155},
-            {-1, 255, -14775126, -9594974, c4, c5, c6, c4, -9594974},
-            {-1, 255, -10180096, -9200779, c4, c5, c6, c4, -9200779}});
-        p.setConsumeDDSPress(4);
-        p.setConsumeHKReturn(4);
-        p.setConsumeKeyTurned(4);
-        p.setID(HqcUiIds.POPUP_SDK_STATUS);
-        p.setLayer(1);
-        p.setSlot(HqcUiIds.POPUP_SDK_SLOT);
-        p.setSmallStageType(3);
-        p.setSurviveScreenChange(true);
-        p.setType(HqcUiIds.POPUP_SDK_TYPE);
-        p.setZpmPriority(HqcUiIds.POPUP_SDK_PRIORITY);
-        p.setZpmSlot(HqcUiIds.POPUP_SDK_ZPM_SLOT);
+        SdkPopups.configure(p, f, terminal, HqcUiIds.POPUP_SDK_STATUS, HqcUiIds.STATUS_POPUP_VISIBLE_MODEL,
+                HqcUiIds.POPUP_SDK_X, 0, w, h, HqcUiIds.POPUP_SDK_SLOT, HqcUiIds.POPUP_SDK_TYPE,
+                HqcUiIds.POPUP_SDK_PRIORITY, HqcUiIds.POPUP_SDK_ZPM_SLOT);
         p.add(back);
         for (int i = 0; i < cells; i++) {
             p.add(ids[i]);
@@ -154,14 +112,6 @@ final class SdkStatusPopup {
         p.setViews(viewIds, views);
         current = s;
         return p;
-    }
-
-    /** A 20x20 icon; its bounds come from the layout. */
-    private static IconController icon() {
-        IconController i = new IconController();
-        i.setRenderer(new IconRendererHigh(i));
-        i.setProcessStateChange(2);
-        return i;
     }
 
     /**
@@ -199,8 +149,8 @@ final class SdkStatusPopup {
                 idIcons[i].setCompositesDirty(true); // setBitmaps only stores the array: redraw it now, not at the next screen
             }
             if (c.ownColours != last.cell(i).ownColours) {
-                colours(idIcons[i], c.ownColours);
-                colours(fileIcons[i], c.ownColours);
+                SdkPopups.colours(idIcons[i], c.ownColours);
+                SdkPopups.colours(fileIcons[i], c.ownColours);
                 recoloured = true;
             }
         }
@@ -214,14 +164,6 @@ final class SdkStatusPopup {
      * true or {@link #place} moved the cells. HMIEvent.
      */
     void redraw() {
-        if (popup != null) {
-            popup.triggerRepaint();
-        }
-    }
-
-    /** Own colours (plate entry 0) or tinted (no indices: the renderer's tint), marked for the next paint. */
-    private static void colours(IconController icon, boolean own) {
-        icon.setColorIndices(own ? HqcUiIds.STATUS_ICON_OWN_COLOURS : null);
-        icon.setCompositesDirty(true);
+        SdkPopups.redraw(popup);
     }
 }

@@ -151,6 +151,8 @@ public final class UiApplier {
     private boolean toastShown; // visibility 1 written, 0 not yet
     private long toastHideAt; // when the toast shown hides (monotonic)
     private boolean toastDropLogged;
+    private UiToast pendingToast; // the newest toast that came while the Car bank did not exist yet; null for none
+    private long pendingToastAt; // when it came (monotonic)
 
     // Read by both threads; the page state is written by the page job (HMIEvent; one at a time).
     private volatile boolean down;
@@ -635,14 +637,17 @@ public final class UiApplier {
     }
 
     /**
-     * The toast phase (class comment). Writes the toast's own models only ({@link SdkToastPopup.Models}); a toast whose
-     * models cannot be had yet (no Car bank) is taken and not shown.
+     * The toast phase (class comment). Writes the toast's own models only ({@link SdkToastPopup.Models}). A toast that
+     * comes while the models cannot be had (no Car bank yet) is kept, the newest only, and shown once they can if it
+     * came less than {@code Ui.TOAST_MS} ago, its time counted from the show; else it is dropped with one log line.
      */
     private void applyToast(UiSnapshot s) {
         UiToast t = down ? null : s.toast();
+        long now = clock.uptimeMs();
         if (SdkGlobals.toastPopup == -1) {
+            pendingToast = null;
             if (toastShown) {
-                hideToast(); // the status popup's fallback disabled toasts while this one was up
+                hideToast(); // the popup failed while this one was up
             }
             if (t != null && t.seq() != toastSeq) {
                 toastSeq = t.seq();
@@ -656,24 +661,40 @@ public final class UiApplier {
         }
         if (t != null && t.seq() != toastSeq) {
             toastSeq = t.seq();
-            SdkToastPopup.Models m = toastSource.get();
-            if (m == null) {
-                return;
-            }
-            SdkToastPopup.Part part = SdkToastPopup.Part.of(t, ids, builtins);
-            SdkToastPopup.wanted = part; // a popup built from now on starts from it
-            wantWidgets = wantWidgets.withToast(part);
-            m.label(part.text);
-            m.fileIcon(part.filePath);
-            toastShown = true; // before the write: a throwing write is hidden again at the deadline
-            toastHideAt = clock.uptimeMs() + Ui.TOAST_MS;
-            SdkToastPopup.up = true;
-            m.visible(true);
-            return;
+            pendingToast = t; // replaces an older pending one
+            pendingToastAt = now;
         }
-        if (toastShown && (t == null || clock.uptimeMs() >= toastHideAt)) {
+        if (pendingToast != null && t == null) {
+            pendingToast = null; // down, or its owner was removed
+        }
+        if (pendingToast != null) {
+            if (now - pendingToastAt >= Ui.TOAST_MS) {
+                log.append("WARN", SOURCE, "ui toast dropped: no Car models within " + Ui.TOAST_MS + " ms");
+                pendingToast = null;
+            } else {
+                SdkToastPopup.Models m = toastSource.get();
+                if (m != null) {
+                    showToast(pendingToast, m, now);
+                    pendingToast = null;
+                }
+            }
+        }
+        if (toastShown && (t == null || now >= toastHideAt)) {
             hideToast();
         }
+        SdkToastPopup.up = toastShown && SdkGlobals.toastPopup == 2; // on screen only once the popup is built
+    }
+
+    /** Writes {@code t}: the label and the file icon, then visibility 1; it hides {@code Ui.TOAST_MS} from now. */
+    private void showToast(UiToast t, SdkToastPopup.Models m, long now) {
+        SdkToastPopup.Part part = SdkToastPopup.Part.of(t, ids, builtins);
+        SdkToastPopup.wanted = part; // a popup built from now on starts from it
+        wantWidgets = wantWidgets.withToast(part);
+        m.label(part.text);
+        m.fileIcon(part.filePath);
+        toastShown = true; // before the write: a throwing write is hidden again at the deadline
+        toastHideAt = now + Ui.TOAST_MS;
+        m.visible(true);
     }
 
     /** Writes the toast's visibility 0; recorded hidden first, so a throwing model is not retried every pass. */
