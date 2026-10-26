@@ -577,7 +577,7 @@ public final class UiApplier {
             PageLayout.TypedRow r = typed[slot];
             UiEntry e = null;
             for (int i = 0; e == null && i < entries.size(); i++) {
-                if (r.entryKey.equals(entries.get(i).key()) && entries.get(i).kind() == r.kind) {
+                if (eq(r.entryKey, entries.get(i).key()) && entries.get(i).kind() == r.kind) {
                     e = entries.get(i);
                 }
             }

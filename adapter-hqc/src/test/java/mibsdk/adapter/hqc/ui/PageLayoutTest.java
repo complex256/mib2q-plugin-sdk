@@ -32,7 +32,7 @@ class PageLayoutTest {
     @Test
     void distinctIdsInOrderAndIndex() {
         UiPage p = new UiPage("p/main", "Main", Arrays.asList(item("1", B), item("2", A), item("3", B), item("4", C),
-                item("5", null), new UiEntry(UiEntry.INFO, "i", "info", null, false, null)));
+                item("5", null), new UiEntry(UiEntry.INFO, null, "info", null, false, null)));
         PageLayout l = PageLayout.of(p, ids());
         assertArrayEquals(new int[] {609101, 609100}, l.iconIds(), "first appearance order, each id once");
         assertEquals(0, l.iconIndex(B));
@@ -47,5 +47,16 @@ class PageLayoutTest {
         assertNotEquals(l, PageLayout.of(new UiPage("p/main", "Main", Arrays.asList(item("x", A), item("y", B))),
                 ids()), "another order: other indexes");
         assertEquals(PageLayout.EMPTY, PageLayout.of(new UiPage("p/main", "Main", Arrays.asList(item("x", C))), ids()));
+    }
+
+    /** Final review sweep: a typed row whose entry has no key compares and hashes without throwing. */
+    @Test
+    void typedRowWithoutKeyIsNullSafe() {
+        UiEntry a = new UiEntry(UiEntry.SLIDER, null, "Bass", null, false, null).withRange(-6, 6, 1, true);
+        PageLayout.TypedRow r = PageLayout.TypedRow.of(a);
+        org.junit.jupiter.api.Assertions.assertEquals(r, PageLayout.TypedRow.of(a));
+        org.junit.jupiter.api.Assertions.assertEquals(r.hashCode(), PageLayout.TypedRow.of(a).hashCode());
+        org.junit.jupiter.api.Assertions.assertNotEquals(r, PageLayout.TypedRow.of(
+                new UiEntry(UiEntry.SLIDER, "bass", "Bass", null, false, null).withRange(-6, 6, 1, true)));
     }
 }

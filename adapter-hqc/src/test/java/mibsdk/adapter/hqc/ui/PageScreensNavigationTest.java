@@ -3,6 +3,7 @@ package mibsdk.adapter.hqc.ui;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -197,7 +198,7 @@ class PageScreensNavigationTest {
     }
 
     private static UiEntry info(String text) {
-        return new UiEntry(UiEntry.INFO, "i", text, null, false, null);
+        return new UiEntry(UiEntry.INFO, null, text, null, false, null); // the hub gives INFO rows no key
     }
 
     private UiSnapshot publish(UiPage... ps) {
@@ -1735,5 +1736,77 @@ class PageScreensNavigationTest {
         UiInputs.userPressed();
         pages.open("a/p", publish(page("a/p", "Alpha", item("a", "A"), item("b", "B"))), 0);
         assertEquals(PageScreens.NO_FOCUS, lastFocus(), "a new open: stock's first item");
+    }
+
+    // ---- final review: INFO rows have no key (the hub's UiHub.toUiPage, PluginsMenu.info) --------------------------
+
+    /** Critical 1: slider BACK on a page with INFO rows above and below (inputs-demo's "Last:" row) shows the page. */
+    @Test
+    void sliderBackWithKeylessInfoRowsShowsThePage() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", info("v1.0"), item("go", "Go"), slider("bass", "Bass", -6, 6, 0),
+                info("Last: none")));
+        pages.open("a/p", s, 0);
+        hmi.focused = PageScreens.typedFocus(0);
+        Object sub = openSlider(0);
+        pages.subBack();
+        runJobs();
+        pages.subDisconnecting(sub);
+        assertNotNull(pages.shown(), "the page is shown again");
+        assertEquals("a/p", pages.shown().pageKey);
+        assertEquals(PageScreens.typedFocus(0), lastFocus());
+        assertFalse(log.snapshot().toString().contains("failed"), log.snapshot().toString());
+    }
+
+    /** Critical 1: MENU → Plugins → a plugin page → BACK: Plugins starts with an INFO row; BACK lands on it. */
+    @Test
+    void backOntoAPageThatStartsWithAKeylessInfoRow() throws Exception {
+        UiSnapshot s = publish(page("mibsdk/plugins", "Plugins", info("3 plugins"), link("a", "Alpha", "a/p"),
+                link("b", "Beta", "b/p")), page("a/p", "Alpha", info("v1.0 by x"), item("go", "Go")));
+        pages.open("mibsdk/plugins", s, 0);
+        hmi.focused = 2;
+        PageScreens.listSelected(2); // Beta: no page published, the stopped notice
+        runJobs();
+        pages.backPressed();
+        runJobs();
+        assertEquals("mibsdk/plugins", pages.shown().pageKey);
+        assertEquals(2, lastFocus(), "back on Beta");
+        hmi.focused = 1;
+        PageScreens.listSelected(1);
+        runJobs();
+        assertEquals("a/p", pages.shown().pageKey);
+        pages.backPressed();
+        runJobs();
+        assertEquals("mibsdk/plugins", pages.shown().pageKey, "BACK works from a page that starts with INFO too");
+        assertEquals(1, lastFocus());
+        assertFalse(log.snapshot().toString().contains("failed"), log.snapshot().toString());
+    }
+
+    /** Critical 1: a remembered INFO row (no key) is restored by its place; a rebuild on refresh too. */
+    @Test
+    void keylessInfoRowFocusIsRestoredByPlace() throws Exception {
+        pages.open("a/p", publish(page("a/p", "Alpha", item("a", "A"), info("note"), item("b", "B"))), 0);
+        calls();
+        hmi.focused = 1;
+        pages.refresh(publish(page("a/p", "Alpha 2", item("a", "A"), info("note"), item("b", "B"), info("end"))));
+        assertEquals(Arrays.asList("rows [A, note, B, end]", "build a/p 'Alpha 2'"), calls().subList(0, 2));
+        assertEquals(1, lastFocus(), "the INFO row's place");
+        hmi.focused = 2;
+        pages.refresh(publish(page("a/p", "Alpha 3", info("new"), item("a", "A"), info("note"), item("b", "B"))));
+        assertEquals(3, lastFocus(), "a keyed row is found past the INFO rows");
+    }
+
+    /** Important 2: a slider below an INFO row opens; and a refresh with it open keeps it in sync. */
+    @Test
+    void sliderBelowAKeylessInfoRowOpens() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", info("hint"), slider("bass", "Bass", -6, 6, 0)));
+        pages.open("a/p", s, 0);
+        calls();
+        Object sub = openSlider(0);
+        assertEquals("slider 0", calls().get(0));
+        assertNotNull(PageScreens.sliderNow());
+        pages.refresh(publish(page("a/p", "Alpha", info("hint"), slider("bass", "Bass", -6, 6, 4))));
+        assertNotNull(PageScreens.sliderNow(), "still open: its entry is found past the INFO row");
+        assertTrue(pages.ownsSub(sub));
+        assertFalse(log.snapshot().toString().contains("failed"), log.snapshot().toString());
     }
 }

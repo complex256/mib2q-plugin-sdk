@@ -38,8 +38,21 @@ final class PageRow {
         return key == null ? 0 : key.hashCode() & 0x7fffffff;
     }
 
+    /**
+     * The row id of the {@code n}-th keyless row of a page (the hub gives INFO rows no key): by its place among the
+     * keyless rows, so a keyed row coming or going does not change it. Never negative.
+     */
+    static int keylessId(int n) {
+        return ("\u0000info#" + n).hashCode() & 0x7fffffff;
+    }
+
     /** The row of list entry {@code e}; {@code iconIndex}: its icon's index in the shown layout, -1 for none. */
     static PageRow of(UiEntry e, int iconIndex) {
+        return of(e, iconIndex, 0);
+    }
+
+    /** As {@link #of(UiEntry, int)}; a keyless entry (INFO) is the page's {@code keyless}-th: its id by place. */
+    static PageRow of(UiEntry e, int iconIndex, int keyless) {
         int kind = PageScreens.rowKind(e, iconIndex, HqcUiIds.PAGE_ICON_VALUE_ROWS);
         int value;
         String text = null;
@@ -66,7 +79,7 @@ final class PageRow {
                 value = 0;
                 break;
         }
-        return new PageRow(UiPageText.label(e), value, kind, e.enabled(), text, rowId(e.key()));
+        return new PageRow(UiPageText.label(e), value, kind, e.enabled(), text, e.key() == null ? keylessId(keyless) : rowId(e.key()));
     }
 
     public boolean equals(Object o) {

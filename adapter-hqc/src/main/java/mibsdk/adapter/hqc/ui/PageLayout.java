@@ -87,12 +87,17 @@ final class PageLayout {
             }
             TypedRow r = (TypedRow) o;
             return kind == r.kind && min == r.min && step == r.step && steps == r.steps && centred == r.centred
-                    && entryKey.equals(r.entryKey) && label.equals(r.label)
+                    && eq(entryKey, r.entryKey) && eq(label, r.label)
                     && java.util.Arrays.equals(options, r.options);
         }
 
         public int hashCode() {
-            return ((kind * 31 + entryKey.hashCode()) * 31 + label.hashCode()) * 31 + steps;
+            return ((kind * 31 + (entryKey == null ? 0 : entryKey.hashCode())) * 31
+                    + (label == null ? 0 : label.hashCode())) * 31 + steps;
+        }
+
+        private static boolean eq(Object x, Object y) {
+            return x == null ? y == null : x.equals(y);
         }
 
         public String toString() {

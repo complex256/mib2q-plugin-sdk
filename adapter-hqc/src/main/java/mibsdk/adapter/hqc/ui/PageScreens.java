@@ -1162,10 +1162,11 @@ final class PageScreens implements PageRenderer {
         return e != null && e.kind() == UiEntry.SLIDER ? e : null;
     }
 
+    /** The entry keyed {@code key} of {@code p}, or null; keyless entries (INFO: the hub gives them none) never match. */
     private static UiEntry entry(UiPage p, String key) {
         List<UiEntry> all = p.entries();
-        for (int i = 0; i < all.size(); i++) {
-            if (all.get(i).key().equals(key)) {
+        for (int i = 0; key != null && i < all.size(); i++) {
+            if (key.equals(all.get(i).key())) {
                 return all.get(i);
             }
         }
@@ -1419,8 +1420,8 @@ final class PageScreens implements PageRenderer {
 
     /**
      * The focus code to build page {@code key} with ({@link #rowEntries} just written for {@code layout}): its
-     * remembered entry where it is now; if gone, the row at its place (or the last row); {@link #NO_FOCUS} if nothing
-     * is remembered or the page is empty.
+     * remembered entry where it is now; if gone, or keyless (an INFO row: the hub gives it no key), the row at its place
+     * (or the last row); {@link #NO_FOCUS} if nothing is remembered or the page is empty.
      */
     private int focusOf(String key, PageLayout layout) {
         Focus f = focus.get(key);
@@ -1429,13 +1430,13 @@ final class PageScreens implements PageRenderer {
         }
         List<UiEntry> rows = rowEntries;
         PageLayout.TypedRow[] typed = layout.typed();
-        for (int i = 0; i < rows.size(); i++) {
-            if (rows.get(i).key().equals(f.entryKey)) {
+        for (int i = 0; f.entryKey != null && i < rows.size(); i++) {
+            if (f.entryKey.equals(rows.get(i).key())) {
                 return i;
             }
         }
-        for (int s = 0; s < typed.length; s++) {
-            if (typed[s].entryKey.equals(f.entryKey)) {
+        for (int s = 0; f.entryKey != null && s < typed.length; s++) {
+            if (f.entryKey.equals(typed[s].entryKey)) {
                 return typedFocus(s);
             }
         }
@@ -1509,9 +1510,11 @@ final class PageScreens implements PageRenderer {
             }
         }
         PageRow[] rows = new PageRow[entries.size()];
+        int keyless = 0;
         for (int i = 0; i < rows.length; i++) {
             UiEntry e = entries.get(i);
-            rows[i] = PageRow.of(e, e.kind() == UiEntry.ITEM ? layout.iconIndex(e.icon()) : -1);
+            rows[i] = PageRow.of(e, e.kind() == UiEntry.ITEM ? layout.iconIndex(e.icon()) : -1, keyless);
+            keyless += e.key() == null ? 1 : 0; // INFO rows: ids by place among them
         }
         rowEntries = entries;
         try {

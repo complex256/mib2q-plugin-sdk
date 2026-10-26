@@ -185,7 +185,7 @@ class UiApplierTest {
     private static Map<String, UiPage> pages(String... keys) {
         Map<String, UiPage> m = new HashMap<String, UiPage>();
         for (String k : keys) {
-            m.put(k, new UiPage(k, k, Collections.singletonList(new UiEntry(UiEntry.INFO, "i", "info", null, false,
+            m.put(k, new UiPage(k, k, Collections.singletonList(new UiEntry(UiEntry.INFO, null, "info", null, false,
                     null))));
         }
         return m;

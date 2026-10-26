@@ -523,4 +523,14 @@ class PageWidgetsTest {
         assertEquals(PageScreens.NO_FOCUS, new PageWidgets(null).focused(screen), "not connected: no focus");
         assertEquals(PageScreens.NO_FOCUS, new PageWidgets(null).focused("not a page"));
     }
+
+    /** Final review: keyless (INFO) rows get distinct ids by their place among keyless rows, never 0 for all. */
+    @Test
+    void keylessRowsGetIdsByPlace() {
+        UiEntry info = new UiEntry(UiEntry.INFO, null, "note", null, false, null);
+        assertTrue(PageRow.keylessId(0) != PageRow.keylessId(1));
+        assertTrue(PageRow.keylessId(0) >= 0);
+        assertEquals(PageRow.keylessId(1), PageRow.of(info, -1, 1).id);
+        assertEquals(PageRow.rowId("k"), PageRow.of(new UiEntry(UiEntry.ITEM, "k", "K", null, false, null), -1, 5).id);
+    }
 }
