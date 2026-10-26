@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import mibsdk.adapter.hqc.SdkGlobals;
+import mibsdk.api.Ui;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiPage;
@@ -16,6 +17,7 @@ import mibsdk.platform.UiRow;
 import mibsdk.platform.UiSnapshot;
 import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiTable;
+import mibsdk.platform.UiToast;
 import mibsdk.runtime.Clock;
 import mibsdk.runtime.RingLog;
 
@@ -23,7 +25,8 @@ import mibsdk.runtime.RingLog;
  * Applies the runtime's UI snapshots to the HMI on the SDK thread {@code mibsdk-ui}: Car drawer slots and row
  * visibility and icons, the status line, and SDK pages (through one combined {@link HmiPoster} job).
  *
- * <p>Each pass waits up to {@link #AWAIT_MS} for a newer snapshot, then runs five isolated phases (a failure in one is
+ * <p>Each pass waits up to {@link #AWAIT_MS} (less while a toast is up: until its deadline, {@link #nextWaitMs}) for a
+ * newer snapshot, then runs six isolated phases (a failure in one is
  * logged once per phase and message, and never starves the others):
  * <ul>
  * <li>slots: assigns the Car rows to drawer slots ({@link DrawerSlots}, which gives their icons image ids from
@@ -48,6 +51,11 @@ import mibsdk.runtime.RingLog;
  * popup's bounds and built-in icons); an empty line (down included) publishes {@link StatusLayout#EMPTY}, so the
  * popup's id icon cells are cleared. Popup 65 belongs to stock EngineeringApp until the SDK has shown text on it: it
  * is never hidden before that;</li>
+ * <li>toast: on a new toast seq writes the toast popup's label and file icon, then its visibility 1 (its own models,
+ * never a status model), publishes its {@link SdkToastPopup.Part} into the wanted {@link HmiWidgetState} and hides
+ * it {@code Ui.TOAST_MS} later on the monotonic clock (a newer toast restarts the timer). Hidden when the UI is down
+ * or the toast left the snapshot. While {@code SdkGlobals.toastPopup} is -1 (sticky) toasts are dropped, logged
+ * once, and a toast still up is hidden;</li>
  * <li>hmi: once the drawer, the status popup or the main menu's Plugins row exists (so the first screen is up: before
  * it the stock StartupFilter discards posted jobs), posts the one HMI job when {@code openSeq} or the page content
  * moved past what was last <b>rendered</b> (the item icons' ids included), or a page asked for navigation
@@ -80,7 +88,7 @@ public final class UiApplier {
     /** {@link #renderedDialogSeq} for no dialog (the runtime's seqs start at 1). */
     private static final long NO_DIALOG = 0;
     private static final int MAX_LOGGED_FAILURES = 32;
-    private static final String[] PHASES = {"slots", "rows", "inputs", "status", "hmi"};
+    private static final String[] PHASES = {"slots", "rows", "inputs", "status", "toast", "hmi"};
 
     /** The typed rows' pooled models, written on {@code mibsdk-ui} only. */
     interface TypedModels {
@@ -116,6 +124,7 @@ public final class UiApplier {
     private final BuiltinIcons builtins;
     private final HmiWidgets widgets;
     private final TypedSource typedSource;
+    private final SdkToastPopup.Source toastSource;
     private final Runnable hmiJob = new Runnable() {
         public void run() {
             runHmiJob();
@@ -138,6 +147,10 @@ public final class UiApplier {
     private long statusShownAt;
     private int typedGeneration = Integer.MIN_VALUE; // the Shown generation the typed models were written for
     private final String[] typedWritten = new String[HqcUiIds.TYPED_ROWS]; // what each slot got; null: unknown
+    private long toastSeq; // the newest toast seq taken (the runtime's seqs start at 1)
+    private boolean toastShown; // visibility 1 written, 0 not yet
+    private long toastHideAt; // when the toast shown hides (monotonic)
+    private boolean toastDropLogged;
 
     // Read by both threads; the page state is written by the page job (HMIEvent; one at a time).
     private volatile boolean down;
@@ -178,7 +191,19 @@ public final class UiApplier {
     /** As above, with the typed rows' models from {@code typed}. */
     UiApplier(UiTable t, RowModels rows, StatusLineSink s, PageRenderer pages, HmiPoster p, Clock clock,
               RingLog log, IconIds ids, BuiltinIcons builtins, HmiWidgets widgets, TypedSource typed) {
+        this(t, rows, s, pages, p, clock, log, ids, builtins, widgets, typed, new SdkToastPopup.Source() {
+            public SdkToastPopup.Models get() {
+                return SdkCarModelBank.toastModels();
+            }
+        });
+    }
+
+    /** As above, with the toast popup's models from {@code toasts}. */
+    UiApplier(UiTable t, RowModels rows, StatusLineSink s, PageRenderer pages, HmiPoster p, Clock clock,
+              RingLog log, IconIds ids, BuiltinIcons builtins, HmiWidgets widgets, TypedSource typed,
+              SdkToastPopup.Source toasts) {
         this.typedSource = typed;
+        this.toastSource = toasts;
         this.table = t;
         this.rows = rows;
         this.status = s;
@@ -320,7 +345,7 @@ public final class UiApplier {
     private void loop() {
         while (!stopping) {
             try {
-                step(AWAIT_MS);
+                step(nextWaitMs());
             } catch (Throwable t) {
                 failed("wait", t);
             }
@@ -333,7 +358,18 @@ public final class UiApplier {
         }
     }
 
-    /** One pass (the thread's body; tests call it directly): wait for a newer snapshot, then the five phases. */
+    /**
+     * How long the next pass may wait for a snapshot: {@link #AWAIT_MS}, or less while a toast is up, so it hides on
+     * time (at least 1 ms: a zero wait would spin). {@code mibsdk-ui}.
+     */
+    long nextWaitMs() {
+        if (!toastShown) {
+            return AWAIT_MS;
+        }
+        return Math.max(1, Math.min(AWAIT_MS, toastHideAt - clock.uptimeMs()));
+    }
+
+    /** One pass (the thread's body; tests call it directly): wait for a newer snapshot, then the six phases. */
     void step(long waitMs) throws InterruptedException {
         UiSnapshot s = table.awaitNewer(lastVersion, waitMs);
         if (s != null) {
@@ -389,6 +425,9 @@ public final class UiApplier {
                     case 3:
                         applyStatus(current);
                         break;
+                    case 4:
+                        applyToast(current);
+                        break;
                     default:
                         postJobIfNeeded(true);
                         break;
@@ -417,7 +456,8 @@ public final class UiApplier {
             bitmaps[slot] = a.iconAt(slot);
             unserved |= bitmaps[slot] == null && hasIcon(s.carRows(), a.keyAt(slot));
         }
-        wantWidgets = new HmiWidgetState(bitmaps, wantWidgets.status(), wantWidgets.mainMenuRowVisible());
+        wantWidgets = new HmiWidgetState(bitmaps, wantWidgets.status(), wantWidgets.mainMenuRowVisible(),
+                wantWidgets.toast());
         if (unserved && !warnedIdsSpent && ids != null && ids.exhausted()) {
             warnedIdsSpent = true;
             log.append("WARN", SOURCE, "ui icon ids " + HqcUiIds.ICON_ID_FIRST + ".." + HqcUiIds.ICON_ID_LAST
@@ -594,12 +634,67 @@ public final class UiApplier {
         }
     }
 
+    /**
+     * The toast phase (class comment). Writes the toast's own models only ({@link SdkToastPopup.Models}); a toast whose
+     * models cannot be had yet (no Car bank) is taken and not shown.
+     */
+    private void applyToast(UiSnapshot s) {
+        UiToast t = down ? null : s.toast();
+        if (SdkGlobals.toastPopup == -1) {
+            if (toastShown) {
+                hideToast(); // the status popup's fallback disabled toasts while this one was up
+            }
+            if (t != null && t.seq() != toastSeq) {
+                toastSeq = t.seq();
+                if (!toastDropLogged) {
+                    toastDropLogged = true;
+                    log.append("WARN", SOURCE, "ui toast dropped: popup " + HqcUiIds.POPUP_SDK_TOAST
+                            + " is off this boot (further toasts are dropped silently)");
+                }
+            }
+            return;
+        }
+        if (t != null && t.seq() != toastSeq) {
+            toastSeq = t.seq();
+            SdkToastPopup.Models m = toastSource.get();
+            if (m == null) {
+                return;
+            }
+            SdkToastPopup.Part part = SdkToastPopup.Part.of(t, ids, builtins);
+            SdkToastPopup.wanted = part; // a popup built from now on starts from it
+            wantWidgets = wantWidgets.withToast(part);
+            m.label(part.text);
+            m.fileIcon(part.filePath);
+            toastShown = true; // before the write: a throwing write is hidden again at the deadline
+            toastHideAt = clock.uptimeMs() + Ui.TOAST_MS;
+            SdkToastPopup.up = true;
+            m.visible(true);
+            return;
+        }
+        if (toastShown && (t == null || clock.uptimeMs() >= toastHideAt)) {
+            hideToast();
+        }
+    }
+
+    /** Writes the toast's visibility 0; recorded hidden first, so a throwing model is not retried every pass. */
+    private void hideToast() {
+        toastShown = false;
+        SdkToastPopup.up = false;
+        SdkToastPopup.wanted = SdkToastPopup.wanted.hidden();
+        wantWidgets = wantWidgets.withToast(wantWidgets.toast().hidden());
+        SdkToastPopup.Models m = toastSource.get();
+        if (m != null) {
+            m.visible(false);
+        }
+    }
+
     /** {@code tick}: called from the applier's pass (not the job's after-hook), so a deferred close may be retried. */
     private void postJobIfNeeded(boolean tick) {
         if (!isLive() || (stopping && !down)) {
             return; // replaced, or stopping before the teardown took the UI down
         }
-        if (SdkGlobals.uiRowModels == null && SdkStatusPopup.current == null && SdkGlobals.mainMenuRow == null) {
+        if (SdkGlobals.uiRowModels == null && SdkStatusPopup.current == null && SdkToastPopup.current == null
+                && SdkGlobals.mainMenuRow == null) {
             return; // no drawer, popup or screen 46 yet, so no first screen yet: the StartupFilter would discard the job
         }
         boolean render = needsRender(table.snapshot(), tick);
@@ -615,15 +710,17 @@ public final class UiApplier {
     }
 
     /**
-     * True if the wanted widget state differs from the applied one in what exists: the status layout counts only once
-     * the popup is built (a popup built later starts from {@code SdkStatusPopup.wanted}).
+     * True if the wanted widget state differs from the applied one in what exists: the status layout and the toast
+     * count only once their popup is built (a popup built later starts from its {@code wanted}).
      */
     private boolean widgetsNeedJob() {
         HmiWidgetState applied = widgets.applied();
-        if (widgets.mainMenuRowNeedsJob(wantWidgets)) {
+        HmiWidgetState want = wantWidgets;
+        if (widgets.mainMenuRowNeedsJob(want)) {
             return true;
         }
-        return SdkStatusPopup.current != null ? !wantWidgets.equals(applied) : !wantWidgets.sameRows(applied);
+        return !want.sameRows(applied) || (SdkStatusPopup.current != null && !want.sameStatus(applied))
+                || (SdkToastPopup.current != null && !want.sameToast(applied));
     }
 
     /**

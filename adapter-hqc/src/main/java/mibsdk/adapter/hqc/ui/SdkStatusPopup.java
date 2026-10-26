@@ -31,9 +31,9 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.PartialPopupController;
  * the current screen's doCheckedRepaint (AbstractPartialPopupController.triggerRepaint). The fix was verified on the bench
  * (B2 re-run, docs/bench-e2e-icon-colour.md).
  *
- * <p>Built on HMIEvent by {@link SdkCarScreenFactory#getPartialPopup} with the bounds and id icons of {@link #wanted};
- * later changes come from {@link HmiWidgets} through {@link #current}. HMIEvent only, apart from the two volatile
- * references. No I/O, no thread.
+ * <p>Built on HMIEvent by {@link SdkCarScreenFactory#getPartialPopup}, on a {@link StatusPopupController} (the toast's
+ * safety fallback), with the bounds and id icons of {@link #wanted}; later changes come from {@link HmiWidgets}
+ * through {@link #current}. HMIEvent only, apart from the two volatile references. No I/O, no thread.
  */
 final class SdkStatusPopup {
 
@@ -98,7 +98,7 @@ final class SdkStatusPopup {
             files[i] = icon();
             files[i].setModelID(HqcUiIds.STATUS_FILE_ICON_MODEL_1 + i);
         }
-        PartialPopupController p = new PartialPopupController(HqcUiIds.POPUP_SDK_STATUS);
+        PartialPopupController p = new StatusPopupController(); // the toast's safety fallback (F1)
         SdkStatusPopup s = new SdkStatusPopup(labels, ids, files, p);
         StatusLayout l = wanted;
         s.place(l);

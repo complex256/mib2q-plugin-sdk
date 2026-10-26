@@ -199,13 +199,17 @@ class SdkCarScreenFactoryTest {
         SdkGlobals.statusPopup = 0;
         SdkStatusPopup.current = null;
         SdkStatusPopup.wanted = StatusLayout.EMPTY;
+        SdkGlobals.toastPopup = 0;
+        SdkToastPopup.current = null;
+        SdkToastPopup.wanted = SdkToastPopup.Part.NONE;
+        SdkToastPopup.up = false;
     }
 
     /**
      * The System fonts the popup takes: cached (as once the System bundle loaded them), or not, so the next lookup
      * goes to the HMI terminal.
      */
-    private static void systemFonts(boolean cached) throws Exception {
+    static void systemFonts(boolean cached) throws Exception {
         Class<?> ff = de.audi.tghu.system.hmi.evohigh.FontFactory.class;
         java.lang.reflect.Field arrays = ff.getDeclaredField("fontArrays");
         arrays.setAccessible(true);
@@ -217,7 +221,7 @@ class SdkCarScreenFactoryTest {
     }
 
     /** A factory whose popup build throws: no fonts cached, and the HMI terminal is gone. */
-    private static SdkCarScreenFactory failingBuild() throws Exception {
+    static SdkCarScreenFactory failingBuild() throws Exception {
         systemFonts(false);
         IFrameworkAccess gone = (IFrameworkAccess) Proxy.newProxyInstance(
                 SdkCarScreenFactoryTest.class.getClassLoader(), new Class<?>[] {IFrameworkAccess.class}, (p, m, a) -> {
@@ -233,10 +237,14 @@ class SdkCarScreenFactoryTest {
     }
 
     private static PartialPopupStub sdkStub(IPartialPopupController[] stubs) {
+        return stub(stubs, HqcUiIds.POPUP_SDK_STATUS);
+    }
+
+    private static PartialPopupStub stub(IPartialPopupController[] stubs, int id) {
         PartialPopupStub found = null;
         for (int i = 0; stubs != null && i < stubs.length; i++) {
             if (stubs[i] instanceof PartialPopupStub
-                    && ((PartialPopupStub) stubs[i]).getID() == HqcUiIds.POPUP_SDK_STATUS) {
+                    && ((PartialPopupStub) stubs[i]).getID() == id) {
                 assertNull(found, "one stub");
                 found = (PartialPopupStub) stubs[i];
             }
@@ -252,9 +260,9 @@ class SdkCarScreenFactoryTest {
     void stubsAddPopup609600InSlot7AndBuildFailureMarksFailed() throws Exception {
         IPartialPopupController[] stock = new CarScreenFactory(fw()).getPartialPopupStubs(0);
         IPartialPopupController[] stubs = failingBuild().getPartialPopupStubs(0);
-        assertEquals(length(stock) + 1, stubs.length, "the stock stubs, then the SDK's");
+        assertEquals(length(stock) + 2, stubs.length, "the stock stubs, then the SDK's (status, toast)");
         PartialPopupStub stub = sdkStub(stubs);
-        assertSame(stub, stubs[stubs.length - 1]);
+        assertSame(stub, stubs[stubs.length - 2]);
         assertEquals(HqcUiIds.POPUP_SDK_SLOT, stub.getSlot());
         assertEquals(7, stub.getSlot());
         assertEquals(HqcUiIds.POPUP_SDK_ZPM_SLOT, stub.getZpmSlot());
@@ -302,7 +310,8 @@ class SdkCarScreenFactoryTest {
 
         IPartialPopupController[] again = ok.getPartialPopupStubs(0);
         assertNull(sdkStub(again), "no stub once failed");
-        assertEquals(length(new CarScreenFactory(fw()).getPartialPopupStubs(0)), length(again));
+        assertTrue(stub(again, HqcUiIds.POPUP_SDK_TOAST) != null, "the toast keeps its own stub");
+        assertEquals(length(new CarScreenFactory(fw()).getPartialPopupStubs(0)) + 1, length(again));
         assertEquals(-1, SdkGlobals.statusPopup, "a later collection never moves it back to 1");
         systemFonts(true); // a build would succeed now
         assertNull(ok.getPartialPopup(HqcUiIds.POPUP_SDK_STATUS, 0), "nor a later build to 2");
@@ -481,6 +490,174 @@ class SdkCarScreenFactoryTest {
             assertEquals("Alpha", f.getAltText(HqcUiIds.TEXT_PAGE_TITLE));
         } finally {
             PageScreens.forgetForTests();
+        }
+    }
+
+    // ---- the toast popup 609601 (Task 7) ----
+
+    @Test
+    void toastStubUsesFreeSlot6LeftOfStatus() throws Exception {
+        IPartialPopupController[] stock = new CarScreenFactory(fw()).getPartialPopupStubs(0);
+        IPartialPopupController[] stubs = new SdkCarScreenFactory(fw()).getPartialPopupStubs(0);
+        assertEquals(length(stock) + 2, stubs.length);
+        PartialPopupStub status = sdkStub(stubs);
+        PartialPopupStub toast = stub(stubs, HqcUiIds.POPUP_SDK_TOAST);
+        assertSame(status, stubs[stubs.length - 2]);
+        assertSame(toast, stubs[stubs.length - 1], "placed after the status stub");
+        assertEquals(609601, toast.getID());
+        assertEquals(6, toast.getSlot());
+        assertEquals(7, status.getSlot(), "the status stub stays in slot 7");
+        assertEquals(12, toast.getZpmSlot());
+        assertEquals(250, toast.getZpmPriority());
+        assertEquals(7, toast.getType());
+        assertEquals(HqcUiIds.POPUP_SDK_STUB_KIND, toast.getStyle());
+        assertEquals(HqcUiIds.TOAST_VISIBLE_MODEL, toast.getModelID());
+        for (int i = 0; i < length(stock); i++) {
+            if (stock[i] instanceof PartialPopupStub) {
+                assertTrue(((PartialPopupStub) stock[i]).getSlot() != 6, "no stock Car stub in slot 6");
+            }
+        }
+        assertEquals(1, SdkGlobals.toastPopup, "registered");
+        assertEquals(1, SdkGlobals.statusPopup, "registered");
+
+        systemFonts(true);
+        SdkCarScreenFactory f = new SdkCarScreenFactory(fw());
+        IPartialPopupController p = f.getPartialPopup(HqcUiIds.POPUP_SDK_TOAST, 0);
+        assertTrue(p instanceof PartialPopupController, "built: " + SdkGlobals.LOG.snapshot());
+        PartialPopupController c = (PartialPopupController) p;
+        assertEquals(609601, c.getID());
+        assertEquals(6, c.getSlot());
+        assertEquals(12, c.getZpmSlot());
+        assertEquals(259, c.getX());
+        assertEquals(0, c.getY());
+        assertEquals(255, c.getWidth());
+        assertEquals(24, c.getHeight());
+        assertEquals(HqcUiIds.POPUP_SDK_X, c.getX() + c.getWidth(), "ends where the status popup starts");
+        assertEquals(2, SdkGlobals.toastPopup, "built");
+        assertEquals(1, SdkGlobals.statusPopup, "the status popup's state is its own");
+        assertTrue(SdkToastPopup.current != null);
+    }
+
+    @Test
+    void toastStubWithoutStatusPopup() throws Exception {
+        SdkGlobals.statusPopup = -1; // the status line fell back to popup 65
+        IPartialPopupController[] stock = new CarScreenFactory(fw()).getPartialPopupStubs(0);
+        IPartialPopupController[] stubs = new SdkCarScreenFactory(fw()).getPartialPopupStubs(0);
+        assertEquals(length(stock) + 1, stubs.length);
+        assertNull(sdkStub(stubs), "no status stub");
+        assertSame(stub(stubs, HqcUiIds.POPUP_SDK_TOAST), stubs[stubs.length - 1],
+                "the toast stub is still registered");
+        assertEquals(1, SdkGlobals.toastPopup);
+        assertEquals(-1, SdkGlobals.statusPopup);
+    }
+
+    @Test
+    void toastFailureIsStickyAndLeavesStatus() throws Exception {
+        SdkCarScreenFactory ok = new SdkCarScreenFactory(fw());
+        ok.getPartialPopupStubs(0);
+        assertEquals(1, SdkGlobals.toastPopup);
+        assertNull(failingBuild().getPartialPopup(HqcUiIds.POPUP_SDK_TOAST, 0), "a forced build failure");
+        assertEquals(-1, SdkGlobals.toastPopup);
+        assertNull(SdkToastPopup.current);
+        assertEquals(1, SdkGlobals.statusPopup, "status untouched");
+        assertTrue(SdkGlobals.LOG.snapshot().toString().contains("ui toast popup 609601 failed reason=build"),
+                "one log line: " + SdkGlobals.LOG.snapshot());
+
+        IPartialPopupController[] again = ok.getPartialPopupStubs(0);
+        assertNull(stub(again, HqcUiIds.POPUP_SDK_TOAST), "no toast stub on the next call");
+        assertTrue(sdkStub(again) != null, "the status popup still registered");
+        assertEquals(-1, SdkGlobals.toastPopup, "sticky");
+        systemFonts(true); // a build would succeed now
+        assertNull(ok.getPartialPopup(HqcUiIds.POPUP_SDK_TOAST, 0), "nor a later build");
+        assertEquals(-1, SdkGlobals.toastPopup);
+        assertTrue(ok.getPartialPopup(HqcUiIds.POPUP_SDK_STATUS, 0) instanceof PartialPopupController);
+        assertEquals(2, SdkGlobals.statusPopup);
+    }
+
+    @Test
+    void toastNeverTouchesStatusVisibility() throws Exception {
+        de.audi.atip.hmi.model.AbstractModelBank.initLogging(name -> de.audi.atip.log.NullLogChannel.getInstance());
+        boolean was = SdkGlobals.uiEnabled;
+        try {
+            SdkGlobals.uiEnabled = true;
+            SdkCarModelBank bank = new SdkCarModelBank();
+            de.audi.atip.hmi.model.ChoiceModel statusVisible =
+                    (de.audi.atip.hmi.model.ChoiceModel) model(bank, HqcUiIds.STATUS_POPUP_VISIBLE_MODEL);
+            de.audi.atip.hmi.model.ChoiceModel toastVisible =
+                    (de.audi.atip.hmi.model.ChoiceModel) model(bank, HqcUiIds.TOAST_VISIBLE_MODEL);
+            for (int status : new int[] {0, 1}) {
+                statusVisible.setValue(status);
+                SdkToastPopup.Models m = SdkCarModelBank.toastModels();
+                m.label("Saved");
+                m.fileIcon(null);
+                m.visible(true);
+                assertEquals(1, toastVisible.getValue());
+                assertEquals(status, statusVisible.getValue(), "a show leaves the status visibility");
+                m.visible(false);
+                assertEquals(0, toastVisible.getValue());
+                assertEquals(status, statusVisible.getValue(), "a hide leaves the status visibility");
+            }
+        } finally {
+            SdkGlobals.uiEnabled = was;
+        }
+        // The built toast maps none of the status popup's models.
+        systemFonts(true);
+        PartialPopupController c = (PartialPopupController) new SdkCarScreenFactory(fw())
+                .getPartialPopup(HqcUiIds.POPUP_SDK_TOAST, 0);
+        assertEquals(HqcUiIds.TOAST_VISIBLE_MODEL, c.getModelID());
+        assertArrayEquals(new int[] {HqcUiIds.TOAST_VISIBLE_MODEL, HqcUiIds.TOAST_LABEL_MODEL,
+            HqcUiIds.TOAST_FILE_ICON_MODEL}, c.getViewIDs());
+    }
+
+    @Test
+    void statusHiddenDuringToastDisablesToasts() throws Exception {
+        systemFonts(true);
+        SdkCarScreenFactory f = new SdkCarScreenFactory(fw());
+        f.getPartialPopupStubs(0);
+        IPartialPopupController p = f.getPartialPopup(HqcUiIds.POPUP_SDK_STATUS, 0);
+        assertTrue(p instanceof StatusPopupController, "609600 is built on StatusPopupController");
+        StatusPopupController c = (StatusPopupController) p;
+        List<Integer> hidden = new ArrayList<Integer>();
+        Field pm = de.esolutions.hmi.widgets.audi.evo.widgets.AbstractPartialPopupController.class
+                .getDeclaredField("popupManager");
+        pm.setAccessible(true);
+        pm.set(c, Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[] {pm.getType()}, (q, m, a) -> {
+            if (m.getName().equals("hidePopup")) {
+                hidden.add((Integer) a[0]);
+            }
+            return m.getReturnType() == int.class ? Integer.valueOf(1) : null;
+        }));
+        de.audi.atip.hmi.model.AbstractModelBank.initLogging(name -> de.audi.atip.log.NullLogChannel.getInstance());
+        de.audi.atip.hmi.model.ChoiceModel visible = new de.audi.atip.hmi.model.ChoiceModel(
+                HqcUiIds.STATUS_POPUP_VISIBLE_MODEL);
+        c.setModel(visible);
+
+        // The status line hidden by its own model (0), or with no toast up: toasts stay on.
+        visible.setValue(0);
+        SdkToastPopup.up = true;
+        hideOnHost(c);
+        visible.setValue(1);
+        SdkToastPopup.up = false;
+        hideOnHost(c);
+        assertEquals(1, SdkGlobals.toastPopup);
+        assertEquals(new ArrayList<Integer>(), hidden);
+
+        // The manager hides 609600 while its model says shown, during a toast: toasts off for the boot.
+        SdkToastPopup.up = true;
+        hideOnHost(c);
+        assertEquals(-1, SdkGlobals.toastPopup);
+        assertEquals(java.util.Collections.singletonList(HqcUiIds.POPUP_SDK_TOAST), hidden, "the toast hidden");
+        assertTrue(SdkGlobals.LOG.snapshot().toString().contains("disabled: status popup hidden"));
+        assertEquals(2, SdkGlobals.statusPopup, "the status popup itself is untouched");
+        assertNull(stub(f.getPartialPopupStubs(0), HqcUiIds.POPUP_SDK_TOAST), "sticky: no toast stub");
+    }
+
+    /** Stock hide needs the HMI terminal, which the host lacks: the SDK part runs before it. */
+    private static void hideOnHost(StatusPopupController c) {
+        try {
+            c.hide(2);
+        } catch (RuntimeException noTerminalOnTheHost) {
+            // stock PartialPopupController.hide
         }
     }
 }

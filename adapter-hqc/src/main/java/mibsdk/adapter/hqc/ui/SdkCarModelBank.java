@@ -60,6 +60,8 @@ final class SdkCarModelBank extends CarModelBank {
     private StatusModels statusModels; // guarded by this
     /** The typed rows' pooled models, by handle; created once with them ({@link #typedModels}). */
     private TypedHandle typedModels; // guarded by this
+    /** The toast popup's models, by handle; created once with them ({@link #toastModels}). */
+    private ToastHandle toastModels; // guarded by this
 
     SdkCarModelBank() {
         int stockLen = this.models.length;
@@ -161,6 +163,34 @@ final class SdkCarModelBank extends CarModelBank {
             }
         }
         return statusModels;
+    }
+
+    /**
+     * The toast popup's models (visibility, label, file icon: +37..+39), created on first use, or null before the
+     * bank exists. Called on {@code mibsdk-ui} only (Global Constraints, F15). Never throws.
+     */
+    static SdkToastPopup.Models toastModels() {
+        SdkCarModelBank b = current;
+        return b == null ? null : b.toastHandle();
+    }
+
+    private synchronized SdkToastPopup.Models toastHandle() {
+        if (toastModels == null) {
+            try {
+                createModel(index(HqcUiIds.TOAST_VISIBLE_MODEL));
+                createModel(index(HqcUiIds.TOAST_LABEL_MODEL));
+                createModel(index(HqcUiIds.TOAST_FILE_ICON_MODEL));
+                Object v = this.models[index(HqcUiIds.TOAST_VISIBLE_MODEL)];
+                Object l = this.models[index(HqcUiIds.TOAST_LABEL_MODEL)];
+                Object f = this.models[index(HqcUiIds.TOAST_FILE_ICON_MODEL)];
+                if (v instanceof ChoiceModel && l instanceof LabelModel && f instanceof ResourceLocatorModel) {
+                    toastModels = new ToastHandle((ChoiceModel) v, (LabelModel) l, (ResourceLocatorModel) f);
+                }
+            } catch (Throwable t) {
+                // no handle yet: the applier asks again for the next toast
+            }
+        }
+        return toastModels;
     }
 
     private static int index(int id) {
@@ -410,6 +440,34 @@ final class SdkCarModelBank extends CarModelBank {
                     files[i].setResourceLocator(-1, path, 0);
                 }
             }
+        }
+
+        public void visible(boolean on) {
+            visible.setValue(on ? 1 : 0);
+        }
+    }
+
+    /**
+     * The {@code mibsdk-ui} thread's handle on the toast popup's models; a locator as {@link StatusModels} sets it.
+     * It holds none of the status popup's models.
+     */
+    private static final class ToastHandle implements SdkToastPopup.Models {
+        private final ChoiceModel visible;
+        private final LabelModel label;
+        private final ResourceLocatorModel file;
+
+        ToastHandle(ChoiceModel visible, LabelModel label, ResourceLocatorModel file) {
+            this.visible = visible;
+            this.label = label;
+            this.file = file;
+        }
+
+        public void label(String text) {
+            label.setText(text == null ? "" : text);
+        }
+
+        public void fileIcon(String path) {
+            file.setResourceLocator(-1, path == null ? "" : path, 0);
         }
 
         public void visible(boolean on) {

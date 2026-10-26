@@ -213,6 +213,32 @@ class HqcPlatformTest {
         }
     }
 
+    /** Task 7: every native input widget exists, so the UI features include {@code ui.inputs}; never without the UI. */
+    @Test
+    void uiFeaturesIncludeInputs() {
+        boolean wrapping = SdkGlobals.wrappingEnabled;
+        boolean ui = SdkGlobals.uiEnabled;
+        try {
+            HqcPlatform p = new HqcPlatform(new Ctx().context());
+            for (boolean hooked : new boolean[] {false, true}) {
+                RawServices.clear();
+                SdkGlobals.wrappingEnabled = hooked;
+                if (hooked) {
+                    RawServices.record(PARKING, new Object());
+                }
+                SdkGlobals.uiEnabled = true;
+                assertTrue(p.features().contains(Features.UI_INPUTS), "ui on, hooked=" + hooked);
+                assertEquals("ui.inputs", Features.UI_INPUTS);
+                SdkGlobals.uiEnabled = false;
+                assertFalse(p.features().contains(Features.UI_INPUTS), "ui off, hooked=" + hooked);
+            }
+        } finally {
+            SdkGlobals.wrappingEnabled = wrapping;
+            SdkGlobals.uiEnabled = ui;
+            RawServices.clear();
+        }
+    }
+
     /** With the UI on, start reads the installed built-in icon set (on the calling SDK thread). */
     @Test
     void startReadsTheBuiltinIcons() throws Exception {

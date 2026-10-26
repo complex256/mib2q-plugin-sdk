@@ -26,7 +26,7 @@ class StockThreadCodeTest {
         "PageWidgets", "IconIds", "HmiWidgets", "HmiWidgetState", "StatusLayout", "SdkStatusPopup",
         "SdkSystemActivator", "SdkSystemScreenFactory", "MainMenuKeyHandler", "MainMenuWrench", "PageRow",
         "PageLayout", "ItemIcons", "SliderSession", "SliderScreen", "InputTextIds", "ConfirmScreen", "SpellerScreen",
-        "SpellerSession"};
+        "SpellerSession", "SdkToastPopup", "StatusPopupController"};
 
     private static final Pattern FORBIDDEN = Pattern.compile("java\\.io\\.|java\\.nio\\.|java\\.net\\.|\\bnew Thread\\b"
             + "|\\bThread\\.sleep\\b|\\.start\\(\\)|\\.join\\(|\\.wait\\(|\\bnew Timer\\b|System\\.(out|err)"
@@ -107,6 +107,7 @@ class StockThreadCodeTest {
             {"PageScreens", "void spellerCommand"},
             {"SdkCarModelBank", "void textChanged"},
             {"SdkCarModelBank", "void commandPressed"},
+            {"StatusPopupController", "int hide"},
         };
         for (String[] o : overrides) {
             String src = source(o[0]);

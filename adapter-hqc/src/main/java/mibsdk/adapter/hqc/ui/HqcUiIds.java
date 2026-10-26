@@ -182,6 +182,40 @@ public final class HqcUiIds {
     /** The popup backdrop: a 1x1 bitmap scaled to the popup (SystemScreenBag3.partialPopupDebugInfo). */
     public static final int POPUP_BACKDROP_BITMAP = 251;
 
+    /**
+     * The SDK toast popup: the status popup's recipe ({@link #POPUP_SDK_STATUS}) with its own models
+     * ({@link #TOAST_VISIBLE_MODEL}..{@link #TOAST_FILE_ICON_MODEL}), at ({@link #POPUP_TOAST_X}, 0,
+     * {@link #POPUP_TOAST_W}, {@link #POPUP_TOAST_H}): it ends where the status popup starts. It is in partial-popup
+     * <b>slot 6</b>, never the status popup's slot 7: one popup per slot is shown at a time (spike C S1), so two popups
+     * in one slot would displace each other. Slot 6 is free (plan F1, from {@code lsd-src/lsd}):
+     * <ul>
+     * <li>every stock {@code new PartialPopupStub(...)} (19 factories) uses slots 0, 1, 2, 3, 4, 5, 9, 10, 11, 12 and
+     * 13; none uses 6 or 8;</li>
+     * <li>EarlyApps (parking/RVC, {@code EarlyAppsScreenFactory.java:3118}) uses 1, 2, 4 and 9; System (volume, status
+     * bar, popup 65 and the rest, {@code SystemScreenFactory.java:5662}) uses 0, 3, 5, 10, 12 and 13; the Phone/eCall
+     * stubs ({@code PhoneScreenFactory.java:9102}) use 0;</li>
+     * <li>{@code IPartialPopupManagerEvo.PARTIAL_POPUP_SLOT_DEPTHS} gives slot 6 depth 0, as slot 7 (slot 8 has 20), so
+     * the toast stacks exactly like the proven status popup, under every EarlyApps slot (depths 10, 11, 19, 21);</li>
+     * <li>{@code AbstractPartialPopupManager.SLOTS} lists 6 beside 7 (both count as "a partial popup is visible").</li>
+     * </ul>
+     * Stub arguments as the status popup's, apart from the id, the model and the slot.
+     */
+    public static final int POPUP_SDK_TOAST = 609601;
+    public static final int POPUP_TOAST_SLOT = 6;
+    public static final int POPUP_TOAST_ZPM_SLOT = 12;
+    public static final int POPUP_TOAST_PRIORITY = 250;
+    public static final int POPUP_TOAST_TYPE = 7;
+    /** Left of the status popup, ending where it starts: 514 - 255 = 259. */
+    public static final int POPUP_TOAST_X = POPUP_SDK_X - POPUP_SDK_W;
+    public static final int POPUP_TOAST_Y = 0;
+    public static final int POPUP_TOAST_W = 255;
+    public static final int POPUP_TOAST_H = 24;
+    /**
+     * How long a toast shows, in ms: {@code Ui.TOAST_MS}, as a literal for code that may not read {@code mibsdk.api}
+     * (stock-thread files). A test keeps the two equal.
+     */
+    public static final int TOAST_MS = 3000;
+
     /** Status popup layout: the item cells after the indicators (one per plugin item, at most). */
     public static final int STATUS_CELLS = 6;
     /** Left (and right) padding inside the popup. */

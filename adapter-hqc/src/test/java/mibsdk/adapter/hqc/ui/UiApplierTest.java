@@ -133,6 +133,10 @@ class UiApplierTest {
         SdkStatusPopup.current = null;
         SdkStatusPopup.wanted = StatusLayout.EMPTY;
         SdkGlobals.statusPopup = 0;
+        SdkGlobals.toastPopup = 0;
+        SdkToastPopup.current = null;
+        SdkToastPopup.wanted = SdkToastPopup.Part.NONE;
+        SdkToastPopup.up = false;
         SdkGlobals.mainMenu = SdkGlobals.MAIN_MENU_OFF;
         SdkGlobals.mainMenuRow = null;
         SdkGlobals.mainMenuWizard = null;
@@ -1267,5 +1271,133 @@ class UiApplierTest {
         shownPage = new PageScreens.Shown("p/main", both, 2);
         a.step(0);
         assertEquals(Arrays.asList("c0=1", "r1=12/6/0", "r2=5/0/2"), typed, "a new screen: every slot again");
+    }
+
+    // ---- toasts (Task 7) ----
+
+    private final List<String> toastWrites = Collections.synchronizedList(new ArrayList<String>());
+    private final SdkToastPopup.Models toastModels = new SdkToastPopup.Models() {
+        public void label(String text) {
+            toastWrites.add("label:" + text);
+        }
+
+        public void fileIcon(String path) {
+            toastWrites.add("file:" + path);
+        }
+
+        public void visible(boolean on) {
+            toastWrites.add("visible:" + (on ? 1 : 0));
+        }
+    };
+
+    /** A live applier writing the toast to {@link #toastModels}. */
+    private UiApplier toastApplier() {
+        Clock clock = () -> now;
+        UiApplier[] self = new UiApplier[1];
+        HmiPoster poster = new HmiPoster(sink, () -> self[0].wake(), clock, HmiPoster.PENDING_DEADLINE_MS);
+        self[0] = new UiApplier(table, rows, status, pages, poster, clock, log, ids, BuiltinIcons.NONE,
+                new HmiWidgets(), () -> null, () -> toastModels);
+        self[0].claimLive();
+        return self[0];
+    }
+
+    private void publishToast(mibsdk.platform.UiToast t) {
+        table.publish(new UiSnapshot(++version, Collections.<UiRow>emptyList(), "", null, 0, null, null, null, t));
+    }
+
+    private List<String> drainToast() {
+        synchronized (toastWrites) {
+            List<String> l = new ArrayList<String>(toastWrites);
+            toastWrites.clear();
+            return l;
+        }
+    }
+
+    @Test
+    void toastShowsThenHidesAfter3000ms() throws Exception {
+        UiApplier a = toastApplier();
+        now = 1000;
+        String path = HqcUiIds.INSTALL_ROOT + "/icons/p/aaaa000000000000.png";
+        publishToast(new mibsdk.platform.UiToast(1, "Saved", UiIcon.file("p", path, "aaaa000000000000", 20, 20)));
+        a.step(0);
+        assertEquals(Arrays.asList("label:Saved", "file:" + path, "visible:1"), drainToast(),
+                "the label and the icon, then visibility 1");
+        assertTrue(SdkToastPopup.up);
+        assertEquals("Saved", SdkToastPopup.wanted.text);
+        assertEquals(path, SdkToastPopup.wanted.filePath);
+        assertEquals(UiApplier.AWAIT_MS, a.nextWaitMs(), "the deadline is further than one wait");
+        now = 3500;
+        assertEquals(500, a.nextWaitMs(), "the wait ends at the deadline");
+        now = 3999;
+        a.step(0);
+        assertEquals(Collections.emptyList(), drainToast(), "visible at 2999 ms");
+        assertEquals(1, a.nextWaitMs());
+        now = 4000;
+        a.step(0);
+        assertEquals(Collections.singletonList("visible:0"), drainToast(), "hidden at 3000 ms");
+        assertFalse(SdkToastPopup.up);
+        assertEquals(UiApplier.AWAIT_MS, a.nextWaitMs());
+        now = 9000;
+        a.step(0);
+        publishToast(new mibsdk.platform.UiToast(1, "Saved", null)); // the same seq again: shown once
+        a.step(0);
+        assertEquals(Collections.emptyList(), drainToast());
+        assertEquals(Collections.emptyList(), drain(), "the status line is never touched");
+    }
+
+    @Test
+    void newerToastRestartsTimer() throws Exception {
+        UiApplier a = toastApplier();
+        now = 0;
+        publishToast(new mibsdk.platform.UiToast(1, "One", null));
+        a.step(0);
+        assertEquals(Arrays.asList("label:One", "file:null", "visible:1"), drainToast());
+        now = 2000;
+        publishToast(new mibsdk.platform.UiToast(2, "Two", UiIcon.stock("dot")));
+        a.step(0);
+        assertEquals(Arrays.asList("label:Two", "file:null", "visible:1"), drainToast());
+        now = 3000;
+        a.step(0);
+        now = 4999;
+        a.step(0);
+        assertEquals(Collections.emptyList(), drainToast(), "the newer toast restarted the timer");
+        now = 5000;
+        a.step(0);
+        assertEquals(Collections.singletonList("visible:0"), drainToast());
+
+        publishToast(new mibsdk.platform.UiToast(3, "Three", null));
+        a.step(0);
+        drainToast();
+        table.publish(UiSnapshot.down(++version));
+        a.step(0);
+        assertEquals(Collections.singletonList("visible:0"), drainToast(), "UI down: hidden");
+        assertFalse(SdkToastPopup.up);
+    }
+
+    @Test
+    void toastWhilePopupFailedIsDroppedOnce() throws Exception {
+        UiApplier a = toastApplier();
+        SdkGlobals.toastPopup = -1;
+        publishToast(new mibsdk.platform.UiToast(1, "One", null));
+        a.step(0);
+        publishToast(new mibsdk.platform.UiToast(2, "Two", null));
+        a.step(0);
+        a.step(0);
+        assertEquals(Collections.emptyList(), drainToast(), "dropped: nothing written");
+        int lines = 0;
+        for (String l : log.snapshot()) {
+            lines += l.contains("toast") ? 1 : 0;
+        }
+        assertEquals(1, lines, "one log line: " + log.snapshot());
+
+        // A toast up when the popup fails (the status popup's fallback) is hidden on the next pass.
+        SdkGlobals.toastPopup = 0;
+        UiApplier b = toastApplier();
+        publishToast(new mibsdk.platform.UiToast(3, "Three", null));
+        b.step(0);
+        assertEquals(Arrays.asList("label:Three", "file:null", "visible:1"), drainToast());
+        SdkGlobals.toastPopup = -1;
+        b.step(0);
+        assertEquals(Collections.singletonList("visible:0"), drainToast());
     }
 }
