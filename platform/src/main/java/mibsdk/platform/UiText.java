@@ -4,7 +4,8 @@ package mibsdk.platform;
  * Makes plugin text safe for the HMI's Latin-1 widgets: control chars become spaces, whitespace runs
  * collapse and the ends are trimmed, format/bidi marks are dropped, anything above U+00FF (a surrogate
  * pair counts once) becomes {@code ?}, and text longer than {@code max} is cut to {@code max - 3} chars
- * plus {@code ...} (a hard cut when {@code max <= 3}).
+ * plus {@code ...} (a hard cut when {@code max <= 3}). {@link #cut} cleans the same way but always cuts hard, for an
+ * editable value (a speller's text), where a "..." would come back as typed text.
  */
 public final class UiText {
 
@@ -12,6 +13,15 @@ public final class UiText {
     }
 
     public static String clean(String s, int max) {
+        return clean(s, max, true);
+    }
+
+    /** As {@link #clean}, but text longer than {@code max} is cut to {@code max} chars (trailing space trimmed). */
+    public static String cut(String s, int max) {
+        return clean(s, max, false);
+    }
+
+    private static String clean(String s, int max, boolean ellipsis) {
         if (s == null || max <= 0) {
             return "";
         }
@@ -50,6 +60,13 @@ public final class UiText {
         }
         if (out.length() <= max) {
             return out.toString();
+        }
+        if (!ellipsis) {
+            int end = max;
+            while (end > 0 && out.charAt(end - 1) == ' ') {
+                end--; // a cut right after a space
+            }
+            return out.substring(0, end);
         }
         if (max <= 3) {
             return out.substring(0, max);

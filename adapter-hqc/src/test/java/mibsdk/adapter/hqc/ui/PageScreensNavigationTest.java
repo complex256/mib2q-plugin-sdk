@@ -1311,6 +1311,8 @@ class PageScreensNavigationTest {
         pages.screenDisconnecting(page); // the dialog screen replaced the page
         pages.subConnected(sub);
         calls();
+        // The runtime dismisses a dialog on another page's PAGE_SHOWN: its own screen must send no page event.
+        assertEquals(Collections.emptyList(), inputs(), "a dialog's screen sends no page event");
         return sub;
     }
 

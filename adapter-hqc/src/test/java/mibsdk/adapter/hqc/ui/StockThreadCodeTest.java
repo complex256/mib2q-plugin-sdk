@@ -135,6 +135,22 @@ class StockThreadCodeTest {
         assertEquals(-1, declaration("class A { void x() { f(); } }", "f", 0), "a call is no declaration");
     }
 
+    /** The checker itself: a comment's apostrophe or brace is no literal and no brace (Task 5 re-review). */
+    @Test
+    void methodBodySkipsComments() {
+        String apostrophe = "class A {\n    void f() {\n        g(); // don't stop\n    }\n\n"
+                + "    void h() {\n        try { g(); } catch (Throwable t) { }\n    }\n}\n";
+        String f = body(apostrophe, declaration(apostrophe, "void f", 0));
+        assertEquals("\n        g(); // don't stop\n    ", f, "a line comment's apostrophe starts no char literal");
+        assertTrue(!f.contains("catch (Throwable"), "h's catch is not f's");
+        String brace = "class A {\n    void f() {\n        g(); /* } it's */ h('}', \"/*\"); // {\n    }\n\n"
+                + "    void h() {\n        try { g(); } catch (Throwable t) { }\n    }\n}\n";
+        f = body(brace, declaration(brace, "void f", 0));
+        assertEquals("\n        g(); /* } it's */ h('}', \"/*\"); // {\n    ", f,
+                "a comment's brace is skipped; a comment opener inside a literal is no comment");
+        assertTrue(!f.contains("catch (Throwable"), "h's catch is not f's");
+    }
+
     /** The next declaration of {@code name} at or after {@code from} (a call, followed by ';', is skipped); or -1. */
     static int declaration(String src, String name, int from) {
         int at = src.indexOf(" " + name + "(", from);
@@ -150,13 +166,22 @@ class StockThreadCodeTest {
         return -1;
     }
 
-    /** The body (between its braces) of the method declared at {@code at}, by brace depth; literals skipped. */
+    /**
+     * The body (between its braces) of the method declared at {@code at}, by brace depth; comments, then literals,
+     * skipped (an apostrophe or brace in a comment is neither).
+     */
     static String body(String src, int at) {
         int open = src.indexOf('{', src.indexOf(')', at));
         int depth = 0;
         for (int i = open; i < src.length(); i++) {
             char c = src.charAt(i);
-            if (c == '"' || c == '\'') {
+            if (src.startsWith("//", i)) {
+                int nl = src.indexOf('\n', i);
+                i = nl < 0 ? src.length() : nl;
+            } else if (src.startsWith("/*", i)) {
+                int end = src.indexOf("*/", i + 2);
+                i = end < 0 ? src.length() : end + 1;
+            } else if (c == '"' || c == '\'') {
                 for (i++; i < src.length() && src.charAt(i) != c; i++) {
                     if (src.charAt(i) == '\\') {
                         i++;

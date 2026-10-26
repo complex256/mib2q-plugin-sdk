@@ -1218,22 +1218,79 @@ class UiHubTest {
         assertEquals("main", got.get(0).pageId());
     }
 
+    /** A speller's text is an editable value: cut hard to maxLen, never ellipsized (Task 3 review, minor 3). */
     @Test
-    void spellerTextIsCleanedToMaxLen() throws Exception {
+    void spellerTextIsCutToMaxLen() throws Exception {
         Actions a = new Actions();
         SerialExecutor exec = executor("plugin-p");
         UiHub hub = shownHub(a, exec);
         long seq = hub.requestDialog("p", mibsdk.platform.UiDialog.SPELLER, "Name", "  initial\ttext that is long ",
-                null, null, 8, a, exec);
+                null, null, 9, a, exec);
         mibsdk.platform.UiDialog d = publishedDialog(hub);
         assertEquals(mibsdk.platform.UiDialog.SPELLER, d.kind());
-        assertEquals(8, d.maxLen());
-        assertEquals("initi...", d.text());
+        assertEquals(9, d.maxLen());
+        assertEquals("initial t", d.text(), "a plain cut, no \"...\"");
+        hub.dispatch(done(seq, 0, d.text())); // BACK with no typing: the initial text comes back as it was
+        seq = hub.requestDialog("p", mibsdk.platform.UiDialog.SPELLER, "Name", "", null, null, 8, a, exec);
         hub.dispatch(done(seq, 0, "Bob\u0001  Smith-Jones"));
         List<UiAction> got = a.drained(exec);
+        assertEquals(2, got.size());
+        assertEquals("initial t", got.get(0).text());
+        assertEquals("Bob Smit", got.get(1).text());
+        assertNull(got.get(1).value());
+    }
+
+    /**
+     * A PAGE_SHOWN of another page while a dialog is up dismisses it (the adapter skipped PAGE_CLOSED/DIALOG_DONE):
+     * answered 0/null once, and the slot is free for any plugin's next dialog (Task 3 review, minor 2).
+     */
+    @Test
+    void pageShownOfAnotherPageDismissesTheDialog() throws Exception {
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        UiHub hub = shownHub(a, exec);
+        Actions qa = new Actions();
+        SerialExecutor qexec = executor("plugin-q");
+        hub.addPage("q", PageSpec.of("main", "Q"), qa, qexec);
+        long seq = confirm(hub, "Sure?", a, exec);
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "q/main", null, false)); // no PAGE_CLOSED of p/main first
+        assertNull(publishedDialog(hub), "dismissed");
+        hub.dispatch(done(seq, 1, null)); // late: already answered
+        hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main", null, false));
+        List<UiAction> got = a.drained(exec);
+        assertEquals(1, got.size(), got.toString());
+        assertEquals("main", got.get(0).pageId());
+        assertEquals(Integer.valueOf(0), got.get(0).value());
+
+        long qseq = hub.requestDialog("q", mibsdk.platform.UiDialog.SPELLER, "Name", "abc", null, null, 8, qa,
+                qexec);
+        assertTrue(qseq > 0, "the slot is free: q's speller shows");
+        assertEquals("q/main", publishedDialog(hub).ownerPageKey());
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main", null, false));
+        got = qa.drained(qexec);
+        assertEquals(1, got.size(), got.toString());
+        assertNull(got.get(0).text(), "a dismissed speller answers null");
+        assertNull(publishedDialog(hub));
+    }
+
+    /**
+     * The owner page itself, or its choice sub-page ({@code #} key), shown again does not dismiss the dialog. Dialog
+     * and slider sub-screens send no page events at all (PageScreens.openSub leaves the stack alone).
+     */
+    @Test
+    void pageShownOfTheOwnerPageOrItsChoiceKeepsTheDialog() throws Exception {
+        Actions a = new Actions();
+        SerialExecutor exec = executor("plugin-p");
+        UiHub hub = shownHub(a, exec);
+        long seq = confirm(hub, "Sure?", a, exec);
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main", null, false));
+        hub.dispatch(new UiInput(UiInput.PAGE_SHOWN, "p/main#lang", null, false));
+        assertEquals(seq, publishedDialog(hub).seq(), "still up");
+        assertEquals(0, a.drained(exec).size());
+        hub.dispatch(done(seq, 1, null));
+        List<UiAction> got = a.drained(exec);
         assertEquals(1, got.size());
-        assertEquals("Bob S...", got.get(0).text());
-        assertNull(got.get(0).value());
+        assertEquals(Integer.valueOf(1), got.get(0).value());
     }
 
     @Test

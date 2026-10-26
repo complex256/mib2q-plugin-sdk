@@ -508,14 +508,15 @@ final class UiHub {
      * Opens a {@link UiDialog#CONFIRM} or {@link UiDialog#SPELLER} over {@code owner}'s shown page and returns its seq,
      * if one of {@code owner}'s live pages is shown ({@link #shownPageKey}) and no dialog is up. Otherwise it answers at
      * once (confirm {@code value 0}, speller {@code text null}) and returns 0. Text is cleaned here: a confirm's text to
-     * at most 3 lines ({@link #confirmText}), null {@code yes}/{@code no} to "Yes"/"No", a speller's to {@code maxLen}.
+     * at most 3 lines ({@link #confirmText}), null {@code yes}/{@code no} to "Yes"/"No", a speller's cut hard to
+     * {@code maxLen} ({@link UiText#cut}: an editable value, so no "...").
      */
     long requestDialog(String owner, int kind, String title, String text, String yes, String no, int maxLen,
             Listener<UiAction> l, SerialExecutor exec) {
         checkOwner(owner);
         boolean speller = kind == UiDialog.SPELLER;
         String t = UiText.clean(title, PageSpec.MAX_TITLE);
-        String body = speller ? UiText.clean(text, maxLen) : confirmText(text);
+        String body = speller ? UiText.cut(text, maxLen) : confirmText(text);
         String y = speller ? null : rowLabel(yes, "Yes");
         String n = speller ? null : rowLabel(no, "No");
         long seq;
@@ -634,7 +635,7 @@ final class UiHub {
         }
         changed();
         boolean speller = d.dialog.kind() == UiDialog.SPELLER;
-        String text = speller && in.text() != null ? UiText.clean(in.text(), d.dialog.maxLen()) : null;
+        String text = speller && in.text() != null ? UiText.cut(in.text(), d.dialog.maxLen()) : null;
         answer(d.listener, d.exec, speller, d.pageId, in.value(), text);
     }
 
@@ -930,11 +931,15 @@ final class UiHub {
                 }
                 openTitles.remove(key);
                 changed = !choicePage && notices.remove(key) != null;
-                if (dialog != null && key.equals(dialog.dialog.ownerPageKey())) {
-                    dismissed = dialog; // its page is gone: answered as dismissed
-                    dialog = null;
-                    changed = true;
-                }
+            }
+            // Its page closed, or another page shown (the adapter skipped PAGE_CLOSED/DIALOG_DONE): answered as
+            // dismissed, so a stuck slot cannot answer every later dialog at once. The owner page or its choice
+            // sub-page shown again keeps it (key is the parent key); dialog and slider sub-screens send no page event.
+            boolean ownerPage = dialog != null && key.equals(dialog.dialog.ownerPageKey());
+            if (dialog != null && (shown ? !ownerPage : ownerPage)) {
+                dismissed = dialog;
+                dialog = null;
+                changed = true;
             }
         }
         if (changed) {

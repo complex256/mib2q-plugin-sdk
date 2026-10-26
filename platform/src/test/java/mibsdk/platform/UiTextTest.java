@@ -32,4 +32,16 @@ class UiTextTest {
         assertEquals("ab", UiText.clean("﻿a‮b⁠", 10));
         assertEquals("ab...", UiText.clean("abcdefgh", 5));
     }
+
+    /** An editable value (the speller's): cleaned the same way, but cut hard, with no "...". */
+    @Test
+    void cutIsCleanWithoutEllipsis() {
+        assertEquals("", UiText.cut(null, 5));
+        assertEquals("", UiText.cut("abc", 0));
+        assertEquals("abcde", UiText.cut("abcdefgh", 5));
+        assertEquals("ab cd", UiText.cut("  ab \t cd ef", 6), "no trailing space after the cut");
+        assertEquals("a b c", UiText.cut("a\nb\tc", 10));
+        assertEquals("?x", UiText.cut("\uD83D\uDE00x", 10));
+        assertEquals("ab", UiText.cut("\uFEFFa\u202Eb", 10));
+    }
 }

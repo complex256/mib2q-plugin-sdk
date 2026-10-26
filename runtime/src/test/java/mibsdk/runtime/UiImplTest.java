@@ -940,7 +940,7 @@ class UiImplTest {
         drain(exec);
         assertEquals(1, calls.get());
         assertEquals("main", last.get().pageId());
-        assertEquals("Bob...", last.get().text(), "cleaned to maxLen");
+        assertEquals("Bob Sm", last.get().text(), "cut hard to maxLen, no \"...\"");
 
         a.speller("Name", "Al", 6, recorder(calls, last));
         hub.publishNow();
