@@ -203,6 +203,8 @@ The build checks your permissions twice:
   `tutorial/coffeetimer/CoffeeTimerPlugin.onEnable -> Ui.carMenuRow needs "ui.slot.carmenu": declare it in
   plugin.json "permissions"`. A call inside `if (ctx.granted(...))` still needs the declaration, and declaring
   `platform.unrestricted` does not excuse it.
+- **Status-bar icons are size-checked, as a warning.** A `statusItem` or `toast` call that passes an icon when none of
+  your declared icons is 20×20 or smaller builds, but `permissionScan` warns: that icon throws at runtime (section 10).
 
 Copy the names from `mibsdk.api.Permissions` or `api/permissions.json`.
 
@@ -487,7 +489,8 @@ ui.carMenuRow("Coffee", page, ui.icon("cup"));
 - `ui.page` registers the page, and the SDK lists it under your plugin's entry in the **Plugins** menu.
 - `carMenuRow` adds a row to the Car drawer that opens it.
 - Lambdas and method references work. The build turns them into plain classes.
-- A plugin has at most 2 Car rows and 8 pages. The third row throws `IllegalStateException`.
+- A plugin has at most `Ui.MAX_CAR_ROWS` (2) Car rows and `Ui.MAX_PAGES` (8) pages. The third row throws
+  `IllegalStateException`.
 
 The Car screen reads its rows when it opens. So if you later replace a row, for example to change its icon, the
 change shows the next time the Car screen opens.
@@ -534,10 +537,11 @@ status = ui.statusItem(null, cupSmall); // hidden until a timer runs
 status.set("Coffee " + left + "m", cupSmall);
 ```
 
-- A plugin has **one** status item.
+- A plugin has **one** status item (`Ui.MAX_STATUS_ITEMS`).
 - `set(null)` or `set("")` hides it.
-- Text over **12 characters** is cut. The line is shared with the SDK's own indicators and other plugins, and each
-  item gets a fair share of the width, so put the important part first. "Coffee ready" is exactly 12.
+- Text over **12 characters** (`StatusItem.MAX_TEXT`) is cut. The line is shared with the SDK's own indicators and
+  other plugins, and each item gets a fair share of the width, so put the important part first. "Coffee ready" is
+  exactly 12.
 - The user can hide your item or move it from your plugin's page in the Plugins menu, and you cannot tell. `set`
   keeps working and never fails because the item is hidden.
 
@@ -990,19 +994,32 @@ The scan knows every member added in api 2 to 5. If you declare api 1 and call `
 - You *can* start your own `Thread`: the build does not stop you, and the spikes show it works. The SDK cannot
   cancel or quarantine work you do on it, though, so don't.
 
-**UI limits.** All of these are enforced at runtime, not at build:
+**UI limits.** The counts are public, so you can check them in your own code; they are enforced at runtime, not at
+build (the build warns where it can):
 
 | What | Limit | When you pass it |
 |---|---|---|
-| Car-drawer rows | 2 per plugin | the third throws `IllegalStateException` |
-| Pages | 8 per plugin | `IllegalStateException` |
+| Car-drawer rows | 2 per plugin (`Ui.MAX_CAR_ROWS`) | the third throws `IllegalStateException` |
+| Pages | 8 per plugin (`Ui.MAX_PAGES`) | `IllegalStateException` |
 | Entries per page | 24 (`PageSpec.MAX_ENTRIES`) | `IllegalStateException` |
-| Status items | 1 per plugin, 12 characters (`StatusItem.MAX_TEXT`) | a second throws. Longer text is cut |
+| Status items | 1 per plugin (`Ui.MAX_STATUS_ITEMS`), 12 characters (`StatusItem.MAX_TEXT`) | a second throws. Longer text is cut |
 | Dropdown + slider rows | 4 per page (`MAX_INPUT_ROWS`) | `IllegalStateException` |
 | Options (choice, dropdown) | 8 (`MAX_OPTIONS`) | `IllegalArgumentException` |
 | Slider steps | 24 (`MAX_SLIDER_STEPS`) | `IllegalArgumentException` |
 | Icons | 8 per plugin. Row ≤ 72 px, status and toast ≤ 20 px, item ≤ 24 px | build (count, PNG rules); runtime (size per use) |
 | Text | title 32, label 40, value 20, info 80, toast 20, confirm 120 characters | cut, never rejected |
+
+The icon sizes are checked at build only as far as the PNG rules go: a 72 px icon passed to `statusItem` or `toast`
+compiles and packages. `permissionScan` warns about it when your manifest declares icons and none of them is 20×20 or
+smaller, naming each call site:
+
+```
+> mibsdk.plugin: tutorial/coffeetimer/CoffeeTimerPlugin.start passes an icon to the status bar, but no declared icon
+  is 20x20 or smaller; a larger one throws at runtime
+```
+
+That is a warning, not a failure: the call only throws if that icon is the one it uses. Ship the small icon next to
+the row one, as the tutorial does with `cup.png` and `cup-20.png`.
 
 You cannot add MENU-ring entries or draw your own graphics. A confirm or speller opens only while one of your
 pages is on screen; otherwise it answers at once (No, or null text).

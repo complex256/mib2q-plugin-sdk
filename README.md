@@ -71,10 +71,10 @@ may touch. Each sample in `plugins/` uses some of the API:
 | Area | API | Notes and limits | Sample |
 |---|---|---|---|
 | Lifecycle | `MibPlugin.onEnable(ctx)`, `onDisable()` | When a plugin is disabled, the SDK cancels everything it registered | all |
-| Pages | `ctx.ui().page(PageSpec, Listener<UiAction>)`, `Page.update/open/cancel` | At most 8 pages per plugin and 24 entries per page. Every page is reachable from the SDK's **Plugins** menu: MENU → Plugins, or the Car drawer's Plugins row when the main-menu takeover is off | hello-menu |
+| Pages | `ctx.ui().page(PageSpec, Listener<UiAction>)`, `Page.update/open/cancel` | At most 8 pages per plugin (`Ui.MAX_PAGES`) and 24 entries per page. Every page is reachable from the SDK's **Plugins** menu: MENU → Plugins, or the Car drawer's Plugins row when the main-menu takeover is off | hello-menu |
 | Page entries | `PageSpec.item`, `toggle` (a native checkbox), `info`, `link` | ids `[A-Za-z0-9._-]{1,32}`. Text is cut to `MAX_TITLE` 32, `MAX_LABEL` 40, `MAX_VALUE` 20 and `MAX_INFO` 80 characters | hello-menu |
 | Inputs (api 5) | `PageSpec.choice`, `dropdown`, `slider`, `progress`, `item(..., Icon)`, `enabled(id, false)` | At most 8 options. At most 4 dropdown plus slider rows per page. A slider has at most 24 steps. Item icons are at most 24 px | inputs-demo |
-| Car drawer | `ui.carMenuRow(label, page[, icon])` | At most **2** rows per plugin. Needs `ui.slot.carmenu` | hello-menu, bike-rack |
+| Car drawer | `ui.carMenuRow(label, page[, icon])` | At most **2** rows per plugin (`Ui.MAX_CAR_ROWS`). Needs `ui.slot.carmenu` | hello-menu, bike-rack |
 | Status line | `ui.statusItem(text[, icon])`, `StatusItem.set` | At most **1** per plugin and **12** characters, cut to a fair share of the line. Icon at most **20 px**. Needs `ui.slot.statusbar` | hello-menu, daemon-status |
 | Icons (api 3/4) | manifest `"icons"`, `ui.icon(name[, Icon.OWN_COLOURS])`, `ui.stockIcon(StockIcons.STAR)` | At most 8 PNGs per plugin, 8-bit RGBA or grey + alpha, ≤ 72 px and ≤ 32 KiB. The build adds a drawer reflection for each | hello-menu, bike-rack |
 | Dialogs (api 5) | `ui.confirm(...)`, `ui.toast(text, icon)`, `ui.speller(...)` (**experimental**) | A confirm has up to 3 lines and 120 characters. A toast has 20 characters, shows for 3 s and needs `ui.slot.statusbar`. A speller holds up to 32 characters | inputs-demo |

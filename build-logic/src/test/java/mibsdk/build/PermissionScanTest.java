@@ -385,6 +385,40 @@ class PermissionScanTest {
                 PermissionScan.run(dir.toFile()).permissionSites());
     }
 
+    private static final String STATUS_ICON_UI = "package mibsdk.api; public interface Ui {"
+            + " Icon icon(String name); StatusItem statusItem(String text, Icon icon);"
+            + " void toast(String text, Icon icon); }";
+    private static final String STATUS_ICON_ITEM = "package mibsdk.api; public interface StatusItem {"
+            + " void set(String text, Icon icon); }";
+
+    private File statusIconCaller() throws Exception {
+        return Fixtures.compileV48(tmp.resolve("statusIcon"), Map.of(
+                "mibsdk.api.Icon", ICON_STUB,
+                "mibsdk.api.StatusItem", STATUS_ICON_ITEM,
+                "mibsdk.api.Ui", STATUS_ICON_UI,
+                "fixture.S", "package fixture; import mibsdk.api.*; public class S {"
+                        + " public void run(Ui ui, StatusItem item) {"
+                        + " ui.statusItem(\"x\", ui.icon(\"cup\"));"
+                        + " item.set(\"Y\", ui.icon(\"cup\"));"
+                        + " ui.toast(\"hi\", ui.icon(\"cup\")); } }"));
+    }
+
+    @Test
+    void statusIconWarningWhenNoSmallIcon() throws Exception {
+        PermissionScan.Result r = PermissionScan.run(statusIconCaller());
+        assertEquals(List.of("mibsdk.plugin: fixture/S.run passes an icon to the status bar, but no declared icon"
+                + " is 20x20 or smaller; a larger one throws at runtime"), r.warnings(Map.of("cup", 72)));
+    }
+
+    @Test
+    void noWarningWithA20pxIcon() throws Exception {
+        PermissionScan.Result r = PermissionScan.run(statusIconCaller());
+        assertEquals(List.of(), r.warnings(Map.of("cup", 72, "cup-20", 20)));
+        assertEquals(List.of(), r.warnings(Map.of()), "a manifest with no icons has nothing to point at");
+        assertEquals(List.of(), PermissionScan.run(carMenuCaller("ctx.ui();")).warnings(Map.of("cup", 72)),
+                "no status-bar call site");
+    }
+
     @Test
     void reportOnlyTaskLogsUndeclaredUseAndDoesNotFail() throws Exception {
         // The car-library default: failOnUndeclared is false, so undeclared use is reported, not fatal.

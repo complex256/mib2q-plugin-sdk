@@ -63,10 +63,6 @@ import mibsdk.platform.UiIcon;
  */
 final class UiImpl implements Ui {
 
-    static final int MAX_PAGES = 8;
-    static final int MAX_CAR_ROWS = 2;
-    static final int MAX_STATUS_ITEMS = 1;
-
     private final String pluginId;
     private final UiHub hub;
     private final LiveFeatures features;
@@ -444,18 +440,18 @@ final class UiImpl implements Ui {
     private void reserve(int what) {
         synchronized (lock) {
             if (what == PAGES) {
-                if (pages >= MAX_PAGES) {
-                    throw new IllegalStateException("plugin " + pluginId + " already has " + MAX_PAGES + " pages");
+                if (pages >= Ui.MAX_PAGES) {
+                    throw new IllegalStateException("plugin " + pluginId + " already has " + Ui.MAX_PAGES + " pages");
                 }
                 pages++;
             } else if (what == ROWS) {
-                if (rows >= MAX_CAR_ROWS) {
-                    throw new IllegalStateException("plugin " + pluginId + " already has " + MAX_CAR_ROWS
+                if (rows >= Ui.MAX_CAR_ROWS) {
+                    throw new IllegalStateException("plugin " + pluginId + " already has " + Ui.MAX_CAR_ROWS
                             + " Car rows");
                 }
                 rows++;
             } else {
-                if (statusItems >= MAX_STATUS_ITEMS) {
+                if (statusItems >= Ui.MAX_STATUS_ITEMS) {
                     throw new IllegalStateException("plugin " + pluginId + " already has a status item");
                 }
                 statusItems++;

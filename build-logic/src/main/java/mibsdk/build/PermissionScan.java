@@ -20,10 +20,15 @@ import org.objectweb.asm.Opcodes;
  * and, when given, the Kotlin stdlib classes shrunk into a plugin (see {@link #run(File, Set)}). Also finds uses of API
  * that needs a newer {@code "api"} than 1, method calls and field reads, by the {@link ApiLevels} table
  * ({@link Result#needsApi()}, {@link Result#tooNew(int)}), and calls that need a manifest permission, by the
- * {@link ApiPermissions} table ({@link Result#permissionSites()}, {@link Result#undeclared(java.util.Collection)}).
+ * {@link ApiPermissions} table ({@link Result#permissionSites()}, {@link Result#undeclared(java.util.Collection)}),
+ * and status-bar call sites that pass an icon when the manifest has no icon small enough
+ * ({@link Result#warnings(Map)}).
  */
 public final class PermissionScan {
     private PermissionScan() {}
+
+    /** The largest status icon, in pixels (mirrors {@code mibsdk.api.StatusItem.ICON_MAX_PX}). */
+    static final int STATUS_ICON_MAX_PX = 20;
 
     /** Calls that require the grant, as {@code owner.name}. */
     private static final Set<String> RESTRICTED = Set.of(
@@ -57,12 +62,15 @@ public final class PermissionScan {
         private final List<String> apiFindings;
         private final Map<String, Integer> apiLevels; // apiFindings line -> its api level
         private final Map<String, String> permissionSites; // site -> the permission it needs
+        private final Set<String> statusIconSites; // sites that pass an icon to the status bar
 
-        Result(List<String> findings, Map<String, Integer> apiLevels, Map<String, String> permissionSites) {
+        Result(List<String> findings, Map<String, Integer> apiLevels, Map<String, String> permissionSites,
+                Set<String> statusIconSites) {
             this.findings = Collections.unmodifiableList(findings);
             this.permissionSites = Collections.unmodifiableMap(new TreeMap<String, String>(permissionSites));
             this.apiLevels = Collections.unmodifiableMap(new TreeMap<String, Integer>(apiLevels));
             this.apiFindings = Collections.unmodifiableList(new ArrayList<String>(this.apiLevels.keySet()));
+            this.statusIconSites = Collections.unmodifiableSet(new TreeSet<String>(statusIconSites));
         }
 
         /** Sorted {@code owner.method -> java/lang/reflect/Method.invoke} lines. */
@@ -109,6 +117,35 @@ public final class PermissionScan {
             return max;
         }
 
+        /**
+         * One {@code mibsdk.plugin: <site> passes an icon to the status bar, ...} line for each site that passes an
+         * icon to {@code Ui.statusItem(String,Icon)}, {@code StatusItem.set(String,Icon)} or {@code Ui.toast}, when
+         * {@code iconSizes} (each declared icon's larger side, in pixels) holds no icon within
+         * {@link PermissionScan#STATUS_ICON_MAX_PX}. A warning, not a failure: the call throws at runtime, and only
+         * if that icon is used.
+         */
+        public List<String> warnings(Map<String, Integer> iconSizes) {
+            List<String> out = new ArrayList<String>();
+            if (statusIconSites.isEmpty() || iconSizes.isEmpty() || hasSmallIcon(iconSizes)) {
+                return out;
+            }
+            for (String site : statusIconSites) {
+                out.add("mibsdk.plugin: " + site + " passes an icon to the status bar, but no declared icon is "
+                        + STATUS_ICON_MAX_PX + "x" + STATUS_ICON_MAX_PX
+                        + " or smaller; a larger one throws at runtime");
+            }
+            return out;
+        }
+
+        private static boolean hasSmallIcon(Map<String, Integer> iconSizes) {
+            for (Integer px : iconSizes.values()) {
+                if (px != null && px <= STATUS_ICON_MAX_PX) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         /** Sorted {@code <site> needs api <its level>} lines, for each site newer than {@code declared}. */
         public List<String> tooNew(int declared) {
             List<String> out = new ArrayList<String>();
@@ -134,6 +171,7 @@ public final class PermissionScan {
         Set<String> findings = new TreeSet<String>();
         Map<String, Integer> apiLevels = new TreeMap<String, Integer>();
         Map<String, String> permissionSites = new TreeMap<String, String>();
+        Set<String> statusIconSites = new TreeSet<String>();
         ClassSource.forEach(dirOrJar, e -> {
             if (e.name.startsWith("kotlin/") && exemptKotlinStdlib.contains(e.name)) {
                 return;
@@ -174,6 +212,9 @@ public final class PermissionScan {
                         @Override
                         public void visitMethodInsn(int op, String owner, String n, String d, boolean itf) {
                             api(owner, n, d);
+                            if (isStatusIconCall(owner, n, d)) {
+                                statusIconSites.add(e.name + "." + name);
+                            }
                             callsEventsOn |= owner.equals(ApiPermissions.EVENTS_ON_OWNER)
                                     && n.equals(ApiPermissions.EVENTS_ON);
                             String needs = ApiPermissions.required(owner, n, d);
@@ -193,6 +234,21 @@ public final class PermissionScan {
                 }
             }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         });
-        return new Result(new ArrayList<String>(findings), apiLevels, permissionSites);
+        return new Result(new ArrayList<String>(findings), apiLevels, permissionSites, statusIconSites);
+    }
+
+    /**
+     * A call that hands an icon to the status line: {@code Ui.statusItem(String,Icon)}, {@code Ui.toast} or
+     * {@code StatusItem.set(String,Icon)}. {@code Ui.statusItem(String)} and {@code StatusItem.set(String)} take no
+     * icon and are not counted.
+     */
+    private static boolean isStatusIconCall(String owner, String name, String desc) {
+        if (!desc.contains("Lmibsdk/api/Icon;")) {
+            return false;
+        }
+        if (owner.equals("mibsdk/api/Ui")) {
+            return name.equals("statusItem") || name.equals("toast");
+        }
+        return owner.equals("mibsdk/api/StatusItem") && name.equals("set");
     }
 }

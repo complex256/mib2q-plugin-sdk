@@ -85,6 +85,7 @@ public class MibPluginPlugin implements Plugin<Project> {
         }
 
         File manifestFile = project.file(MANIFEST);
+        File iconsDir = project.file(ICONS);
         Provider<PluginJson> manifest = project.provider(() -> PluginJson.read(manifestFile));
         SourceSet main = project.getExtensions().getByType(JavaPluginExtension.class).getSourceSets()
                 .getByName(SourceSet.MAIN_SOURCE_SET_NAME);
@@ -100,6 +101,7 @@ public class MibPluginPlugin implements Plugin<Project> {
             t.getDeclaredPermissions().set(manifest.map(m -> m.permissions));
             t.getFailOnUndeclared().set(true);
             t.getOwnClasses().from(main.getOutput().getClassesDirs());
+            t.getIconSizes().set(manifest.map(m -> iconSizes(m, iconsDir)));
         });
 
         TaskProvider<Jar> pluginJar = project.getTasks().register("mibPluginJar", Jar.class, t -> {
@@ -112,7 +114,6 @@ public class MibPluginPlugin implements Plugin<Project> {
             t.setPreserveFileTimestamps(false);
             t.setReproducibleFileOrder(true);
             t.dependsOn("classVersionCheck", "linkCheck", "permissionScan");
-            File iconsDir = project.file(ICONS);
             t.getInputs().files(project.fileTree(iconsDir)).withPropertyName("icons")
                     .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE);
             t.doFirst("check icons", task -> checkIcons(PluginJson.read(manifestFile), iconsDir));
@@ -171,7 +172,6 @@ public class MibPluginPlugin implements Plugin<Project> {
             t.into(stageDir);
             t.dependsOn(pluginJar);
             t.getInputs().property("manifest", manifest.map(MpkStage::pluginManifest));
-            File iconsDir = project.file(ICONS);
             t.getInputs().files(project.fileTree(iconsDir)).withPropertyName("icons")
                     .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE);
             t.doFirst("require stamp", task -> {
@@ -240,6 +240,25 @@ public class MibPluginPlugin implements Plugin<Project> {
                 throw new GradleException("mibsdk.plugin: cannot read " + png + ": " + e, e);
             }
         }
+    }
+
+    /**
+     * Each declared icon's larger side in pixels, by name: what {@code permissionScan} needs to tell a status-bar
+     * call site it has no icon small enough. A missing or invalid PNG is left out silently; {@link #checkIcons}
+     * fails the build for it with the message that names the file.
+     */
+    static Map<String, Integer> iconSizes(PluginJson manifest, File iconsDir) {
+        Map<String, Integer> sizes = new LinkedHashMap<>();
+        for (String name : manifest.icons) {
+            File png = new File(iconsDir, name + ".png");
+            try {
+                PngCheck.Info info = PngCheck.check(java.nio.file.Files.readAllBytes(png.toPath()), PngCheck.MAX_PX);
+                sizes.put(name, Math.max(info.width, info.height));
+            } catch (java.io.IOException | IllegalArgumentException e) {
+                // checkIcons reports it.
+            }
+        }
+        return sizes;
     }
 
     private static void configureKotlin(Project project, SourceSet main, Provider<PluginJson> manifest,

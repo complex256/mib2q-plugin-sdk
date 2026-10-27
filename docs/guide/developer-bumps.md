@@ -247,6 +247,12 @@ below is the problem as found.
 
 ## 10. Count and icon-size limits live in runtime code (annoying)
 
+**Status:** fixed in Task 10. `Ui` carries `MAX_PAGES = 8`, `MAX_CAR_ROWS = 2` and `MAX_STATUS_ITEMS = 1`, its
+`page`, `carMenuRow` and `statusItem` Javadoc names them, `UiImpl` uses them instead of its own fields, and
+`permissionScan` warns when a status-bar call site passes an icon while the manifest declares no icon 20×20 or
+smaller (`PermissionScanTest.statusIconWarningWhenNoSmallIcon`). The 12-character status text is
+`StatusItem.MAX_TEXT`, which `Ui.statusItem` now names. The description below is the problem as found.
+
 - **Where:** §4.3, §4.5 and §10.
   - `UiImpl.MAX_PAGES = 8`, `MAX_CAR_ROWS = 2` and `MAX_STATUS_ITEMS = 1`
     (`runtime/src/main/java/mibsdk/runtime/UiImpl.java:67-69`) are package-private. `Ui.carMenuRow`

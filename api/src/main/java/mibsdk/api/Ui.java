@@ -15,6 +15,21 @@ public interface Ui {
     /** The largest Car-row icon, in pixels, either way. A package's icons are at most this size. */
     int ROW_ICON_MAX_PX = 72;
 
+    /** The most pages one plugin may have live at once; one more {@link #page} throws {@link IllegalStateException}. */
+    int MAX_PAGES = 8;
+
+    /**
+     * The most Car-menu rows one plugin may have live at once; one more {@link #carMenuRow} throws
+     * {@link IllegalStateException}.
+     */
+    int MAX_CAR_ROWS = 2;
+
+    /**
+     * The most status items one plugin may have live at once; one more {@link #statusItem} throws
+     * {@link IllegalStateException}.
+     */
+    int MAX_STATUS_ITEMS = 1;
+
     /**
      * The longest {@link #confirm} text; the runtime truncates longer text. Needs api 5.
      *
@@ -44,16 +59,17 @@ public interface Ui {
     int MAX_SPELLER = 32;
 
     /**
-     * Registers a page under this plugin's Plugins-menu entry; actions arrive on the plugin's executor. Inert without
-     * Features.UI_PAGES.
+     * Registers a page under this plugin's Plugins-menu entry; actions arrive on the plugin's executor. A plugin has
+     * at most {@link #MAX_PAGES} pages live at once. Inert without Features.UI_PAGES.
      *
      * @since api 2
      */
     Page page(PageSpec spec, Listener<UiAction> onAction);
 
     /**
-     * A row in the Car menu that opens {@code opens}, a live page from {@link #page}. Needs ui.slot.carmenu; inert
-     * without Features.SLOT_CAR_MENU or when {@code opens} is inert.
+     * A row in the Car menu that opens {@code opens}, a live page from {@link #page}. A plugin has at most
+     * {@link #MAX_CAR_ROWS} Car rows live at once. Needs ui.slot.carmenu; inert without Features.SLOT_CAR_MENU or when
+     * {@code opens} is inert.
      *
      * @since api 2
      */
@@ -69,7 +85,9 @@ public interface Ui {
     Subscription carMenuRow(String label, Page opens, Icon icon);
 
     /**
-     * One short status-line item; set(null|"") hides it. Needs ui.slot.statusbar; inert without SLOT_STATUS_BAR.
+     * One short status-line item; set(null|"") hides it. A plugin has at most {@link #MAX_STATUS_ITEMS} live at once.
+     * Text longer than {@link StatusItem#MAX_TEXT} characters is truncated. Needs ui.slot.statusbar; inert without
+     * SLOT_STATUS_BAR.
      *
      * <p>The line is shared: the runtime's own indicators come first. The safety ones ({@code SAFE},
      * {@code PDC R OFF}) always show; the others give way to plugin items. The items share what is left fairly, so no
