@@ -143,6 +143,22 @@ public final class PermissionScan {
                 public MethodVisitor visitMethod(int acc, String name, String desc, String sig, String[] ex) {
                     boolean classLiteralHelper = name.equals("class$") && (acc & Opcodes.ACC_STATIC) != 0;
                     return new MethodVisitor(Opcodes.ASM9) {
+                        private boolean callsEventsOn;
+                        private boolean loadsHookObserved;
+
+                        @Override
+                        public void visitLdcInsn(Object value) {
+                            loadsHookObserved |= ApiPermissions.isHookObserved(value);
+                        }
+
+                        @Override
+                        public void visitEnd() {
+                            if (callsEventsOn && loadsHookObserved) {
+                                permissionSites.put(e.name + "." + name + " -> " + ApiPermissions.HOOK_OBSERVED_LABEL,
+                                        ApiPermissions.HOOK_OBSERVED_PERMISSION);
+                            }
+                        }
+
                         private void api(String owner, String n, String d) {
                             int level = ApiLevels.since(owner, n, d);
                             if (level > 1) {
@@ -158,6 +174,8 @@ public final class PermissionScan {
                         @Override
                         public void visitMethodInsn(int op, String owner, String n, String d, boolean itf) {
                             api(owner, n, d);
+                            callsEventsOn |= owner.equals(ApiPermissions.EVENTS_ON_OWNER)
+                                    && n.equals(ApiPermissions.EVENTS_ON);
                             String needs = ApiPermissions.required(owner, n, d);
                             if (needs != null) {
                                 permissionSites.put(e.name + "." + name + " -> " + ApiPermissions.label(owner, n), needs);

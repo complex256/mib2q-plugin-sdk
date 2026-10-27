@@ -13,16 +13,13 @@ final class UndeclaredPermissionException extends PermissionDeniedException {
 
     private static final long serialVersionUID = 1L;
 
-    private final String permission;
-
     UndeclaredPermissionException(String permission) {
         super(permission);
-        this.permission = permission;
     }
 
     @Override
     public String getMessage() {
-        return "permission not declared in plugin.json: " + permission;
+        return "permission not declared in plugin.json: " + permission();
     }
 
     /**

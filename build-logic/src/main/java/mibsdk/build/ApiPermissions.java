@@ -29,6 +29,27 @@ public final class ApiPermissions {
         return TABLE.get(owner + "." + name);
     }
 
+    /**
+     * {@code Events.on(HookObserved.class, ...)} needs {@code hooks.parking} (hook observations travel on the event
+     * bus), but the permission depends on the class argument, which the call's descriptor does not show: a method
+     * that calls {@link #EVENTS_ON} and loads the {@link #isHookObserved class constant} needs it.
+     */
+    static final String EVENTS_ON_OWNER = "mibsdk/api/Events";
+    static final String EVENTS_ON = "on";
+    static final String HOOK_OBSERVED_LABEL = "Events.on(HookObserved)";
+    static final String HOOK_OBSERVED_PERMISSION = "hooks.parking";
+
+    /**
+     * True for a constant that loads the class {@code mibsdk.api.HookObserved}: an {@code LDC} of its type, or the
+     * class-name string that the {@code class$} helper of older javac / Retrotranslator output takes.
+     */
+    static boolean isHookObserved(Object ldcConstant) {
+        if (ldcConstant instanceof org.objectweb.asm.Type) {
+            return "mibsdk/api/HookObserved".equals(((org.objectweb.asm.Type) ldcConstant).getInternalName());
+        }
+        return "mibsdk.api.HookObserved".equals(ldcConstant);
+    }
+
     /** {@code Ui.carMenuRow}: the call as the scan reports it. */
     static String label(String owner, String name) {
         return owner.substring(owner.lastIndexOf('/') + 1) + "." + name;

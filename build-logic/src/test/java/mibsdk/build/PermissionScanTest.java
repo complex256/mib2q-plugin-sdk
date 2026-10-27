@@ -284,4 +284,79 @@ class PermissionScanTest {
         assertEquals(null, ApiPermissions.required("mibsdk/api/PluginContext", "log", "()V"));
         assertEquals(null, ApiPermissions.required("fixture/Ui", "carMenuRow", "()V"));
     }
+
+    private static final String OBSERVER_STUBS_EVENTS = "package mibsdk.api; public interface Events {"
+            + " Object on(Class<?> type, Object listener); }";
+    private static final String OBSERVER_STUB_HOOK = "package mibsdk.api; public final class HookObserved {}";
+    private static final String OBSERVER_DECLARE = "needs \"hooks.parking\": declare it in plugin.json \"permissions\"";
+
+    private File observerCaller(String body) throws Exception {
+        return Fixtures.compileV48(tmp.resolve("observer"), Map.of("mibsdk.api.Events", OBSERVER_STUBS_EVENTS,
+                "mibsdk.api.HookObserved", OBSERVER_STUB_HOOK, "mibsdk.api.Other", "package mibsdk.api; public final class Other {}",
+                "fixture.O", "package fixture; import mibsdk.api.*; public class O { public void run(Events ev) { "
+                        + body + " } }"));
+    }
+
+    @Test
+    void hookObserverNeedsHooksParking() throws Exception {
+        PermissionScan.Result r = PermissionScan.run(observerCaller("ev.on(HookObserved.class, null);"));
+        assertEquals(Map.of("fixture/O.run -> Events.on(HookObserved)", "hooks.parking"), r.permissionSites());
+        assertEquals(List.of("fixture/O.run -> Events.on(HookObserved) " + OBSERVER_DECLARE), r.undeclared(List.of()));
+        assertEquals(List.of(), r.undeclared(List.of("hooks.parking")));
+    }
+
+    @Test
+    void otherEventObserversNeedNothing() throws Exception {
+        assertEquals(Map.of(), PermissionScan.run(observerCaller("ev.on(Other.class, null);")).permissionSites());
+        assertEquals(Map.of(), PermissionScan.run(observerCaller("Object c = HookObserved.class;")).permissionSites(),
+                "loading the class without registering for it");
+    }
+
+    @Test
+    void hookObserverViaClassDollarHelperIsFound() throws Exception {
+        // Older javac / Retrotranslator output: Events.on(class$("mibsdk.api.HookObserved"), ...) with a string constant.
+        Path dir = tmp.resolve("legacy");
+        ClassWriter cw = new ClassWriter(0);
+        cw.visit(Opcodes.V1_4, Opcodes.ACC_PUBLIC, "fixture/L", null, "java/lang/Object", null);
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "run", "(Lmibsdk/api/Events;)V", null, null);
+        mv.visitCode();
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitLdcInsn("mibsdk.api.HookObserved");
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "fixture/L", "class$", "(Ljava/lang/String;)Ljava/lang/Class;", false);
+        mv.visitInsn(Opcodes.ACONST_NULL);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, "mibsdk/api/Events", "on",
+                "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/Object;", true);
+        mv.visitInsn(Opcodes.POP);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(3, 1);
+        mv.visitEnd();
+        cw.visitEnd();
+        write(dir.resolve("fixture/L.class"), cw.toByteArray());
+        assertEquals(Map.of("fixture/L.run -> Events.on(HookObserved)", "hooks.parking"),
+                PermissionScan.run(dir.toFile()).permissionSites());
+    }
+
+    @Test
+    void reportOnlyTaskLogsUndeclaredUseAndDoesNotFail() throws Exception {
+        // The car-library default: failOnUndeclared is false, so undeclared use is reported, not fatal.
+        org.gradle.api.Project project = org.gradle.testfixtures.ProjectBuilder.builder()
+                .withProjectDir(tmp.resolve("proj").toFile()).build();
+        PermissionScanTask task = project.getTasks().register("permissionScan", PermissionScanTask.class).get();
+        task.getClasses().from(carMenuCaller("ctx.ui().carMenuRow(\"x\");"));
+        task.getFailOnFindings().set(false);
+        task.getFailOnUndeclared().convention(false);
+        task.getDeclaredApi().set(PluginJson.MAX_API);
+        File report = tmp.resolve("permissions.txt").toFile();
+        task.getReport().set(report);
+
+        task.scan();
+
+        assertEquals("fixture/R.run -> Ui.carMenuRow " + CAR_MENU_DECLARE + "\n",
+                new String(Files.readAllBytes(report.toPath()), java.nio.charset.StandardCharsets.UTF_8));
+
+        task.getFailOnUndeclared().set(true);
+        org.gradle.api.GradleException e = org.junit.jupiter.api.Assertions.assertThrows(
+                org.gradle.api.GradleException.class, task::scan);
+        org.junit.jupiter.api.Assertions.assertTrue(e.getMessage().contains("Ui.carMenuRow " + CAR_MENU_DECLARE), e.getMessage());
+    }
 }

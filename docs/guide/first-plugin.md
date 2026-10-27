@@ -197,7 +197,8 @@ The build checks your permissions twice:
 - **Use is checked against what you declare.** `permissionScan` knows which API calls need which permission
   (`Ui.carMenuRow` needs `ui.slot.carmenu`, `Ui.statusItem` and `Ui.toast` need `ui.slot.statusbar`,
   `PluginContext.net` needs `network`, `PluginContext.vehicle` needs `vehicle.read`,
-  `Parking.overrideSoundDirections` needs `vehicle.parking.write` and `PluginContext.hooks` needs `hooks.parking`).
+  `Parking.overrideSoundDirections` needs `vehicle.parking.write`, and `PluginContext.hooks` and
+  `ctx.events().on(HookObserved.class, ...)` need `hooks.parking`).
   If you call one without declaring its permission, the build fails and names each call site:
   `tutorial/coffeetimer/CoffeeTimerPlugin.onEnable -> Ui.carMenuRow needs "ui.slot.carmenu": declare it in
   plugin.json "permissions"`. A call inside `if (ctx.granted(...))` still needs the declaration, and declaring
@@ -870,8 +871,8 @@ Other `mibsdk-dev` commands:
 
 **Logs.** `ctx.log().info/warn/error` writes to the SDK's in-memory ring buffer. The SDK mirrors the buffer to
 `/tmp/mibsdk.log` on the unit (`mibsdk-dev log`). The log also has the SDK's own `STATUS` lines, for example
-`STATUS coffee-timer FAILED mibsdk.api.PermissionDeniedException: permission not declared in plugin.json: ui.slot.carmenu`. In a
-host test, `h.log()` gives you the same lines. `h.await` prints them when a test fails.
+`STATUS coffee-timer FAILED mibsdk.runtime.UndeclaredPermissionException: permission not declared in plugin.json: ui.slot.carmenu at ...`
+(the reason is the exception, then the first stack frame). In a host test, `h.log()` gives you the same lines. `h.await` prints them when a test fails.
 
 **Plugin states.** The Plugins menu shows each plugin's state, and `mibsdk-dev status` lists them too:
 
@@ -895,8 +896,9 @@ plugin. `mibsdk-dev safe-mode off` leaves it and resets the boot counter.
 
 **Common failures:**
 
-- `PermissionDeniedException: permission not declared in plugin.json: X`. You used something that needs `X` and the
-  manifest does not list it. Add `X` to `"permissions"` and rebuild. The build catches this for the calls it knows
+- `UndeclaredPermissionException: permission not declared in plugin.json: X` (class `mibsdk.runtime.UndeclaredPermissionException`
+  in the log). Your code still catches it as `mibsdk.api.PermissionDeniedException`, and `permission()` returns `X`.
+  You used something that needs `X` and the manifest does not list it. Add `X` to `"permissions"` and rebuild. The build catches this for the calls it knows
   (section 2), so on the unit it is rare. Granting it on the unit does not help: a permission that is not declared
   can never be used.
 - `PermissionDeniedException: permission not granted: X`. `plugin.json` declares `X`, but the owner has not approved

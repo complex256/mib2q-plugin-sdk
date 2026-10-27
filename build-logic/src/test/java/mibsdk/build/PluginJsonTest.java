@@ -1,6 +1,7 @@
 package mibsdk.build;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -132,6 +133,6 @@ class PluginJsonTest {
     void unknownPermissionWithoutNearMatchListsKnown() throws IOException {
         String m = permissionFail("[\"gps\"]");
         assertTrue(m.contains("unknown permission \"gps\"; known: vehicle.read,"), m);
-        assertTrue(!m.contains("did you mean"), m);
+        assertFalse(m.contains("did you mean"), m);
     }
 }
