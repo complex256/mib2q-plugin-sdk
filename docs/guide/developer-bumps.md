@@ -453,7 +453,9 @@ below is the problem as found.
 
 **Status:** fixed in part in Task 12, the message part only. The missing-manifest message now reads
 `(id, name, version, author, api, main; optional: permissions, icons)`, and the `hello` and `crashy` samples and the
-`templates/plugin` manifest no longer carry `"dependencies": []`. The id-range disagreement is unchanged. The
+`templates/plugin` manifest no longer carry `"dependencies": []`. The id-range disagreement is unchanged. Documented
+difference: the build's `PluginJson.read` rejects an unknown permission name while the runtime's `ManifestParser`
+still accepts one, so a manifest with a typo'd permission loads on the unit if it gets past the build. The
 description below is the problem as found.
 
 - **Where:**

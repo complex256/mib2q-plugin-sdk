@@ -1,7 +1,6 @@
 package mibsdk.build;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -88,12 +87,80 @@ class ApiLevelsTest {
                     continue;
                 }
                 checked++;
-                if (!ApiLevels.listed(owner, name, api)) {
-                    missing.add(where + " -> no api " + api + " entry for " + owner + "." + name);
+                String desc = descriptor(decl, owner, name);
+                int actual = ApiLevels.since(owner, name, desc);
+                if (actual != api) {
+                    missing.add(where + " -> api " + api + " expected for " + owner + "." + name + desc
+                            + " but found api " + actual);
                 }
             }
         }
         assertEquals(List.of(), missing);
-        assertTrue(checked > 40, "the scan found the tagged members, not an empty source tree: " + checked);
+        assertEquals(63, checked, "the scan found the tagged members (update this number deliberately"
+                + " when the API grows): " + checked);
+    }
+
+    /** The JVM descriptor a source declaration compiles to, for the api table's key. */
+    private static String descriptor(String decl, String owner, String name) {
+        String d = decl.trim();
+        if (ENUM_CONSTANT.matcher(d).matches()) {
+            return "L" + owner + ";";
+        }
+        int paren = d.indexOf('(');
+        String pre = d.substring(0, paren).trim();
+        String params = d.substring(paren + 1);
+        int close = params.lastIndexOf(')');
+        params = params.substring(0, close).trim();
+        String ret;
+        if (name.equals("<init>")) {
+            ret = "V";
+        } else {
+            String[] toks = pre.split("\\s+");
+            int idx = toks.length - 1;
+            for (int i = toks.length - 1; i >= 0; i--) {
+                if (toks[i].equals(name)) {
+                    idx = i;
+                    break;
+                }
+            }
+            ret = jvmType(toks[idx - 1]);
+        }
+        StringBuilder sb = new StringBuilder("(");
+        if (!params.isEmpty()) {
+            for (String p : params.split(",")) {
+                p = p.trim();
+                String[] toks = p.split("\\s+");
+                String type = toks.length > 1 ? toks[toks.length - 2] : toks[0];
+                sb.append(jvmType(type));
+            }
+        }
+        return sb.append(')').append(ret).toString();
+    }
+
+    /** The descriptor of a Java type as the api table spells it; generics erase to their raw type. */
+    private static String jvmType(String javaType) {
+        String t = javaType.replaceAll("<.*>", "");
+        switch (t) {
+            case "String": return "Ljava/lang/String;";
+            case "int": return "I";
+            case "boolean": return "Z";
+            case "void": return "V";
+            case "Page": return "Lmibsdk/api/Page;";
+            case "PageSpec": return "Lmibsdk/api/PageSpec;";
+            case "StatusItem": return "Lmibsdk/api/StatusItem;";
+            case "Subscription": return "Lmibsdk/api/Subscription;";
+            case "Icon": return "Lmibsdk/api/Icon;";
+            case "Ui": return "Lmibsdk/api/Ui;";
+            case "Net": return "Lmibsdk/api/Net;";
+            case "Boolean": return "Ljava/lang/Boolean;";
+            case "Integer": return "Ljava/lang/Integer;";
+            case "List": return "Ljava/util/List;";
+            case "Listener": return "Lmibsdk/api/Listener;";
+            case "UiAction": return "Lmibsdk/api/UiAction;";
+            case "Kind": return "Lmibsdk/api/PageSpec$Kind;";
+            case "Entry": return "Lmibsdk/api/PageSpec$Entry;";
+            case "String[]": return "[Ljava/lang/String;";
+            default: throw new IllegalArgumentException("unmapped type: " + javaType);
+        }
     }
 }

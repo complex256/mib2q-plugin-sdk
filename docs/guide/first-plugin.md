@@ -605,7 +605,7 @@ plugins/coffee-timer/build/mibsdk/coffee-timer.jar.stamp   which checks ran, and
 
 The stamp is what lets mibpkg accept the jar: it refuses a jar without a valid stamp. Do not edit the jar after the
 build. The Retrolambda and Retrotranslator output in the log (`Saving lambda class ...`, `Transformed 3 file(s).`)
-is normal.
+is normal; it appears when you build with `--info`.
 
 Reports land in `plugins/coffee-timer/build/reports/mibsdk/`: `linkcheck.txt` (empty when clean) and
 `permissions.txt`.
@@ -971,7 +971,7 @@ expressions, text blocks, enhanced `for`, generics, autoboxing and try-with-reso
   `Function`, `Consumer`, `Supplier`, `Predicate`, `BiFunction`, `BinaryOperator`, `UnaryOperator`, `BiConsumer`,
   `BiPredicate`, `IntFunction`, `IntPredicate`, `IntUnaryOperator`, `ToIntFunction`, `IntSupplier` and
   `BooleanSupplier`. The numeric and `Long`/`Double` variants of the rest are missing.
-- What neither covers, `linkCheck` refuses. Each entry names the method of yours that made the reference, and
+- What neither covers, `linkCheck` refuses. Each entry names a direct reference from your code, and
   usually the source name behind a rewritten one and a hint:
 
   ```

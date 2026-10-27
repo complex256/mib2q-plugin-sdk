@@ -79,8 +79,7 @@ public abstract class NewPluginTask extends DefaultTask {
         String className = PluginScaffold.className(id);
         if (!className.matches("[A-Za-z_$][A-Za-z0-9_$]*")) {
             throw new GradleException("mibsdk.plugin: newPlugin: the id '" + id + "' gives the class name '"
-                    + className + "', which is not a Java identifier; start the id with a letter and pass"
-                    + " -Ppackage=<java.package> if its package needs one");
+                    + className + "', which is not a Java identifier; the id must start with a letter");
         }
         File repo = getRepoDir().get().getAsFile();
         if (!repo.isDirectory()) {

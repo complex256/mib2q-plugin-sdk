@@ -54,9 +54,9 @@ final class PluginJson {
      * <p>Stricter than the runtime's ManifestParser ({1,40}): mibpkg package names are at most 40 characters.
      */
     static String idProblem(String id) {
-        if (!id.matches("[a-z0-9][a-z0-9-]{1,39}")) {
-            return "invalid id '" + id + "': must match [a-z0-9][a-z0-9-]{1,39} (it names plugins/<id>.jar;"
-                    + " mibpkg package names are at most 40 characters)";
+        if (!id.matches("[a-z][a-z0-9-]{1,39}")) {
+            return "invalid id '" + id + "': must start with a letter, then a-z, 0-9 and '-' (2 to 40"
+                    + " characters; it names plugins/<id>.jar and mibpkg package names are at most 40 characters)";
         }
         if (id.equals("mibsdk")) {
             return "id 'mibsdk' is reserved for the SDK package";

@@ -3,6 +3,7 @@ package mibsdk.build;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -124,5 +125,13 @@ class PluginScaffoldTest {
         assertEquals("plugin.checkplugin", PluginScaffold.defaultPackage("check-plugin"));
         assertEquals("CheckPlugin", PluginScaffold.className("check-plugin"));
         assertEquals("Hello", PluginScaffold.className("hello"));
+    }
+
+    @Test
+    void refusesAnIdThatStartsWithADigit() {
+        String problem = PluginJson.idProblem("2go");
+        assertNotNull(problem, "a digit-leading id is refused");
+        assertTrue(problem.contains("must start with a letter"), problem);
+        assertFalse(problem.contains("-Ppackage"), problem);
     }
 }
