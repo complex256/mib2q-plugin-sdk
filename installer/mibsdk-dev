@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # mibsdk-dev: drive the mibsdk plugin SDK on an Audi MHI2Q head unit over SSH (runs on the Mac).
 #
-# A thin transport over the unit's mibpkg (/tmp/mibpkg, 0.8.0 or later): every change on the unit is a mibpkg verb,
+# A thin transport over the unit's mibpkg (/tmp/mibpkg, 0.9.1 or later): every change on the unit is a mibpkg verb,
 # and mibpkg owns every /mnt/app write. This tool only uploads files to /tmp (`ssh ... "cat > /tmp/<name>"`, read
 # back and compared: there is no scp) and passes mibpkg's output and exit code through (3: permissions to approve,
 # 2: bad usage, 1: failed or busy). Only log, restart and ui-forcefail talk to the unit directly (ui-forcefail
@@ -9,7 +9,6 @@
 # This tool never reads or prints the j9 command line (lsd.sh embeds the VIN and IMSI).
 set -euo pipefail
 
-DEFAULT_HOST="10.20.0.23"
 MIBPKG="/tmp/mibpkg"
 LOG="/tmp/mibsdk.log"
 FORCEFAIL_DIR="/mnt/persist/mibsdk/dev"
@@ -20,16 +19,16 @@ DIST="${MIBSDK_DIST:-$HERE/../dist/build/dist}"
 SSH_OPTS=(-o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedKeyTypes=ssh-rsa -o BatchMode=yes
           -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=3)
 
-HOST="$DEFAULT_HOST"
+HOST="${MIBSDK_HOST:-}"
 TMP=""
 SNAP=""
 UPLOADED_ALSO=""
 
 usage() {
   cat <<USAGE
-usage: mibsdk-dev <command> [args] [host]      (host defaults to $DEFAULT_HOST)
+usage: mibsdk-dev <command> [args] [host]      (host: the last argument, else $MIBSDK_HOST)
 
-Every command but log, restart and ui-forcefail runs a verb of the unit's mibpkg (0.8.0 or later; see the mibpkg README) and
+Every command but log, restart and ui-forcefail runs a verb of the unit's mibpkg (0.9.1 or later; see the mibpkg README) and
 exits with its status: 3 asks for permissions to be approved (the lines say which, ending in "approve with:").
 
   install                    install or update the SDK: uploads the single $DIST/mibsdk-*.mpk (or \$MIBSDK_MPK;
@@ -50,14 +49,15 @@ exits with its status: 3 asks for permissions to be approved (the lines say whic
   status                     mibpkg sdk status: the HMICar= and HMISystem= lines, the SDK, its plugins, the ledger,
                              the STATUS lines
   log                        print $LOG
-  restart                    restart the HMI (slay -s11 j9)
+  restart                    restart the HMI (on a bench unit this resets the whole unit, 2-3 min)
   ui-forcefail factory|screen|off
                              developer switch: write (or, with off, remove) $FORCEFAIL so the SDK's
                              main-menu takeover fails on purpose (factory: the SDK factory throws; screen: adding the
                              Plugins row to the MENU ring throws);
                              read at boot, so restart afterwards
 
-Environment: MIBSDK_DIST overrides the dist directory (default dist/build/dist); MIBSDK_MPK names the SDK .mpk.
+Environment: MIBSDK_HOST names the unit when it is not the last argument; MIBSDK_DIST overrides the dist directory
+(default dist/build/dist); MIBSDK_MPK names the SDK .mpk.
 USAGE
 }
 
@@ -101,7 +101,7 @@ status_failed() {
   local rc="$1" out="$2"
   [ "$rc" != 255 ] || die "ssh to root@$HOST failed while checking mibpkg${out:+: $out}"
   if [ "$rc" = 126 ] || [ "$rc" = 127 ] || printf '%s' "$out" | grep -qiE 'not found|no such file|cannot execute|unknown|usage'; then
-    die "mibpkg on $HOST is missing or older than 0.8.0; update it (see the mibpkg README)"
+    die "mibpkg on $HOST is missing or older than 0.9.1; update it (see the mibpkg README)"
   fi
   die "mibpkg sdk status failed on $HOST (exit $rc)${out:+: $out}"
 }
@@ -140,13 +140,17 @@ snapshot() {
 # upload_id: 16 random bytes in lowercase hex (mibpkg's upload id rule).
 upload_id() { od -An -tx1 -N16 /dev/urandom | tr -d ' \n'; }
 
-# install_mpk <name> <file.mpk> [--approve=...]: upload a snapshot of the package and install it as <name>.
+# install_mpk <name> <file.mpk> [--probed] [--approve=...]: upload a snapshot of the package and install it as
+# <name>. --probed skips the mibpkg probe when the caller already made it.
 install_mpk() {
-  local name="$1" uid
+  local name="$1" uid probed=0
   snapshot "$2"
   shift 2
+  if [ "${1:-}" = --probed ]; then probed=1; shift; fi
+  # Connect only after the snapshot: what is uploaded is the file as it was when the install started, even if the
+  # build rewrites it meanwhile.
   connect
-  need_mibpkg
+  [ "$probed" = 1 ] || need_mibpkg
   uid="$(upload_id)"
   upload "$SNAP" "mibpkg.upload.$uid.mpk"
   run_mibpkg install-file "$name" "$uid" - "$@"
@@ -154,6 +158,9 @@ install_mpk() {
 
 cmd_install() {
   local mpk found=() f
+  # The host's mibpkg must be new enough before anything is uploaded: refuse an old or missing mibpkg first.
+  # No connect here: install_mpk snapshots the package before its own connect.
+  need_mibpkg
   if [ -n "${MIBSDK_MPK:-}" ]; then
     mpk="$MIBSDK_MPK"
     [ -f "$mpk" ] || die "MIBSDK_MPK=$mpk is not a file"
@@ -163,7 +170,7 @@ cmd_install() {
       || die "found ${#found[@]} mibsdk-*.mpk in $DIST; build with ./gradlew :dist:mibpkgPackage or set MIBSDK_MPK"
     mpk="${found[0]}"
   fi
-  install_mpk mibsdk "$mpk"
+  install_mpk mibsdk "$mpk" --probed
 }
 
 cmd_install_plugin() {
@@ -272,6 +279,7 @@ main() {
     unset 'args[$want]'
   fi
   set -- "${args[@]+"${args[@]}"}"
+  [ -n "$HOST" ] || die "no host: pass it last or set MIBSDK_HOST"
   local f=("${flags[@]+"${flags[@]}"}")
   case "$cmd" in
     install) cmd_install ;;

@@ -35,6 +35,13 @@ class PluginJsonTest {
     }
 
     @Test
+    void missingManifestNamesTheRequiredAndOptionalFields() {
+        File absent = dir.resolve("absent").resolve("plugin.json").toFile();
+        String msg = assertThrows(GradleException.class, () -> PluginJson.read(absent)).getMessage();
+        assertTrue(msg.contains("(id, name, version, author, api, main; optional: permissions, icons)"), msg);
+    }
+
+    @Test
     void rejectsIdAndVersionMibpkgCannotPackage() throws IOException {
         String longId = "a" + "b".repeat(40); // 41 characters
         assertTrue(fail(longId, "1.0.0").contains("mibpkg package names are at most 40 characters"));

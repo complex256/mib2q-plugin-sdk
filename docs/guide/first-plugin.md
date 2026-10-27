@@ -776,7 +776,7 @@ What the harness does, and why:
 ## 7. Package it
 
 ```sh
-./gradlew :plugins:coffee-timer:mibPackage
+./gradlew :plugins:coffee-timer:mibpkgPackage
 ```
 
 This needs the host `mibpkg` (`mibsdk.mibpkg` in `gradle.properties`, or `-Pmibsdk.mibpkg=<path>`). Without it the
@@ -806,8 +806,8 @@ permissions = ["ui.slot.carmenu", "ui.slot.statusbar"]
 icons = ["cup", "cup-20"]
 ```
 
-You can look at the staged files in `plugins/coffee-timer/build/mibpkg-stage/`. The task names differ: the plugin
-task is `mibPackage`, while the SDK's own package task is `:dist:mibpkgPackage`.
+You can look at the staged files in `plugins/coffee-timer/build/mibpkg-stage/`. The task is `mibpkgPackage`, the
+same name as the SDK's own `:dist:mibpkgPackage` (`mibPackage` still runs and says it is renamed).
 
 ## 8. Install it
 
@@ -836,8 +836,8 @@ Open the Car drawer: the "Coffee" row with the cup is there.
 
 ### 8.2 With mibsdk-dev (a unit you can reach over SSH)
 
-`installer/mibsdk-dev` runs on your computer and drives the unit's mibpkg over SSH as root. It defaults to the SDK
-owner's bench unit (`10.20.0.23`), so always pass your unit's address as the last argument:
+`installer/mibsdk-dev` runs on your computer and drives the unit's mibpkg over SSH as root. It has no default
+host: pass your unit's address as the last argument, or set `MIBSDK_HOST` once in your shell:
 
 ```sh
 installer/mibsdk-dev install-plugin plugins/coffee-timer/build/mibsdk/coffee-timer-1.0.0.mpk <unit-ip>
@@ -933,9 +933,10 @@ expressions, text blocks, enhanced `for`, generics, autoboxing and try-with-reso
 **library** calls are another matter:
 
 - Retrotranslator backports some Java 5 API (`StringBuilder`, `Integer.valueOf`, `String.format` and others).
-- The shims in `compat/` cover `Objects`, `AutoCloseable` and five interfaces from `java.util.function`: `Function`,
-  `Consumer`, `Supplier`, `Predicate` and `BiFunction`. `BinaryOperator`, `UnaryOperator` and the rest are
-  missing.
+- The shims in `compat/` cover `Objects`, `AutoCloseable` and fifteen interfaces from `java.util.function`:
+  `Function`, `Consumer`, `Supplier`, `Predicate`, `BiFunction`, `BinaryOperator`, `UnaryOperator`, `BiConsumer`,
+  `BiPredicate`, `IntFunction`, `IntPredicate`, `IntUnaryOperator`, `ToIntFunction`, `IntSupplier` and
+  `BooleanSupplier`. The numeric and `Long`/`Double` variants of the rest are missing.
 - What neither covers, `linkCheck` refuses. Each entry names the method of yours that made the reference, and
   usually the source name behind a rewritten one and a hint:
 

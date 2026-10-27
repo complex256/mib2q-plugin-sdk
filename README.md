@@ -110,7 +110,7 @@ are subprojects of this build and use the in-repo `:api` and `:compat` instead. 
 unnoticed. See [Writing your first plugin](docs/guide/first-plugin.md#12-start-from-the-template).
 
 ```
- your plugin source              ./gradlew :plugins:<id>:mibPluginJar           ./gradlew :plugins:<id>:mibPackage
+ your plugin source              ./gradlew :plugins:<id>:mibPluginJar           ./gradlew :plugins:<id>:mibpkgPackage
  (Java 17 syntax / Kotlin)  ──►  compile → backport to v48 → classVersionCheck ──► build/mibsdk/<id>-<version>.mpk
  plugin.json, icons/*.png        → linkCheck → permissionScan → build/mibsdk/      (host mibpkg build: jar + stamp +
                                  <id>.jar + <id>.jar.stamp                         icons + manifest.toml)
@@ -124,7 +124,7 @@ unnoticed. See [Writing your first plugin](docs/guide/first-plugin.md#12-start-f
 ```
 
 The task names in the diagram are the in-repo form, for the samples in `plugins/`. In your own plugin repository the same
-tasks are `./gradlew mibPluginJar` and `./gradlew mibPackage`.
+tasks are `./gradlew mibPluginJar` and `./gradlew mibpkgPackage`.
 
 1. **Build.** The `mibsdk.plugin` Gradle convention compiles your source with JDK 17 (`--release 8`, with Jabel for
    newer syntax). It then lowers the classes to class-file version 48 (Retrolambda, then Retrotranslator) and runs
@@ -135,7 +135,7 @@ tasks are `./gradlew mibPluginJar` and `./gradlew mibPackage`.
 
    The result is `build/mibsdk/<id>.jar` plus `<id>.jar.stamp`, which lists the checks that ran and the jar's
    SHA-256.
-2. **Package.** `mibPackage` stages the jar, its stamp, your icons (with a generated `<name>.r.png` reflection
+2. **Package.** `mibpkgPackage` stages the jar, its stamp, your icons (with a generated `<name>.r.png` reflection
    for each icon taller than 20 px) and a `manifest.toml`. The host `mibpkg build` then packs them into
    `build/mibsdk/<id>-<version>.mpk`.
 3. **Install the SDK once.** The SDK is itself a mibpkg package: `dist/build/dist/mibsdk-<version>.mpk`, from
@@ -147,8 +147,8 @@ tasks are `./gradlew mibPluginJar` and `./gradlew mibPackage`.
    `--approve=<perm,...>`.
 5. **Develop faster on a bench unit.** [`installer/mibsdk-dev`](installer/mibsdk-dev) is a thin SSH wrapper around
    the unit's mibpkg. With `mibsdk-dev push build/mibsdk/<id>.jar`, the runtime hot-reloads the new jar without an
-   HMI restart. Run `mibsdk-dev log` to read the log and `mibsdk-dev grant` to change grants. It defaults to the
-   project's bench unit (`10.20.0.23`); give your unit's address as the last argument.
+   HMI restart. Run `mibsdk-dev log` to read the log and `mibsdk-dev grant` to change grants. It has no default
+   host: give your unit's address as the last argument, or set `MIBSDK_HOST`.
 
 ## Repository layout
 
@@ -189,7 +189,7 @@ tasks are `./gradlew mibPluginJar` and `./gradlew mibPackage`.
 | **JDK 8** (any vendor) | Retrolambda, Retrotranslator, ProGuard (Kotlin) and the Java 1.4 compile of `compat` | Gradle toolchain (`JavaLanguageVersion.of(8)`): an installed JDK 8 is detected, and the foojay resolver downloads one when there is none. `-Pmibsdk.jdk8Home=<home>` overrides it |
 | **Stock `lsd.jar`** (the HMI's `lsd.jxe`, converted with jxe2jar). **Optional for plugin builds**; SDK maintainers and the `adapter-hqc`/`dist` build need it | Plugin builds do not need it: every `linkCheck` uses the car Java class library signature list bundled in the build logic (`carjcl.sigs`, names and member descriptors only, no code). With the property set, `carJcl` extracts the class library from the jar instead, and `./gradlew carJclSignatures` regenerates the bundled list. `./gradlew check` then also runs `carJclSignaturesCheck`, which fails when the bundled list is out of date. `adapter-hqc`, `dist` and the `hmi-ui` spike also compile and link against its LSD, OSGi and DSI classes, so they need it | `-Pmibsdk.stockLsdJar=<path>`. No default: a build that needs it and lacks it fails with a message naming the property. **Never committed** |
 | **Stock `DSITracer.jar`** | Compiling `adapter-hqc` and the `dist` link check (SDK builds only; a plugin build does not need it) | `-Pmibsdk.stockDsiTracerJar=<path>`. No default: when `adapter-hqc` or `dist` is built without it, the build fails with `mibsdk: mibsdk.stockDsiTracerJar is not set`. **Never committed** |
-| **Host `mibpkg`** | `mibPackage` and `:dist:mibpkgPackage` run `mibpkg build` | `-Pmibsdk.mibpkg=<path>`, else `mibpkg` on `PATH`. Build it with `cargo build --release` in the mibpkg repo (Rust toolchain) |
+| **Host `mibpkg`** | `mibpkgPackage` and `:dist:mibpkgPackage` run `mibpkg build` | `-Pmibsdk.mibpkg=<path>`, else `mibpkg` on `PATH`. Build it with `cargo build --release` in the mibpkg repo (Rust toolchain) |
 | Gradle 8.13 | the build | the wrapper (`./gradlew`) downloads it |
 | Internet (Maven Central) | Jabel, Retrolambda, Retrotranslator, ProGuard, ASM, JUnit and the Kotlin plugin | the first build downloads them |
 | Python 3 | the `installer/` tests, `tools/make_builtin_icons.py` and the tutorial's icon script | `python3` on `PATH` |
@@ -217,7 +217,7 @@ All commands run from the repository root.
 ./gradlew check                                    # every module's tests and checks, plus build-logic's tests
 ./gradlew :plugins:hello-menu:test                 # one plugin's host tests (PluginTestHarness on the fake car)
 ./gradlew :plugins:hello-menu:mibPluginJar         # build/mibsdk/hello-menu.jar + .jar.stamp
-./gradlew :plugins:hello-menu:mibPackage -Pmibsdk.mibpkg=<path-to-mibpkg>
+./gradlew :plugins:hello-menu:mibpkgPackage -Pmibsdk.mibpkg=<path-to-mibpkg>
                                                    # build/mibsdk/hello-menu-1.2.0.mpk
 ./gradlew :dist:assembleUnit                       # dist/build/dist: the three unit jars + mibsdk-unit.stamp
 ./gradlew :dist:mibpkgPackage -Pmibsdk.mibpkg=<path-to-mibpkg>

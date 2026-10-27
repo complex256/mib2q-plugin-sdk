@@ -193,7 +193,13 @@ block (`standalonePluginCheck` runs the template's own test). The description be
 
 ## 7. The dev loop is wired to the owner's bench unit (annoying)
 
-- **Where:** §8.2 and §8.3. `installer/mibsdk-dev:12` sets `DEFAULT_HOST="10.20.0.23"`, and `installer/mibsdk-dev:13`
+**Status:** fixed in part in Task 12, the host part only. `installer/mibsdk-dev` has no default host: it takes the
+unit's address as the last argument or reads `MIBSDK_HOST`, and refuses to run without one. The other suggestions
+(a developer push in mibpkg's web interface; renaming `restart`) are open, though `restart`'s usage line now says
+it resets a whole bench unit. The description below is the problem as found.
+
+- **Where:** §8.2 and §8.3. `installer/mibsdk-dev:12` set `DEFAULT_HOST` to the owner's bench address, and
+  `installer/mibsdk-dev:13`
   expects the unit's mibpkg at `/tmp/mibpkg`. Root SSH needs `ssh-rsa` host-key options.
 - **What happens:**
   - Forget the host argument, and every command goes to the owner's bench address.
@@ -338,6 +344,10 @@ now names. The description below is the problem as found.
 
 ## 16. `compat` has 5 of the `java.util.function` interfaces (nit)
 
+**Status:** fixed in Task 12. `compat` now has `BinaryOperator`, `UnaryOperator`, `BiConsumer`, `BiPredicate`,
+`IntFunction`, `IntPredicate`, `IntUnaryOperator`, `ToIntFunction`, `IntSupplier` and `BooleanSupplier` as well,
+so a lambda typed with any of them links. The description below is the problem as found.
+
 - **Where:** `compat/src/main/java/mibsdk/compat/java/util/function/` has `BiFunction`, `Consumer`, `Function`,
   `Predicate` and `Supplier`.
 - **What happens:** a lambda typed as `BinaryOperator`, `UnaryOperator`, `BiConsumer`, `IntFunction` and so on
@@ -395,6 +405,10 @@ Javadoc gives the key format. `inputs-demo`'s test uses it. The description belo
 
 ## 21. Task names are inconsistent (nit)
 
+**Status:** fixed in Task 12. The plugin task is `mibpkgPackage`, the SDK's own is `:dist:mibpkgPackage`; the old
+`mibPackage` still runs, depends on `mibpkgPackage` and says it is renamed (it goes in 0.4.0). The description
+below is the problem as found.
+
 - **Where:** §5 and §7. The plugin tasks are `mibPluginJar` and `mibPackage`
   (`MibPluginPlugin.java:79` and `:167`). The SDK's are `carJar`, `assembleUnit` and `mibpkgPackage`
   (`dist/build.gradle.kts`).
@@ -402,6 +416,11 @@ Javadoc gives the key format. `inputs-demo`'s test uses it. The description belo
 - **Suggested fix:** one name for both (`mibpkgPackage`), with the old one kept as an alias for a release.
 
 ## 22. The build and the runtime disagree on manifest rules (nit)
+
+**Status:** fixed in part in Task 12, the message part only. The missing-manifest message now reads
+`(id, name, version, author, api, main; optional: permissions, icons)`, and the `hello` and `crashy` samples no
+longer carry `"dependencies": []`. The id-range disagreement is unchanged. The description below is the problem as
+found.
 
 - **Where:**
   - `PluginJson.java:89`: ids are 2 to 40 characters. `ManifestParser.java:31` allows 2 to 41.
@@ -414,6 +433,9 @@ Javadoc gives the key format. `inputs-demo`'s test uses it. The description belo
   share one constant, or explain the difference where the rule is stated (the mibpkg README does).
 
 ## 23. `mibsdk-dev` says mibpkg 0.8.0 is enough (nit)
+
+**Status:** fixed in Task 12. The minimum is 0.9.1 in the usage text, the version check and the header comment. The
+description below is the problem as found.
 
 - **Where:** `installer/mibsdk-dev:4`, `:32` and `:104`.
 - **What happens:** the tool accepts mibpkg 0.8.0. SDK 0.3.0's package needs 0.9.0 (`hmisystem`, icons), and
@@ -431,6 +453,11 @@ Javadoc gives the key format. `inputs-demo`'s test uses it. The description belo
 - **Suggested fix:** add a small hooks sample with a test, and `FakePlatform.setTrailerHitched(boolean)`.
 
 ## 25. Build output noise and a Gradle 9 deprecation warning (nit)
+
+**Status:** fixed in Task 12. Retrolambda and Retrotranslator output is logged at `INFO` (shown only with
+`--info`); a line that says WARNING or ERROR, and anything on stderr, still shows, and a failed step prints its
+output at `ERROR`. The deprecations the repo's own scripts and build logic caused are fixed; the ones from
+third-party plugins are listed in the commit message. The description below is the problem as found.
 
 - **Where:** every plugin build.
 - **What happens:** each build prints Retrolambda's INFO block, its classpath (with the full JDK 8 `rt.jar` path)

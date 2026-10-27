@@ -113,6 +113,7 @@ class FakeUnit(object):
         self.env["FAKE_UNIT"] = self.unit
         self.env["MIBSDK_DIST"] = self.dist
         self.env["TMPDIR"] = root
+        self.env["MIBSDK_HOST"] = "192.0.2.10"
         self.env.pop("MIBSDK_MPK", None)
 
     def mibpkg(self):
@@ -257,20 +258,20 @@ class ProbeTest(FakeUnitTestCase):
         jar = self.plugin_jar("hello")
         for args in (("install",), ("push", jar), ("grant", "hello", "network"), ("status",)):
             err = self.failed(self.u.run(*args, status_rc=1, status_err='mibpkg: unknown action "sdk"'))
-            self.assertIn("mibpkg on 10.20.0.23 is missing or older than 0.8.0; update it (see the mibpkg README)", err)
+            self.assertIn("mibpkg on 192.0.2.10 is missing or older than 0.9.1; update it (see the mibpkg README)", err)
         self.assertEqual([], self.u.uploads())
         self.assertTrue(all(c == ["sdk", "status"] for c in self.u.calls()))
         os.remove(self.u.mibpkg())
         err = self.failed(self.u.run("install"))
-        self.assertIn("is missing or older than 0.8.0", err)
+        self.assertIn("is missing or older than 0.9.1", err)
         self.assertEqual([], self.u.uploads())
 
     def test_other_sdk_status_failures_are_not_called_an_old_mibpkg(self):
         self.sdk_mpk()
         for args in (("install",), ("status",)):
             err = self.failed(self.u.run(*args, status_rc=1, status_err="mibpkg: reading /tmp/mibpkg.status: I/O error"))
-            self.assertNotIn("older than 0.8.0", err)
-            self.assertIn("mibpkg sdk status failed on 10.20.0.23 (exit 1)", err)
+            self.assertNotIn("older than 0.9.1", err)
+            self.assertIn("mibpkg sdk status failed on 192.0.2.10 (exit 1)", err)
             self.assertIn("I/O error", err)
         self.assertEqual([], self.u.uploads())
 
@@ -286,6 +287,28 @@ class ProbeTest(FakeUnitTestCase):
         self.assertEqual({"10.1.2.3"}, self.u.hosts())
         self.assertIn("too many arguments", self.failed(self.u.run("grant", "hello", "network", "h", "extra")))
         self.assertIn("invalid host", self.failed(self.u.run("safe-mode", "on", "-oProxyCommand=x")))
+
+
+class TestHost(FakeUnitTestCase):
+    """The unit's address: the last positional argument, else MIBSDK_HOST; there is no built-in default."""
+
+    def test_no_host_fails(self):
+        err = self.failed(self.u.run("grant", "hello", "network", env={"MIBSDK_HOST": ""}), 1)
+        self.assertIn("no host: pass it last or set MIBSDK_HOST", err)
+        self.assertEqual(set(), self.u.hosts())
+
+    def test_env_host_used(self):
+        self.ok(self.u.run("grant", "hello", "network", env={"MIBSDK_HOST": "10.9.8.7"}))
+        self.assertEqual({"10.9.8.7"}, self.u.hosts())
+        # The positional host still wins over the environment.
+        self.ok(self.u.run("grant", "hello", "network", "10.1.2.3", env={"MIBSDK_HOST": "10.9.8.7"}))
+        self.assertEqual({"10.9.8.7", "10.1.2.3"}, self.u.hosts())
+
+    def test_mibpkg_0_9_0_refused(self):
+        err = self.failed(self.u.run("install", status_rc=1,
+                                     status_err='mibpkg: unknown action "sdk"'), 1)
+        self.assertIn("mibpkg on 192.0.2.10 is missing or older than 0.9.1", err)
+        self.assertEqual([], self.u.uploads())
 
 
 class InstallPluginTest(FakeUnitTestCase):
@@ -369,7 +392,7 @@ class SdkVerbTest(FakeUnitTestCase):
         got = [c for c in self.u.calls() if c[0] == "remove"]
         self.assertEqual([["remove", "mibsdk"], ["remove", "mibsdk", "--purge", "--force"], ["remove", "mibsdk", "--force"]],
                          got)
-        self.assertEqual({"10.20.0.23", "10.1.2.3"}, self.u.hosts())
+        self.assertEqual({"192.0.2.10", "10.1.2.3"}, self.u.hosts())
         r = self.u.run("uninstall", rc=1, out="refusing: overrides still in force")
         self.failed(r, 1)
         self.assertIn(b"refusing: overrides still in force", r.stdout)
@@ -404,7 +427,9 @@ class SdkVerbTest(FakeUnitTestCase):
         self.failed(self.u.run("install"), 1)       # no .mpk: a failure, not a usage error
         self.failed(self.u.run("push", jar), 1)     # no stamp
         self.failed(self.u.run("push", os.path.join(self.tmp, "nope.jar")), 1)
-        self.assertEqual([], self.u.calls())
+        # The 12 usage errors above never connect. "install" without an .mpk probes the host first (so an old
+        # mibpkg is named), then fails on the missing package: one sdk status call is expected, nothing else.
+        self.assertEqual([["sdk", "status"]], self.u.calls())
 
     def test_status_is_mibpkg_sdk_status_alone(self):
         write(os.path.join(self.u.tmp, "mibsdk.log"), b"1 STATUS hello ENABLED ok\n")
@@ -445,7 +470,7 @@ class UiForceFailTest(FakeUnitTestCase):
         self.assertEqual(["echo ok", "rm -f " + self.FILE], self.u.ssh_cmds())
         self.assertIsNone(self.forcefail())
         self.assertIn("restart", r.stdout.decode())
-        self.assertEqual({"10.20.0.23", "10.1.2.3"}, self.u.hosts())
+        self.assertEqual({"192.0.2.10", "10.1.2.3"}, self.u.hosts())
         self.assertEqual([], self.u.calls())       # no mibpkg verb, no remount
         self.assertFalse(any("mount" in c for c in self.u.ssh_cmds()))
 

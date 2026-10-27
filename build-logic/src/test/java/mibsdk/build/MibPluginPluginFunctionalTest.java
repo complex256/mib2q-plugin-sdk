@@ -49,7 +49,7 @@ class MibPluginPluginFunctionalTest {
         repo = new File(System.getProperty("mibsdk.repoRoot")).getCanonicalFile();
         String r = repo.getPath().replace('\\', '/');
         write("settings.gradle.kts", "rootProject.name = \"tk\"\n"
-                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:undeclared\", \"plugins:badperm\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api6\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:colour3\", \"plugins:colour4\", \"plugins:inputs4\", \"plugins:inputs5\", \"plugins:tested\", \"plugins:regex\", \"plugin-test\")\n"
+                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:undeclared\", \"plugins:badperm\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api6\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:colour3\", \"plugins:colour4\", \"plugins:inputs4\", \"plugins:inputs5\", \"plugins:tested\", \"plugins:regex\", \"plugins:lambdaop\", \"plugin-test\")\n"
                 + "project(\":compat\").projectDir = file(\"" + r + "/compat\")\n"
                 + "project(\":api\").projectDir = file(\"" + r + "/api\")\n"
                 + "project(\":plugins:hello\").projectDir = file(\"" + r + "/plugins/hello\")\n"
@@ -120,6 +120,18 @@ class MibPluginPluginFunctionalTest {
         copyFixture("ok-72.png", "plugins/badicon/src/main/icons/row.png");
         copyFixture("interlaced.png", "plugins/badicon/src/main/icons/status.png");
         copyFixture("ok-72.png", "plugins/noicon/src/main/icons/row.png");
+
+        // java.util.function.BinaryOperator is not in the JDK 1.4 API: the compat interface and the
+        // Retrotranslator backport of the package are what let a typed lambda link.
+        javaPlugin("lambdaop", "sample.lambdaop.LambdaPlugin", "package sample.lambdaop;\n"
+                + "import mibsdk.api.*;\n"
+                + "import java.util.function.BinaryOperator;\n"
+                + "public class LambdaPlugin extends MibPlugin {\n"
+                + "  protected void onEnable(PluginContext ctx) throws Exception {\n"
+                + "    BinaryOperator<Integer> add = (a, b) -> a + b;\n"
+                + "    ctx.log().info(\"sum=\" + add.apply(1, 2));\n"
+                + "  }\n"
+                + "}\n", "[]");
 
         // Ui.icon(String, int) is api 4: the same plugin declaring api 3 and api 4.
         for (String[] a : new String[][] {{"colour3", "3"}, {"colour4", "4"}}) {
@@ -355,13 +367,41 @@ class MibPluginPluginFunctionalTest {
     }
 
     @Test
-    void mibPackageBuildsMpk() throws Exception {
+    void binaryOperatorLambdaLinks() throws Exception {
+        BuildResult result = runner(":plugins:lambdaop:mibPluginJar").build();
+
+        assertSucceeded(result, ":plugins:lambdaop:linkCheck");
+        assertSucceeded(result, ":plugins:lambdaop:mibPluginJar");
+        assertTrue(pluginJar("lambdaop", "lambdaop").isFile());
+    }
+
+    @Test
+    void mibpkgPackageIsTheTaskName() {
+        BuildResult all = runner("tasks", "--all").build();
+        assertTrue(all.getOutput().contains("plugins:hello:mibpkgPackage"), all.getOutput());
+        assertTrue(all.getOutput().contains("plugins:hello:mibPackage "), all.getOutput());
+        BuildResult old = runner(":plugins:hello:mibPackage", "-x", ":plugins:hello:mibpkgPackage").build();
+        assertSucceeded(old, ":plugins:hello:mibPackage");
+        assertTrue(old.getOutput().contains("mibPackage is renamed mibpkgPackage; the old name goes in 0.4.0"),
+                old.getOutput());
+    }
+
+    @Test
+    void quietBackport() {
+        BuildResult result = runner(":plugins:hello:mibPluginJar", "--rerun-tasks").build();
+
+        assertSucceeded(result, ":plugins:hello:backport");
+        assertFalse(result.getOutput().contains("Retrolambda"), result.getOutput());
+    }
+
+    @Test
+    void mibpkgPackageBuildsMpk() throws Exception {
         String mibpkg = System.getProperty("mibsdk.mibpkg", "");
         org.junit.jupiter.api.Assumptions.assumeTrue(new File(mibpkg).canExecute(), "no host mibpkg: -Pmibsdk.mibpkg");
-        BuildResult result = runner(":plugins:hello:mibPackage", "-Pmibsdk.mibpkg=" + mibpkg).build();
+        BuildResult result = runner(":plugins:hello:mibpkgPackage", "-Pmibsdk.mibpkg=" + mibpkg).build();
 
         assertSucceeded(result, ":plugins:hello:mibPluginJar");
-        assertSucceeded(result, ":plugins:hello:mibPackage");
+        assertSucceeded(result, ":plugins:hello:mibpkgPackage");
         File mpk = root.resolve("out/plugins_hello/mibsdk/hello-1.0.0.mpk").toFile();
         assertTrue(mpk.isFile(), "missing " + mpk);
         Process tar = new ProcessBuilder("tar", "-tzf", mpk.getPath()).redirectErrorStream(true).start();
@@ -374,11 +414,11 @@ class MibPluginPluginFunctionalTest {
     }
 
     @Test
-    void mibPackageShipsDeclaredIconsThatTheHostMibpkgAccepts() throws Exception {
+    void mibpkgPackageShipsDeclaredIconsThatTheHostMibpkgAccepts() throws Exception {
         String mibpkg = System.getProperty("mibsdk.mibpkg", "");
         org.junit.jupiter.api.Assumptions.assumeTrue(new File(mibpkg).canExecute(), "no host mibpkg: -Pmibsdk.mibpkg");
-        assertSucceeded(runner(":plugins:icons:mibPackage", "-Pmibsdk.mibpkg=" + mibpkg).build(),
-                ":plugins:icons:mibPackage");
+        assertSucceeded(runner(":plugins:icons:mibpkgPackage", "-Pmibsdk.mibpkg=" + mibpkg).build(),
+                ":plugins:icons:mibpkgPackage");
         File mpk = root.resolve("out/plugins_icons/mibsdk/icons-1.0.0.mpk").toFile();
         Process tar = new ProcessBuilder("tar", "-xzOf", mpk.getPath(), "manifest.toml").redirectErrorStream(true).start();
         String manifest = new String(tar.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
@@ -395,11 +435,11 @@ class MibPluginPluginFunctionalTest {
     }
 
     @Test
-    void mibPackageContainsTheReflection() throws Exception {
+    void mibpkgPackageContainsTheReflection() throws Exception {
         String mibpkg = System.getProperty("mibsdk.mibpkg", "");
         org.junit.jupiter.api.Assumptions.assumeTrue(new File(mibpkg).canExecute(), "no host mibpkg: -Pmibsdk.mibpkg");
-        assertSucceeded(runner(":plugins:icons:mibPackage", "-Pmibsdk.mibpkg=" + mibpkg).build(),
-                ":plugins:icons:mibPackage");
+        assertSucceeded(runner(":plugins:icons:mibpkgPackage", "-Pmibsdk.mibpkg=" + mibpkg).build(),
+                ":plugins:icons:mibpkgPackage");
         File mpk = root.resolve("out/plugins_icons/mibsdk/icons-1.0.0.mpk").toFile();
         Process tar = new ProcessBuilder("tar", "-tzf", mpk.getPath()).redirectErrorStream(true).start();
         String listing = new String(tar.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
@@ -416,31 +456,31 @@ class MibPluginPluginFunctionalTest {
     }
 
     @Test
-    void mibPackageWithoutAHostMibpkgFailsWithAHint() {
-        BuildResult result = runner(":plugins:hello:mibPackage", "-Pmibsdk.mibpkg=/nonexistent/mibpkg").buildAndFail();
+    void mibpkgPackageWithoutAHostMibpkgFailsWithAHint() {
+        BuildResult result = runner(":plugins:hello:mibpkgPackage", "-Pmibsdk.mibpkg=/nonexistent/mibpkg").buildAndFail();
         assertTrue(result.getOutput().contains("host mibpkg not found: build it (cargo build --release in the mibpkg repo)"
                 + " and pass -Pmibsdk.mibpkg=<path>"), result.getOutput());
     }
 
     @Test
-    void mibPackageRerunsWhenTheBinaryChangesAndFailsWhenItIsGone() throws Exception {
+    void mibpkgPackageRerunsWhenTheBinaryChangesAndFailsWhenItIsGone() throws Exception {
         Path fake = root.resolve("fake-mibpkg.sh");
         String script = "#!/bin/sh\n: > \"$3/hello-1.0.0.mpk\"\n";
         Files.write(fake, script.getBytes(StandardCharsets.UTF_8));
         assertTrue(fake.toFile().setExecutable(true));
         String prop = "-Pmibsdk.mibpkg=" + fake;
 
-        assertEquals(TaskOutcome.SUCCESS, runner(":plugins:hello:mibPackage", prop).build()
-                .task(":plugins:hello:mibPackage").getOutcome());
-        assertEquals(TaskOutcome.UP_TO_DATE, runner(":plugins:hello:mibPackage", prop).build()
-                .task(":plugins:hello:mibPackage").getOutcome());
+        assertEquals(TaskOutcome.SUCCESS, runner(":plugins:hello:mibpkgPackage", prop).build()
+                .task(":plugins:hello:mibpkgPackage").getOutcome());
+        assertEquals(TaskOutcome.UP_TO_DATE, runner(":plugins:hello:mibpkgPackage", prop).build()
+                .task(":plugins:hello:mibpkgPackage").getOutcome());
 
         Files.write(fake, (script + "# stricter\n").getBytes(StandardCharsets.UTF_8));
-        assertEquals(TaskOutcome.SUCCESS, runner(":plugins:hello:mibPackage", prop).build()
-                .task(":plugins:hello:mibPackage").getOutcome(), "a changed binary at the same path must rerun");
+        assertEquals(TaskOutcome.SUCCESS, runner(":plugins:hello:mibpkgPackage", prop).build()
+                .task(":plugins:hello:mibpkgPackage").getOutcome(), "a changed binary at the same path must rerun");
 
         Files.delete(fake);
-        BuildResult gone = runner(":plugins:hello:mibPackage", prop).buildAndFail();
+        BuildResult gone = runner(":plugins:hello:mibpkgPackage", prop).buildAndFail();
         assertTrue(gone.getOutput().contains("host mibpkg not found"), gone.getOutput());
     }
 
@@ -465,7 +505,7 @@ class MibPluginPluginFunctionalTest {
         assertTrue(fake.toFile().setExecutable(true));
         String prop = "-Pmibsdk.mibpkg=" + fake;
 
-        BuildResult refused = runner(":plugins:colour3:mibPackage", prop).buildAndFail();
+        BuildResult refused = runner(":plugins:colour3:mibpkgPackage", prop).buildAndFail();
         assertTrue(refused.getOutput().contains(
                 "sample/colour/ColourPlugin.onEnable -> Ui.icon(String,int) needs api 4; plugin.json declares api 3"),
                 refused.getOutput());
@@ -475,7 +515,7 @@ class MibPluginPluginFunctionalTest {
         assertEquals("sample/colour/ColourPlugin.onEnable -> Ui.icon(String,int) needs api 4;"
                 + " plugin.json declares api 3\n", report);
 
-        assertSucceeded(runner(":plugins:colour4:mibPackage", prop).build(), ":plugins:colour4:mibPackage");
+        assertSucceeded(runner(":plugins:colour4:mibpkgPackage", prop).build(), ":plugins:colour4:mibpkgPackage");
     }
 
     @Test
@@ -485,7 +525,7 @@ class MibPluginPluginFunctionalTest {
         assertTrue(fake.toFile().setExecutable(true));
         String prop = "-Pmibsdk.mibpkg=" + fake;
 
-        BuildResult refused = runner(":plugins:inputs4:mibPackage", prop).buildAndFail();
+        BuildResult refused = runner(":plugins:inputs4:mibpkgPackage", prop).buildAndFail();
         assertTrue(refused.getOutput().contains(
                 "sample/inputs/InputsPlugin.onEnable -> PageSpec.slider needs api 5; plugin.json declares api 4"),
                 refused.getOutput());
@@ -495,7 +535,7 @@ class MibPluginPluginFunctionalTest {
         assertEquals("sample/inputs/InputsPlugin.onEnable -> PageSpec.slider needs api 5;"
                 + " plugin.json declares api 4\n", report);
 
-        assertSucceeded(runner(":plugins:inputs5:mibPackage", prop).build(), ":plugins:inputs5:mibPackage");
+        assertSucceeded(runner(":plugins:inputs5:mibpkgPackage", prop).build(), ":plugins:inputs5:mibpkgPackage");
     }
 
     @Test

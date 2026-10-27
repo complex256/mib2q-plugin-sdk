@@ -5,6 +5,5 @@
   "author": "complex256",
   "api": 2,
   "main": "sample.crashy.CrashyPlugin",
-  "permissions": ["ui.slot.statusbar"],
-  "dependencies": []
+  "permissions": ["ui.slot.statusbar"]
 }

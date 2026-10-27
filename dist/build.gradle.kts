@@ -18,7 +18,19 @@ val adapterModule = "adapter-hqc"
 fun carJar(module: String) = project(":$module").tasks.named<Jar>("carJar")
 
 val stockJarFiles = Toolchain.stockJars(project)
-val retrotranslatorRuntime = project(":runtime").configurations.getByName("retrotranslatorRuntime")
+// The Retrotranslator runtime as a dependency of this project: resolving another project's configuration
+// directly is deprecated and fails in Gradle 9. The coordinate is the same constant :runtime uses.
+val retrotranslatorRuntime: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    isTransitive = false
+}
+dependencies {
+    retrotranslatorRuntime(Toolchain.RETROTRANSLATOR_RUNTIME)
+}
+repositories {
+    mavenCentral()
+}
 
 val distDir = layout.buildDirectory.dir("dist")
 

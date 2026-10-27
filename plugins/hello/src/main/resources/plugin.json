@@ -5,6 +5,5 @@
   "author": "complex256",
   "api": 1,
   "main": "sample.hello.HelloPlugin",
-  "permissions": ["vehicle.read"],
-  "dependencies": []
+  "permissions": ["vehicle.read"]
 }

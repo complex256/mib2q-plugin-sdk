@@ -67,8 +67,8 @@ final class PluginJson {
     /** Parses and validates the fields the build relies on; fails the build naming the file otherwise. */
     static PluginJson read(File file) {
         if (!file.isFile()) {
-            throw new GradleException("mibsdk.plugin: missing " + file + " (id, name, version, author, api, main,"
-                    + " permissions, dependencies)");
+            throw new GradleException("mibsdk.plugin: missing " + file + " (id, name, version, author, api, main;"
+                    + " optional: permissions, icons)");
         }
         Object parsed;
         try {
