@@ -44,6 +44,9 @@ class MibPluginPluginFunctionalTest {
 
     private static File repo;
 
+    /** The line {@code :plugins:<id>:mibPackage} logs, and nothing else does. */
+    private static final String RENAME_LINE = "mibPackage is renamed mibpkgPackage; the old name goes in 0.4.0";
+
     @BeforeAll
     static void writeRootBuild() throws IOException {
         repo = new File(System.getProperty("mibsdk.repoRoot")).getCanonicalFile();
@@ -262,6 +265,22 @@ class MibPluginPluginFunctionalTest {
         return root.resolve("out/plugins_" + project + "/mibsdk/" + id + ".jar").toFile();
     }
 
+    private static int occurrences(String text, String needle) {
+        int n = 0;
+        for (int i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + needle.length())) {
+            n++;
+        }
+        return n;
+    }
+
+    /** The entries of a package, as {@code tar -tzf} lists them. */
+    private static String tarListing(File mpk) throws Exception {
+        Process tar = new ProcessBuilder("tar", "-tzf", mpk.getPath()).redirectErrorStream(true).start();
+        String listing = new String(tar.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, tar.waitFor(), listing);
+        return listing;
+    }
+
     @Test
     void javaPluginProducesV48JarWithManifest() throws Exception {
         BuildResult result = runner(":plugins:hello:mibPluginJar").build();
@@ -376,14 +395,56 @@ class MibPluginPluginFunctionalTest {
     }
 
     @Test
-    void mibpkgPackageIsTheTaskName() {
+    void mibpkgPackageIsTheTaskName() throws Exception {
         BuildResult all = runner("tasks", "--all").build();
         assertTrue(all.getOutput().contains("plugins:hello:mibpkgPackage"), all.getOutput());
         assertTrue(all.getOutput().contains("plugins:hello:mibPackage "), all.getOutput());
-        BuildResult old = runner(":plugins:hello:mibPackage", "-x", ":plugins:hello:mibpkgPackage").build();
-        assertSucceeded(old, ":plugins:hello:mibPackage");
-        assertTrue(old.getOutput().contains("mibPackage is renamed mibpkgPackage; the old name goes in 0.4.0"),
-                old.getOutput());
+
+        // A fake mibpkg (no host binary needed): the alias must build the package for real, not just print its line.
+        Path fake = root.resolve("fake-mibpkg-alias.sh");
+        Files.write(fake, "#!/bin/sh\n: > \"$3/hello-1.0.0.mpk\"\n".getBytes(StandardCharsets.UTF_8));
+        assertTrue(fake.toFile().setExecutable(true));
+        String prop = "-Pmibsdk.mibpkg=" + fake;
+        File mpk = root.resolve("out/plugins_hello/mibsdk/hello-1.0.0.mpk").toFile();
+        File jar = pluginJar("hello", "hello");
+
+        BuildResult canonical = runner(":plugins:hello:mibpkgPackage", prop).build();
+        assertSucceeded(canonical, ":plugins:hello:mibpkgPackage");
+        assertTrue(jar.isFile(), "missing " + jar);
+        assertTrue(mpk.isFile(), "missing " + mpk);
+        assertEquals(0, occurrences(canonical.getOutput(), RENAME_LINE), "mibpkgPackage is not a rename");
+
+        // The alias has to write these itself, not leave the canonical run's files in place.
+        Files.delete(mpk.toPath());
+        Files.delete(jar.toPath());
+        BuildResult alias = runner(":plugins:hello:mibPackage", prop).build();
+        assertSucceeded(alias, ":plugins:hello:mibPackage");
+        assertSucceeded(alias, ":plugins:hello:mibpkgPackage");
+        assertEquals(TaskOutcome.SUCCESS, alias.task(":plugins:hello:mibpkgPackage").getOutcome(),
+                "the alias builds mibpkgPackage, it does not shadow it");
+        assertTrue(jar.isFile(), "the alias built no " + jar);
+        assertTrue(mpk.isFile(), "the alias built no " + mpk);
+        assertEquals(1, occurrences(alias.getOutput(), RENAME_LINE), "the rename line, once, for the alias:\n"
+                + alias.getOutput());
+    }
+
+    /** The alias against the host's real mibpkg: it packages what the canonical task packages. */
+    @Test
+    void mibPackageAliasProducesTheSamePackage() throws Exception {
+        String mibpkg = System.getProperty("mibsdk.mibpkg", "");
+        org.junit.jupiter.api.Assumptions.assumeTrue(new File(mibpkg).canExecute(), "no host mibpkg: -Pmibsdk.mibpkg");
+        String prop = "-Pmibsdk.mibpkg=" + mibpkg;
+        File mpk = root.resolve("out/plugins_hello/mibsdk/hello-1.0.0.mpk").toFile();
+
+        assertSucceeded(runner(":plugins:hello:mibpkgPackage", prop).build(), ":plugins:hello:mibpkgPackage");
+        String canonical = tarListing(mpk);
+        Files.delete(mpk.toPath());
+
+        BuildResult alias = runner(":plugins:hello:mibPackage", prop).build();
+        assertSucceeded(alias, ":plugins:hello:mibPackage");
+        assertTrue(mpk.isFile(), "the alias built no " + mpk);
+        assertEquals(canonical, tarListing(mpk), "the alias packages what the canonical name packages");
+        assertEquals(1, occurrences(alias.getOutput(), RENAME_LINE), alias.getOutput());
     }
 
     @Test
@@ -391,7 +452,10 @@ class MibPluginPluginFunctionalTest {
         BuildResult result = runner(":plugins:hello:mibPluginJar", "--rerun-tasks").build();
 
         assertSucceeded(result, ":plugins:hello:backport");
-        assertFalse(result.getOutput().contains("Retrolambda"), result.getOutput());
+        // Both tools go through the INFO helper: neither their banner nor their progress line may reach a default build.
+        for (String quiet : new String[] {"Retrolambda", "Retrotranslator", "Transformed"}) {
+            assertFalse(result.getOutput().contains(quiet), quiet + " in a default build:\n" + result.getOutput());
+        }
     }
 
     @Test

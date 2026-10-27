@@ -147,7 +147,10 @@ class FakeUnit(object):
         env["FAKE_STATUS_RC"] = str(kw.get("status_rc", 0))
         env["FAKE_STATUS_OUT"] = kw.get("status_out", "")
         env["FAKE_STATUS_ERR"] = kw.get("status_err", "")
-        env.update(kw.get("env", {}))
+        env.update({k: v for k, v in kw.get("env", {}).items() if v is not None})
+        for k, v in kw.get("env", {}).items():
+            if v is None:                       # env={"NAME": None} drops NAME: a variable the caller must not have
+                env.pop(k, None)
         return subprocess.run([TOOL] + list(args), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, timeout=60)
 
@@ -292,9 +295,40 @@ class ProbeTest(FakeUnitTestCase):
 class TestHost(FakeUnitTestCase):
     """The unit's address: the last positional argument, else MIBSDK_HOST; there is no built-in default."""
 
+    def no_host_env(self):
+        """The unit address as a new author has it: MIBSDK_HOST not set at all (the fake unit sets it for every run)."""
+        return {"MIBSDK_HOST": None}
+
+    def test_usage_without_a_host(self):
+        """usage must not expand an unset MIBSDK_HOST: under `set -u` that aborted before printing anything."""
+        for args, rc in ((("--help",), 0), (("-h",), 0), ((), 0)):
+            r = self.u.run(*args, env=self.no_host_env())
+            self.assertEqual(rc, r.returncode, r.stderr.decode("utf-8", "replace"))
+            out = r.stdout.decode("utf-8", "replace")
+            self.assertIn("usage: mibsdk-dev <command>", out)
+            self.assertIn("else $MIBSDK_HOST", out, "the usage text names the variable, it does not expand it")
+            self.assertNotIn("unbound variable", r.stderr.decode("utf-8", "replace"))
+        self.assertEqual([], self.u.calls())
+        self.assertEqual(set(), self.u.hosts())
+
+    def test_unknown_command_without_a_host_prints_usage(self):
+        r = self.u.run("frobnicate", env=self.no_host_env())
+        self.failed(r, 2)
+        err = r.stderr.decode("utf-8", "replace")
+        self.assertIn("usage: mibsdk-dev <command>", err, "an unknown command prints usage to stderr, like a usage error")
+        self.assertIn("unknown command 'frobnicate'", err)
+        self.assertNotIn("unbound", err)
+        self.assertEqual([], self.u.calls())
+
     def test_no_host_fails(self):
         err = self.failed(self.u.run("grant", "hello", "network", env={"MIBSDK_HOST": ""}), 1)
-        self.assertIn("no host: pass it last or set MIBSDK_HOST", err)
+        self.assertEqual("mibsdk-dev: no host: pass it last or set MIBSDK_HOST\n", err)
+        self.assertNotIn("unbound", err)
+        self.assertEqual(set(), self.u.hosts())
+
+    def test_no_host_variable_at_all_fails_the_same_way(self):
+        err = self.failed(self.u.run("grant", "hello", "network", env=self.no_host_env()), 1)
+        self.assertEqual("mibsdk-dev: no host: pass it last or set MIBSDK_HOST\n", err)
         self.assertEqual(set(), self.u.hosts())
 
     def test_env_host_used(self):

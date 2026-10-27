@@ -418,9 +418,9 @@ below is the problem as found.
 ## 22. The build and the runtime disagree on manifest rules (nit)
 
 **Status:** fixed in part in Task 12, the message part only. The missing-manifest message now reads
-`(id, name, version, author, api, main; optional: permissions, icons)`, and the `hello` and `crashy` samples no
-longer carry `"dependencies": []`. The id-range disagreement is unchanged. The description below is the problem as
-found.
+`(id, name, version, author, api, main; optional: permissions, icons)`, and the `hello` and `crashy` samples and the
+`templates/plugin` manifest no longer carry `"dependencies": []`. The id-range disagreement is unchanged. The
+description below is the problem as found.
 
 - **Where:**
   - `PluginJson.java:89`: ids are 2 to 40 characters. `ManifestParser.java:31` allows 2 to 41.

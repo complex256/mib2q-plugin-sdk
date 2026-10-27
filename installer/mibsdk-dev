@@ -26,7 +26,7 @@ UPLOADED_ALSO=""
 
 usage() {
   cat <<USAGE
-usage: mibsdk-dev <command> [args] [host]      (host: the last argument, else $MIBSDK_HOST)
+usage: mibsdk-dev <command> [args] [host]      (host: the last argument, else \$MIBSDK_HOST)
 
 Every command but log, restart and ui-forcefail runs a verb of the unit's mibpkg (0.9.1 or later; see the mibpkg README) and
 exits with its status: 3 asks for permissions to be approved (the lines say which, ending in "approve with:").
@@ -250,7 +250,9 @@ sdk_verb() {
 main() {
   local cmd="${1:-}"
   case "$cmd" in
-    ""|-h|--help|help) usage; [ -n "$cmd" ] && exit 0; exit 2 ;;
+    # A bare invocation asks "how do I use this" like --help does: usage on stdout, exit 0. An unknown command is a
+    # bad command line and exits 2 (below).
+    ""|-h|--help|help) usage; exit 0 ;;
   esac
   shift
   # Flags may stand anywhere; the positional host is the last argument, recognised by the per-command arity.

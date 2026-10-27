@@ -5,6 +5,5 @@
   "author": "Your Name",
   "api": 1,
   "main": "example.myplugin.MyPlugin",
-  "permissions": [],
-  "dependencies": []
+  "permissions": []
 }
