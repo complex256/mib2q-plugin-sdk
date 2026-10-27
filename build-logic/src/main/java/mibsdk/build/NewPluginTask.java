@@ -57,7 +57,8 @@ public abstract class NewPluginTask extends DefaultTask {
         String id = getPluginId().getOrNull();
         if (id == null || id.trim().isEmpty()) {
             throw new GradleException("mibsdk.plugin: newPlugin: set -Pid=<id>, for example"
-                    + " -Pid=my-plugin -Pdir=../my-plugin (2 to 40 characters: a-z, 0-9 and '-')");
+                    + " -Pid=my-plugin -Pdir=../my-plugin (2 to 40 characters: a-z, 0-9 and '-',"
+                    + " starting with a letter)");
         }
         id = id.trim();
         String problem = PluginJson.idProblem(id);

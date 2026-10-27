@@ -59,8 +59,8 @@ That writes `build/repo` inside the checkout. Then scaffold your plugin from the
 ./gradlew newPlugin -Pid=coffee-timer -Pdir=../coffee-timer -Ppackage=tutorial.coffeetimer
 ```
 
-- `-Pid` is the id `plugin.json` will carry: 2 to 40 characters of `a-z`, `0-9` and `-`. The task refuses an id the
-  build refuses, with the same sentence.
+- `-Pid` is the id `plugin.json` will carry: 2 to 40 characters of `a-z`, `0-9` and `-`, starting with a letter. The
+  task refuses an id the build refuses, with the same sentence.
 - `-Pdir` is where the project goes. It must not exist yet, or be empty: the task does not write into a directory that
   already has files in it, and it never leaves half a project behind.
 - `-Ppackage` is the Java package. Without it you get `plugin.<id without dashes>` (`plugin.coffeetimer` here); this
@@ -202,7 +202,7 @@ Create `plugins/coffee-timer/src/main/resources/plugin.json`:
 
 | Field | Rules |
 |---|---|
-| `id` | `[a-z0-9][a-z0-9-]{1,39}`, so 2 to 40 characters. It names the jar (`coffee-timer.jar`), the mibpkg package, your storage file and your icon directory. `mibsdk` is reserved |
+| `id` | `[a-z][a-z0-9-]{1,39}`, so 2 to 40 characters starting with a letter. It names the jar (`coffee-timer.jar`), the mibpkg package, your storage file and your icon directory. `mibsdk` is reserved |
 | `name` | Shown in the Plugins menu and in mibpkg |
 | `version` | semver: `1.0.0` or `1.0.0-beta.1`. mibpkg uses it to order updates, so raise it for every release |
 | `author` | free text. The runtime reads it and the build ignores it |

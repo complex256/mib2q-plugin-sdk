@@ -30,14 +30,10 @@ public final class ApiLevels {
     private static final String R_SPEC = ")L" + PAGE_SPEC + ";";
 
     private static final class Level {
-        final String owner;
-        final String name;
         final int api;
         final String label;
 
-        Level(String owner, String name, int api, String label) {
-            this.owner = owner;
-            this.name = name;
+        Level(int api, String label) {
             this.api = api;
             this.label = label;
         }
@@ -124,23 +120,13 @@ public final class ApiLevels {
     }
 
     private static void put(String owner, String name, String desc, int api, String label) {
-        TABLE.put(owner + "." + name + desc, new Level(owner, name, api, label));
+        TABLE.put(owner + "." + name + desc, new Level(api, label));
     }
 
     /** The api level {@code owner.name desc} arrived in; 1 if it is not listed (api 1, or not SDK api at all). */
     public static int since(String owner, String name, String desc) {
         Level l = TABLE.get(owner + "." + name + desc);
         return l == null ? 1 : l.api;
-    }
-
-    /** Whether some listed member of {@code owner} with this {@code name} (any descriptor) arrived in api {@code api}. */
-    static boolean listed(String owner, String name, int api) {
-        for (Level l : TABLE.values()) {
-            if (l.api == api && l.owner.equals(owner) && l.name.equals(name)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** The member as reports name it ({@code PageSpec.choice}); null if it is not listed. */
