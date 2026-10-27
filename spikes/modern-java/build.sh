@@ -5,7 +5,7 @@ set -euo pipefail
 S=$(cd "$(dirname "$0")" && pwd)
 T=$S/tools
 JDK17=/Library/Java/JavaVirtualMachines/jdk-17.0.5.jdk/Contents/Home
-JDK8=$HOME/Library/Java/JavaVirtualMachines/corretto-1.8.0_372/Contents/Home
+JDK8="${MIBSDK_JDK8_HOME:?set MIBSDK_JDK8_HOME to a JDK 8 home}"
 OUT=$S/out
 rm -rf "$OUT"; mkdir -p "$OUT"/{j8,j5,j4}
 

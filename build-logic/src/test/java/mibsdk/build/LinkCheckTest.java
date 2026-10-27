@@ -160,9 +160,10 @@ class LinkCheckTest {
 
     @Test
     void realStockLsdJarFlagsAutoCloseableAndAcceptsDouble() throws Exception {
-        File lsd = new File(System.getProperty("mibsdk.stockLsdJar",
-                System.getProperty("user.home") + "/projects/audi-mib2/patching/lsd.jar"));
-        Assumptions.assumeTrue(lsd.isFile(), "stock lsd.jar not present");
+        String property = System.getProperty("mibsdk.stockLsdJar");
+        Assumptions.assumeTrue(property != null && new File(property).isFile(),
+                "needs -Pmibsdk.stockLsdJar=<path to lsd.jar>");
+        File lsd = new File(property);
         File classes = Fixtures.compileV48(tmp.resolve("classes"), Map.of(
                 "fixture.Res", "package fixture; public class Res implements AutoCloseable { public void close() {} }",
                 "fixture.Boxer", "package fixture; public class Boxer { public Object m() { return Double.valueOf(1.0); } }"));

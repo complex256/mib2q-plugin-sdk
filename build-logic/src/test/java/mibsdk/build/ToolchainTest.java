@@ -6,10 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Stream;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
 import org.gradle.testfixtures.ProjectBuilder;
@@ -118,13 +120,23 @@ class ToolchainTest {
 
     @Test
     void noHomeRelativeDefaults() throws Exception {
-        Path source = Path.of(System.getProperty("mibsdk.repoRoot"),
-                "build-logic/src/main/java/mibsdk/build/Toolchain.java");
-        String text = new String(Files.readAllBytes(source), StandardCharsets.UTF_8);
+        Path buildLogicSrc = Path.of(System.getProperty("mibsdk.repoRoot"), "build-logic/src");
+        // Assembled so this file does not contain the string it forbids.
+        String forbidden = "user" + ".home";
+        List<String> offenders = new ArrayList<>();
+        try (Stream<Path> files = Files.walk(buildLogicSrc)) {
+            for (Path file : (Iterable<Path>) files.filter(Files::isRegularFile)
+                    .filter(f -> f.toString().endsWith(".java"))::iterator) {
+                if (new String(Files.readAllBytes(file), StandardCharsets.UTF_8).contains(forbidden)) {
+                    offenders.add(buildLogicSrc.relativize(file).toString());
+                }
+            }
+        }
+        assertEquals(List.of(), offenders, "no default may point under the home directory");
 
-        assertFalse(text.contains("user.home"), "Toolchain must not default to a path under the home directory");
-        assertFalse(text.contains("JavaVirtualMachines"), "Toolchain must not name a machine-local JDK path");
-        assertFalse(text.contains("audi-mib2"), "Toolchain must not name a machine-local project path");
-        assertTrue(new File(source.toString()).isFile());
+        String toolchain = new String(Files.readAllBytes(
+                buildLogicSrc.resolve("main/java/mibsdk/build/Toolchain.java")), StandardCharsets.UTF_8);
+        assertFalse(toolchain.contains("JavaVirtualMachines"), "Toolchain must not name a machine-local JDK path");
+        assertFalse(toolchain.contains("audi-mib2"), "Toolchain must not name a machine-local project path");
     }
 }
