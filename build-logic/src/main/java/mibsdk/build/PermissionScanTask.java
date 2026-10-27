@@ -35,8 +35,10 @@ import org.gradle.api.tasks.TaskAction;
  * {@code platform.unrestricted}) it fails when the classes call API that needs a permission {@link
  * #getDeclaredPermissions()} lacks ({@link PermissionScan.Result#undeclared}); otherwise it only reports.
  *
- * <p>It warns, but never fails, when a status-bar call site passes an icon and no icon in {@link #getIconSizes()}
- * is within {@link PermissionScan#STATUS_ICON_MAX_PX}: that icon throws at runtime.
+ * <p>It warns, but never fails, when a status-bar call site passes an icon it names literally
+ * ({@code Ui.icon(<literal name>)}) and {@link #getIconSizes()} records that declared icon as larger than
+ * {@link PermissionScan#STATUS_ICON_MAX_PX}: that icon throws at runtime. A stock icon, and an icon of unknown
+ * origin (a field, a parameter, null), never warns.
  */
 @CacheableTask
 public abstract class PermissionScanTask extends DefaultTask {
@@ -77,8 +79,8 @@ public abstract class PermissionScanTask extends DefaultTask {
 
     /**
      * Each declared icon's larger side, in pixels, by name (the {@code mibsdk.plugin} convention reads them from
-     * {@code src/main/icons} with {@link PngCheck}). Used only to warn: a status-bar call site that passes an icon
-     * when no declared icon is within {@link PermissionScan#STATUS_ICON_MAX_PX} throws at runtime.
+     * {@code src/main/icons} with {@link PngCheck}). Used only to warn: a status-bar call site that passes a declared
+     * icon larger than {@link PermissionScan#STATUS_ICON_MAX_PX} throws at runtime.
      */
     @Input
     public abstract MapProperty<String, Integer> getIconSizes();

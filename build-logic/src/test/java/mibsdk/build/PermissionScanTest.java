@@ -386,37 +386,80 @@ class PermissionScanTest {
     }
 
     private static final String STATUS_ICON_UI = "package mibsdk.api; public interface Ui {"
-            + " Icon icon(String name); StatusItem statusItem(String text, Icon icon);"
+            + " Icon icon(String name); Icon icon(String name, int colour);"
+            + " StatusItem statusItem(String text, Icon icon); Icon stockIcon(String name);"
             + " void toast(String text, Icon icon); }";
     private static final String STATUS_ICON_ITEM = "package mibsdk.api; public interface StatusItem {"
             + " void set(String text, Icon icon); }";
 
+    private static String statusIconWarning(String site, String name) {
+        return "mibsdk.plugin: " + site + " passes icon \"" + name + "\" to the status bar, but it is larger than "
+                + "20x20; that throws at runtime";
+    }
+
+    /** One method per icon origin: a literal name (both overloads), a stock icon, a parameter and a field. */
     private File statusIconCaller() throws Exception {
         return Fixtures.compileV48(tmp.resolve("statusIcon"), Map.of(
                 "mibsdk.api.Icon", ICON_STUB,
                 "mibsdk.api.StatusItem", STATUS_ICON_ITEM,
                 "mibsdk.api.Ui", STATUS_ICON_UI,
                 "fixture.S", "package fixture; import mibsdk.api.*; public class S {"
-                        + " public void run(Ui ui, StatusItem item) {"
-                        + " ui.statusItem(\"x\", ui.icon(\"cup\"));"
-                        + " item.set(\"Y\", ui.icon(\"cup\"));"
-                        + " ui.toast(\"hi\", ui.icon(\"cup\")); } }"));
+                        + " private Icon saved;"
+                        + " public void run(Ui ui, StatusItem item) { ui.statusItem(\"x\", ui.icon(\"cup\")); }"
+                        + " public void tail(Ui ui, StatusItem item) { item.set(\"Y\", ui.icon(\"cup\")); }"
+                        + " public void colour(Ui ui) { ui.toast(\"hi\", ui.icon(\"cup\", Icon.OWN_COLOURS)); }"
+                        + " public void stock(Ui ui) { ui.toast(\"hi\", ui.stockIcon(\"plug\")); }"
+                        + " public void param(Ui ui, Icon icon) { ui.statusItem(\"x\", icon); }"
+                        + " public void field(Ui ui) { ui.statusItem(\"x\", saved); } }"));
     }
 
     @Test
-    void statusIconWarningWhenNoSmallIcon() throws Exception {
+    void statusIconWarningOnlyForTheLiteralIconTheSitePasses() throws Exception {
         PermissionScan.Result r = PermissionScan.run(statusIconCaller());
-        assertEquals(List.of("mibsdk.plugin: fixture/S.run passes an icon to the status bar, but no declared icon"
-                + " is 20x20 or smaller; a larger one throws at runtime"), r.warnings(Map.of("cup", 72)));
-    }
-
-    @Test
-    void noWarningWithA20pxIcon() throws Exception {
-        PermissionScan.Result r = PermissionScan.run(statusIconCaller());
-        assertEquals(List.of(), r.warnings(Map.of("cup", 72, "cup-20", 20)));
+        assertEquals(List.of(statusIconWarning("fixture/S.colour", "cup"),
+                statusIconWarning("fixture/S.run", "cup"),
+                statusIconWarning("fixture/S.tail", "cup")),
+                r.warnings(Map.of("cup", 72)));
+        // A small declared icon elsewhere does not silence a site that passes the large one.
+        assertEquals(List.of(statusIconWarning("fixture/S.colour", "cup"),
+                statusIconWarning("fixture/S.run", "cup"),
+                statusIconWarning("fixture/S.tail", "cup")),
+                r.warnings(Map.of("cup", 72, "cup-20", 20)));
+        assertEquals(List.of(), r.warnings(Map.of("cup", 20)), "that icon is within the limit");
+        assertEquals(List.of(), r.warnings(Map.of("other", 72)), "the passed name is not declared");
         assertEquals(List.of(), r.warnings(Map.of()), "a manifest with no icons has nothing to point at");
         assertEquals(List.of(), PermissionScan.run(carMenuCaller("ctx.ui();")).warnings(Map.of("cup", 72)),
                 "no status-bar call site");
+    }
+
+    @Test
+    void noWarningForAStockIconOrAnIconOfUnknownOrigin() throws Exception {
+        // inputs-demo's shape: only a 24 px declared icon, but the status calls pass a stock icon.
+        PermissionScan.Result r = PermissionScan.run(statusIconCaller());
+        assertEquals(List.of(), r.warnings(Map.of("plug-24", 24)));
+        assertEquals(List.of(), r.warnings(Map.of("plug", 72)),
+                "a stock icon is never larger than the status cell");
+        assertEquals(List.of(), r.warnings(Map.of("plug-24", 24, "cup", 20)));
+    }
+
+    @Test
+    void taskWritesTheStatusIconWarningIntoTheReportAndDoesNotFail() throws Exception {
+        org.gradle.api.Project project = org.gradle.testfixtures.ProjectBuilder.builder()
+                .withProjectDir(tmp.resolve("iconProj").toFile()).build();
+        PermissionScanTask task = project.getTasks().register("permissionScan", PermissionScanTask.class).get();
+        task.getClasses().from(statusIconCaller());
+        task.getFailOnFindings().set(false);
+        task.getFailOnUndeclared().convention(false);
+        task.getIconSizes().set(Map.of("cup", 72));
+        task.getDeclaredApi().set(PluginJson.MAX_API);
+        File report = tmp.resolve("icon-permissions.txt").toFile();
+        task.getReport().set(report);
+
+        task.scan();
+
+        String text = new String(Files.readAllBytes(report.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        org.junit.jupiter.api.Assertions.assertTrue(text.contains(statusIconWarning("fixture/S.run", "cup")), text);
+        org.junit.jupiter.api.Assertions.assertTrue(text.contains(statusIconWarning("fixture/S.tail", "cup")), text);
     }
 
     @Test

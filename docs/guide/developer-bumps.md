@@ -249,9 +249,10 @@ below is the problem as found.
 
 **Status:** fixed in Task 10. `Ui` carries `MAX_PAGES = 8`, `MAX_CAR_ROWS = 2` and `MAX_STATUS_ITEMS = 1`, its
 `page`, `carMenuRow` and `statusItem` Javadoc names them, `UiImpl` uses them instead of its own fields, and
-`permissionScan` warns when a status-bar call site passes an icon while the manifest declares no icon 20×20 or
-smaller (`PermissionScanTest.statusIconWarningWhenNoSmallIcon`). The 12-character status text is
-`StatusItem.MAX_TEXT`, which `Ui.statusItem` now names. The description below is the problem as found.
+`permissionScan` warns when a status-bar call site passes a declared icon larger than 20×20 as a literal
+`ui.icon("name")` (`PermissionScanTest.statusIconWarningOnlyForTheLiteralIconTheSitePasses`); a stock icon, or an
+icon of unknown origin, does not warn. The 12-character status text is `StatusItem.MAX_TEXT`, which `Ui.statusItem`
+now names. The description below is the problem as found.
 
 - **Where:** §4.3, §4.5 and §10.
   - `UiImpl.MAX_PAGES = 8`, `MAX_CAR_ROWS = 2` and `MAX_STATUS_ITEMS = 1`

@@ -203,8 +203,9 @@ The build checks your permissions twice:
   `tutorial/coffeetimer/CoffeeTimerPlugin.onEnable -> Ui.carMenuRow needs "ui.slot.carmenu": declare it in
   plugin.json "permissions"`. A call inside `if (ctx.granted(...))` still needs the declaration, and declaring
   `platform.unrestricted` does not excuse it.
-- **Status-bar icons are size-checked, as a warning.** A `statusItem` or `toast` call that passes an icon when none of
-  your declared icons is 20×20 or smaller builds, but `permissionScan` warns: that icon throws at runtime (section 10).
+- **Status-bar icons are size-checked, as a warning.** A `statusItem` or `toast` call that passes `ui.icon("name")`
+  when your manifest declares that icon larger than 20×20 builds, but `permissionScan` warns: that icon throws at
+  runtime (section 10). A `ui.stockIcon(...)` is always small enough and never warns.
 
 Copy the names from `mibsdk.api.Permissions` or `api/permissions.json`.
 
@@ -1010,16 +1011,19 @@ build (the build warns where it can):
 | Text | title 32, label 40, value 20, info 80, toast 20, confirm 120 characters | cut, never rejected |
 
 The icon sizes are checked at build only as far as the PNG rules go: a 72 px icon passed to `statusItem` or `toast`
-compiles and packages. `permissionScan` warns about it when your manifest declares icons and none of them is 20×20 or
-smaller, naming each call site:
+compiles and packages. `permissionScan` warns about it when the call names the icon literally, `ui.icon("cup")`, and
+the manifest declares `cup` larger than 20×20, naming the call site and the icon:
 
 ```
-> mibsdk.plugin: tutorial/coffeetimer/CoffeeTimerPlugin.start passes an icon to the status bar, but no declared icon
-  is 20x20 or smaller; a larger one throws at runtime
+> mibsdk.plugin: tutorial/coffeetimer/CoffeeTimerPlugin.start passes icon "cup" to the status bar, but it is larger
+  than 20x20; that throws at runtime
 ```
 
-That is a warning, not a failure: the call only throws if that icon is the one it uses. Ship the small icon next to
-the row one, as the tutorial does with `cup.png` and `cup-20.png`.
+That is a warning, not a failure: the call only throws if that icon is the one it uses. The check reads an icon named
+at the call site only: `ui.stockIcon(...)` is always small enough, and an icon that arrives through a field, a
+parameter or a local built elsewhere is not judged. Ship the small icon next to the row one, as the tutorial does
+with `cup.png` and `cup-20.png`. An up-to-date build does not re-run the scan, so Gradle prints nothing then; the
+warning stays in `build/reports/mibsdk/permissions.txt`.
 
 You cannot add MENU-ring entries or draw your own graphics. A confirm or speller opens only while one of your
 pages is on screen; otherwise it answers at once (No, or null text).

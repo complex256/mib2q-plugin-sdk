@@ -21,14 +21,23 @@ import org.objectweb.asm.Opcodes;
  * that needs a newer {@code "api"} than 1, method calls and field reads, by the {@link ApiLevels} table
  * ({@link Result#needsApi()}, {@link Result#tooNew(int)}), and calls that need a manifest permission, by the
  * {@link ApiPermissions} table ({@link Result#permissionSites()}, {@link Result#undeclared(java.util.Collection)}),
- * and status-bar call sites that pass an icon when the manifest has no icon small enough
+ * and status-bar call sites that pass a declared icon larger than a status cell
  * ({@link Result#warnings(Map)}).
  */
 public final class PermissionScan {
     private PermissionScan() {}
 
-    /** The largest status icon, in pixels (mirrors {@code mibsdk.api.StatusItem.ICON_MAX_PX}). */
+    /**
+     * The largest status icon, in pixels: the one place this code path states the limit, mirroring
+     * {@code mibsdk.api.StatusItem.ICON_MAX_PX} (as {@link PngCheck#MAX_PX} mirrors {@code Ui.ROW_ICON_MAX_PX}) — the
+     * build logic does not depend on {@code api}, so it cannot derive the value.
+     */
     static final int STATUS_ICON_MAX_PX = 20;
+
+    /** Where a status call's icon argument came from: a stock icon, a literal {@code Ui.icon} name, or unknown. */
+    private static final int ICON_UNKNOWN = 0;
+    private static final int ICON_STOCK = 1;
+    private static final int ICON_NAMED = 2;
 
     /** Calls that require the grant, as {@code owner.name}. */
     private static final Set<String> RESTRICTED = Set.of(
@@ -62,15 +71,15 @@ public final class PermissionScan {
         private final List<String> apiFindings;
         private final Map<String, Integer> apiLevels; // apiFindings line -> its api level
         private final Map<String, String> permissionSites; // site -> the permission it needs
-        private final Set<String> statusIconSites; // sites that pass an icon to the status bar
+        private final Map<String, Set<String>> statusIconNames; // site -> icon names it passes literally
 
         Result(List<String> findings, Map<String, Integer> apiLevels, Map<String, String> permissionSites,
-                Set<String> statusIconSites) {
+                Map<String, Set<String>> statusIconNames) {
             this.findings = Collections.unmodifiableList(findings);
             this.permissionSites = Collections.unmodifiableMap(new TreeMap<String, String>(permissionSites));
             this.apiLevels = Collections.unmodifiableMap(new TreeMap<String, Integer>(apiLevels));
             this.apiFindings = Collections.unmodifiableList(new ArrayList<String>(this.apiLevels.keySet()));
-            this.statusIconSites = Collections.unmodifiableSet(new TreeSet<String>(statusIconSites));
+            this.statusIconNames = Collections.unmodifiableMap(new TreeMap<String, Set<String>>(statusIconNames));
         }
 
         /** Sorted {@code owner.method -> java/lang/reflect/Method.invoke} lines. */
@@ -118,32 +127,29 @@ public final class PermissionScan {
         }
 
         /**
-         * One {@code mibsdk.plugin: <site> passes an icon to the status bar, ...} line for each site that passes an
-         * icon to {@code Ui.statusItem(String,Icon)}, {@code StatusItem.set(String,Icon)} or {@code Ui.toast}, when
-         * {@code iconSizes} (each declared icon's larger side, in pixels) holds no icon within
-         * {@link PermissionScan#STATUS_ICON_MAX_PX}. A warning, not a failure: the call throws at runtime, and only
-         * if that icon is used.
+         * One {@code mibsdk.plugin: <site> passes icon "<name>" to the status bar, ...} line for each argument-level
+         * finding: a site that hands an icon to {@code Ui.statusItem(String,Icon)},
+         * {@code StatusItem.set(String,Icon)} or {@code Ui.toast}, where that icon comes from
+         * {@code Ui.icon(<literal name>)} and {@code iconSizes} (each declared icon's larger side, in pixels) records
+         * that name as larger than {@link PermissionScan#STATUS_ICON_MAX_PX}. A stock icon never warns, and neither
+         * does an icon of unknown origin (a field, a parameter, a local built elsewhere, null): only what the
+         * bytecode at the site itself says. A warning, not a failure: the call throws at runtime, and only if that
+         * icon is used.
          */
         public List<String> warnings(Map<String, Integer> iconSizes) {
             List<String> out = new ArrayList<String>();
-            if (statusIconSites.isEmpty() || iconSizes.isEmpty() || hasSmallIcon(iconSizes)) {
-                return out;
-            }
-            for (String site : statusIconSites) {
-                out.add("mibsdk.plugin: " + site + " passes an icon to the status bar, but no declared icon is "
-                        + STATUS_ICON_MAX_PX + "x" + STATUS_ICON_MAX_PX
-                        + " or smaller; a larger one throws at runtime");
-            }
-            return out;
-        }
-
-        private static boolean hasSmallIcon(Map<String, Integer> iconSizes) {
-            for (Integer px : iconSizes.values()) {
-                if (px != null && px <= STATUS_ICON_MAX_PX) {
-                    return true;
+            for (Map.Entry<String, Set<String>> site : statusIconNames.entrySet()) {
+                for (String name : site.getValue()) {
+                    Integer px = iconSizes.get(name);
+                    if (px != null && px > STATUS_ICON_MAX_PX) {
+                        out.add("mibsdk.plugin: " + site.getKey() + " passes icon \"" + name
+                                + "\" to the status bar, but it is larger than "
+                                + STATUS_ICON_MAX_PX + "x" + STATUS_ICON_MAX_PX
+                                + "; that throws at runtime");
+                    }
                 }
             }
-            return false;
+            return out;
         }
 
         /** Sorted {@code <site> needs api <its level>} lines, for each site newer than {@code declared}. */
@@ -171,7 +177,7 @@ public final class PermissionScan {
         Set<String> findings = new TreeSet<String>();
         Map<String, Integer> apiLevels = new TreeMap<String, Integer>();
         Map<String, String> permissionSites = new TreeMap<String, String>();
-        Set<String> statusIconSites = new TreeSet<String>();
+        Map<String, Set<String>> statusIconNames = new TreeMap<String, Set<String>>();
         ClassSource.forEach(dirOrJar, e -> {
             if (e.name.startsWith("kotlin/") && exemptKotlinStdlib.contains(e.name)) {
                 return;
@@ -183,10 +189,35 @@ public final class PermissionScan {
                     return new MethodVisitor(Opcodes.ASM9) {
                         private boolean callsEventsOn;
                         private boolean loadsHookObserved;
+                        /** The icon name in the most recent {@code LDC} string, until a load or call consumes it. */
+                        private String pendingName;
+                        /** What the last value-producing instruction was, as far as an icon argument goes. */
+                        private int iconKind = ICON_UNKNOWN;
+                        private String iconName;
 
                         @Override
                         public void visitLdcInsn(Object value) {
                             loadsHookObserved |= ApiPermissions.isHookObserved(value);
+                            pendingName = value instanceof String ? (String) value : null;
+                        }
+
+                        @Override
+                        public void visitVarInsn(int op, int var) {
+                            // A field, parameter or local: the icon's origin is not in this method's bytecode.
+                            pendingName = null;
+                            icon(ICON_UNKNOWN, null);
+                        }
+
+                        @Override
+                        public void visitInsn(int op) {
+                            if (op == Opcodes.ACONST_NULL) {
+                                icon(ICON_UNKNOWN, null);
+                            }
+                        }
+
+                        private void icon(int kind, String name) {
+                            iconKind = kind;
+                            iconName = name;
                         }
 
                         @Override
@@ -207,14 +238,28 @@ public final class PermissionScan {
                         @Override
                         public void visitFieldInsn(int op, String owner, String n, String d) {
                             api(owner, n, d);
+                            if (d.length() != 1) { // a reference read could be the icon; a primitive constant is not
+                                pendingName = null;
+                                icon(ICON_UNKNOWN, null);
+                            }
                         }
 
                         @Override
                         public void visitMethodInsn(int op, String owner, String n, String d, boolean itf) {
                             api(owner, n, d);
-                            if (isStatusIconCall(owner, n, d)) {
-                                statusIconSites.add(e.name + "." + name);
+                            if (isUiIcon(owner, n)) {
+                                // Ui.icon("name") / Ui.icon("name", colour): the name is the LDC just before it.
+                                icon(pendingName == null ? ICON_UNKNOWN : ICON_NAMED, pendingName);
+                            } else if (isStockIcon(owner, n)) {
+                                icon(ICON_STOCK, null);
+                            } else {
+                                if (isStatusIconCall(owner, n, d) && iconKind == ICON_NAMED) {
+                                    String site = e.name + "." + name;
+                                    statusIconNames.computeIfAbsent(site, k -> new TreeSet<String>()).add(iconName);
+                                }
+                                icon(ICON_UNKNOWN, null);
                             }
+                            pendingName = null;
                             callsEventsOn |= owner.equals(ApiPermissions.EVENTS_ON_OWNER)
                                     && n.equals(ApiPermissions.EVENTS_ON);
                             String needs = ApiPermissions.required(owner, n, d);
@@ -234,7 +279,17 @@ public final class PermissionScan {
                 }
             }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         });
-        return new Result(new ArrayList<String>(findings), apiLevels, permissionSites, statusIconSites);
+        return new Result(new ArrayList<String>(findings), apiLevels, permissionSites, statusIconNames);
+    }
+
+    /** {@code Ui.icon}'s two overloads, matched on owner as well so a plugin's own {@code icon(String)} is not it. */
+    private static boolean isUiIcon(String owner, String name) {
+        return owner.equals("mibsdk/api/Ui") && name.equals("icon");
+    }
+
+    /** {@code Ui.stockIcon}: a built-in glyph, never larger than a status cell, so never worth a warning. */
+    private static boolean isStockIcon(String owner, String name) {
+        return owner.equals("mibsdk/api/Ui") && name.equals("stockIcon");
     }
 
     /**

@@ -243,8 +243,8 @@ public class MibPluginPlugin implements Plugin<Project> {
     }
 
     /**
-     * Each declared icon's larger side in pixels, by name: what {@code permissionScan} needs to tell a status-bar
-     * call site it has no icon small enough. A missing or invalid PNG is left out silently; {@link #checkIcons}
+     * Each declared icon's larger side in pixels, by name: what {@code permissionScan} needs to size the icon a
+     * status-bar call site names literally. A missing or invalid PNG is left out silently; {@link #checkIcons}
      * fails the build for it with the message that names the file.
      */
     static Map<String, Integer> iconSizes(PluginJson manifest, File iconsDir) {
