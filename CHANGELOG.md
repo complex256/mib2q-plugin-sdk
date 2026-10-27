@@ -3,6 +3,42 @@
 The `mibsdk` SDK package (`dist/build/dist/mibsdk-<version>.mpk`) and its sample plugins. Versions are semver as
 mibpkg compares them; bench builds carried a `+bench.N` tag on the package version only and are not releases.
 
+## Unreleased (SDK; plugin api 1..5)
+
+Developer experience, aimed at plugin authors outside this repository. The runtime, the plugin api and the sample
+plugins are unchanged from 0.3.0; this is not a release, and the artifacts are still published to a checkout's
+`build/repo` by `./gradlew publishLocal`.
+
+- **A plugin build needs no stock jar.** Every `linkCheck` resolves against a car class-library signature list
+  bundled in the build logic (`carjcl.sigs`: names, supertypes and member descriptors, no code). A clone builds,
+  tests and packages a plugin with no `lsd.jar` and no `DSITracer.jar`; `adapter-hqc`, `dist` and the `hmi-ui` spike
+  still need both, and with `mibsdk.stockLsdJar` set `./gradlew carJclSignatures` regenerates the bundled list.
+- **A plugin is its own repository.** `mibsdk.plugin` takes `api`, `compat` and the car classifier jars by
+  coordinate from the repository `settings.gradle.kts` names, so a plugin no longer has to be a subproject of this
+  build. `./gradlew newPlugin -Pid=<id> -Pdir=<path> [-Ppackage=<pkg>]` scaffolds a stand-alone project from
+  `templates/plugin` (id, package and class renamed, `mibsdk.repo` written, `.gitignore` and wrapper included), and
+  `standalonePluginCheck` builds that project outside the project graph as part of `check`.
+- **`PluginTestHarness`.** `plugin-test` publishes `mibsdk.test.PluginTestHarness`: one call installs the built jar
+  and its icons into a temporary unit, starts the real runtime on the fake car and waits for the plugin to enable.
+  It exposes the fake screen (`ui()`), `advance(ms)`, `await`, `storedValues()`, `restart()`, grants and features,
+  and the convention puts it and JUnit on every plugin's test classpath with `-Dmibsdk.pluginJar` and
+  `-Dmibsdk.pluginIcons` already set, so a plugin's build file stays one `plugins` block.
+- **Permissions are checked at build.** `PluginJson.read` validates the manifest's `"permissions"` against the
+  catalog with a "did you mean" hint, and `permissionScan` fails the build when the code calls API whose permission
+  the manifest does not declare (also under `platform.unrestricted`), naming the call site. At runtime an undeclared
+  permission is reported as `permission not declared in plugin.json`, distinct from `permission not granted`.
+- **The api level is checked at build, for api 2 to 5.** `permissionScan` knows every member added after api 1 and
+  names the call site and the level it needs; a `@since` tag without a table entry fails `ApiLevelsTest`.
+- **`Ui.MAX_*`.** `Ui.MAX_PAGES`, `Ui.MAX_CAR_ROWS` and `Ui.MAX_STATUS_ITEMS` are public constants named in the
+  Javadoc. `permissionScan` also warns when a status-bar call site passes a declared icon larger than 20x20 as a
+  literal `ui.icon("name")`; that is a warning, not a failure.
+- **`mibpkgPackage` builds a plugin's package.** `./gradlew mibpkgPackage` (the plugin's own name, not
+  `:dist:mibpkgPackage`) stages the stamped jar, the icons with their reflections and a generated `manifest.toml`,
+  then has the host `mibpkg` pack `build/mibsdk/<id>-<version>.mpk`. `mibPackage` still runs as an alias and says
+  it is renamed.
+- **`MIBSDK_HOST`.** `installer/mibsdk-dev` has no default host: it takes the unit's address as the last argument,
+  or reads `MIBSDK_HOST`, and refuses to run without one. Its minimum mibpkg is 0.9.1.
+
 ## 0.3.0 (SDK; plugin api 1..5)
 
 Native inputs: plugin pages are drawn with the HMI's own list cells and input screens.

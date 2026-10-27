@@ -99,6 +99,7 @@ class CoffeeTimerPluginTest {
         minutePasses();
         h.await(() -> "Coffee ready".equals(ui.statusLine()), "Coffee ready");
         h.await(() -> ("[png:" + cup20Sha + "] Coffee is ready").equals(ui.toast()), "the toast: " + ui.toast());
+        h.await(() -> ui.render(page).contains("Dismiss"), "the Dismiss row");
         ui.select(page, "dismiss");
         h.await(() -> "".equals(ui.statusLine()), "the status item hidden");
     }
@@ -121,6 +122,7 @@ class CoffeeTimerPluginTest {
         start();
         ui.select(page, "start");
         h.await(() -> "Coffee 4m".equals(ui.statusLine()), "Coffee 4m");
+        h.await(() -> ui.render(page).contains("Stop timer: 4 min left"), "the Stop row");
         ui.select(page, "stop");
         h.await(() -> ui.render(page).contains("Start timer: 4 min"), "back to Start");
         assertEquals("", ui.statusLine());

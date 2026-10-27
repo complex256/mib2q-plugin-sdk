@@ -19,33 +19,33 @@ The list is ordered by impact. The tutorial step a bump affects is given as §N.
 
 ## Summary
 
-| # | Severity | Bump |
-|---|---|---|
-| 1 | blocker | Every plugin build needs Audi's stock `lsd.jar` |
-| 2 | blocker | A plugin can only be built as a subproject of the SDK repo |
-| 3 | blocker (by design) | One exact firmware build is supported |
-| 4 | annoying | Path defaults are the owner's machine layout; a missing path gives a generic Gradle error |
-| 5 | annoying | Permissions are not checked at build; the runtime error says "not granted" when the cause is "not declared" |
-| 6 | annoying | Every host test copies about 80 lines of harness, plus the build-script wiring |
-| 7 | annoying | The dev loop (`mibsdk-dev`) is wired to the owner's bench unit |
-| 8 | annoying | A `linkCheck` failure does not say where the reference is, and shows rewritten class names |
-| 9 | annoying | The api-level scan only knows api 4 and 5 members |
-| 10 | annoying | Count and icon-size limits live in runtime code, are enforced only at runtime, and are not in the API |
-| 11 | annoying | Javadoc gaps, the threading guarantee among them |
-| 12 | annoying | No scaffolding: five files and a `settings.gradle.kts` edit by hand |
-| 13 | annoying | Permissions are all or nothing |
-| 14 | nit | `onDisable` runs after a failed `onEnable`, which the Javadoc does not say |
-| 15 | nit | Records fail with Jabel's `Must be annotated with @Desugar` |
-| 16 | nit | `compat` has 5 of the `java.util.function` interfaces |
-| 17 | nit | The spec says there is no `String.format`, and the build accepts it |
-| 18 | nit | Surprising UI behaviour you only learn from Javadoc or code |
-| 19 | nit | Choice sub-page keys are undocumented, and `FakeUi` has no helper for them |
-| 20 | nit | Events need no permission, though `vehicle.read`'s approval text says it covers ignition |
-| 21 | nit | Task names are inconsistent: `mibPackage` against `mibpkgPackage` |
-| 22 | nit | The build and the runtime disagree on manifest rules |
-| 23 | nit | `mibsdk-dev` says mibpkg 0.8.0 is enough |
-| 24 | nit | Missing samples and fake-car gaps |
-| 25 | nit | Build output noise and a Gradle 9 deprecation warning |
+| # | Severity | Bump | Status |
+|---|---|---|---|
+| 1 | blocker | Every plugin build needs Audi's stock `lsd.jar` | fixed (Task 2) |
+| 2 | blocker | A plugin can only be built as a subproject of the SDK repo | fixed (Task 5) |
+| 3 | blocker (by design) | One exact firmware build is supported | deferred (by design; the firmware-distance tool needs a mibpkg verb) |
+| 4 | annoying | Path defaults are the owner's machine layout; a missing path gives a generic Gradle error | fixed (Task 3) |
+| 5 | annoying | Permissions are not checked at build; the runtime error says "not granted" when the cause is "not declared" | fixed (Task 8) |
+| 6 | annoying | Every host test copies about 80 lines of harness, plus the build-script wiring | fixed (Task 6, Task 7) |
+| 7 | annoying | The dev loop (`mibsdk-dev`) is wired to the owner's bench unit | partial (Task 12: no default host; web push and `restart`'s name still open) |
+| 8 | annoying | A `linkCheck` failure does not say where the reference is, and shows rewritten class names | fixed (Task 11) |
+| 9 | annoying | The api-level scan only knows api 4 and 5 members | fixed (Task 9) |
+| 10 | annoying | Count and icon-size limits live in runtime code, are enforced only at runtime, and are not in the API | fixed (Task 10) |
+| 11 | annoying | Javadoc gaps, the threading guarantee among them | partial (Task 13: package doc and every API member that matters; the remaining per-member warnings are a follow-up) |
+| 12 | annoying | No scaffolding: five files and a `settings.gradle.kts` edit by hand | fixed (Task 14) |
+| 13 | annoying | Permissions are all or nothing | deferred (optional permissions need their own spec) |
+| 14 | nit | `onDisable` runs after a failed `onEnable`, which the Javadoc does not say | fixed (Task 13, documented) |
+| 15 | nit | Records fail with Jabel's `Must be annotated with @Desugar` | fixed (Task 13, api doc) |
+| 16 | nit | `compat` has 5 of the `java.util.function` interfaces | fixed (Task 12) |
+| 17 | nit | The spec says there is no `String.format`, and the build accepts it | deferred (needs a bench run) |
+| 18 | nit | Surprising UI behaviour you only learn from Javadoc or code | partial (Task 13: Javadoc section; screenshots need the unit) |
+| 19 | nit | Choice sub-page keys are undocumented, and `FakeUi` has no helper for them | fixed (Task 6) |
+| 20 | nit | Events need no permission, though `vehicle.read`'s approval text says it covers ignition | deferred (owner's decision: gate the events or reword the approval) |
+| 21 | nit | Task names are inconsistent: `mibPackage` against `mibpkgPackage` | fixed (Task 12; the `mibPackage` alias goes in 0.4.0) |
+| 22 | nit | The build and the runtime disagree on manifest rules | partial (Task 12: message and samples; the id range and `dependencies`' meaning are open) |
+| 23 | nit | `mibsdk-dev` says mibpkg 0.8.0 is enough | fixed (Task 12) |
+| 24 | nit | Missing samples and fake-car gaps | deferred (not on the "can anyone build" path) |
+| 25 | nit | Build output noise and a Gradle 9 deprecation warning | fixed (Task 12) |
 
 ---
 
@@ -327,7 +327,7 @@ predates this fix.
 `build/repo` and writes a `.gitignore`; `standalonePluginCheck` now scaffolds its fixture with that task. The
 description below is the problem as found.
 
-- **Where:** §1.3 to §1.5.
+- **Where:** §1.1, §1.3 to §1.5.
 - **What happens:** a new plugin is five files plus an edit to the SDK's `settings.gradle.kts`, and most of the
   build file and all of the test harness are copied from a sample. `mibpkg new <name>` exists, but it makes a mibpkg
   package, not an SDK plugin.

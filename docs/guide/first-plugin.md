@@ -71,7 +71,8 @@ The task copies `templates/plugin` and rewrites the template's names to yours: `
 writes the two things the template cannot know:
 
 - `gradle.properties` gets `mibsdk.repo` set to this checkout's `build/repo` as an absolute `file:` URL, taken from
-  the build's own layout when the task runs. It is the only machine-specific line, and it names no home directory;
+  the build's own layout when the task runs. It is the only machine-specific line: the path is written from where
+  the checkout sits at that moment, so it differs per machine and is under your home directory if the checkout is;
 - `.gitignore`, covering `build/`, `.gradle/` and `.kotlin/`.
 
 Everything else — the wrapper, the build file, the manifest, the class and its test — is the template's.
@@ -120,6 +121,8 @@ mibsdk.mibpkg=/path/to/mibpkg/target/release/mibpkg
 build.gradle.kts                          plugins { id("mibsdk.plugin") version "..." }
 settings.gradle.kts                       the repositories (mibsdk.repo, Gradle plugin portal, Maven Central)
 gradle.properties                         mibsdk.repo, written by newPlugin
+gradlew, gradlew.bat                      the wrapper, so ./gradlew works in the new project
+gradle/wrapper/                           the wrapper jar and its properties
 src/main/resources/plugin.json            the manifest
 src/main/java/tutorial/coffeetimer/CoffeeTimer.java
 src/test/java/tutorial/coffeetimer/CoffeeTimerTest.java
@@ -148,7 +151,10 @@ The rest of this tutorial writes paths and tasks as they are in the SDK reposito
 Sections [2](#2-the-manifest-pluginjson) and [4](#4-the-plugin-class) write the `plugin.json` and the plugin class
 that replace the scaffolded ones. The generated class is named after the id (`CoffeeTimer`); the tutorial's is
 `CoffeeTimerPlugin`, the name the sample uses, so write that name in the manifest's `main`, in the class and in its
-test. There is nothing to register in any other build: the project builds on its own.
+test. **Delete the scaffolded `src/main/java/tutorial/coffeetimer/CoffeeTimer.java` and its
+`src/test/java/tutorial/coffeetimer/CoffeeTimerTest.java`** as well: they test the scaffold, not your plugin, and
+leaving them in makes the `test` run count seven tests, because the scaffold's own test still runs. There is nothing
+to register in any other build: the project builds on its own.
 
 ### 1.5 The build file
 
@@ -205,7 +211,7 @@ Create `plugins/coffee-timer/src/main/resources/plugin.json`:
 | `permissions` | what the plugin may do. It needs `ui.slot.carmenu` for the Car-drawer row and `ui.slot.statusbar` for the status item **and** the toast. The catalog is `api/permissions.json` |
 | `icons` | (api 3+) up to 8 names matching `[a-z0-9-]{1,32}`. Each needs `src/main/icons/<name>.png` |
 
-The build checks your permissions twice:
+The build checks your manifest three ways:
 
 - **Names are validated.** A typo such as `ui.slot.statusbr` fails the build and suggests the nearest name:
   `unknown permission "ui.slot.statusbr" (did you mean "ui.slot.statusbar"?); known: ...`.
@@ -715,6 +721,7 @@ class CoffeeTimerPluginTest {
         minutePasses();
         h.await(() -> "Coffee ready".equals(ui.statusLine()), "Coffee ready");
         h.await(() -> ("[png:" + cup20Sha + "] Coffee is ready").equals(ui.toast()), "the toast: " + ui.toast());
+        h.await(() -> ui.render(page).contains("Dismiss"), "the Dismiss row");
         ui.select(page, "dismiss");
         h.await(() -> "".equals(ui.statusLine()), "the status item hidden");
     }
@@ -737,6 +744,7 @@ class CoffeeTimerPluginTest {
         start();
         ui.select(page, "start");
         h.await(() -> "Coffee 4m".equals(ui.statusLine()), "Coffee 4m");
+        h.await(() -> ui.render(page).contains("Stop timer: 4 min left"), "the Stop row");
         ui.select(page, "stop");
         h.await(() -> ui.render(page).contains("Start timer: 4 min"), "back to Start");
         assertEquals("", ui.statusLine());
@@ -750,7 +758,8 @@ Run it:
 ./gradlew :plugins:coffee-timer:test
 ```
 
-You should see `BUILD SUCCESSFUL`. A failing `h.await` prints the runtime's status, the car rows, the status line,
+You should see `BUILD SUCCESSFUL`, and the report lists six tests in `CoffeeTimerPluginTest`. A failing `h.await`
+prints the runtime's status, the car rows, the status line,
 your plugin's pages and the runtime's whole log, and the log usually tells you why. Open
 `plugins/coffee-timer/build/reports/tests/test/index.html` for the details.
 
@@ -788,6 +797,10 @@ What the harness does, and why:
     options have the ids `"0"`, `"1"` and so on; `choose` opens it and picks the option for you;
   - `statusLine()`, `statusParts()` and `toast()`;
   - `dialog()`, `answer(...)`, `type(...)` and `leave()` for confirm and speller.
+  Every driver (`select`, `toggle`, `turn`, `pick`, `choose`) does nothing when the entry is not on the page yet or
+  is disabled. After an action that changes the page, await the change before the next one: `start()` sets the
+  status line before `onAction` rebuilds the page, so the test above waits for the "Stop timer" row before selecting
+  it.
 - **The car.** `h.car()` is the `FakePlatform`: change the unit's ignition or sound state there.
 - **Rendered text.** `render` gives one line per entry, in a fixed text format (`UiPageText.line`): `[on] label` for
   a toggle, `label: value` for an item, `Brew time: 4 [1..10]` for a slider. Icons show as tags: `[png:<sha16>]`

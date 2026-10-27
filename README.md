@@ -179,7 +179,7 @@ tasks are `./gradlew mibPluginJar` and `./gradlew mibpkgPackage`.
 | `build-logic/` | An included Gradle build with the `mibsdk.car-library` and `mibsdk.plugin` conventions, plus the backport, `LinkCheck`, `PermissionScan`, `PngCheck`, check-stamp and mibpkg packaging tasks. |
 | `dist/` | Assembles the three unit jars (`mibsdk-runtime.jar`, `mibsdk-adapter-hqc.jar`, `mibsdk-rt-retrotranslator.jar`), link-checks them together against the stock jars, stamps them and packs `mibsdk-<version>.mpk`. `dist/icons/` holds the built-in icon set. |
 | `installer/` | `mibsdk-dev`, the bench developer tool (bash, over SSH), and its Python tests (`test_mibsdk_dev.py`, `test_make_builtin_icons.py`). |
-| `templates/plugin/` | The stand-alone plugin project to copy: the starting point for your own plugin, and the fixture of `standalonePluginCheck`. |
+| `templates/plugin/` | The stand-alone plugin project that `newPlugin` scaffolds from, and the fixture of `standalonePluginCheck`. |
 | `plugins/` | Sample plugins, each a Gradle subproject: `hello` (api 1, minimal), `crashy` (fails on purpose to show quarantine), `hello-menu` (a page, a Car row, a status item and icons), `daemon-status` (`net`), `bike-rack` (Kotlin; vehicle override and events), `inputs-demo` (every api-5 input) and `coffee-timer` (the tutorial). |
 | `spikes/` | Throwaway bench experiments: `modern-java` (proves Java 17 and Kotlin run on J9 after backporting) and `hmi-ui` (the UI injection spikes). They are not part of the distribution. |
 | `tools/` | `make_builtin_icons.py`, which regenerates `dist/icons/`, the PNG test vectors and some samples' icons, all deterministically. |
