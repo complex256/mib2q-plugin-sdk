@@ -286,6 +286,17 @@ now names. The description below is the problem as found.
 
 ## 11. Javadoc gaps, the threading guarantee among them (annoying)
 
+**Status:** fixed in part in Task 13. `mibsdk.api` has a `package-info.java` now: one serial worker per plugin, the
+lifecycle (including `onDisable` after a failed `onEnable`), the quarantine rule (3 failures in 60 s; slow 5 s, hung
+30 s), inert handles, the UI behaviours of bump 18, and why records fail. `Scheduler` says "the plugin's single SDK
+worker thread" and documents both methods; `MibPlugin` and every `Features` and `Permissions` constant are documented,
+each permission naming the methods that need it. The count is still capped at 100 because the classes this task did not
+touch keep theirs: `PageSpec` (64, mostly builder methods), `Net` (6), `Ui` (7), `PluginContext` (6), `Hooks` (5),
+`StatusItem` (3), `Parking` (3), `Storage` (2), `StockIcons` (2) and `Page` (2); `Log`, `Events`, `Vehicle`, `HookPoint`
+and `Listener` still have no class comments. `./gradlew :api:javadoc` itself prints nothing, because Task 4 set
+`-Xdoclint:none -quiet` and `isFailOnError = false`; the counts come from running javadoc with `-Xdoclint:all`.
+Making the task fail on warnings is still open. The description below is the problem as found.
+
 - **Where:** `./gradlew :api:javadoc` prints 100 warnings, the limit javadoc stops counting at. They fall in
   `Ui.java` (35), `PageSpec.java` (9), `Net.java` (8), `Features.java` (7), `PluginContext.java` (6), `Hooks.java`
   (6), and then `MibPlugin`, `Log`, `HookObserved`, `OverrideScope`, `IgnitionChanged`, `HookPoint`, `Page`,
@@ -327,6 +338,12 @@ now names. The description below is the problem as found.
 
 ## 14. `onDisable` runs after a failed `onEnable` (nit)
 
+**Status:** fixed in Task 13, documented rather than skipped. `MibPlugin.onDisable` says it runs "including after
+`onEnable` threw", that the SDK has already cancelled registrations by then, and that fields assigned after the failure
+point are null; `MibPlugin.onEnable` says the same from its side, and the `mibsdk.api` package doc repeats it in the
+lifecycle section. Skipping `onDisable` after a failed enable was not taken: a plugin that opened a resource before
+failing still has to close it. The description below is the problem as found.
+
 - **Where:** §4.1. `MibPlugin.onDisable` (`api/src/main/java/mibsdk/api/MibPlugin.java:14`).
 - **What happens:** in the permission experiment of bump 5, the log showed `INFO coffee-timer disabled`, written by
   `onDisable`, right after `onEnable` threw. Fields set after the failure point are still null at that moment, so a
@@ -335,6 +352,11 @@ now names. The description below is the problem as found.
 - **Suggested fix:** document it, or skip `onDisable` when `onEnable` did not return.
 
 ## 15. Records fail with a cryptic error (nit)
+
+**Status:** fixed in Task 13, the api-doc part. The `mibsdk.api` package doc has a "Language level" section that names
+records as unsupported and quotes the build's message (`Must be annotated with @Desugar`), with the advice to use a final
+class with final fields. The convention's Javadoc and the spec's G1 list are unchanged. The description below is the
+problem as found.
 
 - **Where:** §10.
 - **What happens:** `record R(int x) {}` fails in `compileJava` with `error: Must be annotated with @Desugar`. That
@@ -367,6 +389,12 @@ so a lambda typed with any of them links. The description below is the problem a
   with a hint.
 
 ## 18. Surprising UI behaviour you only learn from Javadoc or code (nit)
+
+**Status:** fixed in part in Task 13, the Javadoc part. The `mibsdk.api` package doc has a "UI behaviour that is easy
+to get wrong" section with all five items below, in plain sentences: the slider shows a position, dropdown and slider
+rows are drawn after the list rows, a toggle needs the plugin to update the page, a toast needs
+`ui.slot.statusbar`, and a Car row's icon shows the next time the Car screen opens. The screenshots in the guide are
+still missing. The description below is the problem as found.
 
 - **Where:** §4.4, §4.6 and §6.
   - A **slider shows its position, not its number**, so the value must be repeated somewhere else (coffee-timer
