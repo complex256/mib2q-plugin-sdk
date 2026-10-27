@@ -17,7 +17,11 @@ public final class StockIcons {
     private StockIcons() {
     }
 
-    /** Whether {@code name} is one of the built-in icons; false for null. */
+    /**
+     * Whether {@code name} is one of the built-in icons; false for null.
+     *
+     * @since api 3
+     */
     public static boolean isKnown(String name) {
         for (int i = 0; i < ALL.length; i++) {
             if (ALL[i].equals(name)) {

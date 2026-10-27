@@ -162,15 +162,16 @@ class PermissionScanTest {
                         + " public Icon row(Ui ui) { return ui.icon(\"x\"); } }"));
         PermissionScan.Result r = PermissionScan.run(colour);
         assertEquals(4, r.needsApi());
-        assertEquals(List.of("fixture/C.status -> Ui.icon(String,int)"), r.apiFindings());
+        assertEquals(List.of("fixture/C.row -> Ui.icon(String)", "fixture/C.status -> Ui.icon(String,int)"),
+                r.apiFindings());
         assertEquals(List.of(), r.findings(), "not a permission finding");
 
         File plain = Fixtures.compileV48(tmp.resolve("plain"), Map.of("mibsdk.api.Icon", ICON_STUB,
                 "mibsdk.api.Ui", UI_STUB, "fixture.T",
                 "package fixture; import mibsdk.api.*; public class T {"
                         + " public Icon row(Ui ui) { return ui.icon(\"x\"); } }"));
-        assertEquals(1, PermissionScan.run(plain).needsApi());
-        assertEquals(List.of(), PermissionScan.run(plain).apiFindings());
+        assertEquals(3, PermissionScan.run(plain).needsApi());
+        assertEquals(List.of("fixture/T.row -> Ui.icon(String)"), PermissionScan.run(plain).apiFindings());
 
         // The plugin's own icon(String,int), with the same name and descriptor, is not Ui's.
         File own = Fixtures.compileV48(tmp.resolve("own"), Map.of("mibsdk.api.Icon", ICON_STUB,
@@ -203,20 +204,68 @@ class PermissionScanTest {
                         + " public boolean toggle(PageSpec.Kind k) { return k == PageSpec.Kind.TOGGLE; } }"), stub);
         r = PermissionScan.run(kind);
         assertEquals(5, r.needsApi());
-        assertEquals(List.of("fixture/K.slider -> PageSpec.Kind.SLIDER"), r.apiFindings());
+        assertEquals(List.of("fixture/K.slider -> PageSpec.Kind.SLIDER", "fixture/K.toggle -> PageSpec.Kind.TOGGLE"),
+                r.apiFindings());
+        assertEquals(List.of("fixture/K.slider -> PageSpec.Kind.SLIDER needs api 5"), r.tooNew(4));
 
         File toggle = Fixtures.compileV48(tmp.resolve("toggle"), Map.of(
                 "fixture.T", "package fixture; import mibsdk.api.*; public class T {"
                         + " public PageSpec page(PageSpec p) { return p.toggle(\"t\", \"T\", true); } }"), stub);
-        assertEquals(1, PermissionScan.run(toggle).needsApi());
-        assertEquals(List.of(), PermissionScan.run(toggle).apiFindings());
+        assertEquals(2, PermissionScan.run(toggle).needsApi());
+        assertEquals(List.of("fixture/T.page -> PageSpec.toggle"), PermissionScan.run(toggle).apiFindings());
 
-        assertEquals(1, ApiLevels.since("mibsdk/api/PageSpec", "toggle", "(Ljava/lang/String;Ljava/lang/String;Z)Lmibsdk/api/PageSpec;"));
+        assertEquals(2, ApiLevels.since("mibsdk/api/PageSpec", "toggle", "(Ljava/lang/String;Ljava/lang/String;Z)Lmibsdk/api/PageSpec;"));
         assertEquals(4, ApiLevels.since("mibsdk/api/Ui", "icon", "(Ljava/lang/String;I)Lmibsdk/api/Icon;"));
         assertEquals(5, ApiLevels.since("mibsdk/api/UiAction", "<init>",
                 "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/Integer;Ljava/lang/String;)V"));
-        assertEquals(1, ApiLevels.since("mibsdk/api/UiAction", "<init>",
+        assertEquals(2, ApiLevels.since("mibsdk/api/UiAction", "<init>",
                 "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;)V"));
+    }
+
+    private static final String DAEMON_STATUS_CONTEXT = "package mibsdk.api; public interface PluginContext {"
+            + " Ui ui(); Net net(); }";
+    private static final String DAEMON_STATUS_UI = "package mibsdk.api; public interface Ui {"
+            + " Page page(PageSpec spec, Listener<UiAction> onAction); StatusItem statusItem(String text);"
+            + " Icon stockIcon(String name); }";
+
+    @Test
+    void daemonStatusAtApi1IsRefused() throws Exception {
+        // The daemon-status sample's calls, rebuilt against stubs: its page, status item, stock icon and Net query.
+        File classes = Fixtures.compileV48(tmp.resolve("daemon"), Map.ofEntries(
+                Map.entry("mibsdk.api.Icon", ICON_STUB),
+                Map.entry("mibsdk.api.Listener", "package mibsdk.api; public interface Listener<T> { void on(T t); }"),
+                Map.entry("mibsdk.api.UiAction", "package mibsdk.api; public final class UiAction {}"),
+                Map.entry("mibsdk.api.Page", "package mibsdk.api; public interface Page { void update(PageSpec s); }"),
+                Map.entry("mibsdk.api.PageSpec", "package mibsdk.api; public final class PageSpec {"
+                        + " public static PageSpec of(String id, String title) { return null; }"
+                        + " public PageSpec info(String text) { return this; } }"),
+                Map.entry("mibsdk.api.StatusItem", "package mibsdk.api; public interface StatusItem {"
+                        + " void set(String text, Icon icon); }"),
+                Map.entry("mibsdk.api.Net", "package mibsdk.api; public interface Net {"
+                        + " String query(String host, int port, String request, int timeoutMs) throws java.io.IOException; }"),
+                Map.entry("mibsdk.api.Ui", DAEMON_STATUS_UI),
+                Map.entry("mibsdk.api.PluginContext", DAEMON_STATUS_CONTEXT),
+                Map.entry("fixture.D", "package fixture; import mibsdk.api.*; public class D {"
+                        + " public void enable(PluginContext ctx) throws Exception {"
+                        + " Ui ui = ctx.ui();"
+                        + " Page page = ui.page(PageSpec.of(\"status\", \"Daemons\").info(\"x\"), null);"
+                        + " page.update(PageSpec.of(\"status\", \"Daemons\"));"
+                        + " StatusItem item = ui.statusItem(null);"
+                        + " item.set(\"TS up\", ui.stockIcon(\"dot\"));"
+                        + " ctx.net().query(\"127.0.0.1\", 1, null, 1); } }")));
+        PermissionScan.Result r = PermissionScan.run(classes);
+        assertEquals(3, r.needsApi());
+        assertEquals(List.of(
+                "fixture/D.enable -> Net.query needs api 2",
+                "fixture/D.enable -> Page.update needs api 2",
+                "fixture/D.enable -> PageSpec.info needs api 2",
+                "fixture/D.enable -> PageSpec.of needs api 2",
+                "fixture/D.enable -> PluginContext.net needs api 2",
+                "fixture/D.enable -> PluginContext.ui needs api 2",
+                "fixture/D.enable -> StatusItem.set(String,Icon) needs api 3",
+                "fixture/D.enable -> Ui.page needs api 2",
+                "fixture/D.enable -> Ui.statusItem(String) needs api 2",
+                "fixture/D.enable -> Ui.stockIcon needs api 3"), r.tooNew(1));
     }
 
     @Test

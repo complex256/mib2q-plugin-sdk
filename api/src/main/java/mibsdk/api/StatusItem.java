@@ -9,7 +9,11 @@ public interface StatusItem extends Subscription {
     /** The largest status icon, in pixels, either way. */
     int ICON_MAX_PX = 20;
 
-    /** {@code null} or {@code ""} hides the item. The item keeps its icon. */
+    /**
+     * {@code null} or {@code ""} hides the item. The item keeps its icon.
+     *
+     * @since api 2
+     */
     void set(String text);
 
     /**

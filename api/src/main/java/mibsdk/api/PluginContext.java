@@ -17,10 +17,18 @@ public interface PluginContext {
 
     Scheduler scheduler();
 
-    /** Declarative pages, Car-menu rows and the status-line item. */
+    /**
+     * Declarative pages, Car-menu rows and the status-line item.
+     *
+     * @since api 2
+     */
     Ui ui();
 
-    /** Loopback TCP queries. Throws {@link PermissionDeniedException} without {@link Permissions#NETWORK}. */
+    /**
+     * Loopback TCP queries. Throws {@link PermissionDeniedException} without {@link Permissions#NETWORK}.
+     *
+     * @since api 2
+     */
     Net net();
 
     /** True if the running firmware adapter supports the feature (see {@link Features}). */

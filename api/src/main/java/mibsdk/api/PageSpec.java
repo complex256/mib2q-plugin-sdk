@@ -56,8 +56,41 @@ public final class PageSpec {
 
     static final int MAX_ID = 32;
 
-    /** CHOICE, DROPDOWN, SLIDER and PROGRESS are {@code @since api 5} (Needs api 5). */
-    public enum Kind { ITEM, TOGGLE, INFO, LINK, CHOICE, DROPDOWN, SLIDER, PROGRESS }
+    /** The kind of a page row. CHOICE, DROPDOWN, SLIDER and PROGRESS need api 5. */
+    public enum Kind {
+        /**
+         * @since api 2
+         */
+        ITEM,
+        /**
+         * @since api 2
+         */
+        TOGGLE,
+        /**
+         * @since api 2
+         */
+        INFO,
+        /**
+         * @since api 2
+         */
+        LINK,
+        /**
+         * @since api 5
+         */
+        CHOICE,
+        /**
+         * @since api 5
+         */
+        DROPDOWN,
+        /**
+         * @since api 5
+         */
+        SLIDER,
+        /**
+         * @since api 5
+         */
+        PROGRESS
+    }
 
     /** One row of a page. {@link #itemId()} is null for INFO; {@link #label()} holds INFO's text. */
     public static final class Entry {
@@ -104,26 +137,44 @@ public final class PageSpec {
                     e);
         }
 
+        /**
+         * @since api 2
+         */
         public Kind kind() {
             return kind;
         }
 
+        /**
+         * @since api 2
+         */
         public String itemId() {
             return itemId;
         }
 
+        /**
+         * @since api 2
+         */
         public String label() {
             return label;
         }
 
+        /**
+         * @since api 2
+         */
         public String value() {
             return value;
         }
 
+        /**
+         * @since api 2
+         */
         public boolean on() {
             return on;
         }
 
+        /**
+         * @since api 2
+         */
         public Page target() {
             return target;
         }
@@ -212,24 +263,40 @@ public final class PageSpec {
         this.entries = entries;
     }
 
+    /**
+     * @since api 2
+     */
     public static PageSpec of(String id, String title) {
         requireId(id, "page id");
         return new PageSpec(id, title, Collections.<Entry>emptyList());
     }
 
-    /** {@code value} may be null. */
+    /**
+     * {@code value} may be null.
+     *
+     * @since api 2
+     */
     public PageSpec item(String itemId, String label, String value) {
         return with(new Entry(Kind.ITEM, checkedItemId(itemId), label, value, false, null));
     }
 
+    /**
+     * @since api 2
+     */
     public PageSpec toggle(String itemId, String label, boolean on) {
         return with(new Entry(Kind.TOGGLE, checkedItemId(itemId), label, null, on, null));
     }
 
+    /**
+     * @since api 2
+     */
     public PageSpec info(String text) {
         return with(new Entry(Kind.INFO, null, text, null, false, null));
     }
 
+    /**
+     * @since api 2
+     */
     public PageSpec link(String itemId, String label, Page target) {
         String checked = checkedItemId(itemId);
         if (target == null) {
@@ -354,15 +421,25 @@ public final class PageSpec {
         throw new IllegalArgumentException("no item '" + itemId + "' on page '" + id + "'");
     }
 
+    /**
+     * @since api 2
+     */
     public String id() {
         return id;
     }
 
+    /**
+     * @since api 2
+     */
     public String title() {
         return title;
     }
 
-    /** Unmodifiable, in insertion order. */
+    /**
+     * Unmodifiable, in insertion order.
+     *
+     * @since api 2
+     */
     public List<Entry> entries() {
         return entries;
     }

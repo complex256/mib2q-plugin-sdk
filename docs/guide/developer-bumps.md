@@ -229,6 +229,11 @@ block (`standalonePluginCheck` runs the template's own test). The description be
 
 ## 9. The api-level scan only knows api 4 and 5 members (annoying)
 
+**Status:** fixed in Task 9. `ApiLevels` lists the api 2 and 3 members as well (pages, Car rows, the status item,
+`Net`, icons), each `@since api N` tag in `api/` is checked against the table by `ApiLevelsTest`, and
+`permissionScan` refuses an api-1 `daemon-status` (`PermissionScanTest.daemonStatusAtApi1IsRefused`). The description
+below is the problem as found.
+
 - **Where:** `ApiLevels` (`build-logic/src/main/java/mibsdk/build/ApiLevels.java:36-63`) lists `Ui.icon(String,int)`
   (api 4) and the api 5 members, and nothing from api 2 or 3.
 - **What happens:** set `plugins/daemon-status`'s `"api"` from 3 to 1 and it still builds, although it uses

@@ -9,7 +9,11 @@ public final class UiAction {
     private final Integer value;
     private final String text;
 
-    /** A null {@link #value()} and {@link #text()}. */
+    /**
+     * A null {@link #value()} and {@link #text()}.
+     *
+     * @since api 2
+     */
     public UiAction(String pageId, String itemId, Boolean requestedOn) {
         this(pageId, itemId, requestedOn, null, null);
     }
@@ -27,15 +31,25 @@ public final class UiAction {
         this.text = text;
     }
 
+    /**
+     * @since api 2
+     */
     public String pageId() {
         return pageId;
     }
 
+    /**
+     * @since api 2
+     */
     public String itemId() {
         return itemId;
     }
 
-    /** Null for ITEM, requested state for TOGGLE. */
+    /**
+     * Null for ITEM, requested state for TOGGLE.
+     *
+     * @since api 2
+     */
     public Boolean requestedOn() {
         return requestedOn;
     }

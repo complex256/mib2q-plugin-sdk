@@ -12,6 +12,8 @@ public interface Net {
      * {@link java.io.IOException}). Any loopback port is reachable. A server that keeps the connection open
      * after sending 8 KiB or more yields a {@link java.net.SocketTimeoutException} rather than a truncated
      * result, because the read runs to EOF.
+     *
+     * @since api 2
      */
     String query(String host, int port, String request, int timeoutMs) throws java.io.IOException;
 }

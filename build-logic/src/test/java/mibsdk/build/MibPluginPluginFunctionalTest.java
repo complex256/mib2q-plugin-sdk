@@ -76,6 +76,10 @@ class MibPluginPluginFunctionalTest {
                 + "    ctx.ui().statusItem(\"x\");\n"
                 + "  }\n"
                 + "}\n", "[\"platform.unrestricted\"]");
+        // ctx.net() and ctx.ui() are api 2.
+        write("plugins/undeclared/src/main/resources/plugin.json",
+                manifest("undeclared", "sample.undeclared.UndeclaredPlugin", "[\"platform.unrestricted\"]")
+                        .replace("\"api\":1", "\"api\":2"));
         javaPlugin("badperm", "sample.refl.ReflPlugin", "package sample.refl;\n"
                 + "import mibsdk.api.*;\n"
                 + "public class ReflPlugin extends MibPlugin {\n"

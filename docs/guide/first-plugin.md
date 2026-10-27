@@ -972,15 +972,16 @@ Retrotranslator runtime. `de.audi.*`, `de.esolutions.*`, `org.dsi.*` and the SDK
 hidden. You cannot patch or call the stock HMI. Changes to stock behaviour go through the SDK's declarative hooks
 (`ctx.hooks()`, parking only for now).
 
-**The api level is checked (`permissionScan`, too).** Use an api-4 or api-5 member while you declare less, and the
-build fails:
+**The api level is checked (`permissionScan`, too).** Use a member from a newer level than the one you declare
+(api 2 to 5), and the build fails:
 
 ```
 > permissionScan: tutorial/coffeetimer/CoffeeTimerPlugin.spec -> PageSpec.slider needs api 5; plugin.json declares api 4
 ```
 
-The scan only knows the members added in api 4 and 5. If you declare api 1 and use `Ui` (api 2) or
-`ui.stockIcon` (api 3), it does not notice.
+The scan knows every member added in api 2 to 5. If you declare api 1 and call `ctx.ui()` (api 2) or
+`ui.stockIcon` (api 3), the build names the call site and the level it needs. Compile-time constants such as
+`PageSpec.MAX_OPTIONS` are inlined by the compiler and are not checked.
 
 **Threads.** Your code runs on your plugin's one worker thread (section 4.2):
 

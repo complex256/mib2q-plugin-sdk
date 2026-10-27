@@ -46,12 +46,16 @@ public interface Ui {
     /**
      * Registers a page under this plugin's Plugins-menu entry; actions arrive on the plugin's executor. Inert without
      * Features.UI_PAGES.
+     *
+     * @since api 2
      */
     Page page(PageSpec spec, Listener<UiAction> onAction);
 
     /**
      * A row in the Car menu that opens {@code opens}, a live page from {@link #page}. Needs ui.slot.carmenu; inert
      * without Features.SLOT_CAR_MENU or when {@code opens} is inert.
+     *
+     * @since api 2
      */
     Subscription carMenuRow(String label, Page opens);
 
@@ -75,6 +79,8 @@ public interface Ui {
      * characters each do not fit, the last items in that order are left out (all of them if none fits). The user may hide this plugin's item or
      * move it earlier or later from its page in the Plugins menu. None of that is visible to the plugin:
      * {@link StatusItem#set} keeps working and never fails because the item is hidden or cut.
+     *
+     * @since api 2
      */
     StatusItem statusItem(String text);
 

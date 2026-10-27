@@ -255,11 +255,12 @@ Compatibility rules:
 
 - **Levels are additive.** A newer SDK runs plugins of every older level unchanged. SDK 0.3.0 loads api 1 to 5,
   and 0.2.0 loads api 1 to 4.
-- **Declare the lowest level that covers what you use.** The build refuses a plugin that uses an api-4 or api-5
-  member while it declares a lower level. It names each call site
-  (`... -> PageSpec.slider needs api 5; plugin.json declares api 4`). Members from api 2 and 3 are **not** in the
-  scan's table (`build-logic/src/main/java/mibsdk/build/ApiLevels.java`): the scan does not catch them, and the
-  only api-3 check is on `"icons"`.
+- **Declare the lowest level that covers what you use.** The build enforces every level: it refuses a plugin that uses an
+  api 2 to 5 member while it declares a lower level. It names each call site
+  (`... -> PageSpec.slider needs api 5; plugin.json declares api 4`). The table is
+  `build-logic/src/main/java/mibsdk/build/ApiLevels.java`, and a test checks that every `@since api N` tag in `api/`
+  has an entry. Constants such as `PageSpec.MAX_OPTIONS` are inlined by the compiler, so they leave no call site and
+  are not checked. The manifest `"icons"` list has its own check.
 - **mibpkg installs a plugin only when** `sdk.min_api <= plugin.api <= sdk.api` for the SDK on the unit. An api-5
   plugin needs SDK 0.3.0, and mibpkg refuses it on 0.2.0.
 - **Features are separate from api levels.** An api level says what the API has, and `ctx.has(Features.X)` says
