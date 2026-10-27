@@ -67,7 +67,7 @@ tasks.register("publishLocal") {
 }
 
 // Proves the plugin template builds outside this repository: copies templates/plugin to build/standalone-check/ and builds
-// it there with this wrapper, resolving the mibsdk plugin and artifacts only from build/repo (no :api, no stock jars).
+// it there with its own wrapper, resolving the mibsdk plugin and artifacts only from build/repo (no :api, no stock jars).
 val standalonePluginCheck = tasks.register<Exec>("standalonePluginCheck") {
     group = "verification"
     description = "Builds templates/plugin in a copy outside the project graph against build/repo (mibPluginJar and test)."
@@ -77,19 +77,23 @@ val standalonePluginCheck = tasks.register<Exec>("standalonePluginCheck") {
     val checkDir = layout.buildDirectory.dir("standalone-check")
     val repoDir = localRepoDir
     val sdkVersion = providers.gradleProperty("mibsdk.version")
-    val wrapper = layout.projectDirectory.file(if (org.gradle.internal.os.OperatingSystem.current().isWindows) "gradlew.bat" else "gradlew")
+    val windows = System.getProperty("os.name").lowercase().contains("windows")
+    val jdk8Home = providers.gradleProperty("mibsdk.jdk8Home")
 
     inputs.files(fileTree(template) { exclude("build/**", ".gradle/**", ".kotlin/**") })
         .withPropertyName("template").withPathSensitivity(PathSensitivity.RELATIVE)
     // maven-metadata.xml carries a publication timestamp: only the artifacts themselves count.
     inputs.files(repoDir.map { fileTree(it) { include("**/*.jar", "**/*.pom", "**/*.module") } }).withPropertyName("repo").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.property("sdkVersion", sdkVersion)
+    inputs.property("jdk8Home", jdk8Home.orElse(""))
     outputs.file(checkDir.map { it.file("build/mibsdk/my-plugin.jar") })
 
-    executable = wrapper.asFile.absolutePath
+    // The copy's own wrapper, so the template's gradlew is what gets tested.
+    workingDir = checkDir.get().asFile
+    executable = checkDir.get().file(if (windows) "gradlew.bat" else "gradlew").asFile.absolutePath
     argumentProviders.add(CommandLineArgumentProvider {
-        listOf("-p", checkDir.get().asFile.absolutePath, "-Pmibsdk.repo=" + repoDir.get().asFile.toURI(),
-            "mibPluginJar", "test", "--stacktrace")
+        listOfNotNull("-Pmibsdk.repo=" + repoDir.get().asFile.toURI(),
+            jdk8Home.orNull?.let { "-Pmibsdk.jdk8Home=$it" }, "mibPluginJar", "test", "--stacktrace")
     })
 
     doFirst {
@@ -102,6 +106,8 @@ val standalonePluginCheck = tasks.register<Exec>("standalonePluginCheck") {
         val dir = checkDir.get().asFile
         dir.deleteRecursively()
         template.asFile.copyRecursively(dir)
+        // copyRecursively keeps the file contents but not always the executable bit.
+        dir.resolve("gradlew").setExecutable(true)
     }
     doLast {
         val jar = checkDir.get().file("build/mibsdk/my-plugin.jar").asFile

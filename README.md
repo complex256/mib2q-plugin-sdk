@@ -123,6 +123,9 @@ unnoticed. See [Writing your first plugin](docs/guide/first-plugin.md#12-start-f
                → the SDK runtime (itself the `mibsdk` mibpkg package) loads the plugin on the next reload or boot
 ```
 
+The task names in the diagram are the in-repo form, for the samples in `plugins/`. In your own plugin repository the same
+tasks are `./gradlew mibPluginJar` and `./gradlew mibPackage`.
+
 1. **Build.** The `mibsdk.plugin` Gradle convention compiles your source with JDK 17 (`--release 8`, with Jabel for
    newer syntax). It then lowers the classes to class-file version 48 (Retrolambda, then Retrotranslator) and runs
    three checks:

@@ -96,8 +96,8 @@ Build the template once, before you change anything:
 You should see `BUILD SUCCESSFUL`, and `build/mibsdk/my-plugin.jar` should exist.
 
 - `mibsdk.repo is not set` means `mibsdk.repo` is still empty.
-- `Could not find dev.complex256.mibsdk:api:...` means the URL does not point at the `build/repo` of a checkout where
-  `./gradlew publishLocal` has run, or the checkout's `mibsdk.version` differs from the version in your
+- `Plugin [id: 'mibsdk.plugin', version: '...'] was not found` means the URL does not point at the `build/repo` of a
+  checkout where `./gradlew publishLocal` has run, or the checkout's `mibsdk.version` differs from the version in your
   `build.gradle.kts`.
 - `The configured executable does not exist (.../bin/javac)` means the JDK 8 path is wrong.
 
@@ -137,7 +137,10 @@ build: the project builds on its own.
 
 ### 1.5 The build file
 
-Create `plugins/coffee-timer/build.gradle.kts`:
+This is the build file of the finished sample, which is a subproject of the SDK repository. In your own project, edit
+the template's `build.gradle.kts` instead of creating one, and keep its `plugins` line **with its version**
+(`id("mibsdk.plugin") version "0.3.0"`): without the version Gradle cannot find the plugin in your repository. Add the
+other blocks below it. The sample's file is:
 
 <!-- file: plugins/coffee-timer/build.gradle.kts -->
 ```kotlin
