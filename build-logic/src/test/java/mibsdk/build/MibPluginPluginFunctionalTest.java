@@ -49,7 +49,7 @@ class MibPluginPluginFunctionalTest {
         repo = new File(System.getProperty("mibsdk.repoRoot")).getCanonicalFile();
         String r = repo.getPath().replace('\\', '/');
         write("settings.gradle.kts", "rootProject.name = \"tk\"\n"
-                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:undeclared\", \"plugins:badperm\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api6\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:colour3\", \"plugins:colour4\", \"plugins:inputs4\", \"plugins:inputs5\", \"plugins:tested\", \"plugin-test\")\n"
+                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:undeclared\", \"plugins:badperm\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api6\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:colour3\", \"plugins:colour4\", \"plugins:inputs4\", \"plugins:inputs5\", \"plugins:tested\", \"plugins:regex\", \"plugin-test\")\n"
                 + "project(\":compat\").projectDir = file(\"" + r + "/compat\")\n"
                 + "project(\":api\").projectDir = file(\"" + r + "/api\")\n"
                 + "project(\":plugins:hello\").projectDir = file(\"" + r + "/plugins/hello\")\n"
@@ -85,6 +85,15 @@ class MibPluginPluginFunctionalTest {
                 + "public class ReflPlugin extends MibPlugin {\n"
                 + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
                 + "}\n", "[\"netwrk\"]");
+
+        // Calls a regex method the car lacks, so linkCheck must name the method and the hint.
+        javaPlugin("regex", "sample.regex.RegexPlugin", "package sample.regex;\n"
+                + "import mibsdk.api.*;\n"
+                + "public class RegexPlugin extends MibPlugin {\n"
+                + "  protected void onEnable(PluginContext ctx) throws Exception {\n"
+                + "    if (\"x\".matches(\"y\")) { ctx.log().info(\"matched\"); }\n"
+                + "  }\n"
+                + "}\n", "[]");
 
         for (String[] a : new String[][] {{"api2", "2"}, {"api0", "0"}, {"api6", "6"}, {"apifrac", "1.5"}}) {
             javaPlugin(a[0], "sample.refl.ReflPlugin", "package sample.refl;\n"
@@ -308,6 +317,14 @@ class MibPluginPluginFunctionalTest {
         BuildResult result = runner(":plugins:hello:mibPluginJar", "-x", "linkCheck").buildAndFail();
         assertTrue(result.getOutput().contains("refusing to write a check stamp"), result.getOutput());
         assertFalse(stamp.exists(), "stale stamp must not survive");
+    }
+
+    @Test
+    void linkCheckFailureShowsSiteAndHint() {
+        String output = runner(":plugins:regex:mibPluginJar").buildAndFail().getOutput();
+
+        assertTrue(output.contains("used by sample/regex/RegexPlugin.onEnable"), output);
+        assertTrue(output.contains("hint: no regex"), output);
     }
 
     @Test

@@ -208,6 +208,12 @@ block (`standalonePluginCheck` runs the template's own test). The description be
 
 ## 8. A `linkCheck` failure does not say where the reference is (annoying)
 
+**Status:** fixed in Task 11. `LinkCheck.Result.sites()` maps each `missing()` line to the `owner.method` of the
+checked code that referenced it, and `LinkCheckTask` prints one block per line: `used by` for each site, the
+source name in parentheses when the class name was rewritten (`jdkName`), and a one-line hint for regex,
+`java.util.concurrent` and the missing `java.util.function` interfaces (`LinkCheckHints`). The description below is
+the problem as found.
+
 - **Where:** §10. `LinkCheckTask` (`build-logic/src/main/java/mibsdk/build/LinkCheckTask.java:57`).
 - **What happens:**
 

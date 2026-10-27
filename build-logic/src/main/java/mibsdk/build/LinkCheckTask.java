@@ -4,7 +4,12 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.ConfigurableFileCollection;
@@ -45,17 +50,53 @@ public abstract class LinkCheckTask extends DefaultTask {
     public void check() throws IOException {
         List<File> classpath = List.copyOf(getClasspath().getFiles());
         List<File> libs = List.copyOf(getTransitiveLibs().getFiles());
-        java.util.TreeSet<String> missing = new java.util.TreeSet<String>();
+        TreeSet<String> missing = new TreeSet<String>();
+        Map<String, TreeSet<String>> sites = new HashMap<String, TreeSet<String>>();
         for (File checked : getChecked().getFiles()) {
             if (checked.exists()) {
-                missing.addAll(LinkCheck.run(checked, classpath, libs).missing());
+                LinkCheck.Result result = LinkCheck.run(checked, classpath, libs);
+                missing.addAll(result.missing());
+                for (Map.Entry<String, List<String>> e : result.sites().entrySet()) {
+                    TreeSet<String> named = sites.get(e.getKey());
+                    if (named == null) {
+                        named = new TreeSet<String>();
+                        sites.put(e.getKey(), named);
+                    }
+                    named.addAll(e.getValue());
+                }
             }
         }
-        String report = String.join("\n", missing) + (missing.isEmpty() ? "" : "\n");
+        List<String> blocks = new ArrayList<String>();
+        for (String line : missing) {
+            blocks.add(block(line, sites.get(line)));
+        }
+        String report = blocks.isEmpty() ? "" : String.join("\n", blocks) + "\n";
         Files.write(getReport().get().getAsFile().toPath(), report.getBytes(StandardCharsets.UTF_8));
         if (!missing.isEmpty()) {
             throw new GradleException("LinkCheck: " + missing.size() + " reference(s) the car cannot resolve:\n  "
-                    + String.join("\n  ", missing));
+                    + String.join("\n  ", blocks));
         }
+    }
+
+    /** One missing reference: the line, its source name when rewritten, the referencing methods and a hint. */
+    private static String block(String line, Collection<String> sites) {
+        StringBuilder b = new StringBuilder(line);
+        String owner = LinkCheckHints.ownerOf(line);
+        if (owner != null) {
+            String jdk = LinkCheckHints.jdkName(owner);
+            if (!jdk.equals(owner)) {
+                b.append(" (").append(jdk).append(" in your source)");
+            }
+        }
+        if (sites != null) {
+            for (String site : sites) {
+                b.append("\n    used by ").append(site);
+            }
+        }
+        String hint = LinkCheckHints.hint(line);
+        if (hint != null) {
+            b.append("\n    hint: ").append(hint);
+        }
+        return b.toString();
     }
 }

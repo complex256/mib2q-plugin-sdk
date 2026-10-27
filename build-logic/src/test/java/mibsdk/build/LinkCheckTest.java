@@ -84,6 +84,18 @@ class LinkCheckTest {
     }
 
     @Test
+    void sitesNameTheReferencingMethod() throws Exception {
+        LinkCheck.Result r = check(Map.of(
+                "a.B", "package a; public class B { public boolean run() { return \"x\".matches(\"y\"); } }",
+                "a.Res", "package a; public class Res implements AutoCloseable { public void close() {} }"));
+        String member = "member java/lang/String.matches(Ljava/lang/String;)Z";
+        assertTrue(r.missing().contains(member), r.missing().toString());
+        assertEquals(List.of("a/B.run"), r.sites().get(member));
+        // A header line names no method of the checked code.
+        assertEquals(List.of(), r.sites().get("class java/lang/AutoCloseable (interface of a/Res)"));
+    }
+
+    @Test
     void cleanFixturePasses() throws Exception {
         LinkCheck.Result r = check(Map.of("fixture.Clean",
                 "package fixture; public class Clean { public Object m() { return new StringBuffer().append(\"x\"); } }"));

@@ -39,14 +39,25 @@ public final class LinkCheck {
     /** Outcome of a link check. */
     public static final class Result {
         private final List<String> missing;
+        private final Map<String, List<String>> sites;
 
-        Result(List<String> missing) {
+        Result(List<String> missing, Map<String, List<String>> sites) {
             this.missing = Collections.unmodifiableList(missing);
+            this.sites = Collections.unmodifiableMap(sites);
         }
 
         /** Sorted lines such as {@code class java/lang/AutoCloseable (interface of a/B)}; empty means linkable. */
         public List<String> missing() {
             return missing;
+        }
+
+        /**
+         * Per {@link #missing()} line, the sorted, de-duplicated {@code owner.method} internal names of the checked
+         * classes that reference it directly. A line reached only through a followed library body, or a class
+         * header, maps to an empty list.
+         */
+        public Map<String, List<String>> sites() {
+            return sites;
         }
     }
 
@@ -62,7 +73,7 @@ public final class LinkCheck {
         }
         c.index(checkedDirOrJar, false);
         c.checkAll(checkedDirOrJar);
-        return new Result(new ArrayList<String>(c.missing));
+        return new Result(new ArrayList<String>(c.missing), c.siteLists());
     }
 
     private static final class ClassInfo {
@@ -84,6 +95,8 @@ public final class LinkCheck {
         final Map<String, ClassInfo> index = new HashMap<String, ClassInfo>();
         final Set<String> knownUnreadable = loadKnownUnreadable();
         final Set<String> missing = new TreeSet<String>();
+        /** Per missing line, the {@code owner.method} names of the checked code that reference it directly. */
+        final Map<String, Set<String>> sites = new HashMap<String, Set<String>>();
         final Set<String> unreadable = new HashSet<String>();
         final Set<String> followed = new HashSet<String>();
         final Set<String> libClassesChecked = new HashSet<String>();
@@ -178,7 +191,7 @@ public final class LinkCheck {
         }
 
         /** Checks one reference found in checked code ({@code via == null}) or in a followed lib method. */
-        void need(String owner, String member, String via) {
+        void need(String owner, String member, String via, String site) {
             if (owner.startsWith("[")) {
                 int i = 0;
                 while (owner.charAt(i) == '[') {
@@ -191,7 +204,7 @@ public final class LinkCheck {
             }
             String suffix = via == null ? "" : " (via " + via + ")";
             if (!present(owner)) {
-                missing.add("class " + owner + suffix);
+                add("class " + owner + suffix, site);
                 return;
             }
             if (member == null) {
@@ -200,13 +213,38 @@ public final class LinkCheck {
             }
             String declaring = resolve(owner, member);
             if (declaring == null) {
-                missing.add("member " + owner + "." + member + suffix);
+                add("member " + owner + "." + member + suffix, site);
             } else if (!declaring.equals("?")) {
                 reachClass(declaring);
                 if (index.get(declaring).body != null && member.indexOf('(') >= 0) {
                     follow(declaring, member);
                 }
             }
+        }
+
+        /** Records a missing line, and which checked method referenced it when known. */
+        void add(String line, String site) {
+            missing.add(line);
+            if (site != null) {
+                Set<String> named = sites.get(line);
+                if (named == null) {
+                    named = new TreeSet<String>();
+                    sites.put(line, named);
+                }
+                named.add(site);
+            }
+        }
+
+        /** Every missing line mapped to its sorted sites; a line with no direct site maps to an empty list. */
+        Map<String, List<String>> siteLists() {
+            Map<String, List<String>> out = new java.util.LinkedHashMap<String, List<String>>();
+            for (String line : missing) {
+                Set<String> named = sites.get(line);
+                out.put(line, named == null
+                        ? Collections.<String>emptyList()
+                        : Collections.unmodifiableList(new ArrayList<String>(named)));
+            }
+            return out;
         }
 
         void follow(String owner, String method) {
@@ -248,18 +286,21 @@ public final class LinkCheck {
             new ClassReader(info.body).accept(new ClassVisitor(Opcodes.ASM9) {
                 @Override
                 public MethodVisitor visitMethod(int acc, String n, String d, String sig, String[] ex) {
-                    return (n + d).equals(method) ? new CheckingMethodVisitor(via) : null;
+                    return (n + d).equals(method) ? new CheckingMethodVisitor(via, null) : null;
                 }
             }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         }
 
         final class CheckingClassVisitor extends ClassVisitor {
+            private String className;
+
             CheckingClassVisitor() {
                 super(Opcodes.ASM9);
             }
 
             @Override
             public void visit(int v, int acc, String n, String sig, String su, String[] is) {
+                className = n;
                 if (su != null && !present(su)) {
                     missing.add("class " + su + " (superclass of " + n + ")");
                 }
@@ -274,43 +315,46 @@ public final class LinkCheck {
 
             @Override
             public MethodVisitor visitMethod(int acc, String n, String d, String sig, String[] ex) {
-                return new CheckingMethodVisitor(null);
+                return new CheckingMethodVisitor(null, className + "." + n);
             }
         }
 
         final class CheckingMethodVisitor extends MethodVisitor {
             private final String via;
+            /** {@code owner.method} of the checked-code method this reference sits in; null for followed libs. */
+            private final String site;
 
-            CheckingMethodVisitor(String via) {
+            CheckingMethodVisitor(String via, String site) {
                 super(Opcodes.ASM9);
                 this.via = via;
+                this.site = site;
             }
 
             @Override
             public void visitTryCatchBlock(Label s, Label e, Label h, String type) {
                 if (type != null) {
-                    need(type, null, via);
+                    need(type, null, via, site);
                 }
             }
 
             @Override
             public void visitMethodInsn(int op, String o, String n, String d, boolean itf) {
-                need(o, n + d, via);
+                need(o, n + d, via, site);
             }
 
             @Override
             public void visitFieldInsn(int op, String o, String n, String d) {
-                need(o, n + ":" + d, via);
+                need(o, n + ":" + d, via, site);
             }
 
             @Override
             public void visitTypeInsn(int op, String type) {
-                need(type, null, via);
+                need(type, null, via, site);
             }
 
             @Override
             public void visitMultiANewArrayInsn(String desc, int dims) {
-                need(desc, null, via);
+                need(desc, null, via, site);
             }
 
             @Override
@@ -318,9 +362,9 @@ public final class LinkCheck {
                 if (value instanceof Type) {
                     Type t = (Type) value;
                     if (t.getSort() == Type.OBJECT) {
-                        need(t.getInternalName(), null, via);
+                        need(t.getInternalName(), null, via, site);
                     } else if (t.getSort() == Type.ARRAY) {
-                        need(t.getDescriptor(), null, via);
+                        need(t.getDescriptor(), null, via, site);
                     }
                 }
             }

@@ -899,6 +899,10 @@ next boot is in **safe mode**: the SDK runs with no plugins, restores any pendin
 Plugins menu reads "Plugins (safe mode)". `mibsdk-dev safe-mode on` forces it, which is useful when you suspect a
 plugin. `mibsdk-dev safe-mode off` leaves it and resets the boot counter.
 
+**Build failures.** `linkCheck` and `permissionScan` name the method that made the call (`used by
+tutorial/coffeetimer/CoffeeTimerPlugin.start`, or `owner.method -> call`), and `linkCheck` adds a hint for the usual
+Java 5/6 gaps. Start at the method it names.
+
 **Common failures:**
 
 - `UndeclaredPermissionException: permission not declared in plugin.json: X` (class `mibsdk.runtime.UndeclaredPermissionException`
@@ -932,16 +936,18 @@ expressions, text blocks, enhanced `for`, generics, autoboxing and try-with-reso
 - The shims in `compat/` cover `Objects`, `AutoCloseable` and five interfaces from `java.util.function`: `Function`,
   `Consumer`, `Supplier`, `Predicate` and `BiFunction`. `BinaryOperator`, `UnaryOperator` and the rest are
   missing.
-- What neither covers, `linkCheck` refuses:
+- What neither covers, `linkCheck` refuses. Each entry names the method of yours that made the reference, and
+  usually the source name behind a rewritten one and a hint:
 
   ```
-  > LinkCheck: 2 reference(s) the car cannot resolve:
-      class edu/emory/mathcs/backport/java/util/concurrent/ConcurrentHashMap
+  > LinkCheck: 1 reference(s) the car cannot resolve:
       member java/lang/String.matches(Ljava/lang/String;)Z
+        used by tutorial/coffeetimer/CoffeeTimerPlugin.start
+        hint: no regex on the car: use indexOf/substring or a loop
   ```
 
-  The message does not say which of your classes made the reference, and a backported class appears under its
-  rewritten name (`edu/emory/...` for `java.util.concurrent`).
+  A backported class line also carries the name you wrote, in parentheses, so you can find the import to remove —
+  for example `(java/util/concurrent/ConcurrentHashMap in your source)`.
 - Gaps that came up while this tutorial was written:
   - `java.util.regex`, so `String.matches`, `split` and `replaceAll`;
   - `String.join`;
