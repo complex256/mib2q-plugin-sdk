@@ -44,7 +44,8 @@ You need everything in the README's [Toolchain](../../README.md#toolchain) table
 list that ships with the build logic. In short, you need:
 
 - a JDK 17 (Gradle finds it);
-- a JDK 8 home;
+- a JDK 8 (Gradle's toolchain detection finds an installed one, and downloads one if there is none; set
+  `mibsdk.jdk8Home` only to pick a specific JDK 8);
 - a host `mibpkg` binary, for packaging only;
 - Python 3, for the icon script below.
 
@@ -52,13 +53,11 @@ Put the paths in the `gradle.properties` of your Gradle user home (`$GRADLE_USER
 directory in your home directory). Then every command below works without `-P` flags:
 
 ```properties
-mibsdk.jdk8Home=/path/to/jdk8/home
 mibsdk.mibpkg=/path/to/mibpkg/target/release/mibpkg
 ```
 
-> If you leave a path out, the build falls back to a default under your home directory. That default is the SDK
-> owner's own layout (`Library/Java/JavaVirtualMachines/corretto-1.8.0_372/...` and `projects/audi-mib2/...`), so
-> on any other machine you must set the paths.
+> The build has no default under your home directory. If `mibpkg` is not on `PATH`, set `mibsdk.mibpkg`. If a
+> property you set points at a missing file, the build fails with a message that names the property.
 
 ### 1.2 Work inside the SDK repository
 

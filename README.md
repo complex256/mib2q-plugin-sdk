@@ -171,9 +171,9 @@ section on [what you can't do](docs/guide/first-plugin.md#10-what-you-cant-do) h
 | Need | Why | How it is found |
 |---|---|---|
 | **JDK 17** | Gradle runs on it and compiles with it; tests run on it | Gradle toolchain (`JavaLanguageVersion.of(17)`). Install any JDK 17; Gradle's toolchain detection finds it |
-| **JDK 8** (Corretto 8 on the owner's machine) | Retrolambda, Retrotranslator, ProGuard (Kotlin) and the Java 1.4 compile of `compat` | `-Pmibsdk.jdk8Home=<home>`, else `Library/Java/JavaVirtualMachines/corretto-1.8.0_372/Contents/Home` under your home directory |
-| **Stock `lsd.jar`** (the HMI's `lsd.jxe`, converted with jxe2jar). **Optional**: SDK maintainers only | Plugin builds do not need it: every `linkCheck` uses the car Java class library signature list bundled in the build logic (`carjcl.sigs`, names and member descriptors only, no code). With the property set, `carJcl` extracts the class library from the jar instead, and `./gradlew carJclSignatures` regenerates the bundled list. `./gradlew check` then also runs `carJclSignaturesCheck`, which fails when the bundled list is out of date. `adapter-hqc` and `dist` still compile against the jar | `-Pmibsdk.stockLsdJar=<path>`; `adapter-hqc` and `dist` fall back to `projects/audi-mib2/patching/lsd.jar` under your home directory. **Never committed** |
-| **Stock `DSITracer.jar`** | Compiling `adapter-hqc` and the `dist` link check (SDK builds only) | `-Pmibsdk.stockDsiTracerJar=<path>`, else `projects/audi-mib2/firmware/mmxfs/app/eso/hmi/lsd/DSITracer.jar` under your home directory. **Never committed** |
+| **JDK 8** (any vendor) | Retrolambda, Retrotranslator, ProGuard (Kotlin) and the Java 1.4 compile of `compat` | Gradle toolchain (`JavaLanguageVersion.of(8)`): an installed JDK 8 is detected, and the foojay resolver downloads one when there is none. `-Pmibsdk.jdk8Home=<home>` overrides it |
+| **Stock `lsd.jar`** (the HMI's `lsd.jxe`, converted with jxe2jar). **Optional for plugin builds**; SDK maintainers and the `adapter-hqc`/`dist` build need it | Plugin builds do not need it: every `linkCheck` uses the car Java class library signature list bundled in the build logic (`carjcl.sigs`, names and member descriptors only, no code). With the property set, `carJcl` extracts the class library from the jar instead, and `./gradlew carJclSignatures` regenerates the bundled list. `./gradlew check` then also runs `carJclSignaturesCheck`, which fails when the bundled list is out of date. `adapter-hqc`, `dist` and the `hmi-ui` spike also compile and link against its LSD, OSGi and DSI classes, so they need it | `-Pmibsdk.stockLsdJar=<path>`. No default: a build that needs it and lacks it fails with a message naming the property. **Never committed** |
+| **Stock `DSITracer.jar`** | Compiling `adapter-hqc` and the `dist` link check (SDK builds only; a plugin build does not need it) | `-Pmibsdk.stockDsiTracerJar=<path>`. No default: when `adapter-hqc` or `dist` is built without it, the build fails with `mibsdk: mibsdk.stockDsiTracerJar is not set`. **Never committed** |
 | **Host `mibpkg`** | `mibPackage` and `:dist:mibpkgPackage` run `mibpkg build` | `-Pmibsdk.mibpkg=<path>`, else `mibpkg` on `PATH`. Build it with `cargo build --release` in the mibpkg repo (Rust toolchain) |
 | Gradle 8.13 | the build | the wrapper (`./gradlew`) downloads it |
 | Internet (Maven Central) | Jabel, Retrolambda, Retrotranslator, ProGuard, ASM, JUnit and the Kotlin plugin | the first build downloads them |
@@ -184,15 +184,15 @@ Put the machine-local paths in the `gradle.properties` of your Gradle user home 
 the `.gradle` directory in your home directory), so you do not have to pass `-P` every time:
 
 ```properties
-mibsdk.jdk8Home=/path/to/jdk8/home
-mibsdk.stockLsdJar=/path/to/lsd.jar   # optional; SDK maintainers only
-mibsdk.stockDsiTracerJar=/path/to/DSITracer.jar
+mibsdk.jdk8Home=/path/to/jdk8/home    # optional; only to override the JDK 8 Gradle finds
+mibsdk.stockLsdJar=/path/to/lsd.jar   # SDK maintainers only (plugin builds do not need it)
+mibsdk.stockDsiTracerJar=/path/to/DSITracer.jar   # SDK maintainers only
 mibsdk.mibpkg=/path/to/mibpkg/target/release/mibpkg
 ```
 
 The stock jars are Audi's code, so this repository cannot ship them. To get them, you dump them from your own unit
 and convert `lsd.jxe` with jxe2jar. The research notes describe how (`docs/research/2026-10-18-java-onboard-map.md`).
-A **plugin** build needs neither stock jar: its `linkCheck` runs against the bundled car class library list.
+A **plugin** build needs neither stock jar: its `linkCheck` runs against the bundled car class library list. Only the SDK's own `adapter-hqc` and `dist` (and the `hmi-ui` spike) read them.
 
 ## Building and testing
 

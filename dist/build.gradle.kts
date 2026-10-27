@@ -17,8 +17,7 @@ val adapterModule = "adapter-hqc"
 
 fun carJar(module: String) = project(":$module").tasks.named<Jar>("carJar")
 
-val stockLsdJar: File = Toolchain.stockLsdJar(project)
-val stockDsiTracerJar: File = Toolchain.stockDsiTracerJar(project)
+val stockJarFiles = Toolchain.stockJars(project)
 val retrotranslatorRuntime = project(":runtime").configurations.getByName("retrotranslatorRuntime")
 
 val distDir = layout.buildDirectory.dir("dist")
@@ -57,7 +56,7 @@ val distLinkCheck = tasks.register<LinkCheckTask>("distLinkCheck") {
     classpath.from(rootProject.tasks.named("carJcl").map { it.outputs.files })
     classpath.from(runtimeJar.flatMap { it.archiveFile }, adapterJar.flatMap { it.archiveFile },
         retrotranslatorJar.map { distDir.get().file("mibsdk-rt-retrotranslator.jar") })
-    classpath.from(stockLsdJar, stockDsiTracerJar)
+    classpath.from(stockJarFiles)
     report.set(layout.buildDirectory.file("reports/mibsdk/dist-linkcheck.txt"))
 }
 

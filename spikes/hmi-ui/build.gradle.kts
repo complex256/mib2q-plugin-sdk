@@ -11,17 +11,16 @@ evaluationDependsOn(":runtime")
 evaluationDependsOn(":platform")
 evaluationDependsOn(":api")
 
-val stockLsdJar: File = Toolchain.stockLsdJar(project)
-val stockDsiTracerJar: File = Toolchain.stockDsiTracerJar(project)
+val stockJarFiles = Toolchain.stockJars(project)
 
 dependencies {
-    compileOnly(files(stockLsdJar, stockDsiTracerJar))
+    compileOnly(stockJarFiles)
     compileOnly(project(":adapter-hqc"))
     compileOnly(project(":runtime"))
 }
 
 mibsdk {
-    carClasspath.from(stockLsdJar, stockDsiTracerJar)
+    carClasspath.from(stockJarFiles)
     carClasspath.from(project(":compat").tasks.named("carJar"))
     carClasspath.from(project(":runtime").tasks.named("carJar"))
     carClasspath.from(project(":platform").tasks.named("carJar"))

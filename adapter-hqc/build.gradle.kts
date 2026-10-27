@@ -11,19 +11,17 @@ evaluationDependsOn(":platform")
 evaluationDependsOn(":runtime")
 
 // Stock jars (never committed): LSD's configurator SPI, OSGi and DSI interfaces; DSITracer's TraceConfigurator.
-val stockLsdJar: File = Toolchain.stockLsdJar(project)
-val stockDsiTracerJar: File = Toolchain.stockDsiTracerJar(project)
-val stockPresent = stockLsdJar.isFile && stockDsiTracerJar.isFile
-val stockMissingMessage = "adapter-hqc needs the stock jars: lsd.jar at $stockLsdJar " +
-    "(-Pmibsdk.stockLsdJar=...) and DSITracer.jar at $stockDsiTracerJar (-Pmibsdk.stockDsiTracerJar=...)"
+// Read when a task needs them: an unset or missing -Pmibsdk.stockLsdJar / -Pmibsdk.stockDsiTracerJar fails that task
+// with a message naming the property, and the rest of the build is unaffected.
+val stockJarFiles = Toolchain.stockJars(project)
 
 dependencies {
     implementation(project(":runtime"))
-    compileOnly(files(stockLsdJar, stockDsiTracerJar))
+    compileOnly(stockJarFiles)
 }
 
 mibsdk {
-    carClasspath.from(stockLsdJar, stockDsiTracerJar)
+    carClasspath.from(stockJarFiles)
     carClasspath.from(project(":api").tasks.named("carJar"))
     carClasspath.from(project(":compat").tasks.named("carJar"))
     carClasspath.from(project(":platform").tasks.named("carJar"))
@@ -34,7 +32,7 @@ mibsdk {
 // stock packages they touch. The raw stock jars stay compileOnly, so they never reach the test runtime.
 val hostStockJar = tasks.register<HostStockJarTask>("hostStockJar") {
     description = "Host-loadable copy of the stock classes the adapter tests need (test classpath only)."
-    stockJars.from(stockLsdJar, stockDsiTracerJar)
+    stockJars.from(stockJarFiles)
     packages.set(listOf(
         "de/dreisoft/lsd/",
         "org/osgi/framework/",
@@ -65,14 +63,4 @@ dependencies {
 // test JVM only (the car's J9 runs with -noverify anyway; LinkCheck still checks every car artifact).
 tasks.named<Test>("test") {
     jvmArgs("-XX:+UnlockDiagnosticVMOptions", "-XX:-BytecodeVerificationRemote")
-}
-
-if (!stockPresent) {
-    // Nothing here compiles without the stock interfaces: skip the module (tests included) loudly, but never let
-    // a car jar be produced from nothing.
-    logger.warn("SKIPPED :adapter-hqc (compile, test, checks) — $stockMissingMessage")
-    tasks.matching { it.name != "carJar" }.configureEach { enabled = false }
-    tasks.named("carJar") {
-        doFirst { throw GradleException(stockMissingMessage) }
-    }
 }

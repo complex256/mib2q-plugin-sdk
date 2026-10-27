@@ -97,6 +97,11 @@ plugin build needs no stock jar. The description below is the problem as found.
 
 ## 4. Path defaults are the owner's machine layout, and a missing path gives a generic error (annoying)
 
+**Status:** fixed in Task 3. `Toolchain` has no path defaults. The JDK 8 comes from a Gradle toolchain
+(`-Pmibsdk.jdk8Home` overrides it), and a stock jar that is needed but unset or missing fails with `mibsdk:
+<property> is not set` (or `points at <path>, which does not exist`), what the file is, and a link to the README
+toolchain table. The description below is the problem as found.
+
 - **Where:** §1.1. `Toolchain.jdk8Home` / `stockLsdJar` / `stockDsiTracerJar`
   (`build-logic/src/main/java/mibsdk/build/Toolchain.java:80-95`) default to
   `Library/Java/JavaVirtualMachines/corretto-1.8.0_372/Contents/Home` and `projects/audi-mib2/...` under the home

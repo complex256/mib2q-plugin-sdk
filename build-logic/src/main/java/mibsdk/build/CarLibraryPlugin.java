@@ -81,7 +81,7 @@ public class CarLibraryPlugin implements Plugin<Project> {
             t.getRetrolambda().from(retrolambda);
             t.getRetrotranslator().from(retrotranslator);
             t.getCarClasspath().from(ext.getCarClasspath());
-            t.getJdk8Home().set(project.provider(() -> Toolchain.jdk8Home(project).getPath()));
+            t.getJdk8Home().set(Toolchain.jdk8Home(project));
             t.getOutputDir().set(project.getLayout().getBuildDirectory().dir("v48"));
             if (project.getName().equals("compat")) {
                 t.getCompatClasses().from(main.getOutput().getClassesDirs());
@@ -134,7 +134,7 @@ public class CarLibraryPlugin implements Plugin<Project> {
     private static void configureMainCompile(Project project, MibsdkExtension ext, JavaToolchainService toolchains) {
         project.getTasks().named("compileJava", JavaCompile.class).configure(t -> {
             if (ext.getLegacyJava14().get()) {
-                File jdk8 = Toolchain.jdk8Home(project);
+                File jdk8 = new File(Toolchain.jdk8Home(project).get());
                 t.setSourceCompatibility("1.4");
                 t.setTargetCompatibility("1.4");
                 t.getOptions().setFork(true);
@@ -185,8 +185,7 @@ public class CarLibraryPlugin implements Plugin<Project> {
     private static TaskProvider<CarJclTask> registerCarJcl(Project project) {
         Project root = project.getRootProject();
         if (!root.getTasks().getNames().contains("carJcl")) {
-            Object configured = root.findProperty("mibsdk.stockLsdJar");
-            boolean haveJar = configured != null && !configured.toString().isEmpty();
+            boolean haveJar = Toolchain.stockLsdJarConfigured(root);
             root.getTasks().register("carJcl", CarJclTask.class, t -> {
                 t.setGroup("build");
                 t.setDescription("Provides the car JCL for linkCheck in build/carjcl/ (stock lsd.jar, else the bundled list).");

@@ -222,7 +222,7 @@ public class MibPluginPlugin implements Plugin<Project> {
             t.getKotlinStdlib().from(stdlib);
             t.getLibraries().from(libraries);
             t.getMainClass().set(manifest.map(m -> m.main));
-            t.getJdk8Home().set(project.provider(() -> Toolchain.jdk8Home(project).getPath()));
+            t.getJdk8Home().set(Toolchain.jdk8Home(project));
             t.getOutputDir().set(project.getLayout().getBuildDirectory().dir("kshrunk"));
             t.dependsOn(main.getClassesTaskName());
         });
