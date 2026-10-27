@@ -481,8 +481,9 @@ takes longer than 5 s (`callback.slow.ms`) as slow. One that runs longer than 30
 plugin quarantined. Your code never runs on an HMI thread.
 
 The `mibsdk.api` package doc has the full model: the lifecycle, when `onDisable` runs, the quarantine rule (three
-failures in 60 s), inert handles, and the UI behaviours that surprise people. It is in
-`api/build/docs/javadoc/mibsdk/api/package-summary.html` after `./gradlew :api:javadoc`.
+failures in 60 s), inert handles, and the UI behaviours that surprise people. It is in the
+[`mibsdk.api` package summary](../../api/build/docs/javadoc/mibsdk/api/package-summary.html) after
+`./gradlew :api:javadoc`.
 
 ### 4.3 A Car-drawer row that opens a page
 

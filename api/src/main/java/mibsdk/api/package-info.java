@@ -5,9 +5,10 @@
  *
  * <p>Everything a plugin runs executes on that plugin's single SDK worker thread, one task at a time:
  * {@link mibsdk.api.MibPlugin#onEnable(PluginContext)}, page actions and input events, {@link Scheduler} tasks, event
- * listeners, hook observers and vetoes, and {@link Ui#confirm}/{@link Ui#speller} answers. Two of those callbacks
- * therefore never run at the same time, so fields they share need no {@code synchronized}, no {@code volatile} and no
- * locks. The worker is a daemon thread at {@link Thread#NORM_PRIORITY} minus one; plugin code never runs on a stock
+ * listeners, hook observations, and {@link Ui#confirm}/{@link Ui#speller} answers. A veto is not a callback: it is
+ * only a flag the stock side reads, so no plugin code runs for it. Two of those callbacks therefore never run at the
+ * same time: fields they share need no {@code synchronized}, no {@code volatile} and no locks. The worker is a
+ * daemon thread at {@link Thread#NORM_PRIORITY} minus one; plugin code never runs on a stock
  * HMI thread, nor on the runtime's timer or watchdog threads.
  *
  * <p>One worker per plugin also means a slow callback holds up the rest of that plugin, and only that plugin. The SDK
@@ -32,9 +33,10 @@
  *
  * <p><strong>{@code onDisable} also runs after {@code onEnable} threw.</strong> A plugin that fails in the middle of
  * {@code onEnable} is disabled like any other, so guard every field {@code onDisable} touches: the ones assigned after
- * the failure point are still null. The one exception is an {@code onEnable} (or {@code onDisable}) that never
- * returns: once it has run for 30 s the plugin is quarantined as hung and {@code onDisable} is not called, because the
- * worker is still stuck inside the plugin.
+ * the failure point are still null. Being too slow counts as never returning, and the two hooks differ: an
+ * {@code onEnable} still running after 30 s means {@code onDisable} is not started at all, while an {@code onDisable}
+ * still running after 30 s is abandoned mid-call. Either way the plugin is quarantined as hung, because the worker is
+ * still stuck inside the plugin.
  *
  * <h2>Quarantine: what happens when plugin code misbehaves</h2>
  *
@@ -45,8 +47,11 @@
  *       keeps running;</li>
  *   <li>a callback still running after <strong>30 s</strong> ({@code callback.hung.ms}) is hung: the plugin is
  *       quarantined and its state becomes {@code QUARANTINED};</li>
- *   <li>a callback that throws counts as a failure; the <strong>third</strong> failure within <strong>60 s</strong>
- *       ({@code quarantine.failures}, {@code quarantine.window.ms}) quarantines the plugin.</li>
+ *   <li>an action, timer, event listener, hook observation or answer that throws counts as a failure; the
+ *       <strong>third</strong> failure within <strong>60 s</strong> ({@code quarantine.failures},
+ *       {@code quarantine.window.ms}) quarantines the plugin. The lifecycle hooks are not counted: a throwing
+ *       {@code onEnable} disables the plugin as {@code FAILED} straight away, and a throwing {@code onDisable} is
+ *       only logged.</li>
  * </ul>
  *
  * <p>The thresholds are the defaults in {@code sdk.properties} ({@code RuntimeConfig}); the owner may change them per

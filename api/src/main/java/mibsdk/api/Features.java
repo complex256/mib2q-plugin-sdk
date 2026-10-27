@@ -9,7 +9,7 @@ public final class Features {
 
     /** The unit has the parking-sensor system, so {@code vehicle().parking()} works; without it that call throws {@link UnsupportedOperationException}. */
     public static final String PARKING = "vehicle.parking";
-    /** The unit reports ignition (terminal 15), so {@link IgnitionChanged} events carry the real state. */
+    /** The adapter can report ignition (terminal 15). */
     public static final String IGNITION = "vehicle.ignition";
     /** The adapter exposes the parking hook points, so {@link Hooks#veto} and {@link Hooks#observe} work; without it they throw {@link UnsupportedOperationException}. */
     public static final String HOOK_PARKING = "hook.parking";

@@ -295,7 +295,8 @@ touch keep theirs: `PageSpec` (64, mostly builder methods), `Net` (6), `Ui` (7),
 `StatusItem` (3), `Parking` (3), `Storage` (2), `StockIcons` (2) and `Page` (2); `Log`, `Events`, `Vehicle`, `HookPoint`
 and `Listener` still have no class comments. `./gradlew :api:javadoc` itself prints nothing, because Task 4 set
 `-Xdoclint:none -quiet` and `isFailOnError = false`; the counts come from running javadoc with `-Xdoclint:all`.
-Making the task fail on warnings is still open. The description below is the problem as found.
+Making the task fail on warnings is still open. The description below is the problem as found, and its per-file split
+predates this fix.
 
 - **Where:** `./gradlew :api:javadoc` prints 100 warnings, the limit javadoc stops counting at. They fall in
   `Ui.java` (35), `PageSpec.java` (9), `Net.java` (8), `Features.java` (7), `PluginContext.java` (6), `Hooks.java`
