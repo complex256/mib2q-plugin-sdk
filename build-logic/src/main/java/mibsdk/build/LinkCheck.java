@@ -1,6 +1,7 @@
 package mibsdk.build;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -18,7 +19,6 @@ import java.util.Set;
 import java.util.TreeSet;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
@@ -90,38 +90,47 @@ public final class LinkCheck {
         final Deque<String[]> work = new ArrayDeque<String[]>();
 
         void index(File dirOrJar, boolean keepBody) throws IOException {
+            List<File> sigs = CarJclSignatures.signatureFiles(dirOrJar);
+            if (!sigs.isEmpty()) {
+                for (File f : sigs) {
+                    try (InputStream in = new FileInputStream(f)) {
+                        CarJclSignatures.readInto(in, new CarJclSignatures.SignatureSink() {
+                            @Override
+                            public void klass(String name, String su, String[] is, boolean itf, Set<String> members) {
+                                if (!index.containsKey(name)) {
+                                    ClassInfo info = new ClassInfo(su, is, itf);
+                                    info.members.addAll(members);
+                                    index.put(name, info);
+                                }
+                            }
+
+                            @Override
+                            public void unreadable(String name) {
+                                unreadable.add(name);
+                                knownUnreadable.add(name); // the list says the car has it: present, members unknown
+                            }
+                        });
+                    }
+                }
+                return;
+            }
             ClassSource.forEach(dirOrJar, e -> {
                 if (index.containsKey(e.name)) {
                     return;
                 }
-                ClassInfo[] info = new ClassInfo[1];
+                CarJclSignatures.Described d;
                 try {
-                    new ClassReader(e.bytes).accept(new ClassVisitor(Opcodes.ASM9) {
-                        @Override
-                        public void visit(int v, int acc, String n, String sig, String su, String[] is) {
-                            info[0] = new ClassInfo(su, is, (acc & Opcodes.ACC_INTERFACE) != 0);
-                        }
-
-                        @Override
-                        public MethodVisitor visitMethod(int acc, String n, String d, String sig, String[] ex) {
-                            info[0].members.add(n + d);
-                            return null;
-                        }
-
-                        @Override
-                        public FieldVisitor visitField(int acc, String n, String d, String sig, Object v) {
-                            info[0].members.add(n + ":" + d);
-                            return null;
-                        }
-                    }, ClassReader.SKIP_CODE);
+                    d = CarJclSignatures.describe(e.bytes);
                 } catch (RuntimeException ex) {
                     unreadable.add(e.name); // e.g. jxe2jar's java/lang/Double; absent unless listed as known
                     return;
                 }
+                ClassInfo info = new ClassInfo(d.superName, d.interfaces, d.isInterface);
+                info.members.addAll(d.members());
                 if (keepBody) {
-                    info[0].body = e.bytes;
+                    info.body = e.bytes;
                 }
-                index.put(e.name, info[0]);
+                index.put(e.name, info);
             });
         }
 

@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
@@ -85,6 +88,74 @@ class LinkCheckTest {
         LinkCheck.Result r = check(Map.of("fixture.Clean",
                 "package fixture; public class Clean { public Object m() { return new StringBuffer().append(\"x\"); } }"));
         assertEquals(List.of(), r.missing());
+    }
+
+    /**
+     * Checks {@code sources} against the fixture JCL as classes, as a signature list and as a directory holding
+     * that list; asserts all three agree and returns the verdict. Each case works in its own sub-directory.
+     */
+    private List<String> sameVerdictFromSignatureList(String caseName, Map<String, String> sources) throws Exception {
+        Path dir = Files.createDirectory(tmp.resolve(caseName));
+        File jcl = Fixtures.stubJcl(dir.resolve("jcl"));
+        File sigDir = Files.createDirectory(dir.resolve("sigdir")).toFile();
+        File sigs = new File(sigDir, "jcl.sigs");
+        try (Writer w = Files.newBufferedWriter(sigs.toPath(), StandardCharsets.UTF_8)) {
+            CarJclSignatures.write(jcl, "TEST", w);
+        }
+        File classes = Fixtures.compileV48(dir.resolve("classes"), sources);
+        List<String> fromClasses = LinkCheck.run(classes, List.of(jcl), Collections.emptyList()).missing();
+        assertEquals(fromClasses, LinkCheck.run(classes, List.of(sigs), Collections.emptyList()).missing(), caseName);
+        assertEquals(fromClasses, LinkCheck.run(classes, List.of(sigDir), Collections.emptyList()).missing(), caseName);
+        return fromClasses;
+    }
+
+    @Test
+    void signatureListGivesTheSameResultAsTheClasses() throws Exception {
+        assertEquals(List.of("class java/lang/AutoCloseable (interface of fixture/Res)"),
+                sameVerdictFromSignatureList("header", Map.of("fixture.Res",
+                        "package fixture; public class Res implements AutoCloseable { public void close() {} }")));
+        assertEquals(List.of("class java/util/regex/PatternSyntaxException"),
+                sameVerdictFromSignatureList("catch", Map.of("fixture.Catcher",
+                        "package fixture; public class Catcher { public void m() {"
+                                + " try { new Object().hashCode(); } catch (java.util.regex.PatternSyntaxException e) { } } }")));
+        assertTrue(sameVerdictFromSignatureList("member", Map.of("fixture.Merger",
+                "package fixture; public class Merger { @SuppressWarnings({\"rawtypes\", \"unchecked\"})"
+                        + " public void m(java.util.Map map) { map.merge(\"a\", \"b\", (java.util.function.BiFunction) null); } }"))
+                .contains("member java/util/Map.merge(Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;"));
+        assertEquals(List.of(), sameVerdictFromSignatureList("unreadable", Map.of("fixture.Boxer",
+                "package fixture; public class Boxer { public Object m() { return Double.valueOf(1.0); } }")));
+        assertEquals(List.of(), sameVerdictFromSignatureList("clean", Map.of("fixture.Clean",
+                "package fixture; public class Clean { public Object m() { return new StringBuffer().append(\"x\"); } }")));
+    }
+
+    @Test
+    void signatureListMatchesJarForUnreadableClasses() throws Exception {
+        File jcl = Fixtures.stubJcl(tmp.resolve("jcl"));
+        File sigs = tmp.resolve("jcl.sigs").toFile();
+        try (Writer w = Files.newBufferedWriter(sigs.toPath(), StandardCharsets.UTF_8)) {
+            CarJclSignatures.write(Fixtures.jar(tmp.resolve("jcl.jar"), jcl), "TEST", w);
+        }
+        assertTrue(Files.readString(sigs.toPath()).contains("U java/lang/Double\n"));
+        File classes = Fixtures.compileV48(tmp.resolve("classes"), Map.of("fixture.Boxer",
+                "package fixture; public class Boxer { public Object m() { return Double.valueOf(1.0); } }"));
+        assertEquals(List.of(), LinkCheck.run(classes, List.of(sigs), Collections.emptyList()).missing());
+    }
+
+    @Test
+    void signatureListUnreadableEntryIsPresentButAbsentWithoutIt() throws Exception {
+        // java/lang/Long is corrupt here and, unlike Double, not on the built-in known-unreadable list.
+        File jcl = Fixtures.stubJcl(tmp.resolve("jcl"));
+        Files.write(jcl.toPath().resolve("java/lang/Long.class"),
+                new byte[] {(byte) 0xCA, (byte) 0xFE, (byte) 0xBA, (byte) 0xBE, 0, 0, 0, 48, 0, 1});
+        File classes = Fixtures.compileV48(tmp.resolve("classes"), Map.of("fixture.Boxer",
+                "package fixture; public class Boxer { public Object m() { return Long.valueOf(1L); } }"));
+        assertEquals(List.of("class java/lang/Long"), LinkCheck.run(classes, List.of(jcl), Collections.emptyList()).missing());
+        File sigs = tmp.resolve("jcl.sigs").toFile();
+        try (Writer w = Files.newBufferedWriter(sigs.toPath(), StandardCharsets.UTF_8)) {
+            CarJclSignatures.write(jcl, "TEST", w);
+        }
+        assertTrue(Files.readString(sigs.toPath()).contains("U java/lang/Long\n"));
+        assertEquals(List.of(), LinkCheck.run(classes, List.of(sigs), Collections.emptyList()).missing());
     }
 
     @Test
