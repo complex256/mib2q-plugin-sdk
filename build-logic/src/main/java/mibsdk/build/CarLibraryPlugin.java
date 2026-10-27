@@ -118,6 +118,7 @@ public class CarLibraryPlugin implements Plugin<Project> {
                     t.setDescription("Lists calls that need platform.unrestricted (reflection, exec, exit, ...).");
                     t.getClasses().from(backport.flatMap(BackportTask::getOutputDir));
                     t.getFailOnFindings().convention(false);
+                    t.getFailOnUndeclared().convention(false); // no plugin.json to declare against
                     t.getDeclaredApi().convention(PluginJson.MAX_API); // a library has no plugin.json
                     t.getReport().set(project.getLayout().getBuildDirectory().file("reports/mibsdk/permissions.txt"));
                 });

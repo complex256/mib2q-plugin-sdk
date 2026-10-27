@@ -10,7 +10,6 @@ import mibsdk.api.Icon;
 import mibsdk.api.Listener;
 import mibsdk.api.Page;
 import mibsdk.api.PageSpec;
-import mibsdk.api.PermissionDeniedException;
 import mibsdk.api.Permissions;
 import mibsdk.api.StatusItem;
 import mibsdk.api.StockIcons;
@@ -72,6 +71,7 @@ final class UiImpl implements Ui {
     private final UiHub hub;
     private final LiveFeatures features;
     private final Set<String> granted;
+    private final Set<String> declared;
     private final SerialExecutor exec;
     private final Registrations registrations;
     private final List<String> declaredIcons;
@@ -87,15 +87,17 @@ final class UiImpl implements Ui {
     private boolean closed; // guarded by lock; set when the plugin's registrations are cancelled
 
     /**
+     * @param granted the effective permissions; {@code declared} is what the manifest lists, to tell a denial apart
      * @param declaredIcons the manifest's {@code icons}
      * @param iconDir the plugin's installed icons ({@link RuntimeConfig#pluginIconDir}); null if it has none
      */
-    UiImpl(String pluginId, UiHub hub, LiveFeatures features, Set<String> granted, SerialExecutor exec,
-            Registrations registrations, List<String> declaredIcons, File iconDir) {
+    UiImpl(String pluginId, UiHub hub, LiveFeatures features, Set<String> granted, Set<String> declared,
+            SerialExecutor exec, Registrations registrations, List<String> declaredIcons, File iconDir) {
         this.pluginId = pluginId;
         this.hub = hub;
         this.features = features;
         this.granted = granted;
+        this.declared = declared;
         this.exec = exec;
         this.registrations = registrations;
         this.declaredIcons = declaredIcons;
@@ -477,7 +479,7 @@ final class UiImpl implements Ui {
 
     private void requirePermission(String permission) {
         if (!granted.contains(permission)) {
-            throw new PermissionDeniedException(permission);
+            throw UndeclaredPermissionException.denial(permission, declared);
         }
     }
 

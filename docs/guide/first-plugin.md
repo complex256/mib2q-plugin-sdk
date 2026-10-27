@@ -190,12 +190,18 @@ Create `plugins/coffee-timer/src/main/resources/plugin.json`:
 | `permissions` | what the plugin may do. It needs `ui.slot.carmenu` for the Car-drawer row and `ui.slot.statusbar` for the status item **and** the toast. The catalog is `api/permissions.json` |
 | `icons` | (api 3+) up to 8 names matching `[a-z0-9-]{1,32}`. Each needs `src/main/icons/<name>.png` |
 
-Two things the build does **not** check for you:
+The build checks your permissions twice:
 
-- **Permission names are not validated**, so a typo like `ui.slot.statusbr` builds and packages.
-- **The permissions are not checked against what your code calls.** If you leave `ui.slot.carmenu` out, the plugin
-  builds. On the unit (or in your test) `onEnable` then throws `PermissionDeniedException: permission not granted:
-  ui.slot.carmenu` and the plugin is `FAILED`.
+- **Names are validated.** A typo such as `ui.slot.statusbr` fails the build and suggests the nearest name:
+  `unknown permission "ui.slot.statusbr" (did you mean "ui.slot.statusbar"?); known: ...`.
+- **Use is checked against what you declare.** `permissionScan` knows which API calls need which permission
+  (`Ui.carMenuRow` needs `ui.slot.carmenu`, `Ui.statusItem` and `Ui.toast` need `ui.slot.statusbar`,
+  `PluginContext.net` needs `network`, `PluginContext.vehicle` needs `vehicle.read`,
+  `Parking.overrideSoundDirections` needs `vehicle.parking.write` and `PluginContext.hooks` needs `hooks.parking`).
+  If you call one without declaring its permission, the build fails and names each call site:
+  `tutorial/coffeetimer/CoffeeTimerPlugin.onEnable -> Ui.carMenuRow needs "ui.slot.carmenu": declare it in
+  plugin.json "permissions"`. A call inside `if (ctx.granted(...))` still needs the declaration, and declaring
+  `platform.unrestricted` does not excuse it.
 
 Copy the names from `mibsdk.api.Permissions` or `api/permissions.json`.
 
@@ -864,7 +870,7 @@ Other `mibsdk-dev` commands:
 
 **Logs.** `ctx.log().info/warn/error` writes to the SDK's in-memory ring buffer. The SDK mirrors the buffer to
 `/tmp/mibsdk.log` on the unit (`mibsdk-dev log`). The log also has the SDK's own `STATUS` lines, for example
-`STATUS coffee-timer FAILED mibsdk.api.PermissionDeniedException: permission not granted: ui.slot.carmenu`. In a
+`STATUS coffee-timer FAILED mibsdk.api.PermissionDeniedException: permission not declared in plugin.json: ui.slot.carmenu`. In a
 host test, `h.log()` gives you the same lines. `h.await` prints them when a test fails.
 
 **Plugin states.** The Plugins menu shows each plugin's state, and `mibsdk-dev status` lists them too:
@@ -889,8 +895,13 @@ plugin. `mibsdk-dev safe-mode off` leaves it and resets the boot counter.
 
 **Common failures:**
 
-- `PermissionDeniedException: permission not granted: X`. The message says "not granted", but the cause is
-  usually that `X` is **missing from `plugin.json`**: a permission that is granted but not declared cannot be used.
+- `PermissionDeniedException: permission not declared in plugin.json: X`. You used something that needs `X` and the
+  manifest does not list it. Add `X` to `"permissions"` and rebuild. The build catches this for the calls it knows
+  (section 2), so on the unit it is rare. Granting it on the unit does not help: a permission that is not declared
+  can never be used.
+- `PermissionDeniedException: permission not granted: X`. `plugin.json` declares `X`, but the owner has not approved
+  it. Approve or grant it (section 8). A plugin with a declared permission that is not granted does not normally
+  get far enough to throw this: it is `BLOCKED_PERMISSIONS`.
 - `IllegalArgumentException: a status icon is at most 20x20 px, this one is 72x72` on a status item or toast. You
   passed the row icon; see the table in section 3.
 - `IllegalArgumentException: icon 'cup' is not declared in plugin coffee-timer's plugin.json "icons"`. Add the name

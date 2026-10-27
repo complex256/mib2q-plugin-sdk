@@ -95,7 +95,7 @@ class UiImplTest {
 
     private UiImpl ui(String id, Set<String> features, Set<String> perms, Registrations regs,
             List<String> declaredIcons, File iconDir) {
-        return new UiImpl(id, hub, new LiveFeatures(features), perms, executor("plugin-" + id), regs,
+        return new UiImpl(id, hub, new LiveFeatures(features), perms, perms, executor("plugin-" + id), regs,
                 declaredIcons, iconDir);
     }
 
@@ -773,7 +773,7 @@ class UiImplTest {
     }
 
     private UiImpl ui(String id, SerialExecutor exec, Set<String> perms) {
-        return new UiImpl(id, hub, new LiveFeatures(UiTestRuntime.UI_FEATURES), perms, exec, new Registrations(),
+        return new UiImpl(id, hub, new LiveFeatures(UiTestRuntime.UI_FEATURES), perms, perms, exec, new Registrations(),
                 Collections.<String>emptyList(), new File(tmp, "icons/" + id));
     }
 
@@ -879,7 +879,7 @@ class UiImplTest {
     private UiImpl openOn(mibsdk.adapter.fake.FakeUi fake, SerialExecutor exec, List<String> icons, File iconDir)
             throws InterruptedException {
         UiImpl a = new UiImpl("a", hub, new LiveFeatures(withIcons(withInputs(UiTestRuntime.UI_FEATURES))),
-                ALL_PERMS, exec, new Registrations(), icons, iconDir);
+                ALL_PERMS, ALL_PERMS, exec, new Registrations(), icons, iconDir);
         a.page(PageSpec.of("main", "Main").item("x", "X", null), null).open();
         hub.publishNow();
         assertEquals("a/main", fake.openPageKey());

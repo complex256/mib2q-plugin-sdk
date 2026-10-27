@@ -104,11 +104,49 @@ final class PluginJson {
             if (!(perms instanceof List)) {
                 throw new GradleException("mibsdk.plugin: " + file + ": \"permissions\" must be an array");
             }
+            Map<String, String> catalog = SdkCoordinates.permissionCatalog();
             for (Object p : (List<?>) perms) {
-                permissions.add(String.valueOf(p));
+                String perm = String.valueOf(p);
+                if (!catalog.containsKey(perm)) {
+                    throw new GradleException("mibsdk.plugin: " + file + ": unknown permission \"" + perm + "\""
+                            + nearest(perm, catalog.keySet()) + "; known: " + String.join(", ", catalog.keySet()));
+                }
+                permissions.add(perm);
             }
         }
         return new PluginJson(id, name, version, api, main, permissions, icons(file, m.get("icons"), api));
+    }
+
+    /** {@code (did you mean "x"?)} for the first of {@code known} within edit distance 3 of {@code id}, else empty. */
+    private static String nearest(String id, Iterable<String> known) {
+        String best = null;
+        int bestDistance = 4;
+        for (String k : known) {
+            int d = distance(id, k);
+            if (d < bestDistance) {
+                best = k;
+                bestDistance = d;
+            }
+        }
+        return best == null ? "" : " (did you mean \"" + best + "\"?)";
+    }
+
+    /** Levenshtein distance. */
+    private static int distance(String a, String b) {
+        int[] prev = new int[b.length() + 1];
+        for (int j = 0; j <= b.length(); j++) {
+            prev[j] = j;
+        }
+        for (int i = 1; i <= a.length(); i++) {
+            int[] cur = new int[b.length() + 1];
+            cur[0] = i;
+            for (int j = 1; j <= b.length(); j++) {
+                int subst = prev[j - 1] + (a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1);
+                cur[j] = Math.min(subst, Math.min(prev[j] + 1, cur[j - 1] + 1));
+            }
+            prev = cur;
+        }
+        return prev[b.length()];
     }
 
     private static List<String> icons(File file, Object v, int api) {

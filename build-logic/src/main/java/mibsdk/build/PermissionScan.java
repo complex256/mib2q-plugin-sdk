@@ -19,7 +19,8 @@ import org.objectweb.asm.Opcodes;
  * loading, {@code Thread.stop} and raw sockets (plugins use {@code ctx.net()}). Ignores the {@code class$} helper javac emits for class literals
  * and, when given, the Kotlin stdlib classes shrunk into a plugin (see {@link #run(File, Set)}). Also finds uses of API
  * that needs a newer {@code "api"} than 1, method calls and field reads, by the {@link ApiLevels} table
- * ({@link Result#needsApi()}, {@link Result#tooNew(int)}).
+ * ({@link Result#needsApi()}, {@link Result#tooNew(int)}), and calls that need a manifest permission, by the
+ * {@link ApiPermissions} table ({@link Result#permissionSites()}, {@link Result#undeclared(java.util.Collection)}).
  */
 public final class PermissionScan {
     private PermissionScan() {}
@@ -55,9 +56,11 @@ public final class PermissionScan {
         private final List<String> findings;
         private final List<String> apiFindings;
         private final Map<String, Integer> apiLevels; // apiFindings line -> its api level
+        private final Map<String, String> permissionSites; // site -> the permission it needs
 
-        Result(List<String> findings, Map<String, Integer> apiLevels) {
+        Result(List<String> findings, Map<String, Integer> apiLevels, Map<String, String> permissionSites) {
             this.findings = Collections.unmodifiableList(findings);
+            this.permissionSites = Collections.unmodifiableMap(new TreeMap<String, String>(permissionSites));
             this.apiLevels = Collections.unmodifiableMap(new TreeMap<String, Integer>(apiLevels));
             this.apiFindings = Collections.unmodifiableList(new ArrayList<String>(this.apiLevels.keySet()));
         }
@@ -73,6 +76,28 @@ public final class PermissionScan {
          */
         public List<String> apiFindings() {
             return apiFindings;
+        }
+
+        /**
+         * Sorted {@code owner.method -> Ui.carMenuRow} to the permission id that call needs
+         * ({@link ApiPermissions}), whether or not a guard such as {@code ctx.granted(..)} surrounds it.
+         */
+        public Map<String, String> permissionSites() {
+            return permissionSites;
+        }
+
+        /**
+         * Sorted {@code <site> needs "<permission>": declare it in plugin.json "permissions"} lines, for each site
+         * whose permission is not in {@code declared}.
+         */
+        public List<String> undeclared(java.util.Collection<String> declared) {
+            List<String> out = new ArrayList<String>();
+            for (Map.Entry<String, String> e : permissionSites.entrySet()) {
+                if (!declared.contains(e.getValue())) {
+                    out.add(e.getKey() + " needs \"" + e.getValue() + "\": declare it in plugin.json \"permissions\"");
+                }
+            }
+            return out;
         }
 
         /** The lowest {@code "api"} these classes need: the highest {@link ApiLevels} level they use, else 1. */
@@ -108,6 +133,7 @@ public final class PermissionScan {
     public static Result run(File dirOrJar, Set<String> exemptKotlinStdlib) throws IOException {
         Set<String> findings = new TreeSet<String>();
         Map<String, Integer> apiLevels = new TreeMap<String, Integer>();
+        Map<String, String> permissionSites = new TreeMap<String, String>();
         ClassSource.forEach(dirOrJar, e -> {
             if (e.name.startsWith("kotlin/") && exemptKotlinStdlib.contains(e.name)) {
                 return;
@@ -132,6 +158,10 @@ public final class PermissionScan {
                         @Override
                         public void visitMethodInsn(int op, String owner, String n, String d, boolean itf) {
                             api(owner, n, d);
+                            String needs = ApiPermissions.required(owner, n, d);
+                            if (needs != null) {
+                                permissionSites.put(e.name + "." + name + " -> " + ApiPermissions.label(owner, n), needs);
+                            }
                             String target = owner + "." + n;
                             if (!RESTRICTED.contains(target)) {
                                 return;
@@ -145,6 +175,6 @@ public final class PermissionScan {
                 }
             }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         });
-        return new Result(new ArrayList<String>(findings), apiLevels);
+        return new Result(new ArrayList<String>(findings), apiLevels, permissionSites);
     }
 }

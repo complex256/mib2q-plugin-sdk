@@ -4,7 +4,6 @@ import java.util.Set;
 import mibsdk.api.OverrideConflictException;
 import mibsdk.api.OverrideScope;
 import mibsdk.api.Parking;
-import mibsdk.api.PermissionDeniedException;
 import mibsdk.api.Permissions;
 import mibsdk.api.SoundDirections;
 import mibsdk.api.Subscription;
@@ -28,15 +27,17 @@ final class ParkingImpl implements Parking {
     private final OverrideLedger ledger;
     private final Registrations registrations;
     private final Set<String> granted;
+    private final Set<String> declared;
     private final OverrideLedger.Applier applier;
 
     ParkingImpl(String pluginId, ParkingIo io, OverrideLedger ledger, Registrations registrations,
-            Set<String> granted) {
+            Set<String> granted, Set<String> declared) {
         this.pluginId = pluginId;
         this.io = io;
         this.ledger = ledger;
         this.registrations = registrations;
         this.granted = granted;
+        this.declared = declared;
         this.applier = applier(io);
     }
 
@@ -61,7 +62,7 @@ final class ParkingImpl implements Parking {
     public VehicleOverride overrideSoundDirections(SoundDirections value, OverrideScope scope)
             throws OverrideConflictException {
         if (!granted.contains(Permissions.VEHICLE_PARKING_WRITE)) {
-            throw new PermissionDeniedException(Permissions.VEHICLE_PARKING_WRITE);
+            throw UndeclaredPermissionException.denial(Permissions.VEHICLE_PARKING_WRITE, declared);
         }
         if (value == null || scope == null) {
             throw new IllegalArgumentException("value and scope are required");

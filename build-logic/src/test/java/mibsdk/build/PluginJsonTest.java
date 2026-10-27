@@ -111,4 +111,27 @@ class PluginJsonTest {
         File f = manifest("hello", "1.0.0", 6);
         return assertThrows(GradleException.class, () -> PluginJson.read(f)).getMessage();
     }
+
+    private String permissionFail(String permissionsJson) throws IOException {
+        File f = dir.resolve("plugin.json").toFile();
+        Files.write(f.toPath(), ("{\"id\":\"hello\",\"name\":\"Hello\",\"version\":\"1.0.0\",\"author\":\"a\","
+                + "\"api\":1,\"main\":\"x.Y\",\"permissions\":" + permissionsJson + "}")
+                .getBytes(StandardCharsets.UTF_8));
+        return assertThrows(GradleException.class, () -> PluginJson.read(f), permissionsJson).getMessage();
+    }
+
+    @Test
+    void unknownPermissionSuggestsTheNearest() throws IOException {
+        String m = permissionFail("[\"vehicle.read\",\"ui.slot.statusbr\"]");
+        assertTrue(m.contains("unknown permission \"ui.slot.statusbr\" (did you mean \"ui.slot.statusbar\"?); known: "), m);
+        assertTrue(m.contains("known: vehicle.read, vehicle.parking.write, hooks.parking, ui.slot.carmenu,"
+                + " ui.slot.statusbar, network, platform.unrestricted"), m);
+    }
+
+    @Test
+    void unknownPermissionWithoutNearMatchListsKnown() throws IOException {
+        String m = permissionFail("[\"gps\"]");
+        assertTrue(m.contains("unknown permission \"gps\"; known: vehicle.read,"), m);
+        assertTrue(!m.contains("did you mean"), m);
+    }
 }

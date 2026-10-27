@@ -6,7 +6,6 @@ import mibsdk.api.HookObserved;
 import mibsdk.api.HookPoint;
 import mibsdk.api.Hooks;
 import mibsdk.api.Listener;
-import mibsdk.api.PermissionDeniedException;
 import mibsdk.api.Permissions;
 import mibsdk.api.Subscription;
 import mibsdk.api.Veto;
@@ -36,9 +35,10 @@ final class HooksImpl implements Hooks {
     private final Registrations registrations;
     private final LiveFeatures features; // read at each registration
     private final Set<String> granted;
+    private final Set<String> declared;
 
     HooksImpl(HookTable table, EventBus bus, String pluginId, SerialExecutor exec, Registrations registrations,
-            LiveFeatures features, Set<String> granted) {
+            LiveFeatures features, Set<String> granted, Set<String> declared) {
         this.table = table;
         this.bus = bus;
         this.pluginId = pluginId;
@@ -46,6 +46,7 @@ final class HooksImpl implements Hooks {
         this.registrations = registrations;
         this.features = features;
         this.granted = granted;
+        this.declared = declared;
     }
 
     @Override
@@ -80,7 +81,7 @@ final class HooksImpl implements Hooks {
         }
         String permission = permissionFor(point);
         if (!granted.contains(permission)) {
-            throw new PermissionDeniedException(permission);
+            throw UndeclaredPermissionException.denial(permission, declared);
         }
         if (!features.has(featureFor(point))) {
             throw new UnsupportedOperationException("hook point " + point + " is not available on this platform");

@@ -131,7 +131,7 @@ tasks are `./gradlew mibPluginJar` and `./gradlew mibPackage`.
    three checks:
    - `classVersionCheck`: every class is v48.
    - `linkCheck`: every reference resolves against the car's own class library.
-   - `permissionScan`: no reflection or exec, and no API newer than the `"api"` you declare.
+   - `permissionScan`: no reflection or exec, and no API newer than the `"api"` you declare, and every permission your code needs declared in `plugin.json` (the names are validated against the catalog).
 
    The result is `build/mibsdk/<id>.jar` plus `<id>.jar.stamp`, which lists the checks that ran and the jar's
    SHA-256.

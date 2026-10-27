@@ -1792,7 +1792,7 @@ class OverrideLedgerTest {
             }
         };
         Set<String> granted = new HashSet<String>(Arrays.asList(READ_WRITE));
-        ParkingImpl parking = new ParkingImpl("p", io, l, new Registrations(), granted);
+        ParkingImpl parking = new ParkingImpl("p", io, l, new Registrations(), granted, granted);
 
         parking.overrideSoundDirections(F1R0L1X1, OverrideScope.UNTIL_IGNITION_OFF);
         assertEquals(Arrays.asList("stale", "fresh"), reads);

@@ -128,6 +128,12 @@ toolchain table. The description below is the problem as found.
 
 ## 5. Permissions are not checked at build, and the runtime error misleads (annoying)
 
+**Status:** fixed in Task 8. `PluginJson.read` rejects an unknown permission with a "did you mean" hint,
+`permissionScan` fails the build when the code calls API whose permission `plugin.json` does not declare (also under
+`platform.unrestricted`), and the runtime says `permission not declared in plugin.json: <p>` for an undeclared
+permission and keeps `permission not granted: <p>` for a declared but ungranted one. The description below is the
+problem as found.
+
 - **Where:** §2. `PluginJson.read` copies `"permissions"` without checking them
   (`build-logic/src/main/java/mibsdk/build/PluginJson.java:101-110`). The runtime check is `UiImpl.requirePermission`
   (`runtime/src/main/java/mibsdk/runtime/UiImpl.java:480`) and `PluginContextImpl.requirePermission`

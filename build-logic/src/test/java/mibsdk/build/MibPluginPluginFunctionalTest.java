@@ -49,7 +49,7 @@ class MibPluginPluginFunctionalTest {
         repo = new File(System.getProperty("mibsdk.repoRoot")).getCanonicalFile();
         String r = repo.getPath().replace('\\', '/');
         write("settings.gradle.kts", "rootProject.name = \"tk\"\n"
-                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api6\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:colour3\", \"plugins:colour4\", \"plugins:inputs4\", \"plugins:inputs5\", \"plugins:tested\", \"plugin-test\")\n"
+                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:undeclared\", \"plugins:badperm\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api6\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:colour3\", \"plugins:colour4\", \"plugins:inputs4\", \"plugins:inputs5\", \"plugins:tested\", \"plugin-test\")\n"
                 + "project(\":compat\").projectDir = file(\"" + r + "/compat\")\n"
                 + "project(\":api\").projectDir = file(\"" + r + "/api\")\n"
                 + "project(\":plugins:hello\").projectDir = file(\"" + r + "/plugins/hello\")\n"
@@ -67,6 +67,20 @@ class MibPluginPluginFunctionalTest {
                 + "}\n";
         javaPlugin("refl", "sample.refl.ReflPlugin", reflBody, "[]");
         javaPlugin("unrestricted", "sample.refl.ReflPlugin", reflBody, "[\"platform.unrestricted\"]");
+        // Calls ctx.net() and Ui.statusItem without declaring them; platform.unrestricted does not excuse that.
+        javaPlugin("undeclared", "sample.undeclared.UndeclaredPlugin", "package sample.undeclared;\n"
+                + "import mibsdk.api.*;\n"
+                + "public class UndeclaredPlugin extends MibPlugin {\n"
+                + "  protected void onEnable(PluginContext ctx) throws Exception {\n"
+                + "    ctx.net();\n"
+                + "    ctx.ui().statusItem(\"x\");\n"
+                + "  }\n"
+                + "}\n", "[\"platform.unrestricted\"]");
+        javaPlugin("badperm", "sample.refl.ReflPlugin", "package sample.refl;\n"
+                + "import mibsdk.api.*;\n"
+                + "public class ReflPlugin extends MibPlugin {\n"
+                + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
+                + "}\n", "[\"netwrk\"]");
 
         for (String[] a : new String[][] {{"api2", "2"}, {"api0", "0"}, {"api6", "6"}, {"apifrac", "1.5"}}) {
             javaPlugin(a[0], "sample.refl.ReflPlugin", "package sample.refl;\n"
@@ -300,6 +314,23 @@ class MibPluginPluginFunctionalTest {
         assertTrue(result.getOutput().contains("sample/refl/ReflPlugin.load -> java/lang/Class.forName"),
                 result.getOutput());
         assertEquals(TaskOutcome.FAILED, result.task(":plugins:refl:permissionScan").getOutcome());
+    }
+
+    @Test
+    void undeclaredPermissionUseFailsBuildEvenWhenUnrestricted() {
+        BuildResult result = runner(":plugins:undeclared:mibPluginJar").buildAndFail();
+
+        assertEquals(TaskOutcome.FAILED, result.task(":plugins:undeclared:permissionScan").getOutcome());
+        assertTrue(result.getOutput().contains("sample/undeclared/UndeclaredPlugin.onEnable -> PluginContext.net"
+                + " needs \"network\": declare it in plugin.json \"permissions\""), result.getOutput());
+        assertTrue(result.getOutput().contains("sample/undeclared/UndeclaredPlugin.onEnable -> Ui.statusItem"
+                + " needs \"ui.slot.statusbar\""), result.getOutput());
+    }
+
+    @Test
+    void unknownPermissionNameFailsBuildWithSuggestion() {
+        String out = runner(":plugins:badperm:mibPluginJar").buildAndFail().getOutput();
+        assertTrue(out.contains("unknown permission \"netwrk\" (did you mean \"network\"?); known: "), out);
     }
 
     @Test

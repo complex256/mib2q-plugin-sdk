@@ -1116,7 +1116,7 @@ public final class SdkRuntime {
         h.exec = new SerialExecutor("plugin-" + h.id, clock, cfg.slowMs(), cfg.hungMs(), executorListener(h));
         h.scheduler = new PluginScheduler(h.exec, clock);
         h.ctx = new PluginContextImpl(h.id, log, h.storage, bus, h.exec, h.scheduler, h.registrations, features,
-                effectivePermissions(m), hooks, parkingSource, ledger, uiHub, clock, m.icons(),
+                effectivePermissions(m), declaredPermissions(m), hooks, parkingSource, ledger, uiHub, clock, m.icons(),
                 cfg.pluginIconDir(h.id));
         EnableHook hook = testEnableHook;
         if (hook != null) {
@@ -1270,6 +1270,11 @@ public final class SdkRuntime {
         }
         restoreOrphanedOverrides();
         purgeSnapshots();
+    }
+
+    /** The manifest's permissions, granted or not. */
+    private static Set<String> declaredPermissions(PluginManifest m) {
+        return Collections.unmodifiableSet(new HashSet<String>(m.permissions()));
     }
 
     /** The manifest's permissions that are also granted: what the plugin may actually use. */

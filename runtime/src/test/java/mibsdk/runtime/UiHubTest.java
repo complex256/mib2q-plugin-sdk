@@ -13,6 +13,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import mibsdk.api.Listener;
 import mibsdk.api.Page;
@@ -34,6 +35,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class UiHubTest {
+
+    private static final Set<String> UI_PERM_SET =
+            new HashSet<String>(Arrays.asList(Permissions.UI_SLOT_CAR_MENU, Permissions.UI_SLOT_STATUS_BAR));
 
     private static final SerialExecutor.Listener QUIET = new SerialExecutor.Listener() {
         public void onFailure(String label, Throwable t) {
@@ -94,7 +98,7 @@ class UiHubTest {
 
     private UiImpl ui(String id, UiHub hub) {
         return new UiImpl(id, hub, new LiveFeatures(UiTestRuntime.UI_FEATURES),
-                new HashSet<String>(Arrays.asList(Permissions.UI_SLOT_CAR_MENU, Permissions.UI_SLOT_STATUS_BAR)),
+                UI_PERM_SET, UI_PERM_SET,
                 executor("plugin-" + id), new Registrations(), java.util.Collections.<String>emptyList(), null);
     }
 
@@ -964,7 +968,7 @@ class UiHubTest {
 
     private UiImpl ui(String id, UiHub hub, String... features) {
         return new UiImpl(id, hub, new LiveFeatures(new HashSet<String>(Arrays.asList(features))),
-                new HashSet<String>(Arrays.asList(Permissions.UI_SLOT_CAR_MENU, Permissions.UI_SLOT_STATUS_BAR)),
+                UI_PERM_SET, UI_PERM_SET,
                 executor("plugin-" + id), new Registrations(), java.util.Collections.<String>emptyList(), null);
     }
 

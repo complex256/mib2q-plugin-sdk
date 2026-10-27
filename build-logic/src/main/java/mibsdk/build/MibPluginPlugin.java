@@ -97,6 +97,8 @@ public class MibPluginPlugin implements Plugin<Project> {
         project.getTasks().named("permissionScan", PermissionScanTask.class).configure(t -> {
             t.getFailOnFindings().set(manifest.map(m -> !m.unrestricted()));
             t.getDeclaredApi().set(manifest.map(m -> m.api));
+            t.getDeclaredPermissions().set(manifest.map(m -> m.permissions));
+            t.getFailOnUndeclared().set(true);
             t.getOwnClasses().from(main.getOutput().getClassesDirs());
         });
 

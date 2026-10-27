@@ -12,7 +12,6 @@ import mibsdk.api.Listener;
 import mibsdk.api.Log;
 import mibsdk.api.Net;
 import mibsdk.api.Parking;
-import mibsdk.api.PermissionDeniedException;
 import mibsdk.api.Permissions;
 import mibsdk.api.PluginContext;
 import mibsdk.api.Scheduler;
@@ -98,6 +97,7 @@ final class PluginContextImpl implements PluginContext {
     private final Registrations registrations;
     private final LiveFeatures features;
     private final Set<String> granted;
+    private final Set<String> declared;
     private final Hooks hooks;
     private final ParkingSource parkingSource;
     private final OverrideLedger ledger;
@@ -177,14 +177,15 @@ final class PluginContextImpl implements PluginContext {
 
     /**
      * @param granted the effective permissions (manifest permissions that are also granted)
+     * @param declared the manifest's permissions, so a denial can say "not declared" rather than "not granted"
      * @param parking asked for the adapter's parking I/O on each {@code vehicle().parking()} until it has one
      * @param declaredIcons the manifest's {@code icons}
      * @param iconDir where the plugin's icons are installed ({@link RuntimeConfig#pluginIconDir})
      */
     PluginContextImpl(String id, RingLog ringLog, PluginStorage storage, EventBus bus, SerialExecutor exec,
             PluginScheduler pluginScheduler, Registrations registrations, LiveFeatures features,
-            Set<String> granted, HookTable hookTable, ParkingSource parking, OverrideLedger ledger, UiHub uiHub,
-            Clock clock, List<String> declaredIcons, File iconDir) {
+            Set<String> granted, Set<String> declared, HookTable hookTable, ParkingSource parking,
+            OverrideLedger ledger, UiHub uiHub, Clock clock, List<String> declaredIcons, File iconDir) {
         this.id = id;
         this.ringLog = ringLog;
         this.storage = storage;
@@ -194,11 +195,12 @@ final class PluginContextImpl implements PluginContext {
         this.registrations = registrations;
         this.features = features;
         this.granted = granted;
-        this.hooks = new HooksImpl(hookTable, bus, id, exec, registrations, features, granted);
+        this.declared = declared;
+        this.hooks = new HooksImpl(hookTable, bus, id, exec, registrations, features, granted, declared);
         this.parkingSource = parking;
         this.ledger = ledger;
         this.net = new NetImpl(granted, clock);
-        this.ui = new UiImpl(id, uiHub, features, granted, exec, registrations, declaredIcons, iconDir);
+        this.ui = new UiImpl(id, uiHub, features, granted, declared, exec, registrations, declaredIcons, iconDir);
         this.vehicle = new Vehicle() {
             @Override
             public Parking parking() {
@@ -212,7 +214,7 @@ final class PluginContextImpl implements PluginContext {
             if (parking == null && features.has(Features.PARKING)) {
                 ParkingIo io = parkingSource.parkingIo();
                 if (io != null) {
-                    parking = new ParkingImpl(id, io, ledger, registrations, granted);
+                    parking = new ParkingImpl(id, io, ledger, registrations, granted, declared);
                 }
             }
             if (parking == null) {
@@ -281,7 +283,7 @@ final class PluginContextImpl implements PluginContext {
 
     private void requirePermission(String permission) {
         if (!granted.contains(permission)) {
-            throw new PermissionDeniedException(permission);
+            throw UndeclaredPermissionException.denial(permission, declared);
         }
     }
 }

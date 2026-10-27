@@ -235,4 +235,53 @@ class PermissionScanTest {
         assertEquals(List.of("fixture/B.toast -> Ui.toast needs api 5"), r.tooNew(4));
         assertEquals(List.of(), r.tooNew(5));
     }
+
+    private static final String UI_PERMISSION_STUB = "package mibsdk.api; public interface Ui {"
+            + " void carMenuRow(String label); void statusItem(String text); void toast(String text); }";
+    private static final String CTX_STUB = "package mibsdk.api; public interface PluginContext {"
+            + " Ui ui(); boolean granted(String permission); Object net(); }";
+    private static final String CAR_MENU_DECLARE = "needs \"ui.slot.carmenu\": declare it in plugin.json \"permissions\"";
+
+    private File carMenuCaller(String body) throws Exception {
+        return Fixtures.compileV48(tmp.resolve("car"), Map.of("mibsdk.api.Ui", UI_PERMISSION_STUB,
+                "mibsdk.api.PluginContext", CTX_STUB, "fixture.R",
+                "package fixture; import mibsdk.api.*; public class R { public void run(PluginContext ctx) { "
+                        + body + " } }"));
+    }
+
+    @Test
+    void carMenuRowNeedsItsPermission() throws Exception {
+        PermissionScan.Result r = PermissionScan.run(carMenuCaller("ctx.ui().carMenuRow(\"x\");"));
+        assertEquals(Map.of("fixture/R.run -> Ui.carMenuRow", "ui.slot.carmenu"), r.permissionSites());
+        assertEquals(List.of("fixture/R.run -> Ui.carMenuRow " + CAR_MENU_DECLARE), r.undeclared(List.of()));
+        assertEquals(List.of(), r.findings(), "not a platform.unrestricted finding");
+    }
+
+    @Test
+    void guardedCallStillNeedsDeclaration() throws Exception {
+        PermissionScan.Result r = PermissionScan.run(carMenuCaller(
+                "if (ctx.granted(\"ui.slot.carmenu\")) { ctx.ui().carMenuRow(\"x\"); }"));
+        assertEquals(List.of("fixture/R.run -> Ui.carMenuRow " + CAR_MENU_DECLARE), r.undeclared(List.of()));
+    }
+
+    @Test
+    void declaredPermissionPasses() throws Exception {
+        PermissionScan.Result r = PermissionScan.run(carMenuCaller("ctx.ui().carMenuRow(\"x\");"));
+        assertEquals(List.of(), r.undeclared(List.of("ui.slot.carmenu")));
+        assertEquals(List.of(), PermissionScan.run(carMenuCaller("ctx.ui();")).undeclared(List.of()));
+    }
+
+    @Test
+    void everyListedCallMapsToItsPermission() {
+        assertEquals("ui.slot.carmenu", ApiPermissions.required("mibsdk/api/Ui", "carMenuRow", "(x)V"));
+        assertEquals("ui.slot.statusbar", ApiPermissions.required("mibsdk/api/Ui", "statusItem", "()V"));
+        assertEquals("ui.slot.statusbar", ApiPermissions.required("mibsdk/api/Ui", "toast", "()V"));
+        assertEquals("network", ApiPermissions.required("mibsdk/api/PluginContext", "net", "()V"));
+        assertEquals("vehicle.read", ApiPermissions.required("mibsdk/api/PluginContext", "vehicle", "()V"));
+        assertEquals("vehicle.parking.write",
+                ApiPermissions.required("mibsdk/api/Parking", "overrideSoundDirections", "()V"));
+        assertEquals("hooks.parking", ApiPermissions.required("mibsdk/api/PluginContext", "hooks", "()V"));
+        assertEquals(null, ApiPermissions.required("mibsdk/api/PluginContext", "log", "()V"));
+        assertEquals(null, ApiPermissions.required("fixture/Ui", "carMenuRow", "()V"));
+    }
 }
