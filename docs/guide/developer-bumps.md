@@ -322,6 +322,11 @@ predates this fix.
 
 ## 12. No scaffolding (annoying)
 
+**Status:** fixed in Task 14. `./gradlew newPlugin -Pid=<id> -Pdir=<path> [-Ppackage=<java.package>]` copies
+`templates/plugin` there with the id, the package and the class renamed, sets `mibsdk.repo` to the checkout's
+`build/repo` and writes a `.gitignore`; `standalonePluginCheck` now scaffolds its fixture with that task. The
+description below is the problem as found.
+
 - **Where:** §1.3 to §1.5.
 - **What happens:** a new plugin is five files plus an edit to the SDK's `settings.gradle.kts`, and most of the
   build file and all of the test harness are copied from a sample. `mibpkg new <name>` exists, but it makes a mibpkg

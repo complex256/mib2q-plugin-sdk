@@ -104,10 +104,14 @@ A plugin lives in its own repository, built from [`templates/plugin`](templates/
 `plugin.json`. The convention takes the `api` and `compat` artifacts by coordinate
 (`dev.complex256.mibsdk:<artifact>:<version>`), so it needs no checkout of this repository at build time. Until the
 artifacts are hosted, run `./gradlew publishLocal` in a checkout of this repository, which writes `build/repo`, and
-set `mibsdk.repo` in your plugin's `gradle.properties` to that directory as a `file:` URL. The samples in `plugins/`
-are subprojects of this build and use the in-repo `:api` and `:compat` instead. `./gradlew standalonePluginCheck`
-(part of `check`) builds the template outside the project graph against `build/repo`, so the template cannot break
-unnoticed. See [Writing your first plugin](docs/guide/first-plugin.md#12-start-from-the-template).
+then scaffold your project in that checkout with
+`./gradlew newPlugin -Pid=<id> -Pdir=../<id> [-Ppackage=<java.package>]`. It copies the template there, renames the
+id, the Java package and the class, and points the new project's `gradle.properties` at that `build/repo` as a
+`file:` URL (written from the checkout's layout when the task runs, so no path is hard-coded). The samples in
+`plugins/` are subprojects of this build and use the in-repo `:api` and `:compat` instead.
+`./gradlew standalonePluginCheck` (part of `check`) scaffolds the template this way and builds it outside the project
+graph against `build/repo`, so the template cannot break unnoticed. See
+[Writing your first plugin](docs/guide/first-plugin.md#1-set-up-the-project).
 
 ```
  your plugin source              ./gradlew :plugins:<id>:mibPluginJar           ./gradlew :plugins:<id>:mibpkgPackage

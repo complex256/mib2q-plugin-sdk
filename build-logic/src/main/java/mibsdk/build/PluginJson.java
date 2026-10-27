@@ -48,6 +48,23 @@ final class PluginJson {
     }
 
     /**
+     * The id rule's complaint for {@code id}, or null when the id is acceptable. {@link NewPluginTask} shares the
+     * wording: a plugin scaffolded by hand and one scaffolded by {@code newPlugin} fail with the same sentence.
+     *
+     * <p>Stricter than the runtime's ManifestParser ({1,40}): mibpkg package names are at most 40 characters.
+     */
+    static String idProblem(String id) {
+        if (!id.matches("[a-z0-9][a-z0-9-]{1,39}")) {
+            return "invalid id '" + id + "': must match [a-z0-9][a-z0-9-]{1,39} (it names plugins/<id>.jar;"
+                    + " mibpkg package names are at most 40 characters)";
+        }
+        if (id.equals("mibsdk")) {
+            return "id 'mibsdk' is reserved for the SDK package";
+        }
+        return null;
+    }
+
+    /**
      * Like the runtime, only an integral JSON number (no fraction, no exponent) is an api level. JsonSlurper gives
      * BigDecimal for {@code 2.0} or {@code 2e0}, Integer for a value that fits an int and Long beyond; its Long path
      * silently wraps past 2^63 ({@code 18446744073709551618} reads as 2), so a Long is never trusted as a level.
@@ -85,14 +102,9 @@ final class PluginJson {
         String name = string(file, m, "name");
         String version = string(file, m, "version");
         int api = checkApi(file, m.get("api"));
-        // Stricter than the runtime's ManifestParser ({1,40}): mibpkg package names are at most 40 characters.
-        if (!id.matches("[a-z0-9][a-z0-9-]{1,39}")) {
-            throw new GradleException("mibsdk.plugin: " + file + ": invalid id '" + id
-                    + "': must match [a-z0-9][a-z0-9-]{1,39} (it names plugins/<id>.jar;"
-                    + " mibpkg package names are at most 40 characters)");
-        }
-        if (id.equals("mibsdk")) {
-            throw new GradleException("mibsdk.plugin: " + file + ": id 'mibsdk' is reserved for the SDK package");
+        String idProblem = idProblem(id);
+        if (idProblem != null) {
+            throw new GradleException("mibsdk.plugin: " + file + ": " + idProblem);
         }
         if (!version.matches("\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?")) {
             throw new GradleException("mibsdk.plugin: " + file

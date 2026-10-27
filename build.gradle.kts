@@ -1,8 +1,12 @@
+import mibsdk.build.NewPluginTask
+
 // Root project: shared tasks (carJcl) are registered here by the mibsdk.car-library plugin.
 plugins {
     // On the root classpath so every subproject shares one plugin classloader (a Kotlin plugin with its own
     // version in a subproject would load build-logic's tasks a second time).
     id("org.jetbrains.kotlin.jvm") version "2.0.21" apply false
+    // Not applied to the root project: only its classes, so NewPluginTask can be registered below.
+    id("mibsdk.car-library") apply false
 }
 
 // build-logic is an included build (pluginManagement), which `./gradlew check` does not reach by task-name selection:
@@ -66,15 +70,42 @@ tasks.register("publishLocal") {
     dependsOn(gradle.includedBuild("build-logic").task(":publishAllPublicationsToLocalRepository"))
 }
 
-// Proves the plugin template builds outside this repository: copies templates/plugin to build/standalone-check/ and builds
-// it there with its own wrapper, resolving the mibsdk plugin and artifacts only from build/repo (no :api, no stock jars).
+// The template is the starting point of every outside plugin, so the build can scaffold one:
+//   ./gradlew newPlugin -Pid=my-plugin -Pdir=../my-plugin [-Ppackage=com.example.myplugin]
+// It writes templates/plugin there with the id, package and class renamed, and points the new project's
+// gradle.properties at this checkout's build/repo (so run `./gradlew publishLocal` at least once).
+tasks.register<NewPluginTask>("newPlugin") {
+    templateDir.set(layout.projectDirectory.dir("templates/plugin"))
+    pluginId.set(providers.gradleProperty("id"))
+    packageName.set(providers.gradleProperty("package"))
+    destinationDir.set(providers.gradleProperty("dir").map { layout.projectDirectory.dir(it) })
+    repoDir.set(localRepoDir)
+}
+
+// Proves the plugin template builds outside this repository: scaffolds a project from templates/plugin into
+// build/standalone-check/ and builds it there with its own wrapper, resolving the mibsdk plugin and artifacts only
+// from build/repo (no :api, no stock jars).
+val checkDir = layout.buildDirectory.dir("standalone-check")
+val cleanStandaloneCheck = tasks.register<Delete>("cleanStandaloneCheck") {
+    group = "verification"
+    description = "Removes build/standalone-check/ so standalonePluginCheck can scaffold it again."
+    delete(checkDir)
+}
+val scaffoldForCheck = tasks.register<NewPluginTask>("scaffoldStandaloneCheck") {
+    description = "Scaffolds templates/plugin into build/standalone-check/ with -Pid=check-plugin."
+    mustRunAfter(cleanStandaloneCheck)
+    templateDir.set(layout.projectDirectory.dir("templates/plugin"))
+    pluginId.set("check-plugin")
+    destinationDir.set(checkDir)
+    repoDir.set(localRepoDir)
+}
+
 val standalonePluginCheck = tasks.register<Exec>("standalonePluginCheck") {
     group = "verification"
-    description = "Builds templates/plugin in a copy outside the project graph against build/repo (mibPluginJar and test)."
-    dependsOn("publishLocal")
+    description = "Scaffolds templates/plugin with newPlugin and builds it outside the project graph against build/repo."
+    dependsOn("publishLocal", cleanStandaloneCheck, scaffoldForCheck)
 
     val template = layout.projectDirectory.dir("templates/plugin")
-    val checkDir = layout.buildDirectory.dir("standalone-check")
     val repoDir = localRepoDir
     val sdkVersion = providers.gradleProperty("mibsdk.version")
     val windows = System.getProperty("os.name").lowercase().contains("windows")
@@ -83,12 +114,13 @@ val standalonePluginCheck = tasks.register<Exec>("standalonePluginCheck") {
     inputs.files(fileTree(template) { exclude("build/**", ".gradle/**", ".kotlin/**") })
         .withPropertyName("template").withPathSensitivity(PathSensitivity.RELATIVE)
     // maven-metadata.xml carries a publication timestamp: only the artifacts themselves count.
-    inputs.files(repoDir.map { fileTree(it) { include("**/*.jar", "**/*.pom", "**/*.module") } }).withPropertyName("repo").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(repoDir.map { fileTree(it) { include("**/*.jar", "**/*.pom", "**/*.module") } })
+        .withPropertyName("repo").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.property("sdkVersion", sdkVersion)
     inputs.property("jdk8Home", jdk8Home.orElse(""))
-    outputs.file(checkDir.map { it.file("build/mibsdk/my-plugin.jar") })
+    outputs.file(checkDir.map { it.file("build/mibsdk/check-plugin.jar") })
 
-    // The copy's own wrapper, so the template's gradlew is what gets tested.
+    // The scaffolded project's own wrapper, so the template's gradlew is what gets tested.
     workingDir = checkDir.get().asFile
     executable = checkDir.get().file(if (windows) "gradlew.bat" else "gradlew").asFile.absolutePath
     argumentProviders.add(CommandLineArgumentProvider {
@@ -97,24 +129,27 @@ val standalonePluginCheck = tasks.register<Exec>("standalonePluginCheck") {
     })
 
     doFirst {
-        // The template must ask for the SDK version this build publishes, or it rots silently.
+        // The scaffolded build file must ask for the SDK version this build publishes, or the template rots silently.
+        val buildFile = checkDir.get().file("build.gradle.kts").asFile
+        check(buildFile.isFile) { "standalonePluginCheck: the scaffold wrote no $buildFile" }
         val declared = Regex("""id\("mibsdk\.plugin"\)\s+version\s+"([^"]+)"""")
-            .find(template.file("build.gradle.kts").asFile.readText())?.groupValues?.get(1)
+            .find(buildFile.readText())?.groupValues?.get(1)
         check(declared == sdkVersion.get()) {
-            "templates/plugin/build.gradle.kts asks for mibsdk.plugin version $declared, but mibsdk.version is ${sdkVersion.get()}"
+            "$buildFile asks for mibsdk.plugin version $declared, but mibsdk.version is ${sdkVersion.get()}"
         }
-        val dir = checkDir.get().asFile
-        dir.deleteRecursively()
-        template.asFile.copyRecursively(dir)
-        // copyRecursively keeps the file contents but not always the executable bit.
-        dir.resolve("gradlew").setExecutable(true)
     }
     doLast {
-        val jar = checkDir.get().file("build/mibsdk/my-plugin.jar").asFile
+        val jar = checkDir.get().file("build/mibsdk/check-plugin.jar").asFile
         check(jar.isFile) { "standalonePluginCheck: $jar was not built" }
-        // The template's own host test must have run (the convention wires the harness), not just compiled.
+        // The scaffolded project's own host test must have run (the convention wires the harness), not just compiled.
         val results = checkDir.get().dir("build/test-results/test").asFile.listFiles { f -> f.extension == "xml" }.orEmpty()
-        check(results.isNotEmpty()) { "standalonePluginCheck: the template's tests left no test-results XML" }
+        check(results.isNotEmpty()) { "standalonePluginCheck: the scaffolded project's tests left no test-results XML" }
+        // Nothing may still name the template's placeholders.
+        val leftovers = checkDir.get().asFile.walkTopDown()
+            .filter { it.isFile && it.extension in setOf("kts", "java", "json", "properties") }
+            .filter { f -> f.readText().contains("my-plugin") || f.readText().contains("example.myplugin") }
+            .toList()
+        check(leftovers.isEmpty()) { "standalonePluginCheck: the scaffold left the template's names in $leftovers" }
     }
 }
 
