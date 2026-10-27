@@ -612,13 +612,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
-import mibsdk.adapter.fake.FakePlatform;
 import mibsdk.adapter.fake.FakeUi;
 import mibsdk.test.PluginTestHarness;
 import org.junit.jupiter.api.AfterEach;
@@ -627,12 +623,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 class CoffeeTimerPluginTest {
 
-    private static final String ID = "coffee-timer";
-
     @TempDir
     File tmp;
 
     private PluginTestHarness h;
+    /** What the plugin stored on an earlier run: set before start. */
+    private final Properties stored = new Properties();
     private FakeUi ui;
     /** A plugin page's key is "<plugin id>/<page id>". */
     private String page;
@@ -648,7 +644,7 @@ class CoffeeTimerPluginTest {
 
     /** Installs the built jar into a temp "unit", starts the real runtime on the fake car and waits for the page. */
     private void start() {
-        h = PluginTestHarness.start(tmp);
+        h = PluginTestHarness.builder(tmp).storedValues(stored).start();
         ui = h.ui();
         page = h.pageKey("timer");
         row = "[png:" + h.iconSha("cup") + "] Coffee";
@@ -688,10 +684,9 @@ class CoffeeTimerPluginTest {
     }
 
     @Test
-    void storedValuesAreRestored() throws IOException {
-        File data = new File(FakePlatform.roots(tmp).persist(), "data/" + ID + ".properties");
-        data.getParentFile().mkdirs();
-        Files.write(data.toPath(), "minutes=2\ntoast=off\n".getBytes(StandardCharsets.UTF_8));
+    void storedValuesAreRestored() {
+        stored.setProperty("minutes", "2");
+        stored.setProperty("toast", "off");
         start();
         List<String> lines = ui.render(page);
         assertEquals("Start timer: 2 min", lines.get(0));
@@ -772,9 +767,10 @@ What the harness does, and why:
 - **Time.** `h.advance(ms)` moves the plugin's `Scheduler` forward, so a 2-minute timer runs in milliseconds.
 - **Waiting.** The runtime works on its own threads, so every check is an `h.await(condition, what)` loop (5 s), not
   an assertion right after the action.
-- **Storage.** `h.storedValues()` stops the runtime, which flushes the plugin's storage, and returns what the plugin
-  stored. `h.restart()` stops and starts again on the same directory, so you can test that values come back. After a
-  restart, call `h.ui()` again.
+- **Storage.** `builder(tmp).storedValues(properties)` puts values in the plugin's storage before it starts, as if an
+  earlier run had stored them. `h.storedValues()` stops the runtime, which flushes the plugin's storage, and returns
+  what the plugin stored. `h.restart()` stops and starts again on the same directory, so you can test that values come
+  back. After a restart, call `h.ui()` again.
 - **Pages.** `h.pageKey("timer")` is the page's key for `FakeUi` (`<plugin id>/<page id>`). `h.openPage("timer")`
   opens it from the Plugins menu, which the confirm and speller dialogs need.
 - **FakeUi drivers:**

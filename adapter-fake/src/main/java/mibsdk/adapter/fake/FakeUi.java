@@ -87,6 +87,11 @@ public final class FakeUi {
         return out;
     }
 
+    /** Whether the page is registered (an empty page is registered; {@link #render} is empty for both). */
+    public boolean hasPage(String pageKey) {
+        return table.snapshot().pages().containsKey(pageKey);
+    }
+
     /** Records ROW_SELECTED; the page opens from the next snapshot, like the adapter. */
     public void selectRow(int index) {
         List<UiRow> rows = table.snapshot().carRows();

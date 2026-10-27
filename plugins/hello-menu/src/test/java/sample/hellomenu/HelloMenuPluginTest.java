@@ -6,10 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.List;
-import mibsdk.adapter.fake.FakePlatform;
+import java.util.Properties;
 import mibsdk.adapter.fake.FakeUi;
 import mibsdk.api.Features;
 import mibsdk.test.PluginTestHarness;
@@ -23,6 +21,8 @@ class HelloMenuPluginTest {
     File tmp;
 
     private PluginTestHarness h;
+    /** What the plugin stored on an earlier run: set before start. */
+    private final Properties stored = new Properties();
     private FakeUi ui;
     private String page;
     private String row;
@@ -38,20 +38,13 @@ class HelloMenuPluginTest {
     }
 
     private void start(String... features) {
-        use(PluginTestHarness.builder(tmp).features(features).start());
+        use(PluginTestHarness.builder(tmp).features(features).storedValues(stored).start());
     }
 
     /** The runtime blocks the plugin when its declared permissions are not granted: it never runs. */
     private void startUngranted(String... features) {
         use(PluginTestHarness.builder(tmp).features(features).grants().startExpectingFailure());
         assertEquals("BLOCKED_PERMISSIONS", h.state());
-    }
-
-    /** What the plugin stored on an earlier run: written before the harness starts. */
-    private void seedStorage(String text) throws IOException {
-        File data = new File(FakePlatform.roots(tmp).persist(), "data/hello-menu.properties");
-        data.getParentFile().mkdirs();
-        Files.write(data.toPath(), text.getBytes(StandardCharsets.UTF_8));
     }
 
     private void use(PluginTestHarness started) {
@@ -101,7 +94,7 @@ class HelloMenuPluginTest {
     @Test
     void uiOffStillEnables() throws IOException {
         start(); // start() awaits ENABLED
-        assertTrue(ui.render(page).isEmpty(), "no page registered: " + ui.render(page));
+        assertFalse(ui.hasPage(page), "no page registered");
         assertFalse(ui.carRows().contains(row), ui.carRows().toString());
     }
 
@@ -115,7 +108,7 @@ class HelloMenuPluginTest {
 
     @Test
     void lastSelectionIsRestoredFromStorage() throws IOException {
-        seedStorage("last=plum\n");
+        stored.setProperty("last", "plum");
         start(Features.SLOT_CAR_MENU, Features.UI_PAGES);
         h.await(() -> ui.render(page).size() > 6 && ui.render(page).get(6).contains("Selected: Plum"),
                 "Selected: Plum, restored: " + ui.render(page));
@@ -161,7 +154,7 @@ class HelloMenuPluginTest {
     /** A fresh start with {@code colour=tinted} stored: the first status the plugin publishes is tinted. */
     @Test
     void storedStatusColourIsRestoredOnEnable() throws IOException {
-        seedStorage("colour=tinted\n");
+        stored.setProperty("colour", "tinted");
         start(Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR, Features.UI_PAGES, Features.UI_ICONS);
         h.await(() -> !ui.statusParts().isEmpty() && ui.statusParts().get(ui.statusParts().size() - 1).endsWith("Hello"),
                 "a status item: " + ui.statusParts());

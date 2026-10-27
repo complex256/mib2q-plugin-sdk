@@ -4,13 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
-import mibsdk.adapter.fake.FakePlatform;
 import mibsdk.adapter.fake.FakeUi;
 import mibsdk.test.PluginTestHarness;
 import org.junit.jupiter.api.AfterEach;
@@ -19,12 +15,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 class CoffeeTimerPluginTest {
 
-    private static final String ID = "coffee-timer";
-
     @TempDir
     File tmp;
 
     private PluginTestHarness h;
+    /** What the plugin stored on an earlier run: set before start. */
+    private final Properties stored = new Properties();
     private FakeUi ui;
     /** A plugin page's key is "<plugin id>/<page id>". */
     private String page;
@@ -40,7 +36,7 @@ class CoffeeTimerPluginTest {
 
     /** Installs the built jar into a temp "unit", starts the real runtime on the fake car and waits for the page. */
     private void start() {
-        h = PluginTestHarness.start(tmp);
+        h = PluginTestHarness.builder(tmp).storedValues(stored).start();
         ui = h.ui();
         page = h.pageKey("timer");
         row = "[png:" + h.iconSha("cup") + "] Coffee";
@@ -80,10 +76,9 @@ class CoffeeTimerPluginTest {
     }
 
     @Test
-    void storedValuesAreRestored() throws IOException {
-        File data = new File(FakePlatform.roots(tmp).persist(), "data/" + ID + ".properties");
-        data.getParentFile().mkdirs();
-        Files.write(data.toPath(), "minutes=2\ntoast=off\n".getBytes(StandardCharsets.UTF_8));
+    void storedValuesAreRestored() {
+        stored.setProperty("minutes", "2");
+        stored.setProperty("toast", "off");
         start();
         List<String> lines = ui.render(page);
         assertEquals("Start timer: 2 min", lines.get(0));

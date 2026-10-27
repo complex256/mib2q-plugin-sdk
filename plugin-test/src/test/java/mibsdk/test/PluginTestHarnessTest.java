@@ -109,7 +109,7 @@ class PluginTestHarnessTest {
 
     /** hello-menu has no timer of its own: the log's timestamps come from the clock the Scheduler reads. */
     @Test
-    void advanceMovesTheScheduler() {
+    void advanceMovesTheClock() {
         h = PluginTestHarness.start(tmp);
         long before = lastLogUptime();
         h.advance(60_000);
@@ -118,15 +118,60 @@ class PluginTestHarnessTest {
     }
 
     @Test
-    void missingJarNamesTheProperty() {
+    void aJarThatDoesNotExistIsReported() {
+        File missing = new File(tmp, "nope.jar");
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> PluginTestHarness.builder(tmp).jar(missing).start());
+        assertTrue(e.getMessage().contains("nope.jar"), e.getMessage());
+    }
+
+    @Test
+    void withoutAJarPropertyOrBuilderJarTheMessageNamesTheProperty() {
         String old = System.getProperty("mibsdk.pluginJar");
         System.clearProperty("mibsdk.pluginJar");
         try {
             IllegalStateException e = assertThrows(IllegalStateException.class, () -> PluginTestHarness.start(tmp));
             assertTrue(e.getMessage().contains("mibsdk.pluginJar"), e.getMessage());
         } finally {
-            System.setProperty("mibsdk.pluginJar", old);
+            if (old != null) {
+                System.setProperty("mibsdk.pluginJar", old);
+            }
         }
+    }
+
+    @Test
+    void storedValuesSeedTheStorageBeforeTheFirstStart() {
+        Properties seed = new Properties();
+        seed.setProperty("last", "plum");
+        h = PluginTestHarness.builder(tmp).storedValues(seed).start();
+        h.await(() -> h.ui().render(PAGE).contains("Selected: Plum"), "Selected: Plum");
+    }
+
+    @Test
+    void startThrowsWhenThePluginDoesNotEnable() {
+        int live = PluginTestHarness.liveRuntimes();
+        AssertionError e = assertThrows(AssertionError.class, () -> PluginTestHarness.builder(tmp).grants().start());
+        assertTrue(e.getMessage().contains("BLOCKED_PERMISSIONS"), e.getMessage());
+        assertEquals(live, PluginTestHarness.liveRuntimes(), "the failed start stopped its runtime");
+    }
+
+    @Test
+    void startExpectingFailureThrowsWhenThePluginEnables() {
+        int live = PluginTestHarness.liveRuntimes();
+        AssertionError e = assertThrows(AssertionError.class,
+                () -> PluginTestHarness.builder(tmp).startExpectingFailure());
+        assertTrue(e.getMessage().contains("expected to fail"), e.getMessage());
+        assertEquals(live, PluginTestHarness.liveRuntimes(), "the failed start stopped its runtime");
+    }
+
+    @Test
+    void aStartedHarnessCountsAsLiveUntilClosed() {
+        int live = PluginTestHarness.liveRuntimes();
+        h = PluginTestHarness.start(tmp);
+        assertEquals(live + 1, PluginTestHarness.liveRuntimes());
+        h.close();
+        h.close(); // idempotent
+        assertEquals(live, PluginTestHarness.liveRuntimes());
     }
 
     private long lastLogUptime() {

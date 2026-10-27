@@ -43,6 +43,8 @@ class FakeUiTest {
         assertEquals(Arrays.asList("SDK >", "All good"), ui.render("mibsdk/plugins"));
         assertEquals(Arrays.asList("Apple: 3", "[on] Rack"), ui.render("sdk/main"));
         assertTrue(ui.render("nope").isEmpty());
+        assertTrue(ui.hasPage("sdk/main"));
+        assertFalse(ui.hasPage("nope"));
     }
 
     @Test

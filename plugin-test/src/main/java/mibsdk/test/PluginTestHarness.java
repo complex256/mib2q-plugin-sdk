@@ -4,7 +4,9 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
@@ -18,6 +20,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.zip.ZipEntry;
@@ -60,7 +63,7 @@ import mibsdk.runtime.SdkRuntime;
  *
  * <p>Where the files come from: the plugin jar is {@code -Dmibsdk.pluginJar} (or {@link Builder#jar}); the icon PNGs
  * are {@code <name>.png} in {@code -Dmibsdk.pluginIcons} (or {@link Builder#icons}), by default {@code src/main/icons}
- * of the project under test. The {@code mibsdk.plugin} Gradle plugin sets both properties for a plugin's tests.
+ * of the project under test. The build sets both properties for a plugin's tests.
  *
  * <p>What the "unit" is given, so a test sees the same thing every time:
  * <ul>
@@ -74,6 +77,7 @@ import mibsdk.runtime.SdkRuntime;
  * {@code <name>=<sha16>,<width>,<height>}. {@link #iconSha} gives the sha16 for an assertion such as
  * {@code "[png:" + h.iconSha("cup") + "] Coffee"}.</li>
  * <li>The Scheduler's clock is the real uptime plus {@link #advance}.</li>
+ * <li>The plugin's storage starts with the values given to {@link Builder#storedValues}, by default empty.</li>
  * </ul>
  *
  * <p>After {@link #restart()} the harness has a new runtime, UI and car: call {@link #ui()} and {@link #car()} again.
@@ -85,6 +89,8 @@ public final class PluginTestHarness implements AutoCloseable {
             Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR, Features.PARKING, Features.IGNITION,
             Features.HOOK_PARKING};
     private static final long AWAIT_MS = 5000;
+    /** Runtimes started and not yet stopped, across all harnesses: lets a test see that a failed start cleaned up. */
+    private static final AtomicInteger LIVE_RUNTIMES = new AtomicInteger();
 
     private final File tmp;
     private final File jar;
@@ -101,12 +107,13 @@ public final class PluginTestHarness implements AutoCloseable {
     private FakeUi ui;
     private RingLog log;
 
-    private PluginTestHarness(File tmp, File jar, File icons, Set<String> features, List<String> grants) {
+    private PluginTestHarness(File tmp, File jar, File icons, Set<String> features, List<String> grants,
+            Properties storedValues) {
         this.tmp = tmp;
         this.jar = jar;
         this.features = features;
         this.manifest = readManifest(jar);
-        install(icons, grants);
+        install(icons, grants, storedValues);
     }
 
     /** A harness for the jar in {@code -Dmibsdk.pluginJar} and the icons in {@code -Dmibsdk.pluginIcons}. */
@@ -125,6 +132,7 @@ public final class PluginTestHarness implements AutoCloseable {
         private File icons;
         private String[] features;
         private String[] grants;
+        private Properties storedValues;
 
         private Builder(File tmp) {
             this.tmp = tmp;
@@ -139,6 +147,17 @@ public final class PluginTestHarness implements AutoCloseable {
         /** The permissions the user granted; none when called with no arguments. Default: every one plugin.json declares. */
         public Builder grants(String... permissions) {
             this.grants = permissions.clone();
+            return this;
+        }
+
+        /**
+         * What the plugin has in storage when it starts, as if an earlier run stored it. The values are written to the
+         * plugin's data file before the first start; {@link #restart()} keeps whatever the plugin stored since.
+         */
+        public Builder storedValues(Properties values) {
+            Properties copy = new Properties();
+            copy.putAll(values);
+            this.storedValues = copy;
             return this;
         }
 
@@ -163,7 +182,7 @@ public final class PluginTestHarness implements AutoCloseable {
 
         /**
          * Starts the plugin and waits until it is {@code FAILED}, {@code QUARANTINED} or {@code BLOCKED_*}; does not throw
-         * for that. Read the outcome with {@link #state()}. Still fails if the plugin ends up enabled, or never settles.
+         * for that ({@code DISABLED} is not a failure outcome). Read the outcome with {@link #state()}. Still fails if the plugin ends up enabled, or never settles.
          */
         public PluginTestHarness startExpectingFailure() {
             PluginTestHarness h = create();
@@ -176,7 +195,7 @@ public final class PluginTestHarness implements AutoCloseable {
                     "the plugin jar: pass -Dmibsdk.pluginJar=<path to the built jar> or call Builder.jar(File)");
             File i = icons != null ? icons : defaultIcons();
             Set<String> f = new HashSet<String>(Arrays.asList(features != null ? features : ALL_FEATURES));
-            return new PluginTestHarness(tmp, j, i, f, grants == null ? null : Arrays.asList(grants));
+            return new PluginTestHarness(tmp, j, i, f, grants == null ? null : Arrays.asList(grants), storedValues);
         }
 
         private static File defaultIcons() {
@@ -307,6 +326,11 @@ public final class PluginTestHarness implements AutoCloseable {
         return sb.toString();
     }
 
+    /** Runtimes started and not yet stopped, across all harnesses (for the harness's own tests). */
+    static int liveRuntimes() {
+        return LIVE_RUNTIMES.get();
+    }
+
     /** Stops the runtime. */
     @Override
     public void close() {
@@ -324,8 +348,15 @@ public final class PluginTestHarness implements AutoCloseable {
         Clock clock = () -> System.nanoTime() / 1000000L + skew.get();
         rt = new SdkRuntime(RuntimeConfig.load(roots), car, clock, new HookTable(64), table, log);
         running = true;
-        rt.start();
-        awaitSettled(wantEnabled);
+        LIVE_RUNTIMES.incrementAndGet();
+        try {
+            rt.start();
+            awaitSettled(wantEnabled);
+        } catch (Throwable t) {
+            // No harness reaches the caller, so nobody could close it: stop the runtime here.
+            stopRuntime();
+            throw t;
+        }
     }
 
     /** Waits for the plugin to settle, then checks that it settled the way the caller wanted. */
@@ -349,12 +380,13 @@ public final class PluginTestHarness implements AutoCloseable {
 
     private static boolean isSettled(PluginState st) {
         return st == PluginState.ENABLED || st == PluginState.FAILED || st == PluginState.QUARANTINED
-                || st == PluginState.DISABLED || st.name().startsWith("BLOCKED");
+                || st.name().startsWith("BLOCKED");
     }
 
     private void stopRuntime() {
         if (running) {
             running = false;
+            LIVE_RUNTIMES.decrementAndGet();
             rt.stop();
         }
     }
@@ -408,19 +440,30 @@ public final class PluginTestHarness implements AutoCloseable {
         }
     }
 
-    private void install(File icons, List<String> grants) {
+    private void install(File icons, List<String> grants, Properties storedValues) {
         try {
             File base = FakePlatform.roots(tmp).install();
             new File(base, "plugins").mkdirs();
             Files.copy(jar.toPath(), new File(base, "plugins/" + manifest.id() + ".jar").toPath(),
                     StandardCopyOption.REPLACE_EXISTING);
             write(new File(base, "sdk.properties"), "plugin.start.delay.ms=0\nheap.low.bytes=0\nui.publish.min.ms=0\n"
-                    + "log.file=" + new File(tmp, "mibsdk.log").getPath() + "\n");
+                    + "log.file=" + new File(tmp, "mibsdk.log").getPath().replace("\\", "\\\\") + "\n");
             List<String> granted = grants != null ? grants : manifest.permissions();
             write(new File(base, "grants.properties"), manifest.id() + "=" + String.join(",", granted) + "\n");
             installIcons(new File(base, "icons/" + manifest.id()), icons);
+            if (storedValues != null) {
+                writeStoredValues(storedValues);
+            }
         } catch (IOException e) {
             throw new IllegalStateException("Cannot install the plugin into " + tmp + ": " + e.getMessage(), e);
+        }
+    }
+
+    private void writeStoredValues(Properties values) throws IOException {
+        File data = new File(FakePlatform.roots(tmp).persist(), "data/" + manifest.id() + ".properties");
+        data.getParentFile().mkdirs();
+        try (OutputStream out = new FileOutputStream(data)) {
+            values.store(out, null);
         }
     }
 

@@ -7,12 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
-import mibsdk.adapter.fake.FakePlatform;
 import mibsdk.adapter.fake.FakeUi;
 import mibsdk.api.Features;
 import mibsdk.test.PluginTestHarness;
@@ -26,6 +23,8 @@ class InputsDemoPluginTest {
     File tmp;
 
     private PluginTestHarness h;
+    /** What the plugin stored on an earlier run: set before start. */
+    private final Properties stored = new Properties();
     private FakeUi ui;
     private String page;
     private String lang;
@@ -44,19 +43,12 @@ class InputsDemoPluginTest {
     }
 
     private void start(String... features) {
-        h = PluginTestHarness.builder(tmp).features(features).start();
+        h = PluginTestHarness.builder(tmp).features(features).storedValues(stored).start();
         ui = h.ui();
         page = h.pageKey("inputs");
         lang = page + "#lang";
         plug = h.iconSha("plug-24");
         h.await(() -> !ui.render(page).isEmpty(), "page registered");
-    }
-
-    /** What the plugin stored on an earlier run: written before the harness starts. */
-    private void seedStorage(String text) throws IOException {
-        File data = new File(FakePlatform.roots(tmp).persist(), "data/inputs-demo.properties");
-        data.getParentFile().mkdirs();
-        Files.write(data.toPath(), text.getBytes(StandardCharsets.UTF_8));
     }
 
     private static final String CONFIRM_TEXT = "Are you sure? This long question checks how the confirm screen wraps"
@@ -181,7 +173,10 @@ class InputsDemoPluginTest {
 
     @Test
     void storedValuesAreRestored() throws IOException {
-        seedStorage("name=Al\nlevel=3\nbass=-2\nvol=8\n");
+        stored.setProperty("name", "Al");
+        stored.setProperty("level", "3");
+        stored.setProperty("bass", "-2");
+        stored.setProperty("vol", "8");
         start();
         assertEquals("Name: Al", line("Name"));
         assertEquals("Level: High v", line("Level"));
@@ -267,7 +262,7 @@ class InputsDemoPluginTest {
 
     @Test
     void spellerUnchangedAddsNoSaveRow() throws IOException {
-        seedStorage("name=Al\n");
+        stored.setProperty("name", "Al");
         start();
         openPage();
         ui.select(page, "name");
