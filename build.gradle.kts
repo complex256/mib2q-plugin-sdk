@@ -15,7 +15,7 @@ tasks.register("check") {
 
 // Publishing: the SDK artifacts and the mibsdk.* Gradle plugins go to the file repo build/repo (repository "local") and
 // nowhere else. Plugins outside this repository resolve them by coordinate (dev.complex256.mibsdk:<module>:<version>).
-val sdkModules = listOf("compat", "api", "platform", "runtime", "adapter-fake")
+val sdkModules = listOf("compat", "api", "platform", "runtime", "adapter-fake", "plugin-test")
 val carClassifierModules = setOf("compat", "api")
 val localRepoDir = layout.buildDirectory.dir("repo")
 

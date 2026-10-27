@@ -149,9 +149,8 @@ plugins {
 }
 
 dependencies {
-    // Host tests only: the real runtime and the fake car. None of this goes into the plugin jar.
-    testImplementation(project(":runtime"))
-    testImplementation(project(":adapter-fake"))
+    // Host tests only: the test harness (real runtime on a fake car). None of this goes into the plugin jar.
+    testImplementation(project(":plugin-test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
 }
@@ -173,13 +172,15 @@ tasks.test {
 - It compiles your code against the SDK's `api` jar only, as `compileOnly`.
 - It lowers the classes to Java 1.4, then checks and packs them.
 
-The rest of the file is for the host test in section 6: it puts the SDK runtime and the fake car on the test
-classpath, and passes the path of the built jar to the test. The samples copy these lines too.
+The rest of the file is for the host test in section 6: it puts the SDK's test harness (`PluginTestHarness`, with the
+real runtime and the fake car behind it) on the test classpath, and passes the path of the built jar to the test. The
+samples copy these lines too.
 
-> `project(":runtime")` and `project(":adapter-fake")` exist only inside the SDK repository. Until the host test
-> harness is published as an artifact, the host test of section 6 runs only there, as the finished sample
-> `plugins/coffee-timer`'s does. A stand-alone plugin builds, checks and packages (sections 5 and 7) without it, so
-> leave the `dependencies` block and the `tasks.test` block out of its `build.gradle.kts`.
+> `project(":plugin-test")` exists only inside the SDK repository. The harness is published with the other SDK
+> artifacts (`dev.complex256.mibsdk:plugin-test`), but the stand-alone plugin build does not wire it yet. The host
+> test of section 6 therefore runs only in the SDK repository, as the finished sample `plugins/coffee-timer`'s does.
+> A stand-alone plugin builds, checks and packages (sections 5 and 7) without it, so leave the `dependencies` block and
+> the `tasks.test` block out of its `build.gradle.kts`.
 
 > Kotlin works as well: add `id("org.jetbrains.kotlin.jvm")` before `id("mibsdk.plugin")`. See
 > `plugins/bike-rack/build.gradle.kts`, which also sets the test compile's `jvmTarget` to 17.
@@ -597,9 +598,9 @@ Reports land in `plugins/coffee-timer/build/reports/mibsdk/`: `linkcheck.txt` (e
 
 ## 6. Test it on your computer
 
-There is no emulator for the head unit. Instead, `adapter-fake` gives you a fake car (`FakePlatform`) and a fake
-screen (`FakeUi`). The test installs the **built jar** into a temporary directory laid out like the unit, starts the
-real SDK runtime on the fake car and drives the UI as a user would.
+There is no emulator for the head unit. Instead, `plugin-test` gives you `PluginTestHarness`. It installs the **built
+jar** into a temporary directory laid out like the unit, starts the real SDK runtime on a fake car (`adapter-fake`'s
+`FakePlatform`) and gives you a fake screen (`FakeUi`) to drive the UI as a user would.
 
 Create `plugins/coffee-timer/src/test/java/tutorial/coffeetimer/CoffeeTimerPluginTest.java`:
 
@@ -609,31 +610,17 @@ package tutorial.coffeetimer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.BooleanSupplier;
 import mibsdk.adapter.fake.FakePlatform;
 import mibsdk.adapter.fake.FakeUi;
-import mibsdk.api.Features;
-import mibsdk.platform.HookTable;
-import mibsdk.platform.SdkRoots;
-import mibsdk.platform.UiTable;
-import mibsdk.runtime.Clock;
-import mibsdk.runtime.PluginState;
-import mibsdk.runtime.RingLog;
-import mibsdk.runtime.RuntimeConfig;
-import mibsdk.runtime.SdkRuntime;
+import mibsdk.test.PluginTestHarness;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -641,165 +628,114 @@ import org.junit.jupiter.api.io.TempDir;
 class CoffeeTimerPluginTest {
 
     private static final String ID = "coffee-timer";
-    /** A plugin page's key is "<plugin id>/<page id>". */
-    private static final String PAGE = ID + "/timer";
-    /** Stand-ins for the sha16 names mibpkg gives installed icons. */
-    private static final String CUP_SHA = "0123456789abcdef";
-    private static final String CUP_20_SHA = "fedcba9876543210";
-    private static final String ROW = "[png:" + CUP_SHA + "] Coffee";
 
     @TempDir
     File tmp;
 
-    private SdkRuntime rt;
-    private final UiTable table = new UiTable(64);
-    private final FakeUi ui = new FakeUi(table);
-    /** Added to the real uptime: raising it moves the plugin's Scheduler forward. */
-    private final AtomicLong skew = new AtomicLong();
+    private PluginTestHarness h;
+    private FakeUi ui;
+    /** A plugin page's key is "<plugin id>/<page id>". */
+    private String page;
+    private String row;
+    private String cup20Sha;
 
     @AfterEach
     void tearDown() {
-        if (rt != null) {
-            rt.stop();
+        if (h != null) {
+            h.close();
         }
     }
 
-    // ---- the harness: install the built jar into a temp "unit" and start the real runtime on the fake car ----
-
-    private void start() throws IOException {
-        FakePlatform fake = new FakePlatform("HMI_TEST", new HashSet<String>(Arrays.asList(Features.UI_PAGES,
-                Features.UI_INPUTS, Features.UI_ICONS, Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR)));
-        SdkRoots roots = FakePlatform.roots(tmp);
-        File base = roots.install();
-        new File(base, "plugins").mkdirs();
-        Files.copy(new File(System.getProperty("mibsdk.pluginJar")).toPath(),
-                new File(base, "plugins/" + ID + ".jar").toPath(), StandardCopyOption.REPLACE_EXISTING);
-        // No start delay, no heap guard, no UI throttle: a test wants the plugin up at once.
-        write(new File(base, "sdk.properties"), "plugin.start.delay.ms=0\nheap.low.bytes=0\nui.publish.min.ms=0\n"
-                + "log.file=" + new File(tmp, "mibsdk.log").getPath() + "\n");
-        // What the user approved at install: every permission plugin.json declares.
-        write(new File(base, "grants.properties"), ID + "=ui.slot.carmenu,ui.slot.statusbar\n");
-        // What mibpkg installs for the package's icons.
-        File icons = new File(base, "icons/" + ID);
-        write(new File(icons, "index.properties"), "cup=" + CUP_SHA + ",72,72\ncup-20=" + CUP_20_SHA + ",20,20\n");
-        Files.copy(new File("src/main/icons/cup.png").toPath(), new File(icons, CUP_SHA + ".png").toPath());
-        Files.copy(new File("src/main/icons/cup-20.png").toPath(), new File(icons, CUP_20_SHA + ".png").toPath());
-
-        Clock clock = () -> System.nanoTime() / 1000000L + skew.get();
-        rt = new SdkRuntime(RuntimeConfig.load(roots), fake, clock, new HookTable(64), table, new RingLog(500));
-        rt.start();
-        await(() -> rt.statuses().size() == 1 && rt.statuses().get(0).state() == PluginState.ENABLED, "ENABLED");
-        await(() -> !ui.render(PAGE).isEmpty(), "the page");
-    }
-
-    private void await(BooleanSupplier condition, String what) {
-        for (int i = 0; i < 500; i++) {
-            if (condition.getAsBoolean()) {
-                return;
-            }
-            try {
-                Thread.sleep(10);
-            } catch (InterruptedException e) {
-                throw new IllegalStateException(e);
-            }
-        }
-        fail("never " + what + ": " + ui.render(PAGE) + " " + ui.statusParts() + "\n" + rt.log().snapshot());
-    }
-
-    private static void write(File f, String text) throws IOException {
-        f.getParentFile().mkdirs();
-        Files.write(f.toPath(), text.getBytes(StandardCharsets.UTF_8));
-    }
-
-    /** Stops the runtime (which flushes storage) and reads the plugin's stored values. */
-    private Properties stopAndReadStorage() throws IOException {
-        rt.stop();
-        rt = null;
-        Properties p = new Properties();
-        try (FileInputStream in = new FileInputStream(new File(FakePlatform.roots(tmp).persist(), "data/" + ID + ".properties"))) {
-            p.load(in);
-        }
-        return p;
+    /** Installs the built jar into a temp "unit", starts the real runtime on the fake car and waits for the page. */
+    private void start() {
+        h = PluginTestHarness.start(tmp);
+        ui = h.ui();
+        page = h.pageKey("timer");
+        row = "[png:" + h.iconSha("cup") + "] Coffee";
+        cup20Sha = h.iconSha("cup-20");
+        h.await(() -> !ui.render(page).isEmpty(), "the page");
     }
 
     private void minutePasses() {
-        skew.addAndGet(CoffeeTimerPlugin.MINUTE_MS);
+        h.advance(CoffeeTimerPlugin.MINUTE_MS);
     }
 
     // ---- the tests ----
 
     @Test
-    void carRowOpensTheTimerPage() throws Exception {
+    void carRowOpensTheTimerPage() {
         start();
-        await(() -> ui.carRows().contains(ROW), "the Coffee row: " + ui.carRows());
-        ui.selectRow(ui.carRows().indexOf(ROW));
-        await(() -> PAGE.equals(ui.openPageKey()), "the page open");
+        h.await(() -> ui.carRows().contains(row), "the Coffee row: " + ui.carRows());
+        ui.selectRow(ui.carRows().indexOf(row));
+        h.await(() -> page.equals(ui.openPageKey()), "the page open");
         assertEquals(Arrays.asList(
                 "Start timer: 4 min",
                 "[on] Pop up when ready",
                 "Brew time: 4 [1..10]",
-                "Set a brew time, then Start."), ui.render(PAGE));
+                "Set a brew time, then Start."), ui.render(page));
     }
 
     @Test
-    void sliderAndToggleAreStored() throws Exception {
+    void sliderAndToggleAreStored() {
         start();
-        ui.turn(PAGE, "minutes", 7);
-        await(() -> ui.render(PAGE).contains("Start timer: 7 min"), "7 min");
-        ui.toggle(PAGE, "toast");
-        await(() -> ui.render(PAGE).contains("[off] Pop up when ready"), "toggle off");
-        Properties stored = stopAndReadStorage();
+        ui.turn(page, "minutes", 7);
+        h.await(() -> ui.render(page).contains("Start timer: 7 min"), "7 min");
+        ui.toggle(page, "toast");
+        h.await(() -> ui.render(page).contains("[off] Pop up when ready"), "toggle off");
+        Properties stored = h.storedValues();
         assertEquals("7", stored.getProperty("minutes"));
         assertEquals("off", stored.getProperty("toast"));
     }
 
     @Test
-    void storedValuesAreRestored() throws Exception {
-        write(new File(FakePlatform.roots(tmp).persist(), "data/" + ID + ".properties"), "minutes=2\ntoast=off\n");
+    void storedValuesAreRestored() throws IOException {
+        File data = new File(FakePlatform.roots(tmp).persist(), "data/" + ID + ".properties");
+        data.getParentFile().mkdirs();
+        Files.write(data.toPath(), "minutes=2\ntoast=off\n".getBytes(StandardCharsets.UTF_8));
         start();
-        List<String> lines = ui.render(PAGE);
+        List<String> lines = ui.render(page);
         assertEquals("Start timer: 2 min", lines.get(0));
         assertEquals("[off] Pop up when ready", lines.get(1));
     }
 
     @Test
-    void timerCountsDownOnTheStatusLineAndToasts() throws Exception {
+    void timerCountsDownOnTheStatusLineAndToasts() {
         start();
-        ui.turn(PAGE, "minutes", 2);
-        await(() -> ui.render(PAGE).contains("Start timer: 2 min"), "2 min");
+        ui.turn(page, "minutes", 2);
+        h.await(() -> ui.render(page).contains("Start timer: 2 min"), "2 min");
         assertEquals("", ui.statusLine());
-        ui.select(PAGE, "start");
-        await(() -> "Coffee 2m".equals(ui.statusLine()), "Coffee 2m on the status line");
+        ui.select(page, "start");
+        h.await(() -> "Coffee 2m".equals(ui.statusLine()), "Coffee 2m on the status line");
         minutePasses();
-        await(() -> "Coffee 1m".equals(ui.statusLine()), "Coffee 1m");
+        h.await(() -> "Coffee 1m".equals(ui.statusLine()), "Coffee 1m");
         assertNull(ui.toast());
         minutePasses();
-        await(() -> "Coffee ready".equals(ui.statusLine()), "Coffee ready");
-        await(() -> ("[png:" + CUP_20_SHA + "] Coffee is ready").equals(ui.toast()), "the toast: " + ui.toast());
-        ui.select(PAGE, "dismiss");
-        await(() -> "".equals(ui.statusLine()), "the status item hidden");
+        h.await(() -> "Coffee ready".equals(ui.statusLine()), "Coffee ready");
+        h.await(() -> ("[png:" + cup20Sha + "] Coffee is ready").equals(ui.toast()), "the toast: " + ui.toast());
+        ui.select(page, "dismiss");
+        h.await(() -> "".equals(ui.statusLine()), "the status item hidden");
     }
 
     @Test
-    void noToastWhenTurnedOff() throws Exception {
+    void noToastWhenTurnedOff() {
         start();
-        ui.toggle(PAGE, "toast");
-        ui.turn(PAGE, "minutes", 1);
-        await(() -> ui.render(PAGE).contains("Start timer: 1 min"), "1 min");
-        ui.select(PAGE, "start");
-        await(() -> "Coffee 1m".equals(ui.statusLine()), "Coffee 1m");
+        ui.toggle(page, "toast");
+        ui.turn(page, "minutes", 1);
+        h.await(() -> ui.render(page).contains("Start timer: 1 min"), "1 min");
+        ui.select(page, "start");
+        h.await(() -> "Coffee 1m".equals(ui.statusLine()), "Coffee 1m");
         minutePasses();
-        await(() -> "Coffee ready".equals(ui.statusLine()), "Coffee ready");
+        h.await(() -> "Coffee ready".equals(ui.statusLine()), "Coffee ready");
         assertNull(ui.toast());
     }
 
     @Test
-    void stopCancelsTheTimer() throws Exception {
+    void stopCancelsTheTimer() {
         start();
-        ui.select(PAGE, "start");
-        await(() -> "Coffee 4m".equals(ui.statusLine()), "Coffee 4m");
-        ui.select(PAGE, "stop");
-        await(() -> ui.render(PAGE).contains("Start timer: 4 min"), "back to Start");
+        ui.select(page, "start");
+        h.await(() -> "Coffee 4m".equals(ui.statusLine()), "Coffee 4m");
+        ui.select(page, "stop");
+        h.await(() -> ui.render(page).contains("Start timer: 4 min"), "back to Start");
         assertEquals("", ui.statusLine());
     }
 }
@@ -811,31 +747,44 @@ Run it:
 ./gradlew :plugins:coffee-timer:test
 ```
 
-You should see `BUILD SUCCESSFUL`. A failing `await` prints the page, the status line and the runtime's whole log,
-and the log usually tells you why. Open `plugins/coffee-timer/build/reports/tests/test/index.html` for the details.
+You should see `BUILD SUCCESSFUL`. A failing `h.await` prints the runtime's status, the car rows, the status line,
+your plugin's pages and the runtime's whole log, and the log usually tells you why. Open
+`plugins/coffee-timer/build/reports/tests/test/index.html` for the details.
 
 What the harness does, and why:
 
-- **The `start()` method is boilerplate.** Every sample test has its own copy, because the SDK has no test helper
-  yet. It does four things:
-  1. It copies the jar.
-  2. It writes an `sdk.properties` with the 30 s start delay off.
-  3. It writes `grants.properties`, standing in for what the user approved at install. Grant fewer permissions and
-     the plugin is `BLOCKED_PERMISSIONS`.
-  4. It writes the icon index that mibpkg would write (`<name>=<sha16>,<w>,<h>`, with the PNGs under made-up
-     `sha16` names).
-- **Features.** The `FakePlatform` features you pass decide what the fake unit can show. Leave out
-  `Features.UI_INPUTS` and the slider becomes a text line and the toast is inert, as on a unit with the native
-  inputs off.
-- **Time.** The runtime takes a `Clock`. Adding to `skew` moves the plugin's `Scheduler` forward, so a 2-minute
-  timer runs in milliseconds.
-- **Waiting.** The runtime works on its own threads, so every check is an `await` loop, not an assertion right
-  after the action.
+- **`PluginTestHarness.start(tmp)`** does the setup every host test needs. It reads the jar from
+  `-Dmibsdk.pluginJar` (or `Builder.jar(File)`), and the icons from `-Dmibsdk.pluginIcons` (or `Builder.icons(File)`,
+  by default `src/main/icons`). Then it:
+  1. copies the jar into the temporary unit;
+  2. writes an `sdk.properties` with the 30 s start delay, the heap guard and the UI throttle off
+     (`plugin.start.delay.ms=0`, `heap.low.bytes=0`, `ui.publish.min.ms=0`);
+  3. writes `grants.properties`, standing in for what the user approved at install: by default every permission your
+     `plugin.json` declares;
+  4. installs the icons as mibpkg does: each PNG under its `<sha16>.png` name, with an `index.properties` line
+     `<name>=<sha16>,<w>,<h>`. `h.iconSha("cup")` gives you the `sha16` for an assertion;
+  5. starts the runtime and waits until the plugin is `ENABLED`. If it never is, the test fails with the runtime log.
+- **Grants and failures.** `builder(tmp).grants().startExpectingFailure()` grants nothing and waits for the plugin to
+  be `FAILED` or `BLOCKED_*` without throwing: `h.state()` is then `"BLOCKED_PERMISSIONS"`.
+- **Features.** `builder(tmp).features(...)` decides what the fake unit can show; by default it has all of them.
+  Leave out `Features.UI_INPUTS` and the slider becomes a text line and the toast is inert, as on a unit with the
+  native inputs off.
+- **Time.** `h.advance(ms)` moves the plugin's `Scheduler` forward, so a 2-minute timer runs in milliseconds.
+- **Waiting.** The runtime works on its own threads, so every check is an `h.await(condition, what)` loop (5 s), not
+  an assertion right after the action.
+- **Storage.** `h.storedValues()` stops the runtime, which flushes the plugin's storage, and returns what the plugin
+  stored. `h.restart()` stops and starts again on the same directory, so you can test that values come back. After a
+  restart, call `h.ui()` again.
+- **Pages.** `h.pageKey("timer")` is the page's key for `FakeUi` (`<plugin id>/<page id>`). `h.openPage("timer")`
+  opens it from the Plugins menu, which the confirm and speller dialogs need.
 - **FakeUi drivers:**
   - `carRows()`, `selectRow(i)`, `render(pageKey)`, `select(pageKey, itemId)`, `toggle(...)`, `turn(...)` for a
     slider and `pick(...)` for a dropdown;
+  - `choose(pageKey, itemId, index)` for a choice. The SDK derives a sub-page keyed `<pageKey>#<itemId>` whose
+    options have the ids `"0"`, `"1"` and so on; `choose` opens it and picks the option for you;
   - `statusLine()`, `statusParts()` and `toast()`;
   - `dialog()`, `answer(...)`, `type(...)` and `leave()` for confirm and speller.
+- **The car.** `h.car()` is the `FakePlatform`: change the unit's ignition or sound state there.
 - **Rendered text.** `render` gives one line per entry, in a fixed text format (`UiPageText.line`): `[on] label` for
   a toggle, `label: value` for an item, `Brew time: 4 [1..10]` for a slider. Icons show as tags: `[png:<sha16>]`
   for your PNG, `[star]` for a built-in.
@@ -944,7 +893,7 @@ Other `mibsdk-dev` commands:
 **Logs.** `ctx.log().info/warn/error` writes to the SDK's in-memory ring buffer. The SDK mirrors the buffer to
 `/tmp/mibsdk.log` on the unit (`mibsdk-dev log`). The log also has the SDK's own `STATUS` lines, for example
 `STATUS coffee-timer FAILED mibsdk.api.PermissionDeniedException: permission not granted: ui.slot.carmenu`. In a
-host test, `rt.log().snapshot()` gives you the same lines. The `await` helper prints them when a test fails.
+host test, `h.log()` gives you the same lines. `h.await` prints them when a test fails.
 
 **Plugin states.** The Plugins menu shows each plugin's state, and `mibsdk-dev status` lists them too:
 

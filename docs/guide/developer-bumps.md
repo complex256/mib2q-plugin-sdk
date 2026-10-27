@@ -153,6 +153,11 @@ toolchain table. The description below is the problem as found.
 
 ## 6. Every host test copies about 80 lines of harness (annoying)
 
+**Status:** fixed in Task 6. `plugin-test` publishes `mibsdk.test.PluginTestHarness`, and the three samples' tests use
+it, so none of them imports `mibsdk.runtime.*` or `mibsdk.platform.*` any more. The build-script half (the repeated
+`pluginJar` wiring and the `testImplementation` line) follows in Task 7, when `mibsdk.plugin` adds `plugin-test` to every
+plugin's tests. The description below is the problem as found.
+
 - **Where:** §6. Compare `plugins/hello-menu/src/test/java/sample/hellomenu/HelloMenuPluginTest.java:50-113`,
   `plugins/inputs-demo/src/test/java/sample/inputsdemo/InputsDemoPluginTest.java:57-120` and
   `plugins/coffee-timer/src/test/java/tutorial/coffeetimer/CoffeeTimerPluginTest.java:62-120`. Each sample's
@@ -341,6 +346,9 @@ toolchain table. The description below is the problem as found.
   guide.
 
 ## 19. Choice sub-page keys are undocumented (nit)
+
+**Status:** fixed in Task 6. `FakeUi.choose(pageKey, itemId, index)` opens the sub-page and picks the option, and its
+Javadoc gives the key format. `inputs-demo`'s test uses it. The description below is the problem as found.
 
 - **Where:** §6, and `plugins/inputs-demo/src/test/java/sample/inputsdemo/InputsDemoPluginTest.java`, where
   `LANG = PAGE + "#lang"` and `ui.select(LANG, "1")` appear.

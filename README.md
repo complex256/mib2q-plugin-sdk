@@ -171,6 +171,7 @@ tasks are `./gradlew mibPluginJar` and `./gradlew mibPackage`.
 | `runtime/` | The SDK runtime (`SdkRuntime`). It loads plugins in filtered class loaders and enforces permissions. It also runs each plugin's serial executor and the scheduler, the storage and quotas, the boot guard and safe mode, quarantine, the override ledger, the Plugins menu and the dev channel (hot reload). |
 | `adapter-hqc/` | The adapter for `HMI_AU_MIB2_HQC_NAR_G22_C10_180803`: the bundle activator, the configurator chain and the DSI bridges. It also draws the HMI UI (Car drawer rows, pages, popups, the status line, toasts and dialogs). It compiles against the stock jars. |
 | `adapter-fake/` | A host-only fake car (`FakePlatform`) and UI driver (`FakeUi`) for unit tests. It never ships. |
+| `plugin-test/` | `PluginTestHarness`: runs a built plugin jar on the real runtime and the fake car, for a plugin's host tests. Host only. |
 | `build-logic/` | An included Gradle build with the `mibsdk.car-library` and `mibsdk.plugin` conventions, plus the backport, `LinkCheck`, `PermissionScan`, `PngCheck`, check-stamp and mibpkg packaging tasks. |
 | `dist/` | Assembles the three unit jars (`mibsdk-runtime.jar`, `mibsdk-adapter-hqc.jar`, `mibsdk-rt-retrotranslator.jar`), link-checks them together against the stock jars, stamps them and packs `mibsdk-<version>.mpk`. `dist/icons/` holds the built-in icon set. |
 | `installer/` | `mibsdk-dev`, the bench developer tool (bash, over SSH), and its Python tests (`test_mibsdk_dev.py`, `test_make_builtin_icons.py`). |
@@ -214,7 +215,7 @@ All commands run from the repository root.
 
 ```sh
 ./gradlew check                                    # every module's tests and checks, plus build-logic's tests
-./gradlew :plugins:hello-menu:test                 # one plugin's host tests (against adapter-fake)
+./gradlew :plugins:hello-menu:test                 # one plugin's host tests (PluginTestHarness on the fake car)
 ./gradlew :plugins:hello-menu:mibPluginJar         # build/mibsdk/hello-menu.jar + .jar.stamp
 ./gradlew :plugins:hello-menu:mibPackage -Pmibsdk.mibpkg=<path-to-mibpkg>
                                                    # build/mibsdk/hello-menu-1.2.0.mpk

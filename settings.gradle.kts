@@ -14,6 +14,7 @@ include("api")
 include("platform")
 include("runtime")
 include("adapter-fake")
+include("plugin-test")
 include("adapter-hqc")
 include("dist")
 include("plugins:hello", "plugins:crashy", "plugins:bike-rack", "plugins:hello-menu", "plugins:daemon-status",

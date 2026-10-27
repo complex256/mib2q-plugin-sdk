@@ -115,6 +115,21 @@ public final class FakeUi {
         }
     }
 
+    /**
+     * CHOICE: opens the choice's sub-page and selects option {@code index} on it, as a user does (open the row, pick
+     * the radio, land back on the page). The sub-page key is {@code <pageKey>#<itemId>} and its radio ids are
+     * {@code String.valueOf(index)}, so the plugin sees an action for {@code itemId} with value {@code index}.
+     * Nothing happens for an unknown or disabled choice.
+     */
+    public void choose(String pageKey, String itemId, int index) {
+        UiEntry e = entry(pageKey, itemId);
+        if (e == null || !e.enabled() || e.kind() != UiEntry.CHOICE) {
+            return;
+        }
+        select(pageKey, itemId);
+        select(pageKey + "#" + itemId, String.valueOf(index));
+    }
+
     /** TOGGLE_REQUESTED with the opposite of the current state; nothing for a disabled toggle. */
     public void toggle(String pageKey, String entryKey) {
         UiEntry e = entry(pageKey, entryKey);
@@ -184,6 +199,12 @@ public final class FakeUi {
     public String toast() {
         UiToast t = table.snapshot().toast();
         return t == null ? null : tag(t.icon(), true) + t.text();
+    }
+
+    /** The sequence number of the latest toast, 0 for none: it rises with each toast, even one with the same text. */
+    public long toastSeq() {
+        UiToast t = table.snapshot().toast();
+        return t == null ? 0 : t.seq();
     }
 
     private UiDialog openDialog() {

@@ -271,6 +271,33 @@ class FakeUiTest {
     }
 
     @Test
+    void chooseSelectsTheOption() throws Exception {
+        publishInputs(1, 1, "p/main");
+        assertEquals("p/main", ui.openPageKey());
+        drain();
+        ui.choose("p/main", "lang", 1);
+        assertEquals("p/main", ui.openPageKey(), "back on the page the choice is on");
+        assertEquals(UiInput.PAGE_CLOSED, table.poll(0).kind()); // p/main left for the sub-page
+        assertEquals(UiInput.PAGE_SHOWN, table.poll(0).kind()); // p/main#lang
+        UiInput pick = table.poll(0);
+        assertEquals(UiInput.ENTRY_SELECTED, pick.kind());
+        assertEquals("p/main#lang", pick.pageKey());
+        assertEquals("1", pick.entryKey());
+        assertEquals(Arrays.asList("-:p/main#lang", "+:p/main"), drain());
+    }
+
+    @Test
+    void chooseIgnoresDisabledAndNonChoiceEntries() throws Exception {
+        publishInputs(1, 1, "p/main");
+        assertEquals("p/main", ui.openPageKey());
+        drain();
+        ui.choose("p/main", "region", 0); // disabled
+        ui.choose("p/main", "apple", 0); // not a choice
+        assertEquals("p/main", ui.openPageKey());
+        assertTrue(drain().isEmpty());
+    }
+
+    @Test
     void pickAndTurnSendRawValues() throws Exception {
         publishInputs(1, 0, null);
         ui.pick("p/main", "lvl", 1);
@@ -333,6 +360,7 @@ class FakeUiTest {
                 "Yes", "No", 0), new mibsdk.platform.UiToast(2, "Saved", UiIcon.stock("check")));
         assertEquals("confirm:Reset?|a\nb|Yes|No", ui.dialog());
         assertEquals("[check] Saved", ui.toast());
+        assertEquals(2, ui.toastSeq());
         ui.answer(1);
         assertNull(ui.dialog(), "answered");
         ui.answer(1); // once per dialog
@@ -341,6 +369,7 @@ class FakeUiTest {
         publishDialog(2, new mibsdk.platform.UiDialog(5, mibsdk.platform.UiDialog.CONFIRM, "p/main", "T", "x", "Ja",
                 "Nein", 0), null);
         assertNull(ui.toast());
+        assertEquals(0, ui.toastSeq(), "no toast");
         ui.leave(); // BACK on a confirm is No
         assertEquals(Arrays.asList(UiInput.DIALOG_DONE + ":p/main:5:0:null"), dialogInputs());
 
