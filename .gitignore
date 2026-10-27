@@ -3,6 +3,7 @@
 /plugins/*/build/
 /spikes/*/build/
 .gradle/
+.kotlin/
 .superpowers/
 *.class
 spikes/modern-java/tools/
