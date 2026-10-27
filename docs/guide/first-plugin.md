@@ -59,45 +59,81 @@ mibsdk.mibpkg=/path/to/mibpkg/target/release/mibpkg
 > The build has no default under your home directory. If `mibpkg` is not on `PATH`, set `mibsdk.mibpkg`. If a
 > property you set points at a missing file, the build fails with a message that names the property.
 
-### 1.2 Work inside the SDK repository
+### 1.2 Start from the template
 
-A plugin is a **Gradle subproject of this repository**. The `mibsdk.plugin` convention looks up the `:api` and
-`:compat` projects by path, so a stand-alone project cannot use it yet. Clone the repository, and check that a
-sample builds before you write anything:
+A plugin is a Gradle project in **its own repository**. The `mibsdk.plugin` plugin takes the SDK (the `api` jar, the
+`compat` shims and the car class files it links against) from a Maven repository, so you do not clone the SDK into
+your project.
+
+Until the artifacts are hosted, you publish them from an SDK checkout to a local file repository. Do this once, and
+again whenever you update the checkout:
 
 ```sh
 git clone <this repository> mibsdk
 cd mibsdk
-./gradlew :plugins:hello:mibPluginJar
+./gradlew publishLocal
 ```
 
-You should see `BUILD SUCCESSFUL`, and `plugins/hello/build/mibsdk/hello.jar` should exist.
-
-- `The configured executable does not exist (.../bin/javac)` means the JDK 8 path is wrong.
-
-### 1.3 Create the plugin's directories
+This writes `build/repo` inside the checkout. Then copy the template out of it and point it at that repository:
 
 ```sh
-mkdir -p plugins/coffee-timer/src/main/java/tutorial/coffeetimer \
-         plugins/coffee-timer/src/main/resources \
-         plugins/coffee-timer/src/main/icons \
-         plugins/coffee-timer/src/test/java/tutorial/coffeetimer
+cp -r templates/plugin ../coffee-timer
+cd ../coffee-timer
+```
+
+Open `gradle.properties` and set `mibsdk.repo` to the `build/repo` directory, written as a `file:` URL:
+
+```properties
+mibsdk.repo=file:///path/to/mibsdk/build/repo
+```
+
+Build the template once, before you change anything:
+
+```sh
+./gradlew mibPluginJar
+```
+
+You should see `BUILD SUCCESSFUL`, and `build/mibsdk/my-plugin.jar` should exist.
+
+- `mibsdk.repo is not set` means `mibsdk.repo` is still empty.
+- `Could not find dev.complex256.mibsdk:api:...` means the URL does not point at the `build/repo` of a checkout where
+  `./gradlew publishLocal` has run, or the checkout's `mibsdk.version` differs from the version in your
+  `build.gradle.kts`.
+- `The configured executable does not exist (.../bin/javac)` means the JDK 8 path is wrong.
+
+The rest of this tutorial writes paths and tasks as they are in the SDK repository's finished sample,
+`plugins/coffee-timer`. In your own project, drop the `plugins/coffee-timer/` prefix from paths and the
+`:plugins:coffee-timer:` prefix from task names: `./gradlew :plugins:coffee-timer:mibPluginJar` is
+`./gradlew mibPluginJar` there.
+
+### 1.3 What the template contains
+
+```
+build.gradle.kts                          plugins { id("mibsdk.plugin") version "..." }
+settings.gradle.kts                       the repositories (mibsdk.repo, Gradle plugin portal, Maven Central)
+gradle.properties                         mibsdk.repo
+src/main/resources/plugin.json            the manifest
+src/main/java/example/myplugin/MyPlugin.java
+.gitignore
 ```
 
 The layout is fixed by the build:
 
 - `src/main/resources/plugin.json` is the manifest.
-- `src/main/icons/<name>.png` holds one PNG per icon the manifest declares.
-- The Java sources go under `src/main/java`.
+- `src/main/icons/<name>.png` holds one PNG per icon the manifest declares. Create the directory when you need it.
+- The Java sources go under `src/main/java`. Host tests go under `src/test/java`.
 
-### 1.4 Register the subproject
+Create the directories this tutorial adds:
 
-Open `settings.gradle.kts` and add `"plugins:coffee-timer"` to the `include(...)` that lists the sample plugins:
-
-```kotlin
-include("plugins:hello", "plugins:crashy", "plugins:bike-rack", "plugins:hello-menu", "plugins:daemon-status",
-    "plugins:inputs-demo", "plugins:coffee-timer")
+```sh
+mkdir -p src/main/java/tutorial/coffeetimer src/main/icons src/test/java/tutorial/coffeetimer
 ```
+
+### 1.4 Rename the plugin
+
+Set `rootProject.name` in `settings.gradle.kts` to `"coffee-timer"`, and delete `src/main/java/example`: sections 2
+and 4 write the manifest and the class that replace the template's. There is nothing to register in any other
+build: the project builds on its own.
 
 ### 1.5 The build file
 
@@ -131,11 +167,16 @@ tasks.test {
 
 `id("mibsdk.plugin")` does all the real work:
 
-- It compiles your code against `:api` only, as `compileOnly`.
+- It compiles your code against the SDK's `api` jar only, as `compileOnly`.
 - It lowers the classes to Java 1.4, then checks and packs them.
 
 The rest of the file is for the host test in section 6: it puts the SDK runtime and the fake car on the test
 classpath, and passes the path of the built jar to the test. The samples copy these lines too.
+
+> `project(":runtime")` and `project(":adapter-fake")` exist only inside the SDK repository. Until the host test
+> harness is published as an artifact, the host test of section 6 runs only there, as the finished sample
+> `plugins/coffee-timer`'s does. A stand-alone plugin builds, checks and packages (sections 5 and 7) without it, so
+> leave the `dependencies` block and the `tasks.test` block out of its `build.gradle.kts`.
 
 > Kotlin works as well: add `id("org.jetbrains.kotlin.jvm")` before `id("mibsdk.plugin")`. See
 > `plugins/bike-rack/build.gradle.kts`, which also sets the test compile's `jvmTarget` to 17.

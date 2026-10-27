@@ -12,8 +12,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import org.gradle.testkit.runner.BuildResult;
@@ -468,6 +471,68 @@ class MibPluginPluginFunctionalTest {
             assertTrue(allClasses < 400, "stdlib was shrunk, not copied whole: " + allClasses + " classes");
             assertAllV48(zip);
         }
+    }
+
+    /**
+     * A plugin build with no {@code :api}/{@code :compat} project: the SDK comes from a Maven repository by coordinate
+     * (hand-made fixture jars, the second one is the v48 {@code car} classifier).
+     */
+    @Test
+    void conventionOutsideTheSdkUsesCoordinates(@TempDir Path alone) throws Exception {
+        String version = SdkCoordinates.version();
+        Path repoDir = alone.resolve("repo");
+        Path src = Files.createDirectories(alone.resolve("fixture-src"));
+        Map<String, String> apiSources = new LinkedHashMap<>();
+        apiSources.put("mibsdk.api.PluginContext", "package mibsdk.api;\npublic interface PluginContext { }\n");
+        apiSources.put("mibsdk.api.MibPlugin", "package mibsdk.api;\n"
+                + "public abstract class MibPlugin { protected void onEnable(PluginContext ctx) throws Exception { } }\n");
+        File apiClasses = Fixtures.compileV48(src.resolve("api"), apiSources);
+        Map<String, String> compatSources = Collections.singletonMap("mibsdk.compat.Marker",
+                "package mibsdk.compat;\npublic class Marker { }\n");
+        File compatClasses = Fixtures.compileV48(src.resolve("compat"), compatSources);
+        for (String m : new String[] {"api", "compat"}) {
+            File classes = m.equals("api") ? apiClasses : compatClasses;
+            Path dir = Files.createDirectories(repoDir.resolve("dev/complex256/mibsdk/" + m + "/" + version));
+            Fixtures.jar(dir.resolve(m + "-" + version + ".jar"), classes);
+            Fixtures.jar(dir.resolve(m + "-" + version + "-car.jar"), classes);
+            Files.write(dir.resolve(m + "-" + version + ".pom"), ("<project><modelVersion>4.0.0</modelVersion>"
+                    + "<groupId>dev.complex256.mibsdk</groupId><artifactId>" + m + "</artifactId>"
+                    + "<version>" + version + "</version></project>").getBytes(StandardCharsets.UTF_8));
+        }
+        String repoUri = repoDir.toUri().toString();
+        Files.write(alone.resolve("settings.gradle.kts"), ("dependencyResolutionManagement {\n"
+                + "    repositories {\n"
+                + "        maven { url = uri(\"" + repoUri + "\") }\n"
+                + "        mavenCentral()\n"
+                + "    }\n"
+                + "}\n"
+                + "rootProject.name = \"alone\"\n").getBytes(StandardCharsets.UTF_8));
+        Files.write(alone.resolve("build.gradle.kts"), "plugins {\n    id(\"mibsdk.plugin\")\n}\n"
+                .getBytes(StandardCharsets.UTF_8));
+        Files.write(alone.resolve("gradle.properties"), "org.gradle.jvmargs=-Xmx1g\n".getBytes(StandardCharsets.UTF_8));
+        Path res = Files.createDirectories(alone.resolve("src/main/resources"));
+        Files.write(res.resolve("plugin.json"), manifest("alone", "sample.alone.AlonePlugin", "[]")
+                .getBytes(StandardCharsets.UTF_8));
+        Path java = Files.createDirectories(alone.resolve("src/main/java/sample/alone"));
+        Files.write(java.resolve("AlonePlugin.java"), ("package sample.alone;\n"
+                + "import mibsdk.api.*;\n"
+                + "public class AlonePlugin extends MibPlugin {\n"
+                + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
+                + "}\n").getBytes(StandardCharsets.UTF_8));
+
+        List<String> args = new ArrayList<String>(Arrays.asList("dependencies", "--configuration", "compileClasspath",
+                "mibPluginJar", "--stacktrace"));
+        String jdk8 = System.getProperty("mibsdk.jdk8Home");
+        if (jdk8 != null && !jdk8.isEmpty()) {
+            args.add("-Pmibsdk.jdk8Home=" + jdk8);
+        }
+        BuildResult result = GradleRunner.create().withProjectDir(alone.toFile()).withPluginClasspath()
+                .withArguments(args).forwardOutput().build();
+
+        assertTrue(result.getOutput().contains("dev.complex256.mibsdk:api:" + version), result.getOutput());
+        assertSucceeded(result, ":linkCheck");
+        assertSucceeded(result, ":mibPluginJar");
+        assertTrue(alone.resolve("build/mibsdk/alone.jar").toFile().isFile());
     }
 
     private static void assertSucceeded(BuildResult result, String task) {

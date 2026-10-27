@@ -44,6 +44,14 @@ public final class SdkCoordinates {
         return GROUP + ":" + artifact + ":" + version();
     }
 
+    /**
+     * True when the build contains the SDK's own {@code :api} project, false for a plugin built in its own repository
+     * against the published artifacts.
+     */
+    public static boolean inSdkRepo(org.gradle.api.Project project) {
+        return project.getRootProject().findProject(":api") != null;
+    }
+
     /** Permission id to the text shown to the user, from the bundled {@code permissions.json}. */
     public static Map<String, String> permissionCatalog() {
         Object parsed;

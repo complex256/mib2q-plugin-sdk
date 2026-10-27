@@ -68,6 +68,12 @@ plugin build needs no stock jar. The description below is the problem as found.
 
 ## 2. A plugin can only be built as a subproject of the SDK repo (blocker)
 
+**Status:** fixed in Task 5. Without an `:api` project in the build, `mibsdk.plugin` takes `api` (`compileOnly`), the `car`
+classifier jars of `api` and `compat` (for `linkCheck`) and `compat` (for Retrotranslator) by coordinate from the
+repository the build's `settings.gradle.kts` names. `templates/plugin` is a ready stand-alone project, and
+`./gradlew standalonePluginCheck` builds it outside the repo. The artifacts are published to `build/repo` by
+`./gradlew publishLocal` (Task 4); no hosted repository exists yet. The description below is the problem as found.
+
 - **Where:** §1.2 and §1.4. `MibPluginPlugin.apply` (`build-logic/src/main/java/mibsdk/build/MibPluginPlugin.java:52-61`)
   calls `project.evaluationDependsOn(":compat")`, `project(":api")` and `project.project(":compat")`.
   `build-logic` is an included build, not a published plugin.

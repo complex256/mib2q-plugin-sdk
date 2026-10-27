@@ -99,6 +99,16 @@ section on [what you can't do](docs/guide/first-plugin.md#10-what-you-cant-do) h
 
 ## How a plugin gets onto a car
 
+A plugin lives in its own repository, built from [`templates/plugin`](templates/plugin): a `build.gradle.kts` with
+`id("mibsdk.plugin") version "<mibsdk.version>"`, a `settings.gradle.kts` that names the Maven repository, and a
+`plugin.json`. The convention takes the `api` and `compat` artifacts by coordinate
+(`dev.complex256.mibsdk:<artifact>:<version>`), so it needs no checkout of this repository at build time. Until the
+artifacts are hosted, run `./gradlew publishLocal` in a checkout of this repository, which writes `build/repo`, and
+set `mibsdk.repo` in your plugin's `gradle.properties` to that directory as a `file:` URL. The samples in `plugins/`
+are subprojects of this build and use the in-repo `:api` and `:compat` instead. `./gradlew standalonePluginCheck`
+(part of `check`) builds the template outside the project graph against `build/repo`, so the template cannot break
+unnoticed. See [Writing your first plugin](docs/guide/first-plugin.md#12-start-from-the-template).
+
 ```
  your plugin source              ./gradlew :plugins:<id>:mibPluginJar           ./gradlew :plugins:<id>:mibPackage
  (Java 17 syntax / Kotlin)  ──►  compile → backport to v48 → classVersionCheck ──► build/mibsdk/<id>-<version>.mpk
@@ -161,6 +171,7 @@ section on [what you can't do](docs/guide/first-plugin.md#10-what-you-cant-do) h
 | `build-logic/` | An included Gradle build with the `mibsdk.car-library` and `mibsdk.plugin` conventions, plus the backport, `LinkCheck`, `PermissionScan`, `PngCheck`, check-stamp and mibpkg packaging tasks. |
 | `dist/` | Assembles the three unit jars (`mibsdk-runtime.jar`, `mibsdk-adapter-hqc.jar`, `mibsdk-rt-retrotranslator.jar`), link-checks them together against the stock jars, stamps them and packs `mibsdk-<version>.mpk`. `dist/icons/` holds the built-in icon set. |
 | `installer/` | `mibsdk-dev`, the bench developer tool (bash, over SSH), and its Python tests (`test_mibsdk_dev.py`, `test_make_builtin_icons.py`). |
+| `templates/plugin/` | The stand-alone plugin project to copy: the starting point for your own plugin, and the fixture of `standalonePluginCheck`. |
 | `plugins/` | Sample plugins, each a Gradle subproject: `hello` (api 1, minimal), `crashy` (fails on purpose to show quarantine), `hello-menu` (a page, a Car row, a status item and icons), `daemon-status` (`net`), `bike-rack` (Kotlin; vehicle override and events), `inputs-demo` (every api-5 input) and `coffee-timer` (the tutorial). |
 | `spikes/` | Throwaway bench experiments: `modern-java` (proves Java 17 and Kotlin run on J9 after backporting) and `hmi-ui` (the UI injection spikes). They are not part of the distribution. |
 | `tools/` | `make_builtin_icons.py`, which regenerates `dist/icons/`, the PNG test vectors and some samples' icons, all deterministically. |

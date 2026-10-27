@@ -26,6 +26,9 @@ import org.gradle.api.tasks.bundling.Jar;
 /**
  * Convention plugin {@code mibsdk.plugin}: a third-party plugin built on {@code mibsdk.car-library}.
  *
+ * <p>In the SDK repo the SDK comes from the {@code :api} and {@code :compat} projects; in any other build, from the published
+ * {@code dev.complex256.mibsdk} artifacts ({@code api}, plus the {@code car} classifier of {@code api} and {@code compat}).
+ *
  * <p>Java: compile (JDK 17 {@code --release 8} + Jabel, {@code compileOnly} on {@code :api}) → {@code backport}
  * → {@code linkCheck} (car JCL + api + compat car jars; the Retrotranslator runtime followed transitively;
  * nothing else: the plugin class loader hides platform, runtime and stock classes) → {@code permissionScan}
@@ -49,16 +52,28 @@ public class MibPluginPlugin implements Plugin<Project> {
     @Override
     public void apply(Project project) {
         project.getPluginManager().apply(CarLibraryPlugin.class);
-        project.evaluationDependsOn(":compat");
-        project.evaluationDependsOn(":api");
-        Project api = project.project(":api");
-        Project compat = project.project(":compat");
-
-        project.getDependencies().add("compileOnly", project.getDependencies().project(
-                Collections.singletonMap("path", ":api")));
         CarLibraryPlugin.MibsdkExtension ext = project.getExtensions().getByType(CarLibraryPlugin.MibsdkExtension.class);
-        ext.getCarClasspath().from(api.getTasks().named("carJar"));
-        ext.getCarClasspath().from(compat.getTasks().named("carJar"));
+        if (SdkCoordinates.inSdkRepo(project)) {
+            project.evaluationDependsOn(":compat");
+            project.evaluationDependsOn(":api");
+            Project api = project.project(":api");
+            Project compat = project.project(":compat");
+            project.getDependencies().add("compileOnly", project.getDependencies().project(
+                    Collections.singletonMap("path", ":api")));
+            ext.getCarClasspath().from(api.getTasks().named("carJar"));
+            ext.getCarClasspath().from(compat.getTasks().named("carJar"));
+        } else {
+            // Stand-alone: the published artifacts. The repository comes from the build's settings.gradle.kts.
+            project.getDependencies().add("compileOnly", SdkCoordinates.coordinate("api"));
+            Configuration carLibs = project.getConfigurations().create("mibsdkCarLibs", cfg -> {
+                cfg.setCanBeConsumed(false);
+                cfg.setCanBeResolved(true);
+                cfg.setTransitive(false);
+            });
+            project.getDependencies().add("mibsdkCarLibs", SdkCoordinates.coordinate("api") + ":car@jar");
+            project.getDependencies().add("mibsdkCarLibs", SdkCoordinates.coordinate("compat") + ":car@jar");
+            ext.getCarClasspath().from(carLibs);
+        }
 
         File manifestFile = project.file(MANIFEST);
         Provider<PluginJson> manifest = project.provider(() -> PluginJson.read(manifestFile));

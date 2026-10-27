@@ -65,3 +65,50 @@ tasks.register("publishLocal") {
     sdkModules.forEach { dependsOn(":$it:publishAllPublicationsToLocalRepository") }
     dependsOn(gradle.includedBuild("build-logic").task(":publishAllPublicationsToLocalRepository"))
 }
+
+// Proves the plugin template builds outside this repository: copies templates/plugin to build/standalone-check/ and builds
+// it there with this wrapper, resolving the mibsdk plugin and artifacts only from build/repo (no :api, no stock jars).
+val standalonePluginCheck = tasks.register<Exec>("standalonePluginCheck") {
+    group = "verification"
+    description = "Builds templates/plugin in a copy outside the project graph against build/repo (mibPluginJar and test)."
+    dependsOn("publishLocal")
+
+    val template = layout.projectDirectory.dir("templates/plugin")
+    val checkDir = layout.buildDirectory.dir("standalone-check")
+    val repoDir = localRepoDir
+    val sdkVersion = providers.gradleProperty("mibsdk.version")
+    val wrapper = layout.projectDirectory.file(if (org.gradle.internal.os.OperatingSystem.current().isWindows) "gradlew.bat" else "gradlew")
+
+    inputs.files(fileTree(template) { exclude("build/**", ".gradle/**", ".kotlin/**") })
+        .withPropertyName("template").withPathSensitivity(PathSensitivity.RELATIVE)
+    // maven-metadata.xml carries a publication timestamp: only the artifacts themselves count.
+    inputs.files(repoDir.map { fileTree(it) { include("**/*.jar", "**/*.pom", "**/*.module") } }).withPropertyName("repo").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.property("sdkVersion", sdkVersion)
+    outputs.file(checkDir.map { it.file("build/mibsdk/my-plugin.jar") })
+
+    executable = wrapper.asFile.absolutePath
+    argumentProviders.add(CommandLineArgumentProvider {
+        listOf("-p", checkDir.get().asFile.absolutePath, "-Pmibsdk.repo=" + repoDir.get().asFile.toURI(),
+            "mibPluginJar", "test", "--stacktrace")
+    })
+
+    doFirst {
+        // The template must ask for the SDK version this build publishes, or it rots silently.
+        val declared = Regex("""id\("mibsdk\.plugin"\)\s+version\s+"([^"]+)"""")
+            .find(template.file("build.gradle.kts").asFile.readText())?.groupValues?.get(1)
+        check(declared == sdkVersion.get()) {
+            "templates/plugin/build.gradle.kts asks for mibsdk.plugin version $declared, but mibsdk.version is ${sdkVersion.get()}"
+        }
+        val dir = checkDir.get().asFile
+        dir.deleteRecursively()
+        template.asFile.copyRecursively(dir)
+    }
+    doLast {
+        val jar = checkDir.get().file("build/mibsdk/my-plugin.jar").asFile
+        check(jar.isFile) { "standalonePluginCheck: $jar was not built" }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(standalonePluginCheck)
+}

@@ -1,0 +1,10 @@
+{
+  "id": "my-plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "author": "Your Name",
+  "api": 1,
+  "main": "example.myplugin.MyPlugin",
+  "permissions": [],
+  "dependencies": []
+}

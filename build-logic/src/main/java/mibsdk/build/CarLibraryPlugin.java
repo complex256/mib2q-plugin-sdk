@@ -37,7 +37,9 @@ public class CarLibraryPlugin implements Plugin<Project> {
     @Override
     public void apply(Project project) {
         project.getPluginManager().apply(JavaLibraryPlugin.class);
-        project.getRepositories().mavenCentral();
+        if (SdkCoordinates.inSdkRepo(project)) {
+            project.getRepositories().mavenCentral();
+        } // else settings.gradle.kts declares the repositories; a project-level one would hide them
 
         MibsdkExtension ext = project.getExtensions().create("mibsdk", MibsdkExtension.class);
         ext.getLegacyJava14().convention(false);
@@ -166,14 +168,15 @@ public class CarLibraryPlugin implements Plugin<Project> {
         return c;
     }
 
-    /** Compat shim classes for non-compat modules, resolved from the compat project. */
+    /** Compat shim classes for non-compat modules: the compat project in the SDK repo, else its published jar. */
     private static Configuration compatClasses(Project project) {
         Configuration c = project.getConfigurations().create("mibsdkCompat", cfg -> {
             cfg.setCanBeConsumed(false);
             cfg.setCanBeResolved(true);
         });
-        project.getDependencies().add("mibsdkCompat", project.getDependencies().project(
-                java.util.Collections.singletonMap("path", ":compat")));
+        project.getDependencies().add("mibsdkCompat", SdkCoordinates.inSdkRepo(project)
+                ? project.getDependencies().project(java.util.Collections.singletonMap("path", ":compat"))
+                : SdkCoordinates.coordinate("compat"));
         return c;
     }
 
