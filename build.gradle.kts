@@ -112,6 +112,9 @@ val standalonePluginCheck = tasks.register<Exec>("standalonePluginCheck") {
     doLast {
         val jar = checkDir.get().file("build/mibsdk/my-plugin.jar").asFile
         check(jar.isFile) { "standalonePluginCheck: $jar was not built" }
+        // The template's own host test must have run (the convention wires the harness), not just compiled.
+        val results = checkDir.get().dir("build/test-results/test").asFile.listFiles { f -> f.extension == "xml" }.orEmpty()
+        check(results.isNotEmpty()) { "standalonePluginCheck: the template's tests left no test-results XML" }
     }
 }
 

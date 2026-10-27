@@ -153,10 +153,11 @@ toolchain table. The description below is the problem as found.
 
 ## 6. Every host test copies about 80 lines of harness (annoying)
 
-**Status:** fixed in Task 6. `plugin-test` publishes `mibsdk.test.PluginTestHarness`, and the three samples' tests use
-it, so none of them imports `mibsdk.runtime.*` or `mibsdk.platform.*` any more. The build-script half (the repeated
-`pluginJar` wiring and the `testImplementation` line) follows in Task 7, when `mibsdk.plugin` adds `plugin-test` to every
-plugin's tests. The description below is the problem as found.
+**Status:** fixed in Task 6 and Task 7. Task 6: `plugin-test` publishes `mibsdk.test.PluginTestHarness`, and the three
+samples' tests use it, so none of them imports `mibsdk.runtime.*` or `mibsdk.platform.*` any more. Task 7: `mibsdk.plugin`
+adds `plugin-test` and JUnit to every plugin's tests and sets `-Dmibsdk.pluginJar` and `-Dmibsdk.pluginIcons` on every
+`Test` task, in the SDK repository and in a stand-alone build, so a plugin's `build.gradle.kts` is only the `plugins`
+block (`standalonePluginCheck` runs the template's own test). The description below is the problem as found.
 
 - **Where:** §6. Compare `plugins/hello-menu/src/test/java/sample/hellomenu/HelloMenuPluginTest.java:50-113`,
   `plugins/inputs-demo/src/test/java/sample/inputsdemo/InputsDemoPluginTest.java:57-120` and

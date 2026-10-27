@@ -137,33 +137,15 @@ build: the project builds on its own.
 
 ### 1.5 The build file
 
-This is the build file of the finished sample, which is a subproject of the SDK repository. In your own project, edit
-the template's `build.gradle.kts` instead of creating one, and keep its `plugins` line **with its version**
-(`id("mibsdk.plugin") version "0.3.0"`): without the version Gradle cannot find the plugin in your repository. Add the
-other blocks below it. The sample's file is:
+The whole build file is one `plugins` block. In your own project it is the template's `build.gradle.kts`, which has the
+same block with the version (`id("mibsdk.plugin") version "0.3.0"`); keep the version, because without it Gradle
+cannot find the plugin in your repository. The finished sample, a subproject of the SDK repository, has no version,
+because the SDK's own build provides the plugin:
 
 <!-- file: plugins/coffee-timer/build.gradle.kts -->
 ```kotlin
 plugins {
     id("mibsdk.plugin")
-}
-
-dependencies {
-    // Host tests only: the test harness (real runtime on a fake car). None of this goes into the plugin jar.
-    testImplementation(project(":plugin-test"))
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
-}
-
-// The test loads the real built plugin jar, as the unit does.
-val pluginJar = tasks.named<Jar>("mibPluginJar").flatMap { it.archiveFile }
-
-tasks.test {
-    useJUnitPlatform()
-    inputs.file(pluginJar).withPropertyName("pluginJar").withPathSensitivity(PathSensitivity.NONE)
-    jvmArgumentProviders.add(CommandLineArgumentProvider {
-        listOf("-Dmibsdk.pluginJar=" + pluginJar.get().asFile.absolutePath)
-    })
 }
 ```
 
@@ -171,16 +153,10 @@ tasks.test {
 
 - It compiles your code against the SDK's `api` jar only, as `compileOnly`.
 - It lowers the classes to Java 1.4, then checks and packs them.
-
-The rest of the file is for the host test in section 6: it puts the SDK's test harness (`PluginTestHarness`, with the
-real runtime and the fake car behind it) on the test classpath, and passes the path of the built jar to the test. The
-samples copy these lines too.
-
-> `project(":plugin-test")` exists only inside the SDK repository. The harness is published with the other SDK
-> artifacts (`dev.complex256.mibsdk:plugin-test`), but the stand-alone plugin build does not wire it yet. The host
-> test of section 6 therefore runs only in the SDK repository, as the finished sample `plugins/coffee-timer`'s does.
-> A stand-alone plugin builds, checks and packages (sections 5 and 7) without it, so leave the `dependencies` block and
-> the `tasks.test` block out of its `build.gradle.kts`.
+- It sets up the host test of section 6, in the SDK repository and in your own project alike: it puts JUnit and the
+  SDK's test harness (`PluginTestHarness`, with the real runtime and the fake car behind it) on the test classpath,
+  and passes the path of the built jar and of your icons to the test. A `test` run builds the jar first, and runs again
+  when the jar changes. None of this goes into the plugin jar.
 
 > Kotlin works as well: add `id("org.jetbrains.kotlin.jvm")` before `id("mibsdk.plugin")`. See
 > `plugins/bike-rack/build.gradle.kts`, which also sets the test compile's `jvmTarget` to 17.

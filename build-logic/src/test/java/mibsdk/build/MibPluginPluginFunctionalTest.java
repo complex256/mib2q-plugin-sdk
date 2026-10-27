@@ -49,7 +49,7 @@ class MibPluginPluginFunctionalTest {
         repo = new File(System.getProperty("mibsdk.repoRoot")).getCanonicalFile();
         String r = repo.getPath().replace('\\', '/');
         write("settings.gradle.kts", "rootProject.name = \"tk\"\n"
-                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api6\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:colour3\", \"plugins:colour4\", \"plugins:inputs4\", \"plugins:inputs5\")\n"
+                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api6\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:colour3\", \"plugins:colour4\", \"plugins:inputs4\", \"plugins:inputs5\", \"plugins:tested\", \"plugin-test\")\n"
                 + "project(\":compat\").projectDir = file(\"" + r + "/compat\")\n"
                 + "project(\":api\").projectDir = file(\"" + r + "/api\")\n"
                 + "project(\":plugins:hello\").projectDir = file(\"" + r + "/plugins/hello\")\n"
@@ -121,6 +121,38 @@ class MibPluginPluginFunctionalTest {
             write("plugins/" + a[0] + "/src/main/resources/plugin.json",
                     manifest(a[0], "sample.inputs.InputsPlugin", "[]").replace("\"api\":1", "\"api\":" + a[1]));
         }
+
+        // The convention depends on the project :plugin-test; a stub stands in for the real harness module here.
+        write("plugin-test/build.gradle.kts", "plugins {\n    `java-library`\n}\n"
+                + "tasks.withType<JavaCompile>().configureEach { options.release = 8 }\n");
+        write("plugin-test/src/main/java/mibsdk/test/Marker.java", "package mibsdk.test;\npublic class Marker { }\n");
+
+        // A plugin whose build file is only the plugins block, with a host test that reads what the convention wired.
+        javaPlugin("tested", "sample.tested.TestedPlugin", "package sample.tested;\n"
+                + "import mibsdk.api.*;\n"
+                + "public class TestedPlugin extends MibPlugin {\n"
+                + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
+                + "}\n", "[]");
+        write("plugins/tested/src/test/java/sample/tested/WiringTest.java", "package sample.tested;\n"
+                + "import static org.junit.jupiter.api.Assertions.*;\n"
+                + "import java.io.File;\n"
+                + "import org.junit.jupiter.api.Test;\n"
+                + "class WiringTest {\n"
+                + "  @Test void pluginJar() {\n"
+                + "    String jar = System.getProperty(\"mibsdk.pluginJar\");\n"
+                + "    assertNotNull(jar, \"mibsdk.pluginJar\");\n"
+                + "    assertTrue(jar.replace('\\\\', '/').endsWith(\"/tested.jar\"), jar);\n"
+                + "    assertTrue(new File(jar).isFile(), jar);\n"
+                + "  }\n"
+                + "  @Test void pluginIcons() {\n"
+                + "    String icons = System.getProperty(\"mibsdk.pluginIcons\");\n"
+                + "    assertNotNull(icons, \"mibsdk.pluginIcons\");\n"
+                + "    assertTrue(icons.replace('\\\\', '/').endsWith(\"/plugins/tested/src/main/icons\"), icons);\n"
+                + "  }\n"
+                + "  @Test void harnessIsOnTheTestClasspath() throws Exception {\n"
+                + "    Class.forName(\"mibsdk.test.Marker\");\n"
+                + "  }\n"
+                + "}\n");
 
         write("plugins/kt/build.gradle.kts", "plugins {\n"
                 + "    id(\"org.jetbrains.kotlin.jvm\") version \"2.0.21\"\n"
@@ -208,6 +240,15 @@ class MibPluginPluginFunctionalTest {
             assertNotNull(zip.getEntry("sample/hello/HelloPlugin.class"));
             assertAllV48(zip);
         }
+    }
+
+    @Test
+    void testTaskSeesThePluginJar() throws Exception {
+        BuildResult result = runner(":plugins:tested:test").build();
+
+        assertSucceeded(result, ":plugins:tested:mibPluginJar");
+        assertSucceeded(result, ":plugins:tested:test");
+        assertTrue(pluginJar("tested", "tested").isFile());
     }
 
     @Test

@@ -13,6 +13,7 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.file.Directory;
+import org.gradle.api.file.RegularFile;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.plugins.JavaPluginExtension;
 import org.gradle.api.provider.ListProperty;
@@ -22,6 +23,7 @@ import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.bundling.Jar;
+import org.gradle.api.tasks.testing.Test;
 
 /**
  * Convention plugin {@code mibsdk.plugin}: a third-party plugin built on {@code mibsdk.car-library}.
@@ -35,6 +37,10 @@ import org.gradle.api.tasks.bundling.Jar;
  * (fails unless {@code plugin.json} lists {@code platform.unrestricted}) → {@code mibPluginJar} =
  * {@code build/mibsdk/<id>.jar} with {@code plugin.json} at the root. {@code mibPluginJar} also refuses the build
  * unless every icon {@code plugin.json} declares is a {@code src/main/icons/<name>.png} that passes {@link PngCheck}.
+ *
+ * <p>Tests: {@code testImplementation} gets {@code plugin-test} (the {@code :plugin-test} project in the SDK repo), and
+ * each {@code Test} task gets the {@code mibPluginJar} output as an input plus {@code -Dmibsdk.pluginJar} and
+ * {@code -Dmibsdk.pluginIcons}. JUnit and the JDK 17 test launcher come from {@code mibsdk.car-library}.
  *
  * <p>Kotlin ({@code org.jetbrains.kotlin.jvm} applied): {@link Toolchain#KOTLIN_FLAGS}, {@code jvmTarget=1.8},
  * and {@code kotlinShrink} ({@link KotlinShrinkTask}) between the compile and {@code backport}.
@@ -62,6 +68,8 @@ public class MibPluginPlugin implements Plugin<Project> {
                     Collections.singletonMap("path", ":api")));
             ext.getCarClasspath().from(api.getTasks().named("carJar"));
             ext.getCarClasspath().from(compat.getTasks().named("carJar"));
+            project.getDependencies().add("testImplementation", project.getDependencies().project(
+                    Collections.singletonMap("path", ":plugin-test")));
         } else {
             // Stand-alone: the published artifacts. The repository comes from the build's settings.gradle.kts.
             project.getDependencies().add("compileOnly", SdkCoordinates.coordinate("api"));
@@ -73,6 +81,7 @@ public class MibPluginPlugin implements Plugin<Project> {
             project.getDependencies().add("mibsdkCarLibs", SdkCoordinates.coordinate("api") + ":car@jar");
             project.getDependencies().add("mibsdkCarLibs", SdkCoordinates.coordinate("compat") + ":car@jar");
             ext.getCarClasspath().from(carLibs);
+            project.getDependencies().add("testImplementation", SdkCoordinates.coordinate("plugin-test"));
         }
 
         File manifestFile = project.file(MANIFEST);
@@ -146,6 +155,7 @@ public class MibPluginPlugin implements Plugin<Project> {
             });
         });
         project.getTasks().named("assemble").configure(t -> t.dependsOn(pluginJar));
+        wireHostTests(project, pluginJar);
 
         // mibPackage: <id>-<version>.mpk from the checked jar and its stamp (mibpkg re-checks the stamp), plus the
         // declared icons as icons/<name>.png, checked again with PngCheck as they are staged.
@@ -191,6 +201,25 @@ public class MibPluginPlugin implements Plugin<Project> {
 
         project.getPluginManager().withPlugin(KOTLIN_PLUGIN_ID, applied ->
                 configureKotlin(project, main, manifest, backport));
+    }
+
+    /**
+     * Host tests load the real built plugin jar, as the unit does: every {@code Test} task runs after {@code mibPluginJar}
+     * (and re-runs when the jar or the icons change) and gets {@code -Dmibsdk.pluginJar} and {@code -Dmibsdk.pluginIcons},
+     * which {@code PluginTestHarness} reads.
+     */
+    private static void wireHostTests(Project project, TaskProvider<Jar> pluginJar) {
+        Provider<RegularFile> jar = pluginJar.flatMap(Jar::getArchiveFile);
+        File iconsDir = project.file(ICONS);
+        project.getTasks().withType(Test.class).configureEach(t -> {
+            t.getInputs().file(jar).withPropertyName("pluginJar")
+                    .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.NONE);
+            t.getInputs().files(project.fileTree(iconsDir)).withPropertyName("pluginIcons")
+                    .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE);
+            t.getJvmArgumentProviders().add(() -> Arrays.asList(
+                    "-Dmibsdk.pluginJar=" + jar.get().getAsFile().getAbsolutePath(),
+                    "-Dmibsdk.pluginIcons=" + iconsDir.getAbsolutePath()));
+        });
     }
 
     /** Every declared icon exists as {@code <iconsDir>/<name>.png} and passes {@link PngCheck}; else the build fails. */
