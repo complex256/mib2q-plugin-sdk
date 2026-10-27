@@ -33,6 +33,7 @@ import org.objectweb.asm.Opcodes;
  * U java/lang/Double                 a class ASM could not read; present, members unknown
  * </pre>
  *
+ * jxe2jar gives java/lang/Object an empty super class name; that is written as {@code -}.
  * UTF-8, LF line ends; classes sorted by name, then the unreadable names; per class methods then fields, each sorted.
  */
 final class CarJclSignatures {
@@ -117,7 +118,7 @@ final class CarJclSignatures {
         out.write("# source: " + sourceLabel.replaceAll("[\r\n]+", " ") + "\n");
         for (Map.Entry<String, Described> c : classes.entrySet()) {
             Described d = c.getValue();
-            out.write("C " + c.getKey() + " " + (d.superName == null ? NONE : d.superName) + " "
+            out.write("C " + c.getKey() + " " + (d.superName == null || d.superName.isEmpty() ? NONE : d.superName) + " "
                     + (d.interfaces.length == 0 ? NONE : String.join(",", d.interfaces)) + " "
                     + (d.isInterface ? "1" : "0") + "\n");
             for (String m : d.methods) {

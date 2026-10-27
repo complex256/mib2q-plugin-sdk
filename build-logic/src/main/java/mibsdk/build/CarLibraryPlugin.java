@@ -177,17 +177,50 @@ public class CarLibraryPlugin implements Plugin<Project> {
         return c;
     }
 
-    /** One {@code carJcl} task on the root project, shared by every module. */
+    /**
+     * One {@code carJcl} task on the root project, shared by every module. With {@code -Pmibsdk.stockLsdJar}
+     * it extracts the JCL from that jar and the maintainer tasks that regenerate and verify the bundled list
+     * are registered; without it the bundled list is used.
+     */
     private static TaskProvider<CarJclTask> registerCarJcl(Project project) {
         Project root = project.getRootProject();
         if (!root.getTasks().getNames().contains("carJcl")) {
+            Object configured = root.findProperty("mibsdk.stockLsdJar");
+            boolean haveJar = configured != null && !configured.toString().isEmpty();
             root.getTasks().register("carJcl", CarJclTask.class, t -> {
                 t.setGroup("build");
-                t.setDescription("Extracts the car JCL from the stock lsd.jar into build/carjcl/.");
-                t.getStockLsdJar().set(root.getLayout().file(root.provider(() -> Toolchain.stockLsdJar(root))));
+                t.setDescription("Provides the car JCL for linkCheck in build/carjcl/ (stock lsd.jar, else the bundled list).");
+                if (haveJar) {
+                    t.getStockLsdJar().set(root.getLayout().file(root.provider(() -> Toolchain.stockLsdJar(root))));
+                }
                 t.getOutputDir().set(root.getLayout().getBuildDirectory().dir("carjcl"));
             });
+            if (haveJar) {
+                registerSignatureTasks(root);
+            }
         }
         return root.getTasks().named("carJcl", CarJclTask.class);
+    }
+
+    /** Maintainer tasks: regenerate the bundled car JCL list from lsd.jar, and check it is current. */
+    private static void registerSignatureTasks(Project root) {
+        root.getTasks().register("carJclSignatures", CarJclSignaturesTask.class, t -> {
+            t.setGroup("build");
+            t.setDescription("Regenerates the bundled car JCL signature list from the stock lsd.jar.");
+            t.getStockLsdJar().set(root.getLayout().file(root.provider(() -> Toolchain.stockLsdJar(root))));
+            t.getSourceLabel().set(MpkStage.HMI);
+            t.getOutputFile().set(root.getLayout().getProjectDirectory()
+                    .file("build-logic/src/main/resources/mibsdk/build/carjcl" + CarJclSignatures.SUFFIX));
+        });
+        TaskProvider<CarJclSignaturesTask> check = root.getTasks().register(
+                "carJclSignaturesCheck", CarJclSignaturesTask.class, t -> {
+                    t.setGroup("verification");
+                    t.setDescription("Fails if the bundled car JCL signature list differs from what the stock lsd.jar yields.");
+                    t.getStockLsdJar().set(root.getLayout().file(root.provider(() -> Toolchain.stockLsdJar(root))));
+                    t.getSourceLabel().set(MpkStage.HMI);
+                    t.getCompareWithBundled().set(true);
+                    t.getOutputFile().set(root.getLayout().getBuildDirectory().file("carjcl-signatures/carjcl.sigs"));
+                });
+        root.getTasks().matching(t -> t.getName().equals("check")).configureEach(t -> t.dependsOn(check));
     }
 }

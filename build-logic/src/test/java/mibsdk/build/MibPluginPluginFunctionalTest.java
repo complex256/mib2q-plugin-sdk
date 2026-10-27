@@ -163,10 +163,18 @@ class MibPluginPluginFunctionalTest {
     }
 
     private static GradleRunner runner(String... tasks) {
+        return runner(true, tasks);
+    }
+
+    /** {@code withStockLsdJar} false leaves {@code -Pmibsdk.stockLsdJar} off, so builds use the bundled car JCL list. */
+    private static GradleRunner runner(boolean withStockLsdJar, String... tasks) {
         List<String> args = new ArrayList<String>();
         Collections.addAll(args, tasks);
         args.add("--stacktrace");
         for (String prop : new String[] {"mibsdk.jdk8Home", "mibsdk.stockLsdJar"}) {
+            if (!withStockLsdJar && prop.equals("mibsdk.stockLsdJar")) {
+                continue;
+            }
             String v = System.getProperty(prop);
             if (v != null && !v.isEmpty()) {
                 args.add("-P" + prop + "=" + v);
@@ -197,6 +205,16 @@ class MibPluginPluginFunctionalTest {
             assertNotNull(zip.getEntry("sample/hello/HelloPlugin.class"));
             assertAllV48(zip);
         }
+    }
+
+    @Test
+    void pluginBuildsWithoutStockLsdJar() throws Exception {
+        BuildResult result = runner(false, ":plugins:hello:mibPluginJar").build();
+
+        assertSucceeded(result, ":plugins:hello:linkCheck");
+        assertSucceeded(result, ":plugins:hello:mibPluginJar");
+        assertTrue(root.resolve("out/root/carjcl/carjcl.sigs").toFile().isFile(), "bundled list was not written");
+        assertTrue(pluginJar("hello", "hello").isFile());
     }
 
     @Test

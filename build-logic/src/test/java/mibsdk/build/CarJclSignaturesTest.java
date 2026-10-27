@@ -1,11 +1,13 @@
 package mibsdk.build;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,6 +18,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import org.gradle.testkit.runner.BuildResult;
+import org.gradle.testkit.runner.GradleRunner;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.objectweb.asm.ClassReader;
@@ -142,5 +146,46 @@ class CarJclSignaturesTest {
         assertEquals("a/Super super=null ifaces=[] interface=false members=[]", r.classes.get("a/Super"));
         assertEquals(new TreeSet<>(List.of("a/Broken")), r.unreadable);
         assertEquals(new ArrayList<>(List.of("a/B", "a/Super")), new ArrayList<>(r.classes.keySet()));
+    }
+
+    @Test
+    void anEmptySuperClassNameIsWrittenAsNone() throws Exception {
+        org.objectweb.asm.ClassWriter cw = new org.objectweb.asm.ClassWriter(0);
+        cw.visit(Opcodes.V1_4, Opcodes.ACC_PUBLIC, "java/lang/Odd", null, "", null);
+        cw.visitEnd();
+        Path dir = Files.createDirectories(tmp.resolve("odd/java/lang"));
+        Files.write(dir.resolve("Odd.class"), cw.toByteArray());
+        assertTrue(sigs(tmp.resolve("odd").toFile(), "TEST").contains("C java/lang/Odd - - 0\n"));
+    }
+
+    @Test
+    void bundledListIsForTheSupportedBuild() throws Exception {
+        try (InputStream in = CarJclSignaturesTest.class.getResourceAsStream("/mibsdk/build/carjcl.sigs")) {
+            assertNotNull(in, "bundled car JCL list is missing");
+            String[] lines = new String(in.readAllBytes(), StandardCharsets.UTF_8).split("\n");
+            assertEquals("# source: HMI_AU_MIB2_HQC_NAR_G22_C10_180803", lines[1]);
+            assertTrue(Arrays.asList(lines).contains("C java/lang/Object - - 0"), "Object has no super class");
+            long classes = Arrays.stream(lines).filter(l -> l.startsWith("C ")).count();
+            assertTrue(classes > 600, "classes: " + classes);
+        }
+    }
+
+    @Test
+    void checkTaskFailsOnDrift() throws Exception {
+        File fakeLsd = Fixtures.jar(tmp.resolve("lsd.jar"), Fixtures.stubJcl(tmp.resolve("jcl")));
+        Path project = tmp.resolve("project");
+        Files.createDirectories(project.resolve("lib"));
+        Files.write(project.resolve("settings.gradle.kts"),
+                "rootProject.name = \"drift\"\ninclude(\"lib\")\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(project.resolve("build.gradle.kts"), new byte[0]);
+        Files.write(project.resolve("lib/build.gradle.kts"),
+                "plugins { id(\"mibsdk.car-library\") }\n".getBytes(StandardCharsets.UTF_8));
+
+        BuildResult result = GradleRunner.create().withProjectDir(project.toFile()).withPluginClasspath()
+                .withArguments("carJclSignaturesCheck", "-Pmibsdk.stockLsdJar=" + fakeLsd.getPath())
+                .buildAndFail();
+
+        assertTrue(result.getOutput().contains(
+                "car JCL signatures differ from the bundled list: run ./gradlew carJclSignatures"), result.getOutput());
     }
 }

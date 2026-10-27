@@ -51,6 +51,9 @@ The list is ordered by impact. The tutorial step a bump affects is given as §N.
 
 ## 1. Every plugin build needs Audi's stock `lsd.jar` (blocker)
 
+**Status:** fixed in Task 2. `carJcl` writes the bundled `carjcl.sigs` list when `mibsdk.stockLsdJar` is not set, so a
+plugin build needs no stock jar. The description below is the problem as found.
+
 - **Where:** §1.1. `CarLibraryPlugin.registerCarJcl` (`build-logic/src/main/java/mibsdk/build/CarLibraryPlugin.java:181`)
   registers one root `carJcl` task, which extracts the car's class library from `lsd.jar`. Every module's
   `linkCheck`, a plugin's included, depends on it (`CarLibraryPlugin.java:101-110`). The path comes from

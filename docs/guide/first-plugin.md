@@ -40,11 +40,11 @@ Read the [README](../../README.md) first, at least the supported firmware, safet
 ### 1.1 Toolchain
 
 You need everything in the README's [Toolchain](../../README.md#toolchain) table **except** the stock
-`DSITracer.jar`. A plugin build does not use it. In short, you need:
+`DSITracer.jar` and the stock `lsd.jar`. A plugin build uses neither: `linkCheck` runs against a car class library
+list that ships with the build logic. In short, you need:
 
 - a JDK 17 (Gradle finds it);
 - a JDK 8 home;
-- the stock `lsd.jar`, for `linkCheck`;
 - a host `mibpkg` binary, for packaging only;
 - Python 3, for the icon script below.
 
@@ -53,7 +53,6 @@ directory in your home directory). Then every command below works without `-P` f
 
 ```properties
 mibsdk.jdk8Home=/path/to/jdk8/home
-mibsdk.stockLsdJar=/path/to/lsd.jar
 mibsdk.mibpkg=/path/to/mibpkg/target/release/mibpkg
 ```
 
@@ -75,8 +74,6 @@ cd mibsdk
 
 You should see `BUILD SUCCESSFUL`, and `plugins/hello/build/mibsdk/hello.jar` should exist.
 
-- A failure on the `:carJcl` task (`property 'stockLsdJar' specifies file ... which doesn't exist`) means the
-  `lsd.jar` path is wrong.
 - `The configured executable does not exist (.../bin/javac)` means the JDK 8 path is wrong.
 
 ### 1.3 Create the plugin's directories

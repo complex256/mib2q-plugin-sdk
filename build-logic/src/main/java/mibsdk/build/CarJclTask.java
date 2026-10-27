@@ -15,19 +15,27 @@ import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.InputFile;
+import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskAction;
 
 /**
- * Extracts the car's JCL ({@code java/**}, {@code javax/**}) from the stock {@code lsd.jar} into
- * {@code build/carjcl/}. Registered once on the root project and shared.
+ * Provides the car's JCL in {@code build/carjcl/} for {@code linkCheck}. With a stock {@code lsd.jar} it
+ * extracts {@code java/**} and {@code javax/**}; without one it writes the bundled signature list
+ * ({@code carjcl.sigs}). Registered once on the root project and shared.
  */
 @CacheableTask
 public abstract class CarJclTask extends DefaultTask {
 
-    /** The stock lsd.jar (jxe2jar output). Never committed. */
+    /** Classpath location of the committed signature list for the supported HMI build. */
+    static final String BUNDLED_LIST = "/mibsdk/build/carjcl" + CarJclSignatures.SUFFIX;
+
+    static final String BUNDLED_LIST_NAME = "carjcl" + CarJclSignatures.SUFFIX;
+
+    /** The stock lsd.jar (jxe2jar output), never committed. Absent: the bundled signature list is used. */
+    @Optional
     @InputFile
     @PathSensitive(PathSensitivity.NONE)
     public abstract RegularFileProperty getStockLsdJar();
@@ -40,6 +48,10 @@ public abstract class CarJclTask extends DefaultTask {
         Path out = getOutputDir().get().getAsFile().toPath().toAbsolutePath().normalize();
         deleteRecursively(out);
         Files.createDirectories(out);
+        if (!getStockLsdJar().isPresent()) {
+            writeBundledList(out);
+            return;
+        }
         int count = 0;
         File jar = getStockLsdJar().get().getAsFile();
         try (ZipFile zip = new ZipFile(jar)) {
@@ -64,6 +76,16 @@ public abstract class CarJclTask extends DefaultTask {
             throw new GradleException("no java/** or javax/** entries in " + jar + ": not a stock lsd.jar?");
         }
         getLogger().info("car JCL: {} entries extracted from {}", count, jar);
+    }
+
+    private void writeBundledList(Path out) throws IOException {
+        try (InputStream in = CarJclTask.class.getResourceAsStream(BUNDLED_LIST)) {
+            if (in == null) {
+                throw new GradleException("mibsdk build logic is missing its bundled car JCL list " + BUNDLED_LIST);
+            }
+            Files.copy(in, out.resolve(BUNDLED_LIST_NAME), StandardCopyOption.REPLACE_EXISTING);
+        }
+        getLogger().info("car JCL: bundled signature list");
     }
 
     private static void deleteRecursively(Path dir) throws IOException {
