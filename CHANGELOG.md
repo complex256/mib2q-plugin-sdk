@@ -5,9 +5,9 @@ mibpkg compares them; bench builds carried a `+bench.N` tag on the package versi
 
 ## Unreleased (SDK; plugin api 1..5)
 
-Developer experience, aimed at plugin authors outside this repository. The runtime, the plugin api and the sample
-plugins are unchanged from 0.3.0; this is not a release, and the artifacts are still published to a checkout's
-`build/repo` by `./gradlew publishLocal`.
+Developer experience, aimed at plugin authors outside this repository. There is no new api level: the plugin api
+stays 5, every api addition below is additive, and a plugin built against 0.3.0 still builds and behaves as it did.
+This is not a release, and the artifacts are still published to a checkout's `build/repo` by `./gradlew publishLocal`.
 
 - **A plugin build needs no stock jar.** Every `linkCheck` resolves against a car class-library signature list
   bundled in the build logic (`carjcl.sigs`: names, supertypes and member descriptors, no code). A clone builds,

@@ -333,6 +333,22 @@ class FakeUiTest {
         assertTrue(drain().isEmpty());
     }
 
+    @Test
+    void entriesNotOnThePageSendNothing() throws Exception {
+        publishInputs(1, 1, "p/main");
+        assertEquals("p/main", ui.openPageKey());
+        drain();
+        ui.select("p/main", "nope"); // e.g. a typo'd id, or a row the plugin has not rebuilt yet
+        ui.toggle("p/main", "nope");
+        ui.turn("p/main", "nope", 2);
+        ui.pick("p/main", "nope", 1);
+        ui.choose("p/main", "nope", 0);
+        ui.select("p/none", "apple"); // and an unknown page
+        ui.select("p/main#nope", "0");
+        assertEquals("p/main", ui.openPageKey(), "no page opened");
+        assertTrue(drain().isEmpty());
+    }
+
     // ---- dialogs and toasts (api 5) ----
 
     private void publishDialog(long version, mibsdk.platform.UiDialog d, mibsdk.platform.UiToast t) {

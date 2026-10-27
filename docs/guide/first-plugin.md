@@ -797,10 +797,11 @@ What the harness does, and why:
     options have the ids `"0"`, `"1"` and so on; `choose` opens it and picks the option for you;
   - `statusLine()`, `statusParts()` and `toast()`;
   - `dialog()`, `answer(...)`, `type(...)` and `leave()` for confirm and speller.
+
   Every driver (`select`, `toggle`, `turn`, `pick`, `choose`) does nothing when the entry is not on the page yet or
-  is disabled. After an action that changes the page, await the change before the next one: `start()` sets the
-  status line before `onAction` rebuilds the page, so the test above waits for the "Stop timer" row before selecting
-  it.
+  is disabled. After an action that changes the page, await the change before the next one: the plugin's `start()`
+  sets the status line, and then `onAction`, which called it, rebuilds the page with `page.update(spec())`, so the
+  test above waits for the "Stop timer" row before selecting it.
 - **The car.** `h.car()` is the `FakePlatform`: change the unit's ignition or sound state there.
 - **Rendered text.** `render` gives one line per entry, in a fixed text format (`UiPageText.line`): `[on] label` for
   a toggle, `label: value` for an item, `Brew time: 4 [1..10]` for a slider. Icons show as tags: `[png:<sha16>]`
