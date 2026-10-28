@@ -86,6 +86,13 @@ place (the SDK already writes `boot.state` and `ledger.properties` there).
   + fsync), global order and `rank(key)`.
 - `runtime/.../StatusBarItems.java` — merges registered items: user order first, then priority/sequence.
 - `StatusBarConfigTest` — defaults, round-trip, clamping, order dedupe, merge order.
+- `adapter-hqc/.../BarStatusLine.java` — attaches lazily through the terminal widget registry, creates the
+  clipped `CompositeRendererHigh` viewport (200x24) in the right group and writes the text line. It reports
+  `available()` only after attachment; before that it throws so `StatusSinks` falls back to the popups.
+- `StatusSinks`/`UiApplier.create` — bar first, then SDK popup 609600, then popup 65.
+
+Still to come in the host: the row list (one row per item), custom file-backed icons, per-item RGBA colour,
+the dwell/animation page timer, and the Plugins -> Status bar settings page.
 
 ## Next steps
 

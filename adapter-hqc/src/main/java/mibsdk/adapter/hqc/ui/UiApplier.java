@@ -254,7 +254,8 @@ public final class UiApplier {
                 return SdkCarModelBank.statusModels();
             }
         });
-        StatusLineSink status = new StatusSinks(sdkPopup, new Popup65StatusLine(frameworkAccess, statusMaxChars),
+        BarStatusLine bar = new BarStatusLine(frameworkAccess, poster, log);
+        StatusLineSink status = new StatusSinks(bar, sdkPopup, new Popup65StatusLine(frameworkAccess, statusMaxChars),
                 new StatusSinks.State() {
                     public int get() {
                         return SdkGlobals.statusPopup;

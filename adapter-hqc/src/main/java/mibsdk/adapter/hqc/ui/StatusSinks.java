@@ -30,25 +30,36 @@ final class StatusSinks implements StatusLineSink {
 
     private static final int POPUP65 = 0;
     private static final int SDK = 1;
+    private static final int BAR = 2;
 
+    private final BarStatusLine bar; // nullable: the built-in bar when it is attached
     private final StatusLineSink[] sinks;
     private final State state;
     private final RingLog log; // null in tests that do not check it
     private final boolean[] shown = new boolean[2]; // the SDK showed text on the sink, and has not hidden it
     private boolean sdkFailed; // the SDK sink threw: popup 65 for the rest of the boot
+    private boolean barShown; // the bar got this show
 
     StatusSinks(StatusLineSink sdkPopup, StatusLineSink popup65, State state) {
-        this(sdkPopup, popup65, state, null);
+        this(null, sdkPopup, popup65, state, null);
     }
 
     StatusSinks(StatusLineSink sdkPopup, StatusLineSink popup65, State state, RingLog log) {
+        this(null, sdkPopup, popup65, state, log);
+    }
+
+    StatusSinks(BarStatusLine bar, StatusLineSink sdkPopup, StatusLineSink popup65, State state, RingLog log) {
+        this.bar = bar;
         this.sinks = new StatusLineSink[] {popup65, sdkPopup};
         this.state = state;
         this.log = log;
     }
 
-    /** The sink the next show goes to: 0 popup 65, 1 the SDK popup. */
+    /** The sink the next show goes to: 0 popup 65, 1 the SDK popup, 2 the built-in bar. */
     int active() {
+        if (bar != null && bar.available()) {
+            return BAR;
+        }
         if (sdkFailed) {
             return POPUP65;
         }
@@ -57,6 +68,17 @@ final class StatusSinks implements StatusLineSink {
     }
 
     public void show(List<UiStatusPart> parts, String textLine) {
+        if (bar != null && bar.available()) {
+            hideShown(POPUP65);
+            hideShown(SDK);
+            try {
+                bar.show(parts, textLine);
+                barShown = true;
+                return;
+            } catch (Throwable t) {
+                barShown = false; // the bar threw: this show goes to the popup, the next one retries
+            }
+        }
         if (active() == SDK) {
             hideShown(POPUP65); // a switch: popup 65, if the SDK showed text on it
             try {
@@ -78,6 +100,10 @@ final class StatusSinks implements StatusLineSink {
 
     /** Hides every sink the SDK showed text on. */
     public void hide() {
+        if (barShown && bar != null) {
+            barShown = false;
+            bar.hide();
+        }
         hideShown(POPUP65);
         hideShown(SDK);
     }
