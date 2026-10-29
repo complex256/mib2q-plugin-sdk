@@ -434,7 +434,7 @@ class SdkRuntimeUiTest {
                 && !entry(s, "mibsdk/plugin.zeta", "status").on(),
                 "zeta hidden, alpha gets the line");
         assertEquals(PluginState.ENABLED, status("zeta").state(), "hiding the item leaves the plugin alone");
-        assertTrue(new File(r.persist(), "statusline.properties").isFile());
+        assertTrue(new File(r.persist(), "statusbar.properties").isFile());
 
         r.stop();
         r.start(); // the choices are persistent
@@ -445,9 +445,9 @@ class SdkRuntimeUiTest {
         r.await(s -> "ZZ long text AA long...".equals(s.statusLine()), "shown again, in the saved order");
     }
 
-    /** Review fix: like plugins.properties, statusline.properties is re-read at reload (mibpkg edits it). */
+    /** Like plugins.properties, statusbar.properties is re-read at reload (mibpkg edits it). */
     @Test
-    void statusPrefsAreReReadAtReload() throws Exception {
+    void statusBarSettingsAreReReadAtReload() throws Exception {
         runtime();
         String[] status = {Permissions.UI_SLOT_STATUS_BAR};
         r.plugin("zeta", "Zeta", status, "ctx.ui().statusItem(\"ZZ\");", null);
@@ -458,7 +458,7 @@ class SdkRuntimeUiTest {
         r.table.input(new UiInput(UiInput.TOGGLE_REQUESTED, "mibsdk/plugin.zeta", "status", false));
         r.await(s -> "AA".equals(s.statusLine()), "zeta hidden");
 
-        java.io.FileOutputStream out = new java.io.FileOutputStream(new File(r.persist(), "statusline.properties"));
+        java.io.FileOutputStream out = new java.io.FileOutputStream(new File(r.persist(), "statusbar.properties"));
         try {
             out.write("order=zeta\n".getBytes("ISO-8859-1")); // another writer showed zeta and moved it first
         } finally {
@@ -467,6 +467,48 @@ class SdkRuntimeUiTest {
         r.rt.reload("alpha");
         r.awaitState("alpha", PluginState.ENABLED);
         r.await(s -> "ZZ AA".equals(s.statusLine()), "the file is re-read at reload");
+    }
+
+    /** The SDK page's Status bar switch: off falls back to the popup, persists across a restart, on restores. */
+    @Test
+    void statusBarTogglePersists() throws Exception {
+        runtime();
+        r.start();
+        UiSnapshot s = r.await(x -> x.pages().containsKey("mibsdk/sdk"), "publishes the SDK page");
+        assertTrue(entry(s, "mibsdk/sdk", "statusbar.enabled").on());
+
+        r.table.input(new UiInput(UiInput.TOGGLE_REQUESTED, "mibsdk/sdk", "statusbar.enabled", false));
+        r.await(x -> entry(x, "mibsdk/sdk", "statusbar.enabled") != null
+                && !entry(x, "mibsdk/sdk", "statusbar.enabled").on(), "the bar is switched off");
+        assertFalse(StatusBarConfig.load(new File(r.persist(), "statusbar.properties")).enabled());
+
+        r.stop();
+        r.start();
+        r.await(x -> entry(x, "mibsdk/sdk", "statusbar.enabled") != null
+                && !entry(x, "mibsdk/sdk", "statusbar.enabled").on(), "still off after a restart");
+        r.table.input(new UiInput(UiInput.TOGGLE_REQUESTED, "mibsdk/sdk", "statusbar.enabled", true));
+        r.await(x -> entry(x, "mibsdk/sdk", "statusbar.enabled") != null
+                && entry(x, "mibsdk/sdk", "statusbar.enabled").on(), "the bar is switched on");
+        assertTrue(StatusBarConfig.load(new File(r.persist(), "statusbar.properties")).enabled());
+    }
+
+    /** The old statusline.properties is imported once, so a user's order survives the consolidation. */
+    @Test
+    void legacyStatuslineOrderIsImportedOnce() throws Exception {
+        runtime();
+        File dir = r.persist();
+        assertTrue(dir.isDirectory() || dir.mkdirs());
+        java.io.FileOutputStream out = new java.io.FileOutputStream(new File(dir, "statusline.properties"));
+        try {
+            out.write("order=zeta\n".getBytes("ISO-8859-1"));
+        } finally {
+            out.close();
+        }
+        r.start();
+        StatusBarConfig saved = StatusBarConfig.load(new File(dir, "statusbar.properties"));
+        assertEquals(Arrays.asList("zeta"), saved.order());
+        assertEquals(Arrays.asList("zeta"), StatusBarConfig.load(new File(dir, "statusline.properties")).order(),
+                "the legacy file is left in place, harmless");
     }
 
     /** The SDK page's two bar settings: cycle through presets, write the file, keep them across a restart. */

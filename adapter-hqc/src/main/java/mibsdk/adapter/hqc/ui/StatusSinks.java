@@ -66,7 +66,7 @@ final class StatusSinks implements StatusLineSink {
 
     /** The sink the next show goes to: 0 popup 65, 1 the SDK popup, 2 the built-in bar. */
     int active() {
-        if (bar != null && bar.available()) {
+        if (bar != null && bar.available() && bar.enabled()) {
             return BAR;
         }
         if (sdkFailed) {
@@ -83,7 +83,7 @@ final class StatusSinks implements StatusLineSink {
     }
 
     private void showLocked(List<UiStatusPart> parts, String textLine) {
-        if (bar != null) {
+        if (bar != null && bar.enabled()) {
             // Always try: while unattached the bar posts its attach job and throws, so this call falls back to the popup
             // and the next one retries. Gating on available() would never post the job at all.
             try {
@@ -95,6 +95,9 @@ final class StatusSinks implements StatusLineSink {
             } catch (Throwable t) {
                 barShown = false; // not attached yet: this show goes to the popup, the next one retries
             }
+        } else if (bar != null && barShown) {
+            barShown = false; // the user switched the bar off: hide its row, the popup carries the line
+            bar.hide();
         }
         if (active() == SDK) {
             hideShown(POPUP65); // a switch: popup 65, if the SDK showed text on it

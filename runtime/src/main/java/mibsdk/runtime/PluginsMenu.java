@@ -29,7 +29,8 @@ final class PluginsMenu {
     static final String STATUS_ENTRY = "status";
     static final String STATUS_EARLIER_ENTRY = "status.earlier";
     static final String STATUS_LATER_ENTRY = "status.later";
-    /** The SDK page's two built-in bar settings: dwell between rows and slide duration. */
+    /** The SDK page's built-in bar settings: on/off, dwell between rows and slide duration. */
+    static final String BAR_ENABLED_ENTRY = "statusbar.enabled";
     static final String DWELL_ENTRY = "statusbar.dwell";
     static final String ANIMATE_ENTRY = "statusbar.animate";
 
@@ -51,7 +52,7 @@ final class PluginsMenu {
     static final class Action {
         enum Kind {
             ENABLE, DISABLE, RESET_BOOT_GUARD, STATUS_SHOW, STATUS_HIDE, STATUS_EARLIER, STATUS_LATER,
-            DWELL_NEXT, ANIMATE_NEXT, NONE
+            DWELL_NEXT, ANIMATE_NEXT, STATUS_BAR_ENABLE, STATUS_BAR_DISABLE, NONE
         }
 
         static final Action NONE = new Action(Kind.NONE, null);
@@ -129,7 +130,8 @@ final class PluginsMenu {
     /**
      * On a plugin page: ENABLE/DISABLE for the Enabled toggle, STATUS_SHOW/STATUS_HIDE for the Status item toggle,
      * STATUS_EARLIER/STATUS_LATER for the move items. On the SDK page: RESET_BOOT_GUARD for the reset item,
-     * DWELL_NEXT/ANIMATE_NEXT for the built-in bar's dwell and animation rows.
+     * DWELL_NEXT/ANIMATE_NEXT for the built-in bar's dwell and animation rows, STATUS_BAR_ENABLE/DISABLE for its
+     * on/off toggle.
      */
     static Action handle(UiInput in) {
         if (in == null || in.pageKey() == null || in.entryKey() == null) {
@@ -150,6 +152,10 @@ final class PluginsMenu {
                 kind = Action.Kind.STATUS_LATER;
             }
             return kind == null || !ManifestParser.isValidId(id) ? Action.NONE : new Action(kind, id);
+        }
+        if (in.kind() == UiInput.TOGGLE_REQUESTED && SDK_KEY.equals(key) && BAR_ENABLED_ENTRY.equals(entry)) {
+            return in.on() ? new Action(Action.Kind.STATUS_BAR_ENABLE, null)
+                    : new Action(Action.Kind.STATUS_BAR_DISABLE, null);
         }
         if (in.kind() == UiInput.ENTRY_SELECTED && SDK_KEY.equals(key)) {
             if (RESET_ENTRY.equals(entry)) {
@@ -281,6 +287,7 @@ final class PluginsMenu {
         } else if (s.resetOffered()) {
             e.add(new UiEntry(UiEntry.ITEM, RESET_ENTRY, "Reset boot guard", null, false, null));
         }
+        e.add(new UiEntry(UiEntry.TOGGLE, BAR_ENABLED_ENTRY, "Status bar", null, s.statusBarEnabled, null));
         e.add(new UiEntry(UiEntry.ITEM, DWELL_ENTRY, "Dwell: " + StatusBarConfig.dwellLabel(s.dwellMs), null, false,
                 null));
         e.add(new UiEntry(UiEntry.ITEM, ANIMATE_ENTRY, "Animation: " + StatusBarConfig.animateLabel(s.animateMs), null,

@@ -3,6 +3,7 @@ package mibsdk.adapter.hqc.ui;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -10,10 +11,15 @@ import java.util.List;
 import mibsdk.platform.UiStatusPart;
 import mibsdk.runtime.Clock;
 import mibsdk.runtime.RingLog;
+import mibsdk.runtime.StatusBarConfig;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** Review Focus 4: the SDK popup while it works, popup 65 only as the fallback; a switch hides what was shown. */
 class StatusSinksTest {
+
+    @TempDir
+    File tmp;
 
     static final class RecordingSink implements StatusLineSink {
         final List<String> calls = new ArrayList<String>();
@@ -160,6 +166,32 @@ class StatusSinksTest {
         s.show(parts("B"), "B");
         assertEquals(Arrays.asList("show A", "show B"), sdk.calls);
         assertEquals(2, posted.size(), "the next show retries the attach");
+    }
+
+    /** The user's Status bar switch off: the popup carries the line and the bar is never asked to attach. */
+    @Test
+    void aDisabledBarFallsBackToThePopupWithoutAttaching() throws Exception {
+        File f = new File(tmp, "statusbar.properties");
+        new StatusBarConfig(true, 5000, 300, Collections.<String>emptyList()).withEnabled(false).save(f);
+        RecordingSink sdk = new RecordingSink();
+        RecordingSink p65 = new RecordingSink();
+        final List<Runnable> posted = new ArrayList<Runnable>();
+        HmiPoster poster = new HmiPoster(new HmiPoster.Sink() {
+            public void post(Runnable r) {
+                posted.add(r);
+            }
+        }, null, new Clock() {
+            public long uptimeMs() {
+                return 0L;
+            }
+        }, HmiPoster.PENDING_DEADLINE_MS);
+        BarStatusLine bar = new BarStatusLine(new Object(), poster, null, null, null, f);
+        StatusSinks s = new StatusSinks(bar, sdk, p65, () -> 1, null);
+
+        s.show(parts("A"), "A");
+        assertEquals(Arrays.asList("show A"), sdk.calls);
+        assertEquals(0, posted.size(), "the bar is switched off: no attach job");
+        assertEquals(1, s.active(), "active() reports the SDK popup, not the bar");
     }
 
     @Test

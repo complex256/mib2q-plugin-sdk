@@ -203,8 +203,7 @@ public final class SdkRuntime {
     /** The boot guard was reset from the SDK page; takes effect at the next start. */
     private volatile boolean resetRequested;
     private final UserToggles toggles;
-    private final StatusPrefs statusPrefs;
-    /** The built-in bar's settings (dwell, animation, item order); written only from the SDK page. */
+    /** The built-in bar's settings (enabled, dwell, animation, item order, hidden items); one file. */
     private volatile StatusBarConfig statusBar;
     /** Set on the control thread once the initial plugin load ran; reload() is deferred until then. */
     private volatile boolean pluginsLoaded;
@@ -330,8 +329,44 @@ public final class SdkRuntime {
                 log);
         this.storageQuota = new StorageQuota(cfg.dataDir(), cfg.storagePluginMaxBytes(), cfg.storageTotalMaxBytes());
         this.toggles = new UserToggles(cfg.userTogglesFile(), log);
-        this.statusPrefs = new StatusPrefs(cfg.statusPrefsFile(), log);
-        this.statusBar = StatusBarConfig.load(cfg.statusBarFile());
+        this.statusBar = loadStatusBar();
+    }
+
+    /**
+     * The one status-bar config. A first boot imports the legacy {@code statusline.properties} (order and hidden
+     * owners) so a user's choices survive the consolidation; it is written to {@code statusbar.properties} once.
+     */
+    private StatusBarConfig loadStatusBar() {
+        StatusBarConfig c = StatusBarConfig.load(cfg.statusBarFile());
+        try {
+            File legacy = cfg.statusPrefsFile();
+            if (c.order().isEmpty() && c.hidden().isEmpty() && legacy.isFile()) {
+                StatusBarConfig old = StatusBarConfig.load(legacy);
+                if (!old.order().isEmpty() || !old.hidden().isEmpty()) {
+                    c = new StatusBarConfig(c.enabled(), c.dwellMs(), c.animateMs(), old.order(), old.hidden());
+                    c.save(cfg.statusBarFile());
+                    log.append("INFO", SOURCE, "status bar settings imported from " + legacy.getName());
+                }
+            }
+        } catch (Throwable t) {
+            log.append("WARN", SOURCE, "status bar settings import failed: " + describe(t));
+        }
+        return c;
+    }
+
+    /** Re-reads {@code statusbar.properties} (mibpkg or another writer may have changed it). */
+    private void refreshStatusBar() {
+        statusBar = StatusBarConfig.load(cfg.statusBarFile());
+    }
+
+    /** Writes the in-memory config; a failure leaves it in force until the next start. */
+    private void saveStatusBar() {
+        try {
+            statusBar.save(cfg.statusBarFile());
+        } catch (Throwable t) {
+            log.append("ERROR", SOURCE, "cannot write " + cfg.statusBarFile().getName() + ": " + describe(t)
+                    + "; the setting holds until the next start");
+        }
     }
 
     /**
@@ -914,7 +949,7 @@ public final class SdkRuntime {
         purgeSnapshots(); // stale copies from a previous run
         restoreStaleOverrides();
         toggles.refresh(); // mibsdk-dev may have edited the user's choices since the last read
-        statusPrefs.refresh(installedIds());
+        refreshStatusBar();
         File[] files = pluginJars();
         List pending = new ArrayList(); // PluginHost, DISCOVERED
         for (int i = 0; i < files.length; i++) {
@@ -982,7 +1017,7 @@ public final class SdkRuntime {
     private void listPluginsInSafeMode() {
         grants = Grants.load(cfg.grantsFile());
         toggles.refresh();
-        statusPrefs.refresh(installedIds());
+        refreshStatusBar();
         File[] files = pluginJars();
         for (int i = 0; i < files.length && !isStopped(); i++) {
             PluginHost h = discover(files[i]);
@@ -1243,7 +1278,7 @@ public final class SdkRuntime {
         }
         grants = Grants.load(cfg.grantsFile());
         toggles.refresh();
-        statusPrefs.refresh(installedIds());
+        refreshStatusBar();
         PluginHost old = findHost(id);
         if (old != null) {
             disableHost(old, PluginState.DISABLED, "reloading", true, false); // no notice flash during a reload
@@ -1499,28 +1534,29 @@ public final class SdkRuntime {
             }
         } else if (a.kind == PluginsMenu.Action.Kind.STATUS_SHOW || a.kind == PluginsMenu.Action.Kind.STATUS_HIDE) {
             boolean hide = a.kind == PluginsMenu.Action.Kind.STATUS_HIDE;
-            statusPrefs.setHidden(a.id, hide);
+            statusBar = statusBar.setHidden(a.id, hide);
+            saveStatusBar();
             log.append("INFO", SOURCE, "Plugins menu: " + a.id + " status item " + (hide ? "hidden" : "shown"));
         } else if (a.kind == PluginsMenu.Action.Kind.STATUS_EARLIER || a.kind == PluginsMenu.Action.Kind.STATUS_LATER) {
             boolean earlier = a.kind == PluginsMenu.Action.Kind.STATUS_EARLIER;
-            statusPrefs.move(a.id, earlier ? -1 : 1, statusEligible(statuses(), uiHub));
+            statusBar = statusBar.move(a.id, earlier ? -1 : 1, statusEligible(statuses(), uiHub));
+            saveStatusBar();
             log.append("INFO", SOURCE, "Plugins menu: " + a.id + " status item moved " + (earlier ? "earlier" : "later")
-                    + ", order now " + statusPrefs.order());
+                    + ", order now " + statusBar.order());
         } else if (a.kind == PluginsMenu.Action.Kind.DWELL_NEXT || a.kind == PluginsMenu.Action.Kind.ANIMATE_NEXT) {
             boolean dwell = a.kind == PluginsMenu.Action.Kind.DWELL_NEXT;
-            StatusBarConfig c = statusBar;
-            int d = dwell ? StatusBarConfig.nextDwell(c.dwellMs()) : c.dwellMs();
-            int m = dwell ? c.animateMs() : StatusBarConfig.nextAnimate(c.animateMs());
-            StatusBarConfig next = new StatusBarConfig(c.enabled(), d, m, c.order());
-            statusBar = next; // in memory first: the UI shows the choice even if the write fails
-            try {
-                next.save(cfg.statusBarFile());
-            } catch (Throwable t) {
-                log.append("ERROR", SOURCE, "cannot write " + cfg.statusBarFile().getName() + ": " + describe(t)
-                        + "; the setting holds until the next start");
-            }
+            int d = dwell ? StatusBarConfig.nextDwell(statusBar.dwellMs()) : statusBar.dwellMs();
+            int m = dwell ? statusBar.animateMs() : StatusBarConfig.nextAnimate(statusBar.animateMs());
+            statusBar = dwell ? statusBar.withDwell(d) : statusBar.withAnimate(m);
+            saveStatusBar(); // in memory first: the UI shows the choice even if the write fails
             log.append("INFO", SOURCE, "Plugins menu: status bar dwell " + StatusBarConfig.dwellLabel(d)
                     + ", animation " + StatusBarConfig.animateLabel(m));
+        } else if (a.kind == PluginsMenu.Action.Kind.STATUS_BAR_ENABLE
+                || a.kind == PluginsMenu.Action.Kind.STATUS_BAR_DISABLE) {
+            boolean on = a.kind == PluginsMenu.Action.Kind.STATUS_BAR_ENABLE;
+            statusBar = statusBar.withEnabled(on);
+            saveStatusBar();
+            log.append("INFO", SOURCE, "Plugins menu: status bar " + (on ? "on" : "off"));
         } else if (a.kind == PluginsMenu.Action.Kind.ENABLE || a.kind == PluginsMenu.Action.Kind.DISABLE) {
             boolean off = a.kind == PluginsMenu.Action.Kind.DISABLE;
             toggles.setOff(a.id, off);
@@ -1665,15 +1701,15 @@ public final class SdkRuntime {
                 }
             }
             SdkState s = new SdkState(safeMode, safeReason, bootGuard.inert(), resetRequested, adapterId,
-                    ledger.active(), statusBar.dwellMs(), statusBar.animateMs());
+                    ledger.active(), statusBar.dwellMs(), statusBar.animateMs(), statusBar.enabled());
             int hidden = PluginsMenu.rootOverflow(st.size(), s);
             if (hidden > 0 && !overflowLogged) {
                 overflowLogged = true;
                 log.append("WARN", SOURCE, st.size() + " plugins installed: the Plugins page lists the first "
                         + (st.size() - hidden) + " (+" + hidden + " more)");
             }
-            List<String> statusOrder = statusPrefs.order();
-            Set<String> statusHidden = statusPrefs.hiddenIds();
+            List<String> statusOrder = statusBar.order();
+            Set<String> statusHidden = statusBar.hidden();
             PluginsMenu.StatusChoices sc = new PluginsMenu.StatusChoices(
                     StatusLine.order(statusOrder, statusEligible(st, hub)), statusHidden);
             List<UiPage> pages = PluginsMenu.pages(st, manifests, pageKeys, titles, toggles.offIds(), s, grants, sc);

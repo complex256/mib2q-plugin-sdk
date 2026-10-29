@@ -145,7 +145,7 @@ final class UiHub {
     private List<String> indicators = Collections.<String>emptyList();
     private String pluginsRowLabel = DEFAULT_PLUGINS_LABEL;
     private int statusMaxChars = DEFAULT_STATUS_MAX_CHARS;
-    private List<String> statusOrder = Collections.<String>emptyList(); // the user's saved order (StatusPrefs)
+    private List<String> statusOrder = Collections.<String>emptyList(); // the user's order (StatusBarConfig)
     private Set<String> statusHidden = Collections.<String>emptySet(); // owners whose item the user hid
     private Listener<UiInput> sdkHandler;
     private long openSeq;
@@ -443,7 +443,7 @@ final class UiHub {
     }
 
     /**
-     * The user's status-line choices ({@link StatusPrefs}): items follow {@code order}, then plugin-id order
+     * The user's status-line choices ({@link StatusBarConfig}): items follow {@code order}, then plugin-id order
      * ({@link StatusLine#order}); an owner in {@code hidden} keeps its item, but it is not composed. Null is empty.
      */
     void setStatusPrefs(List<String> order, Set<String> hidden) {

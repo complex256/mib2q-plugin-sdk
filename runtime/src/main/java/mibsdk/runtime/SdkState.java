@@ -27,15 +27,22 @@ final class SdkState {
     final int dwellMs;
     /** The built-in bar's slide duration ({@link StatusBarConfig#animateMs()}). */
     final int animateMs;
+    /** The user's "Status bar" switch: false falls back to the popup ({@link StatusBarConfig#enabled()}). */
+    final boolean statusBarEnabled;
 
     SdkState(boolean safeMode, String safeReason, boolean guardInert, boolean resetRequested, String adapterId,
             List<ActiveOverride> overrides) {
         this(safeMode, safeReason, guardInert, resetRequested, adapterId, overrides,
-                StatusBarConfig.DEFAULT_DWELL_MS, StatusBarConfig.DEFAULT_ANIMATE_MS);
+                StatusBarConfig.DEFAULT_DWELL_MS, StatusBarConfig.DEFAULT_ANIMATE_MS, true);
     }
 
     SdkState(boolean safeMode, String safeReason, boolean guardInert, boolean resetRequested, String adapterId,
             List<ActiveOverride> overrides, int dwellMs, int animateMs) {
+        this(safeMode, safeReason, guardInert, resetRequested, adapterId, overrides, dwellMs, animateMs, true);
+    }
+
+    SdkState(boolean safeMode, String safeReason, boolean guardInert, boolean resetRequested, String adapterId,
+            List<ActiveOverride> overrides, int dwellMs, int animateMs, boolean statusBarEnabled) {
         this.safeMode = safeMode;
         this.safeReason = safeReason;
         this.guardInert = guardInert;
@@ -45,6 +52,7 @@ final class SdkState {
                 : Collections.unmodifiableList(new ArrayList<ActiveOverride>(overrides));
         this.dwellMs = dwellMs;
         this.animateMs = animateMs;
+        this.statusBarEnabled = statusBarEnabled;
     }
 
     /** Count-based safe mode (not forced by the SAFE_MODE marker): the SDK page may offer a boot-guard reset. */

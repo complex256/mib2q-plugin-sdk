@@ -213,6 +213,14 @@ class PluginsMenuTest {
         UiPage sdk = page(pages(Collections.<PluginStatus>emptyList(), null, null, NORMAL, grants("")), "mibsdk/sdk");
         assertEquals("Dwell: 5 s", entry(sdk, "statusbar.dwell").label());
         assertEquals("Animation: 300 ms", entry(sdk, "statusbar.animate").label());
+        UiEntry bar = entry(sdk, "statusbar.enabled");
+        assertEquals(UiEntry.TOGGLE, bar.kind());
+        assertEquals("Status bar", bar.label());
+        assertTrue(bar.on(), "on by default");
+        assertEquals(PluginsMenu.Action.Kind.STATUS_BAR_DISABLE,
+                PluginsMenu.handle(new UiInput(UiInput.TOGGLE_REQUESTED, "mibsdk/sdk", "statusbar.enabled", false)).kind);
+        assertEquals(PluginsMenu.Action.Kind.STATUS_BAR_ENABLE,
+                PluginsMenu.handle(new UiInput(UiInput.TOGGLE_REQUESTED, "mibsdk/sdk", "statusbar.enabled", true)).kind);
         assertEquals(PluginsMenu.Action.Kind.DWELL_NEXT,
                 PluginsMenu.handle(new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/sdk", "statusbar.dwell", false)).kind);
         assertEquals(PluginsMenu.Action.Kind.ANIMATE_NEXT,

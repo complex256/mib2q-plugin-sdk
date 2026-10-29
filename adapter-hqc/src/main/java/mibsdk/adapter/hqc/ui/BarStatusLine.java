@@ -63,6 +63,10 @@ final class BarStatusLine implements StatusLineSink {
     private final RingLog log;
     private final IconIds ids;
     private final BuiltinIcons builtins;
+    /** The settings file: enabled/dwell/animation, re-read when it changes (the runtime writes it on a user action). */
+    private final File configFile;
+    private StatusBarConfig config; // guarded by this
+    private long configStamp = -1; // the file's lastModified of config; guarded by this
 
     private volatile boolean attached;
     private volatile boolean visible = true;
@@ -96,11 +100,32 @@ final class BarStatusLine implements StatusLineSink {
     }
 
     BarStatusLine(Object frameworkAccess, HmiPoster poster, RingLog log, IconIds ids, BuiltinIcons builtins) {
+        this(frameworkAccess, poster, log, ids, builtins, new File(CONFIG));
+    }
+
+    BarStatusLine(Object frameworkAccess, HmiPoster poster, RingLog log, IconIds ids, BuiltinIcons builtins,
+            File configFile) {
         this.frameworkAccess = frameworkAccess;
         this.poster = poster;
         this.log = log;
         this.ids = ids;
         this.builtins = builtins;
+        this.configFile = configFile == null ? new File(CONFIG) : configFile;
+    }
+
+    /** The current settings; the file is re-read only when its mtime moves (a user action in the SDK page). */
+    synchronized StatusBarConfig configNow() {
+        long stamp = configFile.lastModified();
+        if (config == null || stamp != configStamp) {
+            config = StatusBarConfig.load(configFile);
+            configStamp = stamp;
+        }
+        return config;
+    }
+
+    /** The user's "Status bar" switch; the caller falls back to the popup when false. */
+    boolean enabled() {
+        return configNow().enabled();
     }
 
     public boolean available() {
@@ -344,9 +369,21 @@ final class BarStatusLine implements StatusLineSink {
         Thread t = new Thread(new Runnable() {
             public void run() {
                 while (attached) {
-                    StatusBarConfig config = StatusBarConfig.load(new File(CONFIG));
+                    StatusBarConfig config = configNow();
                     if (!sleep(config.dwellMs())) {
                         return;
+                    }
+                    if (!configNow().enabled()) {
+                        if (visible) {
+                            visible = false;
+                            slideGen++;
+                            poster.post(new Runnable() {
+                                public void run() {
+                                    layoutRows();
+                                }
+                            });
+                        }
+                        continue;
                     }
                     if (pageCount <= 1) {
                         if (pageCount != lastPagerCount) {

@@ -172,7 +172,7 @@ public final class RuntimeConfig {
         return new File(roots.persist(), "plugins.properties");
     }
 
-    /** Persistent: the user's status-line choices from the Plugins menu ({@link StatusPrefs}). */
+    /** Persistent, legacy: the old status-line order/hidden file, imported once into {@link #statusBarFile()}. */
     public File statusPrefsFile() {
         return new File(roots.persist(), "statusline.properties");
     }
