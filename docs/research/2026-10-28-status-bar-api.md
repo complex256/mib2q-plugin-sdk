@@ -140,7 +140,9 @@ per-item RGBA (`UiColor`, api 6), the animated vertical slide, and the Dwell/Ani
   throws, so the same call falls back to the popup and the next one retries. The bar's attach callback hides the
   popups on HMIEvent as soon as it has drawn the pending line.
 - **The slide snapped.** The animation frames shared the applier's `HmiPoster` pending slot and were coalesced. The
-  bar has its own poster now: queue one frame, wait for the HMI to apply it, then wait 16 ms.
+  bar has its own poster now: queue one frame, wait for the HMI to apply it, then wait 16 ms. Bounds/visibility
+  changes also only mark widgets dirty; `viewport.triggerRepaint()` after each layout pass is what actually paints
+  the intermediate frames (the popup's colour fix needed the same `triggerRepaint`).
 - **The bar showed the popup's fair-share cut** (`TS up MQ ...`): `UiStatusPart.fullText` carries the item's whole
   text; `StatusLayout.of(..., true)` uses it for the bar, while the popup keeps the 24-character cut.
 - **A `ResourceLocatorModel` does not paint in a plain layout container** (see next step 0): file icons use the
