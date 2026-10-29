@@ -63,20 +63,27 @@ final class StatusLine {
         final UiIcon icon;
         /** The text colour in the built-in bar; null for its own colour. */
         final UiColor colour;
+        /** The contexts the item shows in: a bitmask of HmiContext values; 0 for every context. */
+        final long contexts;
 
         Item(String owner, String text) {
-            this(owner, text, null, null);
+            this(owner, text, null, null, 0L);
         }
 
         Item(String owner, String text, UiIcon icon) {
-            this(owner, text, icon, null);
+            this(owner, text, icon, null, 0L);
         }
 
         Item(String owner, String text, UiIcon icon, UiColor colour) {
+            this(owner, text, icon, colour, 0L);
+        }
+
+        Item(String owner, String text, UiIcon icon, UiColor colour, long contexts) {
             this.owner = owner;
             this.text = text == null ? "" : text;
             this.icon = icon;
             this.colour = colour;
+            this.contexts = contexts;
         }
 
         /** Characters the item wants on the line, its icon included. */
@@ -217,7 +224,7 @@ final class StatusLine {
         int[] w = shares(it, room);
         for (int i = 0; i < w.length; i++) {
             Item s = it.get(i);
-            out.add(new UiStatusPart(s.render(w[i]), s.iconAt(w[i]), false, s.colour, s.text));
+            out.add(new UiStatusPart(s.render(w[i]), s.iconAt(w[i]), false, s.colour, s.text, s.contexts));
         }
         return out;
     }

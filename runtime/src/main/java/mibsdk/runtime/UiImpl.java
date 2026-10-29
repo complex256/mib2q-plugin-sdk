@@ -693,6 +693,8 @@ final class UiImpl implements Ui {
         private String text;
         /** The text colour in the built-in bar; null for its own. Written under hlock. */
         private UiColor colour;
+        /** The contexts the item shows in (a bitmask); 0 for every context. Written under hlock. */
+        private long contexts;
 
         StatusHandle(boolean inert, UiIcon icon, String text) {
             this.inert = inert;
@@ -727,12 +729,30 @@ final class UiImpl implements Ui {
             }
         }
 
+        @Override
+        public void visibleIn(int... contexts) {
+            long mask = 0L;
+            if (contexts != null) {
+                for (int i = 0; i < contexts.length; i++) {
+                    int c = contexts[i];
+                    if (c < 0 || c >= 64) {
+                        throw new IllegalArgumentException("context " + c + " is not 0..63");
+                    }
+                    mask |= 1L << c;
+                }
+            }
+            synchronized (hlock) {
+                this.contexts = mask;
+                publish(text);
+            }
+        }
+
         /** hlock held. Text, icon and colour reach the hub in one call, so they change together. */
         private void publish(String text) {
             if (!cancelled && !inert) {
                 synchronized (lock) {
                     if (!closed) {
-                        hub.setStatusItem(pluginId, text, icon, colour);
+                        hub.setStatusItem(pluginId, text, icon, colour, contexts);
                     }
                 }
             }

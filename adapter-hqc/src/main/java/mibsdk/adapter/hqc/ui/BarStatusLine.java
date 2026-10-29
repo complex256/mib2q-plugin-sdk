@@ -73,6 +73,11 @@ final class BarStatusLine implements StatusLineSink {
     private volatile List<UiStatusPart> pending;
     /** HMIEvent, once the bar is attached: the caller hides the popups the bar took over from. */
     private volatile Runnable onAttached;
+    /** The status bar handler; its currentHMIContext field is the HMI context (model 138). Set on HMIEvent. */
+    private volatile Object handler;
+    private Field contextField; // HMIEvent only
+    /** The last context the rows were built for; the pager rebuilds on HMIEvent when it moves. */
+    private int lastContext = Integer.MIN_VALUE;
     /** The last attach failure, so a retried attach logs only when the reason changes. HMIEvent only. */
     private String attachFailure;
     /** Bench diagnostics: log the line only when its shape changes (items, file models). HMIEvent only. */
@@ -115,7 +120,8 @@ final class BarStatusLine implements StatusLineSink {
 
     /** The current settings; the file is re-read only when its mtime moves (a user action in the SDK page). */
     synchronized StatusBarConfig configNow() {
-        long stamp = configFile.lastModified();
+        // mtime and length: a same-second rewrite (a toggle, a new dwell) still changes the length.
+        long stamp = configFile.lastModified() * 31L + configFile.length();
         if (config == null || stamp != configStamp) {
             config = StatusBarConfig.load(configFile);
             configStamp = stamp;
@@ -198,6 +204,7 @@ final class BarStatusLine implements StatusLineSink {
                 fail("no status bar handler");
                 return;
             }
+            this.handler = handler;
             Field field = findField(handler.getClass(), "rightGroupContainer");
             if (field == null) {
                 fail("no rightGroupContainer field");
@@ -224,6 +231,7 @@ final class BarStatusLine implements StatusLineSink {
             if (pending != null) {
                 update();
             }
+            lastContext = currentContext();
             Runnable r = onAttached;
             if (r != null) {
                 try {
@@ -246,9 +254,9 @@ final class BarStatusLine implements StatusLineSink {
         }
     }
 
-    /** HMIEvent: rebuild the row texts/icons/colours from the ordered parts. */
+    /** HMIEvent: rebuild the row texts/icons/colours from the ordered parts, for the current HMI context. */
     private void update() {
-        List<UiStatusPart> parts = pending;
+        List<UiStatusPart> parts = visibleParts(pending, currentContext());
         StatusLayout l = StatusLayout.of(parts, ids, builtins, true);
         List<Item> items = new ArrayList<Item>();
         add(items, l.indicators());
@@ -292,6 +300,47 @@ final class BarStatusLine implements StatusLineSink {
     private void add(List<Item> out, StatusLayout.Cell c) {
         if (c != null && c.text != null && c.text.length() > 0) {
             out.add(new Item(c.text, c.stockIconId, c.fileIconId, c.filePath, c.ownColours, c.colourArgb));
+        }
+    }
+
+    /**
+     * The parts that show in {@code context} (a {@code HmiContext} value, or -1 before the stub pushed it): the runtime's
+     * indicator always, an item when its {@code visibleIn} mask is empty or has this context.
+     */
+    static List<UiStatusPart> visibleParts(List<UiStatusPart> parts, int context) {
+        if (parts == null || context < 0) {
+            return parts; // unknown context: do not hide anything
+        }
+        List<UiStatusPart> out = new ArrayList<UiStatusPart>();
+        for (int i = 0; i < parts.size(); i++) {
+            UiStatusPart p = parts.get(i);
+            if (p == null || p.indicator() || p.showsIn(context)) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
+    /** The bar's current HMI context (its handler's currentHMIContext), or -1 before it is known. */
+    private int currentContext() {
+        Object h = handler;
+        if (h == null) {
+            return -1;
+        }
+        try {
+            if (contextField == null) {
+                contextField = findField(h.getClass(), "currentHMIContext");
+                if (contextField != null) {
+                    contextField.setAccessible(true);
+                }
+            }
+            if (contextField == null) {
+                return -1;
+            }
+            Object v = contextField.get(h);
+            return v instanceof Integer ? ((Integer) v).intValue() : -1;
+        } catch (Throwable t) {
+            return -1;
         }
     }
 
@@ -372,6 +421,17 @@ final class BarStatusLine implements StatusLineSink {
                     StatusBarConfig config = configNow();
                     if (!sleep(config.dwellMs())) {
                         return;
+                    }
+                    final int context = currentContext();
+                    if (context != lastContext) {
+                        lastContext = context;
+                        poster.post(new Runnable() {
+                            public void run() {
+                                if (pending != null) {
+                                    update();
+                                }
+                            }
+                        });
                     }
                     if (!configNow().enabled()) {
                         if (visible) {

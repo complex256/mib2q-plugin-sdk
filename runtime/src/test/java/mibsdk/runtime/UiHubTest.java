@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import mibsdk.api.HmiContext;
 import mibsdk.api.Listener;
 import mibsdk.api.Page;
 import mibsdk.api.PageSpec;
@@ -693,6 +694,23 @@ class UiHubTest {
         hub.setStatusItem("a", "A", null, amber);
         hub.publishNow();
         assertEquals(amber, table.snapshot().statusParts().get(0).colour());
+    }
+
+    @Test
+    void statusPartsCarryTheItemsContexts() throws Exception {
+        UiHub hub = hub(0);
+        long car = 1L << HmiContext.CAR;
+        hub.setStatusItem("a", "A", null, null, car);
+        hub.publishNow();
+        UiStatusPart p = table.snapshot().statusParts().get(0);
+        assertEquals(car, p.contexts());
+        assertTrue(p.showsIn(HmiContext.CAR));
+        assertFalse(p.showsIn(HmiContext.MEDIA));
+
+        hub.setStatusItem("a", "A", null, null, 0L); // no limit: a change, new snapshot
+        hub.publishNow();
+        assertEquals(0L, table.snapshot().statusParts().get(0).contexts());
+        assertTrue(table.snapshot().statusParts().get(0).showsIn(HmiContext.MEDIA));
     }
 
     @Test

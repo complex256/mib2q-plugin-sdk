@@ -33,4 +33,14 @@ public interface StatusItem extends Subscription {
      * @since api 6
      */
     void setColour(UiColor colour);
+
+    /**
+     * Shows the item only in these HMI contexts ({@link HmiContext}), e.g. {@code visibleIn(HmiContext.CAR)}. No
+     * arguments restores every context, which is the default. The built-in bar applies the limit; the popup fallback
+     * shows every item.
+     *
+     * @throws IllegalArgumentException if a context is outside 0..63 ({@link HmiContext#NONE} is not a context)
+     * @since api 6
+     */
+    void visibleIn(int... contexts);
 }

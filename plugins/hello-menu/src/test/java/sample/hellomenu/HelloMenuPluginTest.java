@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Properties;
 import mibsdk.adapter.fake.FakeUi;
 import mibsdk.api.Features;
+import mibsdk.api.HmiContext;
 import mibsdk.test.PluginTestHarness;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -66,11 +67,11 @@ class HelloMenuPluginTest {
         ui.selectRow(ui.carRows().indexOf(row));
         h.await(() -> page.equals(ui.openPageKey()), "page open");
         List<String> lines = ui.render(page);
-        assertEquals(8, lines.size(), lines.toString());
+        assertEquals(9, lines.size(), lines.toString());
         assertTrue(lines.get(0).contains("Apple"), lines.toString());
         assertTrue(lines.get(1).contains("Pear"), lines.toString());
         assertTrue(lines.get(2).contains("Plum"), lines.toString());
-        assertTrue(lines.get(7).contains("Selected: <none>"), lines.toString());
+        assertTrue(lines.get(8).contains("Selected: <none>"), lines.toString());
     }
 
     @Test
@@ -78,7 +79,7 @@ class HelloMenuPluginTest {
         start(Features.SLOT_CAR_MENU, Features.UI_PAGES);
         h.await(() -> !ui.render(page).isEmpty(), "page registered");
         ui.select(page, "pear");
-        h.await(() -> ui.render(page).get(7).contains("Selected: Pear"), "Selected: Pear");
+        h.await(() -> ui.render(page).get(8).contains("Selected: Pear"), "Selected: Pear");
         assertEquals("pear", h.storedValues().getProperty("last")); // stops the runtime, which flushes storage
     }
 
@@ -111,7 +112,7 @@ class HelloMenuPluginTest {
     void lastSelectionIsRestoredFromStorage() throws IOException {
         stored.setProperty("last", "plum");
         start(Features.SLOT_CAR_MENU, Features.UI_PAGES);
-        h.await(() -> ui.render(page).size() > 7 && ui.render(page).get(7).contains("Selected: Plum"),
+        h.await(() -> ui.render(page).size() > 8 && ui.render(page).get(8).contains("Selected: Plum"),
                 "Selected: Plum, restored: " + ui.render(page));
     }
 
@@ -178,6 +179,18 @@ class HelloMenuPluginTest {
     }
 
     @Test
+    void statusItemCanBeLimitedToCar() throws IOException {
+        start(Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR, Features.UI_PAGES, Features.UI_ICONS);
+        h.await(() -> ui.statusParts().contains(statusPng), "status up: " + ui.statusParts());
+        assertEquals(0L, ui.statusContexts().get(0).longValue(), "every context by default");
+
+        ui.select(page, "status-car-only");
+        h.await(() -> ui.statusContexts().get(0).longValue() == (1L << HmiContext.CAR), "Car only");
+        ui.select(page, "status-car-only");
+        h.await(() -> ui.statusContexts().get(0).longValue() == 0L, "every context again");
+    }
+
+    @Test
     void storedTextColourIsRestored() throws IOException {
         stored.setProperty("text-colour", "on");
         start(Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR, Features.UI_PAGES, Features.UI_ICONS);
@@ -191,10 +204,10 @@ class HelloMenuPluginTest {
     }
 
     @Test
-    void manifestIsApi6Version130() throws IOException {
+    void manifestIsApi6Version140() throws IOException {
         String json = manifest();
         assertTrue(json.contains("\"api\":6"), json);
-        assertTrue(json.contains("\"version\":\"1.3.0\""), json);
+        assertTrue(json.contains("\"version\":\"1.4.0\""), json);
     }
 
     private static String manifest() throws IOException {

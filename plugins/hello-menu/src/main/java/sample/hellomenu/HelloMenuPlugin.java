@@ -1,5 +1,6 @@
 package sample.hellomenu;
 
+import mibsdk.api.HmiContext;
 import mibsdk.api.Icon;
 import mibsdk.api.MibPlugin;
 import mibsdk.api.Page;
@@ -19,9 +20,10 @@ import mibsdk.api.UiColor;
  * "Next icon" swaps the Car row's icon between {@code hello} and a stock star (it shows when the Car screen next opens);
  * "Next status icon" cycles the status item's icon hello-20, star, dot. The status item draws hello-20 in its own colours
  * (half white, half blue; api 4) by default, and "Status icon colour" flips it to tinted and back; the stock icons stay
- * tinted. "Status text colour" (api 6) sets a fixed cyan in every context, or back to the bar's own. Permissions are
- * all-or-nothing, so a running plugin holds it. The last selection ({@code last}), the status icon colour
- * ({@code colour}) and the status text colour ({@code text-colour}) are kept in storage and restored on enable.
+ * tinted. "Status text colour" (api 6) sets a fixed cyan in every context, or back to the bar's own; "Status item in
+ * Car" limits the item to {@link HmiContext#CAR} (api 6). Permissions are all-or-nothing, so a running plugin holds it.
+ * The last selection ({@code last}), the status icon colour ({@code colour}), the status text colour
+ * ({@code text-colour}) and the car-only flag ({@code car-only}) are kept in storage and restored on enable.
  */
 public class HelloMenuPlugin extends MibPlugin {
 
@@ -40,6 +42,7 @@ public class HelloMenuPlugin extends MibPlugin {
     private int statusIcon;
     private int statusColour;
     private boolean statusTextColour;
+    private boolean statusCarOnly;
 
     @Override
     protected void onEnable(PluginContext ctx) {
@@ -48,11 +51,15 @@ public class HelloMenuPlugin extends MibPlugin {
         ui = ctx.ui();
         statusColour = "tinted".equals(storage.get("colour", null)) ? Icon.TINTED : Icon.OWN_COLOURS;
         statusTextColour = "on".equals(storage.get("text-colour", null));
+        statusCarOnly = "on".equals(storage.get("car-only", null));
         page = ui.page(spec(storage.get("last", null)), this::onAction);
         row = ui.carMenuRow("Hello", page, ui.icon("hello"));
         status = ui.statusItem("Hello", statusIcon(0));
         if (statusTextColour) {
             status.setColour(TEXT_COLOUR);
+        }
+        if (statusCarOnly) {
+            status.visibleIn(HmiContext.CAR);
         }
     }
 
@@ -81,6 +88,12 @@ public class HelloMenuPlugin extends MibPlugin {
             status.setColour(statusTextColour ? TEXT_COLOUR : null);
             return;
         }
+        if ("status-car-only".equals(id)) {
+            statusCarOnly = !statusCarOnly;
+            storage.put("car-only", statusCarOnly ? "on" : "off");
+            status.visibleIn(statusCarOnly ? new int[] {HmiContext.CAR} : new int[0]);
+            return;
+        }
         if (label(id) == null) {
             return;
         }
@@ -99,7 +112,8 @@ public class HelloMenuPlugin extends MibPlugin {
         }
         spec = spec.item("next-icon", "Next icon", null).item("next-status-icon", "Next status icon", null)
                 .item("status-colour", "Status icon colour", null)
-                .item("status-text-colour", "Status text colour", null);
+                .item("status-text-colour", "Status text colour", null)
+                .item("status-car-only", "Status item in Car", null);
         String shown = label(last);
         return spec.info("Selected: " + (shown == null ? "<none>" : shown));
     }

@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import mibsdk.platform.UiStatusPart;
+import mibsdk.api.HmiContext;
 import mibsdk.runtime.Clock;
 import mibsdk.runtime.RingLog;
 import mibsdk.runtime.StatusBarConfig;
@@ -192,6 +193,28 @@ class StatusSinksTest {
         assertEquals(Arrays.asList("show A"), sdk.calls);
         assertEquals(0, posted.size(), "the bar is switched off: no attach job");
         assertEquals(1, s.active(), "active() reports the SDK popup, not the bar");
+    }
+
+    /** The bar's context filter: the indicator always, an item by its mask; an unknown context hides nothing. */
+    @Test
+    void visiblePartsKeepsTheIndicatorAndFiltersByContext() {
+        List<UiStatusPart> parts = Arrays.asList(
+                new UiStatusPart("SAFE", null, true),
+                new UiStatusPart("Car", null, false, null, "Car", 1L << HmiContext.CAR),
+                new UiStatusPart("Media", null, false, null, "Media", 1L << HmiContext.MEDIA),
+                new UiStatusPart("All", null, false, null, "All", 0L));
+        assertEquals(Arrays.asList("SAFE", "Car", "All"), texts(BarStatusLine.visibleParts(parts, HmiContext.CAR)));
+        assertEquals(Arrays.asList("SAFE", "Media", "All"), texts(BarStatusLine.visibleParts(parts, HmiContext.MEDIA)));
+        assertEquals(Arrays.asList("SAFE", "Car", "Media", "All"), texts(BarStatusLine.visibleParts(parts, -1)),
+                "unknown context: no filtering");
+    }
+
+    private static List<String> texts(List<UiStatusPart> parts) {
+        List<String> out = new ArrayList<String>();
+        for (UiStatusPart p : parts) {
+            out.add(p.text());
+        }
+        return out;
     }
 
     @Test

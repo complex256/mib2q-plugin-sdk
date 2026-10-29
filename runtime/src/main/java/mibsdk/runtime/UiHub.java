@@ -125,6 +125,7 @@ final class UiHub {
         String status; // cleaned; null when hidden
         UiIcon statusIcon; // null for none, and while status is null
         UiColor statusColour; // the text colour in the built-in bar; null for its own, and while status is null
+        long statusContexts; // the contexts the item shows in; 0 for every context, and while status is null
     }
 
     private final UiTable table;
@@ -307,11 +308,20 @@ final class UiHub {
      * null for none, {@code colour} null for the bar's own colour.
      */
     void setStatusItem(String owner, String text, UiIcon icon, UiColor colour) {
+        setStatusItem(owner, text, icon, colour, 0L);
+    }
+
+    /**
+     * As above, and the contexts the item shows in (a bitmask of {@code HmiContext} values; 0 for every context). Text,
+     * icon, colour and contexts change together.
+     */
+    void setStatusItem(String owner, String text, UiIcon icon, UiColor colour, long contexts) {
         checkOwner(owner);
         String clean = UiText.clean(text, StatusItem.MAX_TEXT);
         String value = clean.length() == 0 ? null : clean;
         UiIcon shown = value == null ? null : icon;
         UiColor shownColour = value == null ? null : colour;
+        long shownContexts = value == null ? 0L : contexts;
         synchronized (lock) {
             if (removedOwners.contains(owner)) {
                 return;
@@ -326,12 +336,14 @@ final class UiHub {
             }
             if ((value == null ? o.status == null : value.equals(o.status))
                     && (shown == null ? o.statusIcon == null : shown.equals(o.statusIcon))
-                    && (shownColour == null ? o.statusColour == null : shownColour.equals(o.statusColour))) {
+                    && (shownColour == null ? o.statusColour == null : shownColour.equals(o.statusColour))
+                    && shownContexts == o.statusContexts) {
                 return;
             }
             o.status = value;
             o.statusIcon = shown;
             o.statusColour = shownColour;
+            o.statusContexts = shownContexts;
         }
         changed();
     }
@@ -1167,7 +1179,7 @@ final class UiHub {
         for (int i = 0; i < order.size(); i++) {
             String id = order.get(i);
             Owner o = status.get(id);
-            items.add(new StatusLine.Item(id, o.status, o.statusIcon, o.statusColour));
+            items.add(new StatusLine.Item(id, o.status, o.statusIcon, o.statusColour, o.statusContexts));
         }
         // one item list, two outputs: the parts with icons, and the text-only line (the items without them)
         return new UiSnapshot(v, rows, StatusLine.line(indicators, items, statusMaxChars), pages, openSeq,

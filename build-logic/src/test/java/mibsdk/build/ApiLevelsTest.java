@@ -27,6 +27,7 @@ class ApiLevelsTest {
         assertEquals(1, ApiLevels.since("mibsdk/api/PluginContext", "log", "()Lmibsdk/api/Log;"), "api 1 stays unlisted");
         assertEquals(6, ApiLevels.since("mibsdk/api/StatusItem", "setColour", "(Lmibsdk/api/UiColor;)V"));
         assertEquals(6, ApiLevels.since("mibsdk/api/UiColor", "rgb", "(III)Lmibsdk/api/UiColor;"));
+        assertEquals(6, ApiLevels.since("mibsdk/api/StatusItem", "visibleIn", "([I)V"));
     }
 
     private static final Pattern TAG = Pattern.compile("^\\s*\\*\\s*@since api (\\d+)\\s*$");
@@ -98,7 +99,7 @@ class ApiLevelsTest {
             }
         }
         assertEquals(List.of(), missing);
-        assertEquals(68, checked, "the scan found the tagged members (update this number deliberately"
+        assertEquals(69, checked, "the scan found the tagged members (update this number deliberately"
                 + " when the API grows): " + checked);
     }
 
@@ -145,6 +146,7 @@ class ApiLevelsTest {
         switch (t) {
             case "String": return "Ljava/lang/String;";
             case "int": return "I";
+            case "int...": return "[I";
             case "boolean": return "Z";
             case "void": return "V";
             case "Page": return "Lmibsdk/api/Page;";

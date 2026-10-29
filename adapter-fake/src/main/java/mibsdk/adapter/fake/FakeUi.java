@@ -69,6 +69,15 @@ public final class FakeUi {
         return out;
     }
 
+    /** The context bitmask of each status part, in the same order as {@link #statusParts()}; 0 for every context. */
+    public List<Long> statusContexts() {
+        List<Long> out = new ArrayList<Long>();
+        for (UiStatusPart p : table.snapshot().statusParts()) {
+            out.add(Long.valueOf(p.contexts()));
+        }
+        return out;
+    }
+
     /**
      * {@code "[<name>] "} for a stock icon, {@code "[png:<key>] "} for an installed one, {@code ""} for none. In a status
      * part an own-colour file icon reads {@code "[png:<key>+own] "}; a Car row never shows {@code +own}, because rows

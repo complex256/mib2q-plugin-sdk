@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import mibsdk.api.Features;
+import mibsdk.api.HmiContext;
 import mibsdk.api.Icon;
 import mibsdk.api.Listener;
 import mibsdk.api.Page;
@@ -680,6 +681,22 @@ class UiImplTest {
 
         item.setColour(null);
         assertNull(published().statusParts().get(0).colour(), "null restores the bar's own colour");
+    }
+
+    @Test
+    void visibleInLimitsTheItemToContexts() {
+        UiImpl a = ui("a");
+        StatusItem item = a.statusItem("Hello");
+        assertTrue(published().statusParts().get(0).showsIn(HmiContext.CAR), "everywhere by default");
+
+        item.visibleIn(HmiContext.CAR);
+        assertEquals(1L << HmiContext.CAR, published().statusParts().get(0).contexts());
+        assertTrue(published().statusParts().get(0).showsIn(HmiContext.CAR));
+        assertFalse(published().statusParts().get(0).showsIn(HmiContext.MEDIA));
+
+        item.visibleIn(); // no arguments: everywhere again
+        assertEquals(0L, published().statusParts().get(0).contexts());
+        assertThrows(IllegalArgumentException.class, () -> item.visibleIn(-1));
     }
 
     // ---- api 5: inputs ----
