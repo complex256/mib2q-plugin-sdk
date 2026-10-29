@@ -44,8 +44,20 @@ class StatusBarConfigTest {
     }
 
     @Test
-    void missingFileIsDefaults() {
-        StatusBarConfig c = StatusBarConfig.load(new File(tmp, "nope.properties"));
+    void dwellAndAnimationRowsCycleThroughPresets() {
+        assertEquals(10000, StatusBarConfig.nextDwell(5000));
+        assertEquals(2000, StatusBarConfig.nextDwell(30000), "the last preset wraps");
+        assertEquals(2000, StatusBarConfig.nextDwell(0), "an unlisted value goes to the first preset above it");
+        assertEquals(150, StatusBarConfig.nextAnimate(0));
+        assertEquals(0, StatusBarConfig.nextAnimate(600), "the last preset wraps");
+        assertEquals("5 s", StatusBarConfig.dwellLabel(5000));
+        assertEquals("500 ms", StatusBarConfig.dwellLabel(500));
+        assertEquals("off", StatusBarConfig.animateLabel(0));
+        assertEquals("300 ms", StatusBarConfig.animateLabel(300));
+    }
+
+    @Test
+    void missingFileIsDefaults() {        StatusBarConfig c = StatusBarConfig.load(new File(tmp, "nope.properties"));
         assertEquals(StatusBarConfig.DEFAULT_DWELL_MS, c.dwellMs());
     }
 

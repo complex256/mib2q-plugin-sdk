@@ -5,7 +5,7 @@ import java.util.Map;
 
 /**
  * The plugin api level each {@code mibsdk.api} member arrived in, for the members newer than api 1 (api 2 is the UI
- * and {@code Net}, api 3 icons, api 4 per-icon colour, api 5 native inputs). Keyed by the
+ * and {@code Net}, api 3 icons, api 4 per-icon colour, api 5 native inputs, api 6 status-item text colour). Keyed by the
  * JVM reference a plugin class makes: owner internal name, member name and descriptor (a method's, or a field's for
  * {@code GETSTATIC}). Anything not listed is api 1. Compile-time constants ({@code static final} primitives and strings such as
  * {@code PageSpec.MAX_OPTIONS} or {@code Features.UI_INPUTS}) are inlined by the compiler, so they leave no reference
@@ -27,6 +27,7 @@ public final class ApiLevels {
     private static final String KIND = "mibsdk/api/PageSpec$Kind";
     private static final String UI = "mibsdk/api/Ui";
     private static final String UI_ACTION = "mibsdk/api/UiAction";
+    private static final String UI_COLOR = "mibsdk/api/UiColor";
     private static final String R_SPEC = ")L" + PAGE_SPEC + ";";
 
     private static final class Level {
@@ -117,6 +118,13 @@ public final class ApiLevels {
         put(UI_ACTION, "text", "()" + S, 5, "UiAction.text");
         put(UI_ACTION, "<init>", "(" + S + S + "Ljava/lang/Boolean;Ljava/lang/Integer;" + S + ")V", 5,
                 "new UiAction(String,String,Boolean,Integer,String)");
+
+        // Api 6: a status item's text colour in the built-in bar.
+        put(STATUS_ITEM, "setColour", "(Lmibsdk/api/UiColor;)V", 6, "StatusItem.setColour");
+        put(UI_COLOR, "rgb", "(III)Lmibsdk/api/UiColor;", 6, "UiColor.rgb");
+        put(UI_COLOR, "rgba", "(IIII)Lmibsdk/api/UiColor;", 6, "UiColor.rgba");
+        put(UI_COLOR, "of", "(I)Lmibsdk/api/UiColor;", 6, "UiColor.of");
+        put(UI_COLOR, "argb", "()I", 6, "UiColor.argb");
     }
 
     private static void put(String owner, String name, String desc, int api, String label) {

@@ -3,11 +3,18 @@
 The `mibsdk` SDK package (`dist/build/dist/mibsdk-<version>.mpk`) and its sample plugins. Versions are semver as
 mibpkg compares them; bench builds carried a `+bench.N` tag on the package version only and are not releases.
 
-## Unreleased (SDK; plugin api 1..5)
+## Unreleased (SDK; plugin api 1..6)
 
-Developer experience, aimed at plugin authors outside this repository. There is no new api level: the plugin api
-stays 5, every api addition below is additive, and a plugin built against 0.3.0 still builds and behaves as it did.
+Developer experience, aimed at plugin authors outside this repository, plus the built-in status bar. The plugin api
+grows to 6 for a status item's text colour; every api addition below is additive, and a plugin built against 0.3.0
+(api 5 or older) still builds and behaves as it did.
 This is not a release, and the artifacts are still published to a checkout's `build/repo` by `./gradlew publishLocal`.
+
+- **The built-in status bar (api 6).** `ctx.ui().statusItem(...)` items are drawn in the car's own status bar, one
+  row per item, instead of the floating popup (the popup stays as the fallback). A plugin's PNG icon is a System
+  `ResourceLocatorModel`, so it resolves on every screen, not only Car; `StatusItem.setColour(UiColor)` sets the
+  text colour in every context (null keeps the bar's own). Dwell (default 5 s), animation (default 300 ms) and the
+  global item order are set in Plugins -> SDK and kept in `/mnt/persist/mibsdk/statusbar.properties`.
 
 - **A plugin build needs no stock jar.** Every `linkCheck` resolves against a car class-library signature list
   bundled in the build logic (`carjcl.sigs`: names, supertypes and member descriptors, no code). A clone builds,

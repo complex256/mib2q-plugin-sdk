@@ -167,7 +167,7 @@ class PluginsMenuTest {
         UiPage sdk = page(pages, "mibsdk/sdk");
         assertEquals("SDK", sdk.title());
         List<String> info = labels(sdk, UiEntry.INFO);
-        assertEquals("API 5 · adapter hqc", info.get(0));
+        assertEquals("API 6 · adapter hqc", info.get(0));
         assertEquals("Safe mode: on (unhealthy-boots)", info.get(1));
         assertEquals("Boot guard: inert", info.get(2));
         assertTrue(info.contains("Override: parking.soundDirections=F1R0L1X1 by pdc (PERSISTENT, restoring)"), info.toString());
@@ -206,6 +206,19 @@ class PluginsMenuTest {
         UiPage normal = page(pages(none, null, null, NORMAL, grants("")), "mibsdk/sdk");
         assertNull(entry(normal, "reset"));
         assertFalse(labels(normal, UiEntry.INFO).contains("SAFE_MODE marker set: clear it with mibsdk-dev safe-mode off"));
+    }
+
+    @Test
+    void sdkPageOffersDwellAndAnimationRows() throws Exception {
+        UiPage sdk = page(pages(Collections.<PluginStatus>emptyList(), null, null, NORMAL, grants("")), "mibsdk/sdk");
+        assertEquals("Dwell: 5 s", entry(sdk, "statusbar.dwell").label());
+        assertEquals("Animation: 300 ms", entry(sdk, "statusbar.animate").label());
+        assertEquals(PluginsMenu.Action.Kind.DWELL_NEXT,
+                PluginsMenu.handle(new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/sdk", "statusbar.dwell", false)).kind);
+        assertEquals(PluginsMenu.Action.Kind.ANIMATE_NEXT,
+                PluginsMenu.handle(new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/sdk", "statusbar.animate", false)).kind);
+        assertEquals(PluginsMenu.Action.Kind.NONE,
+                PluginsMenu.handle(new UiInput(UiInput.TOGGLE_REQUESTED, "mibsdk/sdk", "statusbar.dwell", true)).kind);
     }
 
     @Test

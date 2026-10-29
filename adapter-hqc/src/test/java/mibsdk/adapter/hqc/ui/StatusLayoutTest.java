@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import mibsdk.api.UiColor;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiStatusPart;
 import org.junit.jupiter.api.Test;
@@ -228,8 +229,19 @@ class StatusLayoutTest {
         assertTrue(lb.sameIcons(StatusLayout.of(b, null, null)));
     }
 
-    /** The icon cell is the runtime's ICON_CHARS wide (StatusLine is package-private there: read reflectively). */
     @Test
+    void cellCarriesTheItemsTextColour() {
+        UiColor amber = UiColor.rgb(255, 128, 0);
+        List<UiStatusPart> parts = new ArrayList<UiStatusPart>();
+        parts.add(new UiStatusPart("TS up", null, false, amber));
+        parts.add(item("MQ", null));
+        StatusLayout l = StatusLayout.of(parts, null, null);
+        assertEquals(0xFFFF8000L, l.cell(0).colourArgb);
+        assertEquals(-1L, l.cell(1).colourArgb, "an item without a colour keeps the bar's own");
+        assertEquals(0xFFFF8000L, l.cell(0).shifted(10).colourArgb, "a shift keeps the colour");
+    }
+
+    /** The icon cell is the runtime's ICON_CHARS wide (StatusLine is package-private there: read reflectively). */    @Test
     void iconCellIsTheRuntimesIconChars() throws Exception {
         Field f = Class.forName("mibsdk.runtime.StatusLine").getDeclaredField("ICON_CHARS");
         f.setAccessible(true);

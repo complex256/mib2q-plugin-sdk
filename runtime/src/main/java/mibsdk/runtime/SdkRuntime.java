@@ -204,6 +204,8 @@ public final class SdkRuntime {
     private volatile boolean resetRequested;
     private final UserToggles toggles;
     private final StatusPrefs statusPrefs;
+    /** The built-in bar's settings (dwell, animation, item order); written only from the SDK page. */
+    private volatile StatusBarConfig statusBar;
     /** Set on the control thread once the initial plugin load ran; reload() is deferred until then. */
     private volatile boolean pluginsLoaded;
     private PluginScheduler timer; // posts to the control executor; guarded by this
@@ -329,6 +331,7 @@ public final class SdkRuntime {
         this.storageQuota = new StorageQuota(cfg.dataDir(), cfg.storagePluginMaxBytes(), cfg.storageTotalMaxBytes());
         this.toggles = new UserToggles(cfg.userTogglesFile(), log);
         this.statusPrefs = new StatusPrefs(cfg.statusPrefsFile(), log);
+        this.statusBar = StatusBarConfig.load(cfg.statusBarFile());
     }
 
     /**
@@ -1503,6 +1506,21 @@ public final class SdkRuntime {
             statusPrefs.move(a.id, earlier ? -1 : 1, statusEligible(statuses(), uiHub));
             log.append("INFO", SOURCE, "Plugins menu: " + a.id + " status item moved " + (earlier ? "earlier" : "later")
                     + ", order now " + statusPrefs.order());
+        } else if (a.kind == PluginsMenu.Action.Kind.DWELL_NEXT || a.kind == PluginsMenu.Action.Kind.ANIMATE_NEXT) {
+            boolean dwell = a.kind == PluginsMenu.Action.Kind.DWELL_NEXT;
+            StatusBarConfig c = statusBar;
+            int d = dwell ? StatusBarConfig.nextDwell(c.dwellMs()) : c.dwellMs();
+            int m = dwell ? c.animateMs() : StatusBarConfig.nextAnimate(c.animateMs());
+            StatusBarConfig next = new StatusBarConfig(c.enabled(), d, m, c.order());
+            statusBar = next; // in memory first: the UI shows the choice even if the write fails
+            try {
+                next.save(cfg.statusBarFile());
+            } catch (Throwable t) {
+                log.append("ERROR", SOURCE, "cannot write " + cfg.statusBarFile().getName() + ": " + describe(t)
+                        + "; the setting holds until the next start");
+            }
+            log.append("INFO", SOURCE, "Plugins menu: status bar dwell " + StatusBarConfig.dwellLabel(d)
+                    + ", animation " + StatusBarConfig.animateLabel(m));
         } else if (a.kind == PluginsMenu.Action.Kind.ENABLE || a.kind == PluginsMenu.Action.Kind.DISABLE) {
             boolean off = a.kind == PluginsMenu.Action.Kind.DISABLE;
             toggles.setOff(a.id, off);
@@ -1647,7 +1665,7 @@ public final class SdkRuntime {
                 }
             }
             SdkState s = new SdkState(safeMode, safeReason, bootGuard.inert(), resetRequested, adapterId,
-                    ledger.active());
+                    ledger.active(), statusBar.dwellMs(), statusBar.animateMs());
             int hidden = PluginsMenu.rootOverflow(st.size(), s);
             if (hidden > 0 && !overflowLogged) {
                 overflowLogged = true;

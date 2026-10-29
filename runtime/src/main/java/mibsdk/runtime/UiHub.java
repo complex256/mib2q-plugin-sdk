@@ -17,6 +17,7 @@ import mibsdk.api.Scheduler;
 import mibsdk.api.StatusItem;
 import mibsdk.api.Ui;
 import mibsdk.api.UiAction;
+import mibsdk.api.UiColor;
 import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiIcon;
@@ -123,6 +124,7 @@ final class UiHub {
         final Map<String, UiRow> rows = new LinkedHashMap<String, UiRow>(); // by row key (full), registration order
         String status; // cleaned; null when hidden
         UiIcon statusIcon; // null for none, and while status is null
+        UiColor statusColour; // the text colour in the built-in bar; null for its own, and while status is null
     }
 
     private final UiTable table;
@@ -291,18 +293,25 @@ final class UiHub {
 
     /** {@link #setStatusItem(String, String, UiIcon)} without an icon. */
     void setStatusItem(String owner, String text) {
-        setStatusItem(owner, text, null);
+        setStatusItem(owner, text, null, null);
+    }
+
+    /** {@link #setStatusItem(String, String, UiIcon, UiColor)} with the bar's own text colour. */
+    void setStatusItem(String owner, String text, UiIcon icon) {
+        setStatusItem(owner, text, icon, null);
     }
 
     /**
-     * Text and icon change together, so no snapshot pairs one's new value with the other's old one. {@code null} or
-     * text that cleans to empty removes the owner's item, icon included; {@code icon} is null for none.
+     * Text, icon and text colour change together, so no snapshot pairs one's new value with the other's old one.
+     * {@code null} or text that cleans to empty removes the owner's item, icon and colour included; {@code icon} is
+     * null for none, {@code colour} null for the bar's own colour.
      */
-    void setStatusItem(String owner, String text, UiIcon icon) {
+    void setStatusItem(String owner, String text, UiIcon icon, UiColor colour) {
         checkOwner(owner);
         String clean = UiText.clean(text, StatusItem.MAX_TEXT);
         String value = clean.length() == 0 ? null : clean;
         UiIcon shown = value == null ? null : icon;
+        UiColor shownColour = value == null ? null : colour;
         synchronized (lock) {
             if (removedOwners.contains(owner)) {
                 return;
@@ -316,11 +325,13 @@ final class UiHub {
                 owners.put(owner, o);
             }
             if ((value == null ? o.status == null : value.equals(o.status))
-                    && (shown == null ? o.statusIcon == null : shown.equals(o.statusIcon))) {
+                    && (shown == null ? o.statusIcon == null : shown.equals(o.statusIcon))
+                    && (shownColour == null ? o.statusColour == null : shownColour.equals(o.statusColour))) {
                 return;
             }
             o.status = value;
             o.statusIcon = shown;
+            o.statusColour = shownColour;
         }
         changed();
     }
@@ -1156,7 +1167,7 @@ final class UiHub {
         for (int i = 0; i < order.size(); i++) {
             String id = order.get(i);
             Owner o = status.get(id);
-            items.add(new StatusLine.Item(id, o.status, o.statusIcon));
+            items.add(new StatusLine.Item(id, o.status, o.statusIcon, o.statusColour));
         }
         // one item list, two outputs: the parts with icons, and the text-only line (the items without them)
         return new UiSnapshot(v, rows, StatusLine.line(indicators, items, statusMaxChars), pages, openSeq,

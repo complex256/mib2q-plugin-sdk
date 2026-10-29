@@ -177,6 +177,11 @@ public final class RuntimeConfig {
         return new File(roots.persist(), "statusline.properties");
     }
 
+    /** Persistent: the SDK status bar's own settings ({@link StatusBarConfig}: dwell, animation, item order). */
+    public File statusBarFile() {
+        return new File(roots.persist(), "statusbar.properties");
+    }
+
     /**
      * Persistent, developer only: the HMI System takeover's forced failure ({@code factory} or {@code screen} on the
      * first line), read once by the configurator.

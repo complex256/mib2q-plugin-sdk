@@ -1,4 +1,4 @@
-{"format":1,"api":5,"min_api":1,"permissions":[
+{"format":1,"api":6,"min_api":1,"permissions":[
  {"id":"vehicle.read","group":"Vehicle","text":"Read vehicle state: ignition, gear, parking sensors","loud":false},
  {"id":"vehicle.parking.write","group":"Vehicle","text":"Change parking-sensor settings, for example mute the rear tones","loud":false},
  {"id":"hooks.parking","group":"Hooks","text":"Watch and override parking-system messages","loud":false},

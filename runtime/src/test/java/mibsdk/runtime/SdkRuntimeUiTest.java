@@ -213,7 +213,7 @@ class SdkRuntimeUiTest {
         UiSnapshot s = r.await(x -> x.pages().containsKey("mibsdk/sdk"), "publishes the SDK page");
         assertEquals("Plugins", s.carRows().get(0).label());
         assertEquals("", s.statusLine());
-        assertTrue(hasInfo(s, "mibsdk/sdk", "API 5 · adapter " + r.fake.id()));
+        assertTrue(hasInfo(s, "mibsdk/sdk", "API 6 · adapter " + r.fake.id()));
         assertTrue(hasInfo(s, "mibsdk/sdk", "Safe mode: off"));
         assertTrue(hasInfo(s, "mibsdk/sdk", "Boot guard: ok"));
 
@@ -467,6 +467,31 @@ class SdkRuntimeUiTest {
         r.rt.reload("alpha");
         r.awaitState("alpha", PluginState.ENABLED);
         r.await(s -> "ZZ AA".equals(s.statusLine()), "the file is re-read at reload");
+    }
+
+    /** The SDK page's two bar settings: cycle through presets, write the file, keep them across a restart. */
+    @Test
+    void statusBarDwellAndAnimationRowsCycleAndPersist() throws Exception {
+        runtime();
+        r.start();
+        UiSnapshot s = r.await(x -> x.pages().containsKey("mibsdk/sdk"), "publishes the SDK page");
+        assertEquals("Dwell: 5 s", label(s, "mibsdk/sdk", "statusbar.dwell"));
+        assertEquals("Animation: 300 ms", label(s, "mibsdk/sdk", "statusbar.animate"));
+
+        r.table.input(new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/sdk", "statusbar.dwell", false));
+        r.await(x -> "Dwell: 10 s".equals(label(x, "mibsdk/sdk", "statusbar.dwell")), "dwell cycled");
+        r.table.input(new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/sdk", "statusbar.animate", false));
+        r.await(x -> "Animation: 600 ms".equals(label(x, "mibsdk/sdk", "statusbar.animate")), "animation cycled");
+
+        StatusBarConfig saved = StatusBarConfig.load(new File(r.persist(), "statusbar.properties"));
+        assertEquals(10000, saved.dwellMs());
+        assertEquals(600, saved.animateMs());
+
+        r.stop();
+        r.start();
+        r.await(x -> "Dwell: 10 s".equals(label(x, "mibsdk/sdk", "statusbar.dwell"))
+                && "Animation: 600 ms".equals(label(x, "mibsdk/sdk", "statusbar.animate")),
+                "the settings survive a restart");
     }
 
     /** A page with every input kind; logs "action <item> <value> <requestedOn>" per action. */

@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import mibsdk.api.UiColor;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiText;
@@ -49,9 +50,10 @@ final class StatusLine {
     static final int ICON_CHARS = 2;
 
     /**
-     * One plugin's status item as a unit: its owner, cleaned text and optional icon. The fair share is computed on
-     * {@link #width}, which counts the icon as {@link #ICON_CHARS}; {@link #render} and {@link #iconAt} draw it in a
-     * share. An item with an empty text is hidden, icon or not.
+     * One plugin's status item as a unit: its owner, cleaned text and optional icon, and the text colour the plugin
+     * chose (null for the bar's own). The fair share is computed on {@link #width}, which counts the icon as
+     * {@link #ICON_CHARS}; {@link #render} and {@link #iconAt} draw it in a share. An item with an empty text is
+     * hidden, icon or not.
      */
     static final class Item {
         /** The plugin id, or null (tests, runtime-made items). */
@@ -59,15 +61,22 @@ final class StatusLine {
         final String text;
         /** Null for none. */
         final UiIcon icon;
+        /** The text colour in the built-in bar; null for its own colour. */
+        final UiColor colour;
 
         Item(String owner, String text) {
-            this(owner, text, null);
+            this(owner, text, null, null);
         }
 
         Item(String owner, String text, UiIcon icon) {
+            this(owner, text, icon, null);
+        }
+
+        Item(String owner, String text, UiIcon icon, UiColor colour) {
             this.owner = owner;
             this.text = text == null ? "" : text;
             this.icon = icon;
+            this.colour = colour;
         }
 
         /** Characters the item wants on the line, its icon included. */
@@ -208,7 +217,7 @@ final class StatusLine {
         int[] w = shares(it, room);
         for (int i = 0; i < w.length; i++) {
             Item s = it.get(i);
-            out.add(new UiStatusPart(s.render(w[i]), s.iconAt(w[i]), false));
+            out.add(new UiStatusPart(s.render(w[i]), s.iconAt(w[i]), false, s.colour));
         }
         return out;
     }

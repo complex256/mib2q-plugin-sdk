@@ -33,8 +33,11 @@ final class StatusLayout {
          */
         final boolean ownColours;
         final String text;
+        /** The text colour packed as {@code 0xAARRGGBB}; -1 for the bar's own colour. */
+        final long colourArgb;
 
-        Cell(int iconX, int labelX, int labelW, int stockIconId, String filePath, boolean ownColours, String text) {
+        Cell(int iconX, int labelX, int labelW, int stockIconId, String filePath, boolean ownColours, String text,
+                long colourArgb) {
             this.iconX = iconX;
             this.labelX = labelX;
             this.labelW = labelW;
@@ -42,13 +45,14 @@ final class StatusLayout {
             this.filePath = filePath;
             this.ownColours = ownColours;
             this.text = text;
+            this.colourArgb = colourArgb;
         }
 
         /** This cell moved right by {@code dx}, its label width again to the popup's right edge. */
         Cell shifted(int dx) {
             int x = labelX + dx;
             return new Cell(iconX + dx, x, labelWidth(x), stockIconId,
-                    filePath, ownColours, text);
+                    filePath, ownColours, text, colourArgb);
         }
 
         boolean sameBounds(Cell o) {
@@ -56,7 +60,7 @@ final class StatusLayout {
         }
     }
 
-    private static final Cell NONE = new Cell(0, 0, 0, -1, null, false, "");
+    private static final Cell NONE = new Cell(0, 0, 0, -1, null, false, "", -1L);
 
     /** No line: every cell unused. */
     static final StatusLayout EMPTY = new StatusLayout(NONE, new Cell[0]);
@@ -113,7 +117,7 @@ final class StatusLayout {
             x += p.text().length() * HqcUiIds.STATUS_CHAR_PX;
             Cell c = new Cell(iconX, labelX, labelW, stockId(icon, ids, builtins),
                     icon != null && icon.kind() == UiIcon.FILE ? icon.path() : null,
-                    icon != null && icon.ownColours(), p.text());
+                    icon != null && icon.ownColours(), p.text(), p.colourArgb());
             if (ind) {
                 indicators = c;
             } else {

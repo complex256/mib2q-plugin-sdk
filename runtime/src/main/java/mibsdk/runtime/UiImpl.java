@@ -16,6 +16,7 @@ import mibsdk.api.StockIcons;
 import mibsdk.api.Subscription;
 import mibsdk.api.Ui;
 import mibsdk.api.UiAction;
+import mibsdk.api.UiColor;
 import mibsdk.platform.IconIndex;
 import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiIcon;
@@ -176,7 +177,7 @@ final class UiImpl implements Ui {
     @Override
     public StatusItem statusItem(String text, Icon icon) {
         requirePermission(Permissions.UI_SLOT_STATUS_BAR);
-        StatusHandle h = new StatusHandle(!features.has(Features.SLOT_STATUS_BAR), shown(ownIcon(icon, true)));
+        StatusHandle h = new StatusHandle(!features.has(Features.SLOT_STATUS_BAR), shown(ownIcon(icon, true)), text);
         synchronized (lock) {
             if (closed) {
                 h.cancelled = true;
@@ -688,10 +689,15 @@ final class UiImpl implements Ui {
         boolean cancelled; // guarded by hlock (set before publication for a handle made after close)
         /** What the item shows: null for none, an inert icon, or without Features.UI_ICONS. Written under hlock. */
         volatile UiIcon icon;
+        /** The last text passed to a set method; null when hidden. Written under hlock. */
+        private String text;
+        /** The text colour in the built-in bar; null for its own. Written under hlock. */
+        private UiColor colour;
 
-        StatusHandle(boolean inert, UiIcon icon) {
+        StatusHandle(boolean inert, UiIcon icon, String text) {
             this.inert = inert;
             this.icon = icon;
+            this.text = text;
         }
 
         @Override
@@ -699,6 +705,7 @@ final class UiImpl implements Ui {
             UiIcon shown = shown(ownIcon(icon, true)); // checked even when cancelled or inert, like any argument
             synchronized (hlock) {
                 this.icon = shown;
+                this.text = text;
                 publish(text);
             }
         }
@@ -707,16 +714,25 @@ final class UiImpl implements Ui {
         @Override
         public void set(String text) {
             synchronized (hlock) {
+                this.text = text;
                 publish(text);
             }
         }
 
-        /** hlock held. Text and icon reach the hub in one call, so they change together. */
+        @Override
+        public void setColour(UiColor colour) {
+            synchronized (hlock) {
+                this.colour = colour;
+                publish(text);
+            }
+        }
+
+        /** hlock held. Text, icon and colour reach the hub in one call, so they change together. */
         private void publish(String text) {
             if (!cancelled && !inert) {
                 synchronized (lock) {
                     if (!closed) {
-                        hub.setStatusItem(pluginId, text, icon);
+                        hub.setStatusItem(pluginId, text, icon, colour);
                     }
                 }
             }

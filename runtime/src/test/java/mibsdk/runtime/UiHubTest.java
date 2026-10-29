@@ -22,6 +22,7 @@ import mibsdk.api.Permissions;
 import mibsdk.api.Scheduler;
 import mibsdk.api.Subscription;
 import mibsdk.api.UiAction;
+import mibsdk.api.UiColor;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiInput;
@@ -672,8 +673,30 @@ class UiHubTest {
     }
 
     @Test
-    void textOnlyLineIgnoresIcons() throws Exception {
+    void statusPartsCarryTheItemsTextColour() throws Exception {
         UiHub hub = hub(0);
+        UiColor amber = UiColor.rgb(255, 128, 0);
+        hub.setStatusItem("a", "A", null, amber);
+        hub.publishNow();
+        UiStatusPart p = table.snapshot().statusParts().get(0);
+        assertEquals(amber, p.colour());
+        assertEquals(0xFFFF8000L, p.colourArgb());
+
+        hub.setStatusItem("a", "A", null, null); // the colour alone changes: still a new snapshot
+        hub.publishNow();
+        assertNull(table.snapshot().statusParts().get(0).colour());
+        assertEquals(-1L, table.snapshot().statusParts().get(0).colourArgb());
+
+        hub.setStatusItem("a", "", null, amber); // hidden: the colour goes with the text
+        hub.publishNow();
+        assertTrue(table.snapshot().statusParts().isEmpty());
+        hub.setStatusItem("a", "A", null, amber);
+        hub.publishNow();
+        assertEquals(amber, table.snapshot().statusParts().get(0).colour());
+    }
+
+    @Test
+    void textOnlyLineIgnoresIcons() throws Exception {        UiHub hub = hub(0);
         UiIcon star = UiIcon.stock("star");
         hub.setStatusItem("a", "AA long text", star);
         hub.setStatusItem("b", "BB long text", star);

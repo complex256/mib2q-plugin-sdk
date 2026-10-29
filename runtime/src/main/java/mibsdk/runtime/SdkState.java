@@ -23,9 +23,19 @@ final class SdkState {
     final String adapterId;
     /** Held and restoring ledger entries ({@link OverrideLedger#active()}), unmodifiable. */
     final List<ActiveOverride> overrides;
+    /** The built-in bar's dwell between rows ({@link StatusBarConfig#dwellMs()}). */
+    final int dwellMs;
+    /** The built-in bar's slide duration ({@link StatusBarConfig#animateMs()}). */
+    final int animateMs;
 
     SdkState(boolean safeMode, String safeReason, boolean guardInert, boolean resetRequested, String adapterId,
             List<ActiveOverride> overrides) {
+        this(safeMode, safeReason, guardInert, resetRequested, adapterId, overrides,
+                StatusBarConfig.DEFAULT_DWELL_MS, StatusBarConfig.DEFAULT_ANIMATE_MS);
+    }
+
+    SdkState(boolean safeMode, String safeReason, boolean guardInert, boolean resetRequested, String adapterId,
+            List<ActiveOverride> overrides, int dwellMs, int animateMs) {
         this.safeMode = safeMode;
         this.safeReason = safeReason;
         this.guardInert = guardInert;
@@ -33,6 +43,8 @@ final class SdkState {
         this.adapterId = adapterId;
         this.overrides = overrides == null ? Collections.<ActiveOverride>emptyList()
                 : Collections.unmodifiableList(new ArrayList<ActiveOverride>(overrides));
+        this.dwellMs = dwellMs;
+        this.animateMs = animateMs;
     }
 
     /** Count-based safe mode (not forced by the SAFE_MODE marker): the SDK page may offer a boot-guard reset. */

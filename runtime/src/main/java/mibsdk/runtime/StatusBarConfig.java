@@ -5,7 +5,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -30,6 +29,11 @@ public final class StatusBarConfig {
     public static final int MAX_DWELL_MS = 60000;
     public static final int MIN_ANIMATE_MS = 0;
     public static final int MAX_ANIMATE_MS = 2000;
+
+    /** The values the SDK page's Dwell row cycles through, in ms. */
+    private static final int[] DWELL_CHOICES = {2000, 5000, 10000, 30000};
+    /** The values the SDK page's Animation row cycles through, in ms (0: no animation). */
+    private static final int[] ANIMATE_CHOICES = {0, 150, 300, 600};
 
     private final boolean enabled;
     private final int dwellMs;
@@ -81,7 +85,7 @@ public final class StatusBarConfig {
         s.append("animate.ms=").append(animateMs).append('\n');
         s.append("order=").append(join(order)).append('\n');
         try (FileOutputStream out = new FileOutputStream(tmp)) {
-            out.write(s.toString().getBytes(StandardCharsets.UTF_8));
+            out.write(s.toString().getBytes("ISO-8859-1")); // ASCII only: ids and numbers
             out.getFD().sync();
         }
         if (file.exists() && !file.delete()) {
@@ -115,13 +119,52 @@ public final class StatusBarConfig {
         return i < 0 ? Integer.MAX_VALUE : i;
     }
 
+    /** The Dwell row's next value: the first choice above {@code current}, else the first choice. */
+    public static int nextDwell(int current) {
+        return next(DWELL_CHOICES, current);
+    }
+
+    /** The Animation row's next value: the first choice above {@code current}, else the first choice. */
+    public static int nextAnimate(int current) {
+        return next(ANIMATE_CHOICES, current);
+    }
+
+    /** {@code 5 s} for a whole number of seconds, else {@code 500 ms}. */
+    public static String dwellLabel(int ms) {
+        return ms > 0 && ms % 1000 == 0 ? (ms / 1000) + " s" : ms + " ms";
+    }
+
+    /** {@code off} for 0, else {@code 300 ms}. */
+    public static String animateLabel(int ms) {
+        return ms <= 0 ? "off" : ms + " ms";
+    }
+
+    private static int next(int[] choices, int current) {
+        for (int i = 0; i < choices.length; i++) {
+            if (choices[i] > current) {
+                return choices[i];
+            }
+        }
+        return choices[0];
+    }
+
     private static List<String> parseOrder(String value) {
         List<String> out = new ArrayList<String>();
-        for (String part : value.split(",")) {
+        if (value == null) {
+            return out;
+        }
+        int at = 0;
+        while (at <= value.length()) {
+            int comma = value.indexOf(',', at);
+            String part = comma < 0 ? value.substring(at) : value.substring(at, comma);
             String s = trim(part);
             if (s.length() > 0 && !out.contains(s)) {
                 out.add(s);
             }
+            if (comma < 0) {
+                break;
+            }
+            at = comma + 1;
         }
         return out;
     }

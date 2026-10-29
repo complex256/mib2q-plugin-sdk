@@ -8,6 +8,7 @@ import de.esolutions.hmi.widgets.audi.base.AbstractWidget;
 import de.esolutions.hmi.widgets.audi.base.HMITerminalImpl;
 import de.esolutions.hmi.widgets.audi.base.IStatusbarGapEventHandler;
 import de.esolutions.hmi.widgets.audi.base.WidgetRegistry;
+import de.esolutions.hmi.widgets.audi.evo.high.RedrawContextHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.CompositeRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.IconRendererHigh;
 import de.esolutions.hmi.widgets.audi.evo.high.widgets.LabelRendererHigh;
@@ -16,6 +17,7 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.LabelController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.LayoutContainerController;
 import java.io.File;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import mibsdk.platform.UiStatusPart;
@@ -23,14 +25,20 @@ import mibsdk.runtime.RingLog;
 import mibsdk.runtime.StatusBarConfig;
 
 /**
- * Renders the SDK status line in the built-in car status bar (right group), one item per row in a clipped
- * viewport. It attaches lazily on HMIEvent through the terminal's {@link WidgetRegistry}; before the bar exists
- * it throws, so the caller can fall back to popup 609600 / popup 65.
+ * Renders the SDK status line in the built-in car status bar (right group), one item per row in a clipped viewport. It
+ * attaches lazily on HMIEvent through the terminal's {@link WidgetRegistry}; before the bar exists it throws, so the
+ * caller can fall back to popup 609600 / popup 65.
  *
- * <p>Rows come from {@link StatusLayout} (the same cells the popup uses), so indicators and plugin items keep
- * their texts and built-in icons. Pagination swaps the visible row every {@link StatusBarConfig#dwellMs()}; the
- * viewport is already clipped, so the vertical slide can replace the swap later. File-backed plugin icons and
- * per-item RGBA text colours are next (the file model must be global, not the Car factory's image ids).
+ * <p>Rows come from {@link StatusLayout} (the same cells the popup uses), so indicators and plugin items keep their
+ * texts and icons. A built-in icon is drawn by its Car image id; a plugin's PNG is a System
+ * {@code ResourceLocatorModel} ({@link SdkSystemModelBank}), which makes its path global instead of Car-only. A row's
+ * text colour is the item's {@code UiColor} when it set one, else the bar's own (white/app palette), through
+ * {@link ColourLabelRenderer}.
+ *
+ * <p>Pagination: the rows sit on a ring one {@link #HEIGHT} apart, and every {@link StatusBarConfig#dwellMs()} the ring
+ * moves one row up in {@link StatusBarConfig#animateMs()} of {@value #FRAME_MS} ms frames; the viewport clips, so only
+ * the row at y=0 shows. A wrap is the same one-row move (the ring makes the last row's neighbour the first). The config
+ * is re-read before each dwell, so a settings change applies without a restart.
  */
 final class BarStatusLine implements StatusLineSink {
 
@@ -38,27 +46,39 @@ final class BarStatusLine implements StatusLineSink {
     private static final int WIDTH = 200;
     private static final int HEIGHT = 24;
     private static final int ICON_X = 0;
+    private static final int ICON_Y = 2;
     private static final int LABEL_X = 24;
     private static final int LABEL_W = WIDTH - LABEL_X;
+    /** One animation frame; a 300 ms slide is 18 of them. */
+    static final int FRAME_MS = 16;
 
     private final Object frameworkAccess;
     private final HmiPoster poster;
     private final RingLog log;
     private final IconIds ids;
     private final BuiltinIcons builtins;
-    private final StatusBarConfig config;
 
     private volatile boolean attached;
     private volatile boolean visible = true;
     private volatile List<UiStatusPart> pending;
+    /** The rows in the line now; read by the pager thread for the wrap and the "nothing to page" check. */
+    private volatile int pageCount;
+    /** The row at y=0; HMIEvent only. */
     private int page;
+    /** The ring's offset during a slide, 0..{@link #HEIGHT}; HMIEvent only. */
+    private int slidePx;
+    /** Bumped to cancel the frames of a slide (a new line, or a hide); read and written on both threads. */
+    private volatile int slideGen;
     private LayoutContainerController viewport;
     private LayoutContainerController group;
     private final List<Row> rows = new ArrayList<Row>();
 
     private static final class Row {
         LabelController label;
+        ColourLabelRenderer renderer;
         IconController icon;
+        IconController fileIcon;
+        boolean fileBound;
     }
 
     BarStatusLine(Object frameworkAccess, HmiPoster poster, RingLog log, IconIds ids, BuiltinIcons builtins) {
@@ -67,7 +87,6 @@ final class BarStatusLine implements StatusLineSink {
         this.log = log;
         this.ids = ids;
         this.builtins = builtins;
-        this.config = StatusBarConfig.load(new File(CONFIG));
     }
 
     public boolean available() {
@@ -94,9 +113,10 @@ final class BarStatusLine implements StatusLineSink {
 
     public void hide() {
         visible = false;
+        slideGen++;
         poster.post(new Runnable() {
             public void run() {
-                showPage();
+                layoutRows();
             }
         });
     }
@@ -148,7 +168,7 @@ final class BarStatusLine implements StatusLineSink {
         }
     }
 
-    /** HMIEvent: rebuild the row texts/icons from the ordered parts. */
+    /** HMIEvent: rebuild the row texts/icons/colours from the ordered parts. */
     private void update() {
         List<UiStatusPart> parts = pending;
         StatusLayout l = StatusLayout.of(parts, ids, builtins);
@@ -158,6 +178,7 @@ final class BarStatusLine implements StatusLineSink {
             add(items, l.cell(i));
         }
         ensureRows(items.size());
+        SdkSystemModelBank.Models files = SdkSystemModelBank.statusIcons();
         for (int i = 0; i < rows.size(); i++) {
             Row r = rows.get(i);
             boolean used = i < items.size();
@@ -165,18 +186,36 @@ final class BarStatusLine implements StatusLineSink {
             r.label.setText(used ? it.text : "");
             r.icon.setBitmaps(used && it.stockIconId >= 0 ? new int[] {it.stockIconId} : new int[0]);
             r.icon.setColorIndices(used && it.ownColours ? HqcUiIds.STATUS_ICON_OWN_COLOURS : null);
+            r.renderer.setColour(used ? it.colourArgb : -1L);
+            if (files != null) {
+                if (!r.fileBound) {
+                    try {
+                        r.fileIcon.setModelID(HqcUiIds.STATUS_BAR_ICON_MODEL_0 + i);
+                        r.fileBound = true;
+                    } catch (Throwable t) {
+                        log("file icon model " + i + " failed: " + t);
+                    }
+                }
+                if (r.fileBound) {
+                    files.fileIcon(i, used ? it.filePath : null);
+                }
+            }
             r.label.setCompositesDirty(true);
             r.icon.setCompositesDirty(true);
+            r.fileIcon.setCompositesDirty(true);
         }
-        if (page >= items.size()) {
+        pageCount = items.size();
+        if (page >= pageCount) {
             page = 0;
         }
-        showPage();
+        slidePx = 0;
+        slideGen++;
+        layoutRows();
     }
 
     private void add(List<Item> out, StatusLayout.Cell c) {
         if (c != null && c.text != null && c.text.length() > 0) {
-            out.add(new Item(c.text, c.stockIconId, c.filePath, c.ownColours));
+            out.add(new Item(c.text, c.stockIconId, c.filePath, c.ownColours, c.colourArgb));
         }
     }
 
@@ -184,51 +223,99 @@ final class BarStatusLine implements StatusLineSink {
         while (rows.size() < n) {
             Row r = new Row();
             r.label = new LabelController();
-            LabelRendererHigh lr = new LabelRendererHigh(r.label);
-            r.label.setRenderer(lr);
-            lr.setFonts(FontFactory.getFonts(0, 0, (IFrameworkAccess) frameworkAccess));
+            r.renderer = new ColourLabelRenderer(r.label);
+            r.label.setRenderer(r.renderer);
+            r.renderer.setFonts(FontFactory.getFonts(0, 0, (IFrameworkAccess) frameworkAccess));
             r.label.setBounds(LABEL_X, 0, LABEL_W, HEIGHT);
             r.label.setColorIndices(new int[] {1, 2, 4, 0});
             r.icon = new IconController();
             IconRendererHigh ir = new IconRendererHigh(r.icon);
             r.icon.setRenderer(ir);
-            r.icon.setBounds(ICON_X, 2, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
+            r.icon.setBounds(ICON_X, ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
+            r.fileIcon = new IconController();
+            IconRendererHigh fr = new IconRendererHigh(r.fileIcon);
+            r.fileIcon.setRenderer(fr);
+            r.fileIcon.setBounds(ICON_X, ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
             viewport.add(r.icon);
+            viewport.add(r.fileIcon); // above the id icon, as in the popup
             viewport.add(r.label);
             rows.add(r);
         }
     }
 
-    private void showPage() {
+    /**
+     * HMIEvent: place the ring. Row {@code i} sits {@code (i - page) mod n} rows down, less the slide's offset, so only
+     * the row at y=0 is inside the clipped viewport. Hidden or unused rows are invisible, not moved off the ring.
+     */
+    private void layoutRows() {
+        if (viewport == null) {
+            return;
+        }
         boolean on = visible;
+        int n = pageCount;
         for (int i = 0; i < rows.size(); i++) {
             Row r = rows.get(i);
-            boolean show = on && i == page;
-            r.label.setVisible(show);
-            r.icon.setVisible(show);
+            boolean used = on && i < n;
+            r.label.setVisible(used);
+            r.icon.setVisible(used);
+            r.fileIcon.setVisible(used);
+            int y = 0;
+            if (used) {
+                int slot = i - page;
+                if (slot < 0) {
+                    slot += n;
+                }
+                y = slot * HEIGHT - slidePx;
+            }
+            r.label.setBounds(LABEL_X, y, LABEL_W, HEIGHT);
+            r.icon.setBounds(ICON_X, y + ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
+            r.fileIcon.setBounds(ICON_X, y + ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
             r.label.setCompositesDirty(true);
             r.icon.setCompositesDirty(true);
+            r.fileIcon.setCompositesDirty(true);
         }
-        if (viewport != null) {
-            viewport.setCompositesDirty(true);
-        }
+        viewport.setCompositesDirty(true);
     }
 
-    /** Swaps the visible row every dwell; the clipped viewport is ready for the animated slide later. */
+    /**
+     * Waits one dwell, then slides one row up over the configured animation. The config is re-read every pass, so a
+     * change on the SDK page applies at the next dwell. The frames are posted to HMIEvent; a newer line or a hide bumps
+     * {@link #slideGen} and the stale frames do nothing.
+     */
     private void startPager() {
         Thread t = new Thread(new Runnable() {
             public void run() {
                 while (attached) {
-                    try {
-                        Thread.sleep(config.dwellMs());
-                    } catch (InterruptedException e) {
+                    StatusBarConfig config = StatusBarConfig.load(new File(CONFIG));
+                    if (!sleep(config.dwellMs())) {
                         return;
+                    }
+                    if (pageCount <= 1) {
+                        continue;
+                    }
+                    final int gen = ++slideGen;
+                    int animate = config.animateMs();
+                    int frames = animate <= 0 ? 0 : Math.max(1, animate / FRAME_MS);
+                    for (int f = 1; f <= frames; f++) {
+                        final int px = (HEIGHT * f) / frames;
+                        poster.post(new Runnable() {
+                            public void run() {
+                                if (gen == slideGen) {
+                                    slidePx = px;
+                                    layoutRows();
+                                }
+                            }
+                        });
+                        if (!sleep(FRAME_MS)) {
+                            return;
+                        }
                     }
                     poster.post(new Runnable() {
                         public void run() {
-                            if (rows.size() > 1) {
-                                page = (page + 1) % rows.size();
-                                showPage();
+                            if (gen == slideGen) {
+                                page = (page + 1) % pageCount;
+                                slidePx = 0;
+                                layoutRows();
                             }
                         }
                     });
@@ -239,17 +326,81 @@ final class BarStatusLine implements StatusLineSink {
         t.start();
     }
 
+    /** Sleeps {@code ms}; false when the thread was interrupted (the bar is going away). */
+    private static boolean sleep(int ms) {
+        try {
+            Thread.sleep(ms);
+            return true;
+        } catch (InterruptedException e) {
+            return false;
+        }
+    }
+
     private static final class Item {
         final String text;
         final int stockIconId;
         final String filePath;
         final boolean ownColours;
+        final long colourArgb;
 
-        Item(String text, int stockIconId, String filePath, boolean ownColours) {
+        Item(String text, int stockIconId, String filePath, boolean ownColours, long colourArgb) {
             this.text = text;
             this.stockIconId = stockIconId;
             this.filePath = filePath;
             this.ownColours = ownColours;
+            this.colourArgb = colourArgb;
+        }
+    }
+
+    /**
+     * A label renderer that paints its text in a fixed {@code 0xAARRGGBB} colour when one is set, else exactly as
+     * {@link LabelRendererHigh} does (the palette's colour). Spike E's {@code RgbLabelRenderer}: the node's interface
+     * text takes a packed {@code long}; a paint never throws into the HMI.
+     */
+    private static final class ColourLabelRenderer extends LabelRendererHigh {
+        /** -1: no override (a packed colour is 0..0xFFFFFFFF). */
+        private long colour = -1L;
+        private Field nodeField;
+        private Method getText;
+        private Method setColor;
+
+        ColourLabelRenderer(LabelController controller) {
+            super(controller);
+        }
+
+        void setColour(long argb) {
+            this.colour = argb;
+        }
+
+        @Override
+        protected void applyProperties(RedrawContextHigh ctx) {
+            super.applyProperties(ctx);
+            if (colour < 0) {
+                return;
+            }
+            try {
+                if (nodeField == null) {
+                    nodeField = LabelRendererHigh.class.getDeclaredField("node");
+                    nodeField.setAccessible(true);
+                }
+                Object node = nodeField.get(this);
+                if (node == null) {
+                    return;
+                }
+                if (getText == null) {
+                    getText = node.getClass().getMethod("getInterfaceText");
+                }
+                Object text = getText.invoke(node);
+                if (text == null) {
+                    return;
+                }
+                if (setColor == null) {
+                    setColor = text.getClass().getMethod("setColor", long.class);
+                }
+                setColor.invoke(text, Long.valueOf(colour));
+            } catch (Throwable t) {
+                // a paint must never throw into the HMI; the text keeps the palette's colour
+            }
         }
     }
 

@@ -24,4 +24,13 @@ public interface StatusItem extends Subscription {
      * @since api 3
      */
     void set(String text, Icon icon);
+
+    /**
+     * Sets the text colour in every HMI context; null restores the bar's own colour (white, or the app palette). The
+     * item keeps its text and icon. In the popup fallback (where the built-in bar is unavailable) the text keeps the
+     * popup's colour.
+     *
+     * @since api 6
+     */
+    void setColour(UiColor colour);
 }

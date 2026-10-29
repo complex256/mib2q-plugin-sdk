@@ -92,11 +92,11 @@ class ManifestParserTest {
     }
 
     @Test
-    void apiAboveFiveIsRefused() {
-        for (String bad : new String[] {"6", "0", "-1"}) {
+    void apiAboveSixIsRefused() {
+        for (String bad : new String[] {"7", "0", "-1"}) {
             ManifestException e = assertThrows(ManifestException.class,
                     () -> ManifestParser.parse(manifest("bike-rack", bad, "")), bad);
-            assertEquals("unsupported api " + bad + ", this SDK implements api 1..5", e.getMessage());
+            assertEquals("unsupported api " + bad + ", this SDK implements api 1..6", e.getMessage());
         }
     }
 

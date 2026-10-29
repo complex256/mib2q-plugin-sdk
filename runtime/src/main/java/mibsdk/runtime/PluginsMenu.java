@@ -29,6 +29,9 @@ final class PluginsMenu {
     static final String STATUS_ENTRY = "status";
     static final String STATUS_EARLIER_ENTRY = "status.earlier";
     static final String STATUS_LATER_ENTRY = "status.later";
+    /** The SDK page's two built-in bar settings: dwell between rows and slide duration. */
+    static final String DWELL_ENTRY = "statusbar.dwell";
+    static final String ANIMATE_ENTRY = "statusbar.animate";
 
     /**
      * What the plugin pages need for the status-item rows: {@code eligible}, the plugins that have a status item or
@@ -47,7 +50,8 @@ final class PluginsMenu {
     /** What an input on an SDK page asks the runtime to do. */
     static final class Action {
         enum Kind {
-            ENABLE, DISABLE, RESET_BOOT_GUARD, STATUS_SHOW, STATUS_HIDE, STATUS_EARLIER, STATUS_LATER, NONE
+            ENABLE, DISABLE, RESET_BOOT_GUARD, STATUS_SHOW, STATUS_HIDE, STATUS_EARLIER, STATUS_LATER,
+            DWELL_NEXT, ANIMATE_NEXT, NONE
         }
 
         static final Action NONE = new Action(Kind.NONE, null);
@@ -124,7 +128,8 @@ final class PluginsMenu {
 
     /**
      * On a plugin page: ENABLE/DISABLE for the Enabled toggle, STATUS_SHOW/STATUS_HIDE for the Status item toggle,
-     * STATUS_EARLIER/STATUS_LATER for the move items. RESET_BOOT_GUARD for the SDK page's item.
+     * STATUS_EARLIER/STATUS_LATER for the move items. On the SDK page: RESET_BOOT_GUARD for the reset item,
+     * DWELL_NEXT/ANIMATE_NEXT for the built-in bar's dwell and animation rows.
      */
     static Action handle(UiInput in) {
         if (in == null || in.pageKey() == null || in.entryKey() == null) {
@@ -146,8 +151,16 @@ final class PluginsMenu {
             }
             return kind == null || !ManifestParser.isValidId(id) ? Action.NONE : new Action(kind, id);
         }
-        if (in.kind() == UiInput.ENTRY_SELECTED && SDK_KEY.equals(key) && RESET_ENTRY.equals(in.entryKey())) {
-            return Action.RESET_BOOT_GUARD;
+        if (in.kind() == UiInput.ENTRY_SELECTED && SDK_KEY.equals(key)) {
+            if (RESET_ENTRY.equals(entry)) {
+                return Action.RESET_BOOT_GUARD;
+            }
+            if (DWELL_ENTRY.equals(entry)) {
+                return new Action(Action.Kind.DWELL_NEXT, null);
+            }
+            if (ANIMATE_ENTRY.equals(entry)) {
+                return new Action(Action.Kind.ANIMATE_NEXT, null);
+            }
         }
         return Action.NONE;
     }
@@ -268,6 +281,10 @@ final class PluginsMenu {
         } else if (s.resetOffered()) {
             e.add(new UiEntry(UiEntry.ITEM, RESET_ENTRY, "Reset boot guard", null, false, null));
         }
+        e.add(new UiEntry(UiEntry.ITEM, DWELL_ENTRY, "Dwell: " + StatusBarConfig.dwellLabel(s.dwellMs), null, false,
+                null));
+        e.add(new UiEntry(UiEntry.ITEM, ANIMATE_ENTRY, "Animation: " + StatusBarConfig.animateLabel(s.animateMs), null,
+                false, null));
         for (int i = 0; i < s.overrides.size() && e.size() < PageSpec.MAX_ENTRIES; i++) {
             e.add(info("Override: " + s.overrides.get(i)));
         }

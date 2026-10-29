@@ -33,6 +33,7 @@ import mibsdk.api.StockIcons;
 import mibsdk.api.Subscription;
 import mibsdk.api.Ui;
 import mibsdk.api.UiAction;
+import mibsdk.api.UiColor;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiPage;
@@ -664,8 +665,24 @@ class UiImplTest {
         assertTrue(published().statusParts().get(0).icon().ownColours(), "set(text) keeps the colour too");
     }
 
-    // ---- api 5: inputs ----
+    @Test
+    void statusSetColourKeepsTextAndIconAndPublishes() {
+        UiImpl a = ui("a");
+        StatusItem item = a.statusItem("Hello");
+        item.setColour(UiColor.rgb(255, 0, 0));
+        UiSnapshot s = published();
+        assertEquals("Hello", s.statusParts().get(0).text());
+        assertEquals(UiColor.rgb(255, 0, 0), s.statusParts().get(0).colour());
 
+        item.set("World"); // a text change keeps the colour
+        assertEquals("World", published().statusParts().get(0).text());
+        assertEquals(UiColor.rgb(255, 0, 0), published().statusParts().get(0).colour());
+
+        item.setColour(null);
+        assertNull(published().statusParts().get(0).colour(), "null restores the bar's own colour");
+    }
+
+    // ---- api 5: inputs ----
     private static final String[] LEVELS = {"Low", "Mid", "High"};
 
     @Test
