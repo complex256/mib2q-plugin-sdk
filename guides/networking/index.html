@@ -867,6 +867,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#wi-fi-uplink" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wi-Fi uplink
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#patterns" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1797,6 +1808,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#wi-fi-uplink" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wi-Fi uplink
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#patterns" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1953,28 +1975,88 @@ from a plugin. Options:</p>
 </ul>
 <p>The SDK does not ship an HTTP client. If you need one, build the request string yourself, or add a local
 daemon that speaks a simple protocol.</p>
+<h2 id="wi-fi-uplink">Wi-Fi uplink<a class="headerlink" href="#wi-fi-uplink" title="Permanent link">&para;</a></h2>
+<p>The SDK itself owns the car's internet uplink. The user sets a phone hotspot from <strong>Plugins → SDK →
+Internet</strong> on the car, or from <strong>More → Internet</strong> in mibpkg's web UI. Both edit the same file,
+<code>/mnt/persist/mibsdk/wifi.toml</code>, and the SDK applies a change within a second. The same page chooses
+<strong>DHCP</strong> (the default) or a manual IPv4 address, netmask, gateway and optional DNS servers. The SDK
+runs the stock <code>dhcp.client</code> itself when the interface has no address, so a reboot does not need a
+manual DHCP kick. With DHCP on, the Internet page also shows the live IP, netmask, gateway and DNS
+from the lease. The car's own access point
+stays up while the client is connected: the stock Wi-Fi service runs the access point and the client
+together. There is no SIM requirement and no extra daemon.</p>
+<p>A plugin can use the same uplink with <code>ctx.wifi()</code> and the <code>network.wifi</code> permission:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ctx</span><span class="p">.</span><span class="na">has</span><span class="p">(</span><span class="n">Features</span><span class="p">.</span><span class="na">WIFI</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="n">WifiStatus</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">wifi</span><span class="p">().</span><span class="na">status</span><span class="p">();</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">s</span><span class="p">.</span><span class="na">connected</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">WifiNetwork</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">wifi</span><span class="p">().</span><span class="na">scan</span><span class="p">(</span><span class="mi">5000</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">            </span><span class="n">ctx</span><span class="p">.</span><span class="na">log</span><span class="p">().</span><span class="na">info</span><span class="p">(</span><span class="n">n</span><span class="p">.</span><span class="na">ssid</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">" "</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">n</span><span class="p">.</span><span class="na">signal</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">"% "</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">n</span><span class="p">.</span><span class="na">encryption</span><span class="p">());</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">        </span><span class="p">}</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="p">}</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Call</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>status()</code></td>
+<td>The last state, SSID, IPv4, signal and error</td>
+</tr>
+<tr>
+<td><code>scan(ms)</code></td>
+<td>A blocking scan; the result is strongest first</td>
+</tr>
+<tr>
+<td><code>connect(ssid, password)</code></td>
+<td>Join a network; the result arrives as <code>WifiChanged</code></td>
+</tr>
+<tr>
+<td><code>disconnect()</code></td>
+<td>Leave the current network</td>
+</tr>
+<tr>
+<td><code>forget(ssid)</code></td>
+<td>Remove a saved network</td>
+</tr>
+<tr>
+<td><code>onChanged(listener)</code></td>
+<td>State changes on the plugin's worker</td>
+</tr>
+</tbody>
+</table>
+<p><code>connect</code> and <code>disconnect</code> return at once. A password may be null or empty for an open network. Wi-Fi
+scan and connect are the only blocking calls; keep the timeout short on the worker. The API does not
+expose radio settings, the access point, or WPS.</p>
+<p><code>wifi.toml</code> also takes <code>dhcp = false</code> with <code>ip</code>, <code>netmask</code>, <code>gateway</code> and <code>dns</code>; the car page and the
+web page edit the same fields. The SDK's own page and this API never print the saved password. mibpkg's
+web page returns only whether one is set.</p>
 <h2 id="patterns">Patterns<a class="headerlink" href="#patterns" title="Permanent link">&para;</a></h2>
 <h3 id="poll-a-daemon-on-a-schedule">Poll a daemon on a schedule<a class="headerlink" href="#poll-a-daemon-on-a-schedule" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">Subscription</span><span class="w"> </span><span class="n">poll</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">scheduler</span><span class="p">().</span><span class="na">every</span><span class="p">(</span><span class="mi">30_000</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">state</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">net</span><span class="p">().</span><span class="na">query</span><span class="p">(</span><span class="s">"127.0.0.1"</span><span class="p">,</span><span class="w"> </span><span class="mi">8099</span><span class="p">,</span><span class="w"> </span><span class="s">"tailscale status"</span><span class="p">,</span><span class="w"> </span><span class="mi">1000</span><span class="p">);</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">        </span><span class="n">status</span><span class="p">.</span><span class="na">set</span><span class="p">(</span><span class="n">state</span><span class="p">);</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">IOException</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">        </span><span class="n">status</span><span class="p">.</span><span class="na">set</span><span class="p">(</span><span class="s">"offline"</span><span class="p">);</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="p">}</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="p">});</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">Subscription</span><span class="w"> </span><span class="n">poll</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">scheduler</span><span class="p">().</span><span class="na">every</span><span class="p">(</span><span class="mi">30_000</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">state</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">net</span><span class="p">().</span><span class="na">query</span><span class="p">(</span><span class="s">"127.0.0.1"</span><span class="p">,</span><span class="w"> </span><span class="mi">8099</span><span class="p">,</span><span class="w"> </span><span class="s">"tailscale status"</span><span class="p">,</span><span class="w"> </span><span class="mi">1000</span><span class="p">);</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">        </span><span class="n">status</span><span class="p">.</span><span class="na">set</span><span class="p">(</span><span class="n">state</span><span class="p">);</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">IOException</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">        </span><span class="n">status</span><span class="p">.</span><span class="na">set</span><span class="p">(</span><span class="s">"offline"</span><span class="p">);</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">});</span>
 </code></pre></div>
 <p><code>every</code> runs on the plugin's worker thread. A poll still delays other callbacks, so keep the timeout
 short and do not overlap polls.</p>
 <h3 id="query-once-on-start">Query once on start<a class="headerlink" href="#query-once-on-start" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">ctx</span><span class="p">.</span><span class="na">scheduler</span><span class="p">().</span><span class="na">after</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">net</span><span class="p">().</span><span class="na">query</span><span class="p">(</span><span class="s">"127.0.0.1"</span><span class="p">,</span><span class="w"> </span><span class="mi">8099</span><span class="p">,</span><span class="w"> </span><span class="s">"version"</span><span class="p">,</span><span class="w"> </span><span class="mi">500</span><span class="p">);</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">        </span><span class="n">ctx</span><span class="p">.</span><span class="na">log</span><span class="p">().</span><span class="na">info</span><span class="p">(</span><span class="s">"daemon "</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">version</span><span class="p">.</span><span class="na">trim</span><span class="p">());</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">IOException</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">        </span><span class="n">ctx</span><span class="p">.</span><span class="na">log</span><span class="p">().</span><span class="na">warn</span><span class="p">(</span><span class="s">"daemon unavailable"</span><span class="p">);</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="p">}</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">});</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">ctx</span><span class="p">.</span><span class="na">scheduler</span><span class="p">().</span><span class="na">after</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">net</span><span class="p">().</span><span class="na">query</span><span class="p">(</span><span class="s">"127.0.0.1"</span><span class="p">,</span><span class="w"> </span><span class="mi">8099</span><span class="p">,</span><span class="w"> </span><span class="s">"version"</span><span class="p">,</span><span class="w"> </span><span class="mi">500</span><span class="p">);</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">        </span><span class="n">ctx</span><span class="p">.</span><span class="na">log</span><span class="p">().</span><span class="na">info</span><span class="p">(</span><span class="s">"daemon "</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">version</span><span class="p">.</span><span class="na">trim</span><span class="p">());</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">IOException</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">        </span><span class="n">ctx</span><span class="p">.</span><span class="na">log</span><span class="p">().</span><span class="na">warn</span><span class="p">(</span><span class="s">"daemon unavailable"</span><span class="p">);</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="p">});</span>
 </code></pre></div>
 <h2 id="what-you-cannot-do">What you cannot do<a class="headerlink" href="#what-you-cannot-do" title="Permanent link">&para;</a></h2>
 <ul>
@@ -2000,6 +2082,10 @@ short and do not overlap polls.</p>
 <tr>
 <td><code>network.outbound</code></td>
 <td>Connect to hosts outside this unit</td>
+</tr>
+<tr>
+<td><code>network.wifi</code></td>
+<td>Use the Wi-Fi client uplink to connect to a phone hotspot or another network</td>
 </tr>
 </tbody>
 </table>

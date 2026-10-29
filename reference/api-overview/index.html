@@ -1241,6 +1241,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#wi-fi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wi-Fi
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#vehicle" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1791,6 +1802,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#wi-fi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wi-Fi
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#vehicle" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1908,6 +1930,11 @@ plugin's worker thread.</p>
 <td><code>network</code>; <code>network.outbound</code> for non-loopback hosts</td>
 </tr>
 <tr>
+<td><code>wifi()</code></td>
+<td><code>Wifi</code></td>
+<td><code>network.wifi</code></td>
+</tr>
+<tr>
 <td><code>vehicle()</code></td>
 <td><code>Vehicle</code></td>
 <td><code>vehicle.read</code></td>
@@ -2002,6 +2029,35 @@ plugin's worker thread.</p>
 </tbody>
 </table>
 <p>Start with <a href="../../guides/storage-and-timers/">Storage and timers</a>.</p>
+<h2 id="wi-fi">Wi-Fi<a class="headerlink" href="#wi-fi" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Wifi</code></td>
+<td>The Wi-Fi client uplink: <code>status</code>, <code>scan</code>, <code>connect</code>, <code>disconnect</code>, <code>forget</code>, <code>onChanged</code></td>
+</tr>
+<tr>
+<td><code>WifiStatus</code></td>
+<td>State, SSID, BSSID, IPv4, signal and last error</td>
+</tr>
+<tr>
+<td><code>WifiNetwork</code></td>
+<td>One scan result: SSID, BSSID, signal and security</td>
+</tr>
+<tr>
+<td><code>WifiChanged</code></td>
+<td>A state change, delivered on the worker</td>
+</tr>
+</tbody>
+</table>
+<p>The car's own access point stays up: the stock service runs the access point and the client together.
+Start with <a href="../../guides/networking/#wi-fi-uplink">Networking</a>.</p>
 <h2 id="vehicle">Vehicle<a class="headerlink" href="#vehicle" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

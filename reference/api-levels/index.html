@@ -1810,11 +1810,16 @@ it still loads.</p>
 <td>SDK 0.3.0</td>
 <td><code>StatusItem.setColour</code>, <code>StatusItem.visibleIn</code>, <code>StatusItem.setIcon</code>; <code>UiColor</code>; <code>HmiContext</code></td>
 </tr>
+<tr>
+<td>7</td>
+<td>SDK 0.6.2</td>
+<td><code>ctx.wifi()</code> with <code>Wifi</code>, <code>WifiStatus</code>, <code>WifiNetwork</code>, <code>WifiChanged</code>; <code>Ui.textInput</code>; <code>Features.WIFI</code>; <code>network.wifi</code></td>
+</tr>
 </tbody>
 </table>
-<p>The current SDK implements api 1–6.</p>
+<p>The current SDK implements api 1–7.</p>
 <h2 id="rules">Rules<a class="headerlink" href="#rules" title="Permanent link">&para;</a></h2>
-<p><strong>Levels are additive.</strong> A newer SDK runs older plugins unchanged. SDK 0.5.0 loads api 1–6.</p>
+<p><strong>Levels are additive.</strong> A newer SDK runs older plugins unchanged. SDK 0.6.2 loads api 1–7.</p>
 <p><strong>Declare the lowest level that covers what you use.</strong> The build enforces it: a call to an api 5 member
 while the manifest declares api 4 fails with the call site:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>permissionScan: ...CoffeeTimerPlugin.spec -&gt; PageSpec.slider needs api 5; plugin.json declares api 4
@@ -1822,7 +1827,7 @@ while the manifest declares api 4 fails with the call site:</p>
 <p>Compile-time constants such as <code>PageSpec.MAX_OPTIONS</code> are inlined by the compiler, so they leave no call
 site and are not checked.</p>
 <p><strong>mibpkg checks the range.</strong> It installs a plugin only when <code>sdk.min_api &lt;= plugin.api &lt;= sdk.api</code> for
-the SDK on the unit. An api-6 plugin needs SDK 0.3.0 or later.</p>
+the SDK on the unit. An api-7 plugin needs SDK 0.6.2 or later.</p>
 <p><strong>Features are separate.</strong> An api level says what the API <em>has</em>. <code>ctx.has(Features.X)</code> says what <em>this
 unit</em> can draw at <em>this boot</em>. A missing feature makes the matching handle inert, not failing. Check the
 feature when the difference matters.</p>
@@ -1858,6 +1863,10 @@ feature when the difference matters.</p>
 <tr>
 <td>Status-item colour, per-context visibility or icon-only items</td>
 <td>6</td>
+</tr>
+<tr>
+<td>The Wi-Fi uplink or a masked text field</td>
+<td>7</td>
 </tr>
 </tbody>
 </table>
