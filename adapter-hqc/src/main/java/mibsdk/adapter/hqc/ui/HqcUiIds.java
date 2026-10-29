@@ -280,19 +280,6 @@ public final class HqcUiIds {
     /** Hard key ENTER / knob SELECT (KeyEvent code), as the spike's wizard key handler consumed it. */
     public static final int KEY_ENTER = 17;
 
-    /**
-     * First free System model id. The stock bank is {@code super(0, 5626, 1069)} with ids 1..5625, and for module 0
-     * a model's id is its index ({@code id % 100000}), so 5626 onwards are the SDK's. Checked against the stock
-     * {@code SystemModelBank} constructor: 5626 models, no id at or above 5626.
-     */
-    public static final int SYSTEM_MODEL_BASE = 5626;
-    /**
-     * The built-in bar's file-icon {@code ResourceLocatorModel}s, one per row (the indicators row plus
-     * {@link #STATUS_CELLS} items). A row's icon controller binds to {@code STATUS_BAR_ICON_MODEL_0 + row}.
-     */
-    public static final int STATUS_BAR_ICON_MODELS = STATUS_CELLS + 1;
-    public static final int STATUS_BAR_ICON_MODEL_0 = SYSTEM_MODEL_BASE;
-
     // ---- typed rows and the slider screen (spike D, research note 2026-10-25 §7.2) ----------------------------------
 
     /** The typed rows' menu-item internal ids, one per typed slot ({@code +0 .. +3}): clear of the rows' 609900..609908. */

@@ -230,6 +230,27 @@ class StatusLayoutTest {
     }
 
     @Test
+    void theBarKeepsTheFullTextWhileThePopupKeepsTheCut() {
+        List<UiStatusPart> parts = new ArrayList<UiStatusPart>();
+        parts.add(new UiStatusPart("TS up MQ...", null, false, null, "TS up MQ dn"));
+        StatusLayout cut = StatusLayout.of(parts, null, null);
+        StatusLayout full = StatusLayout.of(parts, null, null, true);
+        assertEquals("TS up MQ...", cut.cell(0).text, "the popup shares 24 characters");
+        assertEquals("TS up MQ dn", full.cell(0).text, "the bar has a row of its own");
+    }
+
+    @Test
+    void aFileIconAlsoCarriesItsImageId() {
+        IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
+        List<UiStatusPart> parts = new ArrayList<UiStatusPart>();
+        parts.add(item("TS up", file("aaaa000000000000")));
+        StatusLayout l = StatusLayout.of(parts, ids, null);
+        assertEquals(HqcUiIds.ICON_ID_FIRST, l.cell(0).fileIconId);
+        assertEquals(l.cell(0).fileIconId, StatusLayout.of(parts, ids, null).cell(0).fileIconId,
+                "the second pass (HMIEvent) reuses the id: no new allocation");
+    }
+
+    @Test
     void cellCarriesTheItemsTextColour() {
         UiColor amber = UiColor.rgb(255, 128, 0);
         List<UiStatusPart> parts = new ArrayList<UiStatusPart>();

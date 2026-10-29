@@ -217,7 +217,7 @@ final class StatusLine {
         int[] w = shares(it, room);
         for (int i = 0; i < w.length; i++) {
             Item s = it.get(i);
-            out.add(new UiStatusPart(s.render(w[i]), s.iconAt(w[i]), false, s.colour));
+            out.add(new UiStatusPart(s.render(w[i]), s.iconAt(w[i]), false, s.colour, s.text));
         }
         return out;
     }

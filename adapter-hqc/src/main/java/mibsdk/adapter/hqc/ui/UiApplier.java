@@ -254,7 +254,10 @@ public final class UiApplier {
                 return SdkCarModelBank.statusModels();
             }
         });
-        BarStatusLine bar = new BarStatusLine(frameworkAccess, poster, log, SdkGlobals.ICON_IDS,
+        // The bar gets its own poster: the animation posts ~one 16 ms frame job at a time, and sharing the applier's
+        // single pending slot starved them (the bench showed the page snapping, not sliding).
+        HmiPoster barPoster = new HmiPoster(HmiPoster.HMI_EVENT, null, clock, HmiPoster.PENDING_DEADLINE_MS);
+        BarStatusLine bar = new BarStatusLine(frameworkAccess, barPoster, log, SdkGlobals.ICON_IDS,
                 SdkGlobals.builtinIcons);
         StatusLineSink status = new StatusSinks(bar, sdkPopup, new Popup65StatusLine(frameworkAccess, statusMaxChars),
                 new StatusSinks.State() {

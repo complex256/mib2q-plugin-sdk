@@ -28,6 +28,26 @@ final class SdkSystemScreenFactory extends SystemScreenFactory {
         super(fw);
     }
 
+    /**
+     * SDK icon ids ({@link HqcUiIds#ICON_ID_FIRST}..{@link HqcUiIds#ICON_ID_LAST}) with a known path: that path, as
+     * the Car factory serves it (the ImageRoot is the shared {@code lsd/images}). Anything else: stock. This is what
+     * makes the built-in bar's plugin PNGs global: the bar is a System screen, so its image ids resolve here, not only
+     * in the Car factory.
+     */
+    public String getImagePath(int id, int terminal) {
+        try {
+            if (id >= HqcUiIds.ICON_ID_FIRST && id <= HqcUiIds.ICON_ID_LAST) {
+                String p = SdkGlobals.ICON_IDS.relPathFor(id);
+                if (p != null) {
+                    return p;
+                }
+            }
+        } catch (Throwable t) {
+            // stock path
+        }
+        return super.getImagePath(id, terminal);
+    }
+
     protected Screen createScreen(int id, int terminal) {
         Screen s = super.createScreen(id, terminal);
         if (id != HqcUiIds.SYS_SCREEN_MAINWIZARD || s == null) {

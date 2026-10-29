@@ -35,9 +35,11 @@ final class StatusLayout {
         final String text;
         /** The text colour packed as {@code 0xAARRGGBB}; -1 for the bar's own colour. */
         final long colourArgb;
+        /** A package icon's image id (served by the System factory too); -1 for none. */
+        final int fileIconId;
 
         Cell(int iconX, int labelX, int labelW, int stockIconId, String filePath, boolean ownColours, String text,
-                long colourArgb) {
+                long colourArgb, int fileIconId) {
             this.iconX = iconX;
             this.labelX = labelX;
             this.labelW = labelW;
@@ -46,13 +48,14 @@ final class StatusLayout {
             this.ownColours = ownColours;
             this.text = text;
             this.colourArgb = colourArgb;
+            this.fileIconId = fileIconId;
         }
 
         /** This cell moved right by {@code dx}, its label width again to the popup's right edge. */
         Cell shifted(int dx) {
             int x = labelX + dx;
             return new Cell(iconX + dx, x, labelWidth(x), stockIconId,
-                    filePath, ownColours, text, colourArgb);
+                    filePath, ownColours, text, colourArgb, fileIconId);
         }
 
         boolean sameBounds(Cell o) {
@@ -60,7 +63,7 @@ final class StatusLayout {
         }
     }
 
-    private static final Cell NONE = new Cell(0, 0, 0, -1, null, false, "", -1L);
+    private static final Cell NONE = new Cell(0, 0, 0, -1, null, false, "", -1L, -1);
 
     /** No line: every cell unused. */
     static final StatusLayout EMPTY = new StatusLayout(NONE, new Cell[0]);
@@ -92,6 +95,14 @@ final class StatusLayout {
      * because the runtime cut the text to fit it.
      */
     static StatusLayout of(List<UiStatusPart> parts, IconIds ids, BuiltinIcons builtins) {
+        return of(parts, ids, builtins, false);
+    }
+
+    /**
+     * As above; {@code fullText} uses each part's {@link UiStatusPart#fullText()} instead of the popup's fair-share
+     * cut, for the built-in bar (one item per row, so it does not share the popup's 24-character line).
+     */
+    static StatusLayout of(List<UiStatusPart> parts, IconIds ids, BuiltinIcons builtins, boolean fullText) {
         Cell indicators = NONE;
         Cell[] items = new Cell[HqcUiIds.STATUS_CELLS];
         int n = 0;
@@ -109,15 +120,20 @@ final class StatusLayout {
             first = false;
             UiIcon icon = ind ? null : p.icon();
             int iconX = x;
+            int fileIconId = -1;
             if (icon != null) {
+                if (icon.kind() == UiIcon.FILE) {
+                    fileIconId = ids == null ? -1 : DrawerSlots.id(icon, ids); // cached after mibsdk-ui's first pass
+                }
                 x += HqcUiIds.STATUS_ICON_ADVANCE_PX;
             }
             int labelX = x;
             int labelW = labelWidth(x);
-            x += p.text().length() * HqcUiIds.STATUS_CHAR_PX;
+            String shown = fullText ? p.fullText() : p.text();
+            x += shown.length() * HqcUiIds.STATUS_CHAR_PX;
             Cell c = new Cell(iconX, labelX, labelW, stockId(icon, ids, builtins),
                     icon != null && icon.kind() == UiIcon.FILE ? icon.path() : null,
-                    icon != null && icon.ownColours(), p.text(), p.colourArgb());
+                    icon != null && icon.ownColours(), shown, p.colourArgb(), fileIconId);
             if (ind) {
                 indicators = c;
             } else {

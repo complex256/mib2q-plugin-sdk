@@ -30,10 +30,11 @@ import mibsdk.runtime.StatusBarConfig;
  * caller can fall back to popup 609600 / popup 65.
  *
  * <p>Rows come from {@link StatusLayout} (the same cells the popup uses), so indicators and plugin items keep their
- * texts and icons. A built-in icon is drawn by its Car image id; a plugin's PNG is a System
- * {@code ResourceLocatorModel} ({@link SdkSystemModelBank}), which makes its path global instead of Car-only. A row's
- * text colour is the item's {@code UiColor} when it set one, else the bar's own (white/app palette), through
- * {@link ColourLabelRenderer}.
+ * texts and icons. A built-in icon is drawn by its Car image id; a plugin's PNG is drawn by its image id from the one
+ * {@link IconIds} table, which {@link SdkSystemScreenFactory#getImagePath} serves too, so its path is global instead of
+ * Car-only (a {@code ResourceLocatorModel} does not paint in a plain layout container: only a popup registers a model
+ * view). A row's text colour is the item's {@code UiColor} when it set one, else the bar's own (white/app palette),
+ * through {@link ColourLabelRenderer}.
  *
  * <p>Pagination: the rows sit on a ring one {@link #HEIGHT} apart, and every {@link StatusBarConfig#dwellMs()} the ring
  * moves one row up in {@link StatusBarConfig#animateMs()} of {@value #FRAME_MS} ms frames; the viewport clips, so only
@@ -65,6 +66,10 @@ final class BarStatusLine implements StatusLineSink {
     private volatile Runnable onAttached;
     /** The last attach failure, so a retried attach logs only when the reason changes. HMIEvent only. */
     private String attachFailure;
+    /** Bench diagnostics: log the line only when its shape changes (items, file models). HMIEvent only. */
+    private int lastItems = -1;
+    /** Pager diagnostics: the last pageCount logged. Pager thread only. */
+    private int lastPagerCount = -1;
     /** The rows in the line now; read by the pager thread for the wrap and the "nothing to page" check. */
     private volatile int pageCount;
     /** The row at y=0; HMIEvent only. */
@@ -82,7 +87,7 @@ final class BarStatusLine implements StatusLineSink {
         ColourLabelRenderer renderer;
         IconController icon;
         IconController fileIcon;
-        boolean fileBound;
+        int lastFileId = -1;
     }
 
     BarStatusLine(Object frameworkAccess, HmiPoster poster, RingLog log, IconIds ids, BuiltinIcons builtins) {
@@ -214,14 +219,13 @@ final class BarStatusLine implements StatusLineSink {
     /** HMIEvent: rebuild the row texts/icons/colours from the ordered parts. */
     private void update() {
         List<UiStatusPart> parts = pending;
-        StatusLayout l = StatusLayout.of(parts, ids, builtins);
+        StatusLayout l = StatusLayout.of(parts, ids, builtins, true);
         List<Item> items = new ArrayList<Item>();
         add(items, l.indicators());
         for (int i = 0; i < HqcUiIds.STATUS_CELLS; i++) {
             add(items, l.cell(i));
         }
         ensureRows(items.size());
-        SdkSystemModelBank.Models files = SdkSystemModelBank.statusIcons();
         for (int i = 0; i < rows.size(); i++) {
             Row r = rows.get(i);
             boolean used = i < items.size();
@@ -229,36 +233,35 @@ final class BarStatusLine implements StatusLineSink {
             r.label.setText(used ? it.text : "");
             r.icon.setBitmaps(used && it.stockIconId >= 0 ? new int[] {it.stockIconId} : new int[0]);
             r.icon.setColorIndices(used && it.ownColours ? HqcUiIds.STATUS_ICON_OWN_COLOURS : null);
+            r.fileIcon.setBitmaps(used && it.fileIconId >= 0 ? new int[] {it.fileIconId} : new int[0]);
+            r.fileIcon.setColorIndices(used && it.ownColours ? HqcUiIds.STATUS_ICON_OWN_COLOURS : null);
             r.renderer.setColour(used ? it.colourArgb : -1L);
-            if (files != null) {
-                if (!r.fileBound) {
-                    try {
-                        r.fileIcon.setModelID(HqcUiIds.STATUS_BAR_ICON_MODEL_0 + i);
-                        r.fileBound = true;
-                    } catch (Throwable t) {
-                        log("file icon model " + i + " failed: " + t);
-                    }
-                }
-                if (r.fileBound) {
-                    files.fileIcon(i, used ? it.filePath : null);
-                }
+            int fid = used ? it.fileIconId : -1;
+            if (fid != r.lastFileId) {
+                r.lastFileId = fid;
+                log("file icon row " + i + " id " + fid);
             }
             r.label.setCompositesDirty(true);
             r.icon.setCompositesDirty(true);
             r.fileIcon.setCompositesDirty(true);
         }
         pageCount = items.size();
+        if (items.size() != lastItems) {
+            lastItems = items.size();
+            log("line: items=" + items.size());
+        }
         if (page >= pageCount) {
             page = 0;
         }
-        slidePx = 0;
-        slideGen++;
+        // Do not touch slidePx/slideGen here: a status update often arrives during the 300 ms slide (a plugin updates
+        // its text), and cancelling the slide on every update meant the page never advanced on the bench. The rows are
+        // rebuilt in place, so the frames already posted keep animating the same ring; hide() still cancels them.
         layoutRows();
     }
 
     private void add(List<Item> out, StatusLayout.Cell c) {
         if (c != null && c.text != null && c.text.length() > 0) {
-            out.add(new Item(c.text, c.stockIconId, c.filePath, c.ownColours, c.colourArgb));
+            out.add(new Item(c.text, c.stockIconId, c.fileIconId, c.filePath, c.ownColours, c.colourArgb));
         }
     }
 
@@ -270,14 +273,17 @@ final class BarStatusLine implements StatusLineSink {
             r.label.setRenderer(r.renderer);
             r.renderer.setFonts(FontFactory.getFonts(0, 0, (IFrameworkAccess) frameworkAccess));
             r.label.setBounds(LABEL_X, 0, LABEL_W, HEIGHT);
+            r.renderer.setAlignment(1, 4); // ALIGN_LEFT like the popup's labels; the default is right-aligned
             r.label.setColorIndices(new int[] {1, 2, 4, 0});
             r.icon = new IconController();
             IconRendererHigh ir = new IconRendererHigh(r.icon);
             r.icon.setRenderer(ir);
+            r.icon.setProcessStateChange(2); // as the popup's icons, for the renderer's state pass
             r.icon.setBounds(ICON_X, ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
             r.fileIcon = new IconController();
             IconRendererHigh fr = new IconRendererHigh(r.fileIcon);
             r.fileIcon.setRenderer(fr);
+            r.fileIcon.setProcessStateChange(2);
             r.fileIcon.setBounds(ICON_X, ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
             viewport.add(r.icon);
             viewport.add(r.fileIcon); // above the id icon, as in the popup
@@ -334,34 +340,61 @@ final class BarStatusLine implements StatusLineSink {
                         return;
                     }
                     if (pageCount <= 1) {
+                        if (pageCount != lastPagerCount) {
+                            lastPagerCount = pageCount;
+                            log("pager: items=" + pageCount + ", nothing to page");
+                        }
                         continue;
+                    }
+                    if (pageCount != lastPagerCount) {
+                        lastPagerCount = pageCount;
+                        log("pager: items=" + pageCount);
                     }
                     final int gen = ++slideGen;
                     int animate = config.animateMs();
                     int frames = animate <= 0 ? 0 : Math.max(1, animate / FRAME_MS);
                     for (int f = 1; f <= frames; f++) {
                         final int px = (HEIGHT * f) / frames;
-                        poster.post(new Runnable() {
+                        Runnable frame = new Runnable() {
                             public void run() {
                                 if (gen == slideGen) {
                                     slidePx = px;
                                     layoutRows();
                                 }
                             }
-                        });
+                        };
+                        // Queue the frame, then wait for the HMI to apply it before the next one. Without the wait the
+                        // poster coalesced them and only the final commit was seen: the page snapped.
+                        while (attached && !poster.post(frame)) {
+                            if (!sleep(2)) {
+                                return;
+                            }
+                        }
+                        while (attached && poster.pending()) {
+                            if (!sleep(2)) {
+                                return;
+                            }
+                        }
                         if (!sleep(FRAME_MS)) {
                             return;
                         }
                     }
-                    poster.post(new Runnable() {
+                    final Runnable commit = new Runnable() {
                         public void run() {
-                            if (gen == slideGen) {
+                            if (gen == slideGen && pageCount > 0) {
                                 page = (page + 1) % pageCount;
                                 slidePx = 0;
                                 layoutRows();
                             }
                         }
-                    });
+                    };
+                    // The poster drops a job while one is pending; the commit must not be lost, or the page never
+                    // moves (the bench showed exactly that). Retry until it is queued or the bar goes away.
+                    while (attached && !poster.post(commit)) {
+                        if (!sleep(FRAME_MS)) {
+                            return;
+                        }
+                    }
                 }
             }
         }, "mibsdk-status-bar");
@@ -382,13 +415,15 @@ final class BarStatusLine implements StatusLineSink {
     private static final class Item {
         final String text;
         final int stockIconId;
+        final int fileIconId;
         final String filePath;
         final boolean ownColours;
         final long colourArgb;
 
-        Item(String text, int stockIconId, String filePath, boolean ownColours, long colourArgb) {
+        Item(String text, int stockIconId, int fileIconId, String filePath, boolean ownColours, long colourArgb) {
             this.text = text;
             this.stockIconId = stockIconId;
+            this.fileIconId = fileIconId;
             this.filePath = filePath;
             this.ownColours = ownColours;
             this.colourArgb = colourArgb;

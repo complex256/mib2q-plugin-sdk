@@ -28,34 +28,7 @@ public class SdkSystemActivator extends AbstractHMIActivator {
     private SystemConditionBank conditionBank;
 
     public SdkSystemActivator() {
-        this(newBank());
-    }
-
-    private SdkSystemActivator(SystemModelBank bank) {
-        super(HqcUiIds.SYSTEM_MODULE, "System", System.getProperty("variant.skin", "EvoHigh"), bank);
-    }
-
-    /**
-     * The SDK bank when the UI is on and it builds; else the stock bank. The bar's file icons are System locators, so
-     * the stock bank leaves them unavailable (the bar still draws text and built-in icons). Logs the choice once.
-     * Never throws.
-     */
-    private static SystemModelBank newBank() {
-        String reason = null;
-        SystemModelBank bank = null;
-        try {
-            if (SdkGlobals.uiEnabled) {
-                bank = new SdkSystemModelBank();
-            } else {
-                reason = SdkGlobals.uiOffReason == null ? "no-configurator" : SdkGlobals.uiOffReason;
-            }
-        } catch (Throwable t) {
-            bank = null;
-            reason = "bank-failed";
-        }
-        status(bank != null ? "ui system bank=sdk"
-                : "ui system bank=stock reason=" + (reason == null ? "unknown" : reason));
-        return bank != null ? bank : new SystemModelBank();
+        super(HqcUiIds.SYSTEM_MODULE, "System", System.getProperty("variant.skin", "EvoHigh"), new SystemModelBank());
     }
 
     /** Chosen once: the SDK factory if the takeover may run and it builds; else the stock factory. */

@@ -10,19 +10,29 @@ import mibsdk.api.UiColor;
 public final class UiStatusPart {
 
     private final String text;
+    private final String fullText;
     private final UiIcon icon;
     private final boolean indicator;
     private final UiColor colour;
 
     public UiStatusPart(String text, UiIcon icon, boolean indicator) {
-        this(text, icon, indicator, null);
+        this(text, icon, indicator, null, text);
     }
 
     /**
      * @param colour the text's colour in the built-in bar; null for the bar's own colour
      */
     public UiStatusPart(String text, UiIcon icon, boolean indicator, UiColor colour) {
+        this(text, icon, indicator, colour, text);
+    }
+
+    /**
+     * @param fullText the item's whole text, before the popup's fair-share cut: the built-in bar gives each item a
+     *     row, so it shows this instead of {@code text}
+     */
+    public UiStatusPart(String text, UiIcon icon, boolean indicator, UiColor colour, String fullText) {
         this.text = text == null ? "" : text;
+        this.fullText = fullText == null ? this.text : fullText;
         this.icon = icon;
         this.indicator = indicator;
         this.colour = colour;
@@ -30,6 +40,11 @@ public final class UiStatusPart {
 
     public String text() {
         return text;
+    }
+
+    /** The item's text before the popup's fair-share cut (the same as {@link #text()} when it was not cut). */
+    public String fullText() {
+        return fullText;
     }
 
     /** Drawn before the text; null for none. */
