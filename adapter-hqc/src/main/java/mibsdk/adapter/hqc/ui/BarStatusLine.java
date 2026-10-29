@@ -329,6 +329,10 @@ final class BarStatusLine implements StatusLineSink {
             r.fileIcon.setCompositesDirty(true);
         }
         viewport.setCompositesDirty(true);
+        // Bounds and visibility changes only mark widgets dirty. The HMI paints when asked (mostly on a model update),
+        // so without this the slide's intermediate positions were never drawn and the page snapped at the commit; the
+        // popup's colour fix needed the same triggerRepaint. Walks up to the screen.
+        viewport.triggerRepaint();
     }
 
     /**
