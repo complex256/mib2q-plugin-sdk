@@ -50,6 +50,9 @@ final class BarStatusLine implements StatusLineSink {
     private static final int ICON_Y = 2;
     private static final int LABEL_X = 24;
     private static final int LABEL_W = WIDTH - LABEL_X;
+    /** The fixed icon strip: an icon-only item's slot, 20 px + a 2 px gap. */
+    private static final int ICON_PITCH = 22;
+    private static final int MAX_ICON_SLOTS = 8;
     /** One animation frame; a 300 ms slide is 18 of them. */
     static final int FRAME_MS = 16;
     /**
@@ -78,6 +81,8 @@ final class BarStatusLine implements StatusLineSink {
     private Field contextField; // HMIEvent only
     /** The last context the rows were built for; the pager rebuilds on HMIEvent when it moves. */
     private int lastContext = Integer.MIN_VALUE;
+    /** Bench diagnostics: the icon-only strip's shape. HMIEvent only. */
+    private int lastIcons = -1;
     /** The last attach failure, so a retried attach logs only when the reason changes. HMIEvent only. */
     private String attachFailure;
     /** Bench diagnostics: log the line only when its shape changes (items, file models). HMIEvent only. */
@@ -95,6 +100,15 @@ final class BarStatusLine implements StatusLineSink {
     private LayoutContainerController viewport;
     private LayoutContainerController group;
     private final List<Row> rows = new ArrayList<Row>();
+    private final List<IconSlot> slots = new ArrayList<IconSlot>();
+
+    /** An icon-only item's fixed slot in the strip at the left of the bar (no label). */
+    private static final class IconSlot {
+        IconController icon;
+        IconController fileIcon;
+        boolean used;
+        int lastFileId = -1;
+    }
 
     private static final class Row {
         LabelController label;
@@ -258,12 +272,32 @@ final class BarStatusLine implements StatusLineSink {
     private void update() {
         List<UiStatusPart> parts = visibleParts(pending, currentContext());
         StatusLayout l = StatusLayout.of(parts, ids, builtins, true);
+        List<Item> icons = new ArrayList<Item>();
         List<Item> items = new ArrayList<Item>();
         add(items, l.indicators());
         for (int i = 0; i < HqcUiIds.STATUS_CELLS; i++) {
-            add(items, l.cell(i));
+            StatusLayout.Cell c = l.cell(i);
+            add(items, c);
+            addIcon(icons, c);
         }
         ensureRows(items.size());
+        ensureSlots(icons.size());
+        for (int i = 0; i < slots.size(); i++) {
+            IconSlot s = slots.get(i);
+            Item it = i < icons.size() ? icons.get(i) : null;
+            s.used = it != null;
+            s.icon.setBitmaps(it != null && it.stockIconId >= 0 ? new int[] {it.stockIconId} : new int[0]);
+            s.icon.setColorIndices(it != null && it.ownColours ? HqcUiIds.STATUS_ICON_OWN_COLOURS : null);
+            s.fileIcon.setBitmaps(it != null && it.fileIconId >= 0 ? new int[] {it.fileIconId} : new int[0]);
+            s.fileIcon.setColorIndices(it != null && it.ownColours ? HqcUiIds.STATUS_ICON_OWN_COLOURS : null);
+            int fid = it == null ? -1 : it.fileIconId;
+            if (fid != s.lastFileId) {
+                s.lastFileId = fid;
+                log("icon strip slot " + i + " id " + fid);
+            }
+            s.icon.setCompositesDirty(true);
+            s.fileIcon.setCompositesDirty(true);
+        }
         for (int i = 0; i < rows.size(); i++) {
             Row r = rows.get(i);
             boolean used = i < items.size();
@@ -284,9 +318,10 @@ final class BarStatusLine implements StatusLineSink {
             r.fileIcon.setCompositesDirty(true);
         }
         pageCount = items.size();
-        if (items.size() != lastItems) {
+        if (items.size() != lastItems || icons.size() != lastIcons) {
             lastItems = items.size();
-            log("line: items=" + items.size());
+            lastIcons = icons.size();
+            log("line: items=" + items.size() + " icons=" + icons.size());
         }
         if (page >= pageCount) {
             page = 0;
@@ -299,6 +334,14 @@ final class BarStatusLine implements StatusLineSink {
 
     private void add(List<Item> out, StatusLayout.Cell c) {
         if (c != null && c.text != null && c.text.length() > 0) {
+            out.add(new Item(c.text, c.stockIconId, c.fileIconId, c.filePath, c.ownColours, c.colourArgb));
+        }
+    }
+
+    /** An icon-only cell (no text, an icon): the fixed strip, not a paginated row. */
+    private void addIcon(List<Item> out, StatusLayout.Cell c) {
+        if (c != null && (c.text == null || c.text.length() == 0)
+                && (c.stockIconId >= 0 || c.fileIconId >= 0)) {
             out.add(new Item(c.text, c.stockIconId, c.fileIconId, c.filePath, c.ownColours, c.colourArgb));
         }
     }
@@ -371,16 +414,57 @@ final class BarStatusLine implements StatusLineSink {
         }
     }
 
+    private void ensureSlots(int n) {
+        while (slots.size() < n) {
+            IconSlot s = new IconSlot();
+            s.icon = new IconController();
+            IconRendererHigh ir = new IconRendererHigh(s.icon);
+            s.icon.setRenderer(ir);
+            s.icon.setProcessStateChange(2);
+            s.icon.setBounds(0, ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
+            s.fileIcon = new IconController();
+            IconRendererHigh fr = new IconRendererHigh(s.fileIcon);
+            s.fileIcon.setRenderer(fr);
+            s.fileIcon.setProcessStateChange(2);
+            s.fileIcon.setBounds(0, ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
+            viewport.add(s.icon);
+            viewport.add(s.fileIcon);
+            slots.add(s);
+        }
+    }
+
     /**
      * HMIEvent: place the ring. Row {@code i} sits {@code (i - page) mod n} rows down, less the slide's offset, so only
-     * the row at y=0 is inside the clipped viewport. Hidden or unused rows are invisible, not moved off the ring.
+     * the row at y=0 is inside the clipped viewport. Hidden or unused rows are invisible, not moved off the ring. The
+     * icon-only strip is fixed at the left; the text rows start to its right.
      */
     private void layoutRows() {
         if (viewport == null) {
             return;
         }
         boolean on = visible;
+        int usedIcons = 0;
+        for (int i = 0; i < slots.size(); i++) {
+            if (slots.get(i).used && usedIcons < MAX_ICON_SLOTS) {
+                usedIcons++;
+            }
+        }
+        int strip = usedIcons * ICON_PITCH;
+        for (int i = 0; i < slots.size(); i++) {
+            IconSlot s = slots.get(i);
+            boolean show = on && s.used && i < MAX_ICON_SLOTS;
+            s.icon.setVisible(show);
+            s.fileIcon.setVisible(show);
+            int x = i * ICON_PITCH;
+            s.icon.setBounds(x, ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
+            s.fileIcon.setBounds(x, ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
+            s.icon.setCompositesDirty(true);
+            s.fileIcon.setCompositesDirty(true);
+        }
         int n = pageCount;
+        int textX = strip;
+        int labelX = textX + LABEL_X;
+        int labelW = Math.max(0, WIDTH - labelX);
         for (int i = 0; i < rows.size(); i++) {
             Row r = rows.get(i);
             boolean used = on && i < n;
@@ -395,9 +479,9 @@ final class BarStatusLine implements StatusLineSink {
                 }
                 y = slot * HEIGHT - slidePx;
             }
-            r.label.setBounds(LABEL_X, y, LABEL_W, HEIGHT);
-            r.icon.setBounds(ICON_X, y + ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
-            r.fileIcon.setBounds(ICON_X, y + ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
+            r.label.setBounds(labelX, y, labelW, HEIGHT);
+            r.icon.setBounds(textX, y + ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
+            r.fileIcon.setBounds(textX, y + ICON_Y, HqcUiIds.STATUS_ICON_PX, HqcUiIds.STATUS_ICON_PX);
             r.label.setCompositesDirty(true);
             r.icon.setCompositesDirty(true);
             r.fileIcon.setCompositesDirty(true);

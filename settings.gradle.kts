@@ -17,6 +17,5 @@ include("adapter-fake")
 include("plugin-test")
 include("adapter-hqc")
 include("dist")
-include("plugins:hello", "plugins:crashy", "plugins:bike-rack", "plugins:hello-menu", "plugins:daemon-status",
-    "plugins:inputs-demo", "plugins:coffee-timer")
+include("plugins:hello", "plugins:crashy", "plugins:coffee-timer")
 include("spikes:hmi-ui")

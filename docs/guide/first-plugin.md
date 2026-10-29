@@ -180,7 +180,8 @@ plugins {
   when the jar changes. None of this goes into the plugin jar.
 
 > Kotlin works as well: add `id("org.jetbrains.kotlin.jvm")` before `id("mibsdk.plugin")`. See
-> `plugins/bike-rack/build.gradle.kts`, which also sets the test compile's `jvmTarget` to 17.
+> the `mib2q-plugins` monorepo's `plugins/bike-rack/build.gradle.kts`, which also sets the test compile's
+> `jvmTarget` to 17.
 
 ## 2. The manifest: plugin.json
 
@@ -1074,10 +1075,12 @@ until it is granted again. There are no optional permissions yet.
 
 ## Where next
 
-- `plugins/inputs-demo`: every api-5 input, including choice, dropdown, progress, confirm and the (experimental)
-  speller.
-- `plugins/bike-rack`: Kotlin, ignition events and a vehicle override that the SDK's ledger undoes.
-- `plugins/daemon-status`: `ctx.net()` against a local daemon, with a periodic refresh.
+- The `mib2q-plugins` monorepo's `plugins/inputs-demo`: every api-5 input, including choice, dropdown, progress,
+  confirm and the (experimental) speller.
+- The monorepo's `plugins/bike-rack`: Kotlin, ignition events and a vehicle override that the SDK's ledger undoes.
+- The monorepo's `plugins/tailscale-status` and `plugins/carmqtt-status`: icon-only status items
+  (`StatusItem.setIcon`) from `ctx.net()` against local daemons, with a periodic refresh.
+- `plugins/coffee-timer` (this SDK repo): the timer sample this tutorial builds.
 - The `mibsdk.api` Javadoc (`./gradlew :api:javadoc`, then open `api/build/docs/javadoc/index.html`) and the
   [design spec](../superpowers/specs/2026-10-18-mib2q-plugin-sdk-design.md).
 - [Developer bumps](developer-bumps.md): the rough edges you are likely to hit, collected while this tutorial was

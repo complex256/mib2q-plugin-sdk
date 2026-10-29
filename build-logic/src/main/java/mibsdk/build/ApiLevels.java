@@ -122,6 +122,7 @@ public final class ApiLevels {
         // Api 6: a status item's text colour in the built-in bar.
         put(STATUS_ITEM, "setColour", "(Lmibsdk/api/UiColor;)V", 6, "StatusItem.setColour");
         put(STATUS_ITEM, "visibleIn", "([I)V", 6, "StatusItem.visibleIn");
+        put(STATUS_ITEM, "setIcon", "(Lmibsdk/api/Icon;)V", 6, "StatusItem.setIcon");
         put(UI_COLOR, "rgb", "(III)Lmibsdk/api/UiColor;", 6, "UiColor.rgb");
         put(UI_COLOR, "rgba", "(IIII)Lmibsdk/api/UiColor;", 6, "UiColor.rgba");
         put(UI_COLOR, "of", "(I)Lmibsdk/api/UiColor;", 6, "UiColor.of");

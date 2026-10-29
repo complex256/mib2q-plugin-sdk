@@ -667,7 +667,7 @@ class UiHubTest {
         hub.setStatusItem("fruit", "FR ok", star);
         hub.publishNow();
         assertEquals(star, table.snapshot().statusParts().get(1).icon());
-        hub.setStatusItem("fruit", "", star); // an empty text hides the item, icon or not
+        hub.setStatusItem("fruit", "", star); // empty text: hides the item (setIcon is the icon-only path)
         hub.publishNow();
         assertEquals(1, table.snapshot().statusParts().size());
         assertEquals("SAFE", table.snapshot().statusLine());
@@ -711,6 +711,19 @@ class UiHubTest {
         hub.publishNow();
         assertEquals(0L, table.snapshot().statusParts().get(0).contexts());
         assertTrue(table.snapshot().statusParts().get(0).showsIn(HmiContext.MEDIA));
+    }
+
+    @Test
+    void anExplicitIconOnlyItemShowsWithoutText() throws Exception {
+        UiHub hub = hub(0);
+        UiIcon star = UiIcon.stock("star");
+        hub.setStatusItem("a", null, star, null, 0L, true);
+        hub.publishNow();
+        List<UiStatusPart> parts = table.snapshot().statusParts();
+        assertEquals(1, parts.size());
+        assertEquals("", parts.get(0).text());
+        assertEquals(star, parts.get(0).icon());
+        assertEquals(0, table.snapshot().statusLine().length(), "an icon-only line has no text");
     }
 
     @Test

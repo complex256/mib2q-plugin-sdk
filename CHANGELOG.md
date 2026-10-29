@@ -3,6 +3,15 @@
 The `mibsdk` SDK package (`dist/build/dist/mibsdk-<version>.mpk`) and its sample plugins. Versions are semver as
 mibpkg compares them; bench builds carried a `+bench.N` tag on the package version only and are not releases.
 
+## 0.4.0 — 2026-10-28 (SDK; plugin api 1..6)
+
+- **Icon-only status items.** `StatusItem.setIcon(icon)` shows an icon with no text; the built-in bar lays icon-only
+  items out side by side in a fixed strip at its left, while text items keep paginating to its right. `set("", icon)`
+  still hides the item (existing plugins rely on that). `setColour`/`visibleIn` apply as for text items.
+- **Samples moved.** `bike-rack`, `hello-menu` and `inputs-demo` moved to the new `mib2q-plugins` monorepo; the
+  `daemon-status` sample is removed. The SDK keeps `hello`/`crashy` (test fixtures) and the `coffee-timer` tutorial.
+  The monorepo's `tailscale-status` and `carmqtt-status` plugins replace the daemon-status line with icons.
+
 ## 0.3.0 — 2026-10-28 (SDK; plugin api 1..6)
 
 Developer experience, aimed at plugin authors outside this repository, plus the built-in status bar. The plugin api

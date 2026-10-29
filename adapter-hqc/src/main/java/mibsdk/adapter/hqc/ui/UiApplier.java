@@ -614,17 +614,18 @@ public final class UiApplier {
 
     private void applyStatus(UiSnapshot s) {
         String text = s.statusLine();
+        List<UiStatusPart> parts = s.statusParts();
         long now = clock.uptimeMs();
-        if (text.length() == 0) {
+        if (text.length() == 0 && (parts == null || parts.isEmpty())) { // icon-only items make a line too
             SdkStatusPopup.wanted = StatusLayout.EMPTY; // the popup's id icon cells are cleared
             wantWidgets = wantWidgets.withStatus(StatusLayout.EMPTY);
-            if (shownStatus != null && shownStatus.length() > 0) { // only ever hide what the SDK showed
+            if (shownStatus != null) { // only ever hide what the SDK showed (an icon-only line has text "")
                 status.hide();
-                shownStatus = "";
+                shownStatus = null;
             }
             return;
         }
-        List<UiStatusPart> parts = s.statusParts();
+
         StatusLayout layout = StatusLayout.of(parts, ids, builtins);
         SdkStatusPopup.wanted = layout; // a popup built from now on starts from it
         wantWidgets = wantWidgets.withStatus(layout);

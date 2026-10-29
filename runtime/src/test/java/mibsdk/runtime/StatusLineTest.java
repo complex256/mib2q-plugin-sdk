@@ -187,12 +187,14 @@ class StatusLineTest {
         UiIcon i = UiIcon.stock("star");
         List<UiStatusPart> p = StatusLine.parts(Arrays.asList("SAFE"),
                 Arrays.asList(new StatusLine.Item("a", "", i), new StatusLine.Item("b", "XYZ", i)), 24);
-        assertEquals(2, p.size(), "an empty text hides the item, icon or not");
+        assertEquals(3, p.size(), "an icon-only item shows its icon");
         assertTrue(p.get(0).indicator());
         assertNull(p.get(0).icon());
-        assertEquals("XYZ", p.get(1).text());
-        assertFalse(p.get(1).indicator());
+        assertEquals("", p.get(1).text(), "the icon-only item has no text");
         assertSame(i, p.get(1).icon());
+        assertEquals("XYZ", p.get(2).text());
+        assertFalse(p.get(2).indicator());
+        assertSame(i, p.get(2).icon());
         List<UiStatusPart> none = StatusLine.parts(null, Arrays.asList(new StatusLine.Item("b", "XYZ", null)), 24);
         assertEquals(1, none.size(), "no indicator part without indicators");
         assertFalse(none.get(0).indicator());

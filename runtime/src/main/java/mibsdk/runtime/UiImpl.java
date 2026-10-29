@@ -695,6 +695,8 @@ final class UiImpl implements Ui {
         private UiColor colour;
         /** The contexts the item shows in (a bitmask); 0 for every context. Written under hlock. */
         private long contexts;
+        /** True for an icon-only item ({@link StatusItem#setIcon}); set() clears it. Written under hlock. */
+        private boolean iconOnly;
 
         StatusHandle(boolean inert, UiIcon icon, String text) {
             this.inert = inert;
@@ -708,6 +710,7 @@ final class UiImpl implements Ui {
             synchronized (hlock) {
                 this.icon = shown;
                 this.text = text;
+                this.iconOnly = false;
                 publish(text);
             }
         }
@@ -717,7 +720,19 @@ final class UiImpl implements Ui {
         public void set(String text) {
             synchronized (hlock) {
                 this.text = text;
+                this.iconOnly = false;
                 publish(text);
+            }
+        }
+
+        @Override
+        public void setIcon(Icon icon) {
+            UiIcon shown = shown(ownIcon(icon, true)); // checked even when cancelled or inert
+            synchronized (hlock) {
+                this.icon = shown;
+                this.text = null;
+                this.iconOnly = true;
+                publish(null);
             }
         }
 
@@ -752,7 +767,7 @@ final class UiImpl implements Ui {
             if (!cancelled && !inert) {
                 synchronized (lock) {
                     if (!closed) {
-                        hub.setStatusItem(pluginId, text, icon, colour, contexts);
+                        hub.setStatusItem(pluginId, text, icon, colour, contexts, iconOnly);
                     }
                 }
             }

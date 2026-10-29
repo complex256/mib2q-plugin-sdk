@@ -28,6 +28,7 @@ class ApiLevelsTest {
         assertEquals(6, ApiLevels.since("mibsdk/api/StatusItem", "setColour", "(Lmibsdk/api/UiColor;)V"));
         assertEquals(6, ApiLevels.since("mibsdk/api/UiColor", "rgb", "(III)Lmibsdk/api/UiColor;"));
         assertEquals(6, ApiLevels.since("mibsdk/api/StatusItem", "visibleIn", "([I)V"));
+        assertEquals(6, ApiLevels.since("mibsdk/api/StatusItem", "setIcon", "(Lmibsdk/api/Icon;)V"));
     }
 
     private static final Pattern TAG = Pattern.compile("^\\s*\\*\\s*@since api (\\d+)\\s*$");
@@ -99,7 +100,7 @@ class ApiLevelsTest {
             }
         }
         assertEquals(List.of(), missing);
-        assertEquals(69, checked, "the scan found the tagged members (update this number deliberately"
+        assertEquals(70, checked, "the scan found the tagged members (update this number deliberately"
                 + " when the API grows): " + checked);
     }
 

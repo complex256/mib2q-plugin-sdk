@@ -303,32 +303,38 @@ final class UiHub {
     }
 
     /**
-     * Text, icon and text colour change together, so no snapshot pairs one's new value with the other's old one.
-     * {@code null} or text that cleans to empty removes the owner's item, icon and colour included; {@code icon} is
-     * null for none, {@code colour} null for the bar's own colour.
+     * Text, icon, text colour and contexts change together, so no snapshot pairs one's new value with the other's old
+     * one. {@code null} or text that cleans to empty with no icon removes the owner's item; with an icon it is an
+     * icon-only item ({@code status} null, {@code statusIcon} set). {@code icon} is null for none, {@code colour} null
+     * for the bar's own colour.
      */
     void setStatusItem(String owner, String text, UiIcon icon, UiColor colour) {
-        setStatusItem(owner, text, icon, colour, 0L);
+        setStatusItem(owner, text, icon, colour, 0L, false);
+    }
+
+    void setStatusItem(String owner, String text, UiIcon icon, UiColor colour, long contexts) {
+        setStatusItem(owner, text, icon, colour, contexts, false);
     }
 
     /**
-     * As above, and the contexts the item shows in (a bitmask of {@code HmiContext} values; 0 for every context). Text,
-     * icon, colour and contexts change together.
+     * As above, and the contexts the item shows in (a bitmask of {@code HmiContext} values; 0 for every context) and
+     * {@code iconOnly}: an icon with no text (an icon-only item, {@link StatusItem#setIcon}). Text, icon, colour and
+     * contexts change together.
      */
-    void setStatusItem(String owner, String text, UiIcon icon, UiColor colour, long contexts) {
+    void setStatusItem(String owner, String text, UiIcon icon, UiColor colour, long contexts, boolean iconOnly) {
         checkOwner(owner);
         String clean = UiText.clean(text, StatusItem.MAX_TEXT);
         String value = clean.length() == 0 ? null : clean;
-        UiIcon shown = value == null ? null : icon;
+        UiIcon shown = value == null && !iconOnly ? null : icon;
         UiColor shownColour = value == null ? null : colour;
-        long shownContexts = value == null ? 0L : contexts;
+        long shownContexts = contexts;
         synchronized (lock) {
             if (removedOwners.contains(owner)) {
                 return;
             }
             Owner o = owners.get(owner);
             if (o == null) {
-                if (value == null) {
+                if (value == null && shown == null) {
                     return;
                 }
                 o = new Owner();
@@ -476,7 +482,7 @@ final class UiHub {
         synchronized (lock) {
             for (Iterator it = owners.entrySet().iterator(); it.hasNext();) {
                 Map.Entry e = (Map.Entry) it.next();
-                if (((Owner) e.getValue()).status != null) {
+                if (((Owner) e.getValue()).status != null || ((Owner) e.getValue()).statusIcon != null) {
                     out.add((String) e.getKey());
                 }
             }
@@ -1170,7 +1176,7 @@ final class UiHub {
                     rows.add(row);
                 }
             }
-            if (o.status != null && !statusHidden.contains(entry.getKey())) {
+            if ((o.status != null || o.statusIcon != null) && !statusHidden.contains(entry.getKey())) {
                 status.put((String) entry.getKey(), o);
             }
         }

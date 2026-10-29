@@ -699,6 +699,27 @@ class UiImplTest {
         assertThrows(IllegalArgumentException.class, () -> item.visibleIn(-1));
     }
 
+    @Test
+    void anIconOnlyStatusItemIsShownAndHiddenByAnEmptySet() {
+        UiImpl a = ui("a", withIcons(UiTestRuntime.UI_FEATURES), ALL_PERMS, new Registrations());
+        StatusItem item = a.statusItem(""); // no icon: hidden
+        assertTrue(published().statusParts().isEmpty(), "an empty text with no icon hides");
+
+        item.set("", a.stockIcon(StockIcons.STAR)); // set("", icon) still hides (old plugins rely on it)
+        assertTrue(published().statusParts().isEmpty());
+
+        item.setIcon(a.stockIcon(StockIcons.STAR));
+        List<mibsdk.platform.UiStatusPart> p = published().statusParts();
+        assertEquals(1, p.size());
+        assertEquals("", p.get(0).text());
+        assertEquals(mibsdk.platform.UiIcon.stock("star"), p.get(0).icon());
+
+        item.set("Back"); // a text goes back to a text item, keeping the icon
+        assertEquals("Back", published().statusParts().get(0).text());
+        item.set("", null);
+        assertTrue(published().statusParts().isEmpty());
+    }
+
     // ---- api 5: inputs ----
     private static final String[] LEVELS = {"Low", "Mid", "High"};
 

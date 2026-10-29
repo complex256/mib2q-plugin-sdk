@@ -251,6 +251,16 @@ class StatusLayoutTest {
     }
 
     @Test
+    void anIconOnlyPartCarriesAnIconAndNoText() {
+        IconIds ids = new IconIds(HqcUiIds.ICON_ID_FIRST, HqcUiIds.ICON_ID_LAST);
+        List<UiStatusPart> parts = new ArrayList<UiStatusPart>();
+        parts.add(new UiStatusPart("", file("aaaa000000000000"), false, null, "", 0L));
+        StatusLayout l = StatusLayout.of(parts, ids, null);
+        assertEquals("", l.cell(0).text);
+        assertEquals(HqcUiIds.ICON_ID_FIRST, l.cell(0).fileIconId);
+    }
+
+    @Test
     void cellCarriesTheItemsTextColour() {
         UiColor amber = UiColor.rgb(255, 128, 0);
         List<UiStatusPart> parts = new ArrayList<UiStatusPart>();

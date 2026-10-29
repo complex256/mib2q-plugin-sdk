@@ -15,7 +15,7 @@ repositories {
     mavenCentral()
 }
 
-evaluationDependsOn(":plugins:hello-menu")
+evaluationDependsOn(":plugins:coffee-timer")
 
 dependencies {
     // The harness exposes FakeUi and FakePlatform; the runtime and api stay behind it.
@@ -26,18 +26,18 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
 }
 
-// PluginTestHarnessTest starts the real hello-menu jar, as a plugin's own tests do.
-val helloMenuJar = project(":plugins:hello-menu").tasks.named<Jar>("mibPluginJar").flatMap { it.archiveFile }
-val helloMenuIcons = project(":plugins:hello-menu").layout.projectDirectory.dir("src/main/icons")
+// PluginTestHarnessTest starts the real coffee-timer jar, as a plugin's own tests do.
+val coffeeJar = project(":plugins:coffee-timer").tasks.named<Jar>("mibPluginJar").flatMap { it.archiveFile }
+val coffeeIcons = project(":plugins:coffee-timer").layout.projectDirectory.dir("src/main/icons")
 
 tasks.test {
     useJUnitPlatform()
-    inputs.file(helloMenuJar).withPropertyName("helloMenuJar").withPathSensitivity(PathSensitivity.NONE)
-    inputs.dir(helloMenuIcons).withPropertyName("helloMenuIcons").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(coffeeJar).withPropertyName("coffeeJar").withPathSensitivity(PathSensitivity.NONE)
+    inputs.dir(coffeeIcons).withPropertyName("coffeeIcons").withPathSensitivity(PathSensitivity.RELATIVE)
     jvmArgumentProviders.add(CommandLineArgumentProvider {
         listOf(
-            "-Dmibsdk.pluginJar=" + helloMenuJar.get().asFile.absolutePath,
-            "-Dmibsdk.pluginIcons=" + helloMenuIcons.asFile.absolutePath,
+            "-Dmibsdk.pluginJar=" + coffeeJar.get().asFile.absolutePath,
+            "-Dmibsdk.pluginIcons=" + coffeeIcons.asFile.absolutePath,
         )
     })
 }

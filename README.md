@@ -66,7 +66,8 @@ other VW Group units are not supported. Each of them would need a new firmware a
 ## What a plugin can do (api 6)
 
 A plugin is one class that extends `mibsdk.api.MibPlugin`. In `onEnable(PluginContext ctx)` it gets everything it
-may touch. Each sample in `plugins/` uses some of the API:
+may touch. Each sample in the `mib2q-plugins` monorepo (plus the SDK's `hello`/`crashy` fixtures and the
+`coffee-timer` tutorial) uses some of the API:
 
 | Area | API | Notes and limits | Sample |
 |---|---|---|---|
@@ -75,13 +76,13 @@ may touch. Each sample in `plugins/` uses some of the API:
 | Page entries | `PageSpec.item`, `toggle` (a native checkbox), `info`, `link` | ids `[A-Za-z0-9._-]{1,32}`. Text is cut to `MAX_TITLE` 32, `MAX_LABEL` 40, `MAX_VALUE` 20 and `MAX_INFO` 80 characters | hello-menu |
 | Inputs (api 5) | `PageSpec.choice`, `dropdown`, `slider`, `progress`, `item(..., Icon)`, `enabled(id, false)` | At most 8 options. At most 4 dropdown plus slider rows per page. A slider has at most 24 steps. Item icons are at most 24 px | inputs-demo |
 | Car drawer | `ui.carMenuRow(label, page[, icon])` | At most **2** rows per plugin (`Ui.MAX_CAR_ROWS`). Needs `ui.slot.carmenu` | hello-menu, bike-rack |
-| Status line | `ui.statusItem(text[, icon])`, `StatusItem.set`, `StatusItem.setColour(UiColor)`, `StatusItem.visibleIn(HmiContext)` (api 6) | At most **1** per plugin (`Ui.MAX_STATUS_ITEMS`) and **12** characters, cut to a fair share of the line. Icon at most **20 px** (`StatusItem.ICON_MAX_PX`). The item is drawn in the built-in car status bar, one row per item; the SDK page holds the bar's on/off switch, dwell, animation and item order. A `UiColor` is global (null: the bar's own); `visibleIn` limits an item to contexts (the popup fallback shows every item). Needs `ui.slot.statusbar` | hello-menu, daemon-status |
+| Status line | `ui.statusItem(text[, icon])`, `StatusItem.set`, `StatusItem.setIcon`, `StatusItem.setColour(UiColor)`, `StatusItem.visibleIn(HmiContext)` (api 6) | At most **1** per plugin (`Ui.MAX_STATUS_ITEMS`) and **12** characters, cut to a fair share of the line. Icon at most **20 px** (`StatusItem.ICON_MAX_PX`). The item is drawn in the built-in car status bar; `setIcon` makes an icon-only item, and icon-only items share a fixed strip while text items paginate. The SDK page holds the bar's on/off switch, dwell, animation and item order. A `UiColor` is global (null: the bar's own); `visibleIn` limits an item to contexts (the popup fallback shows every item). Needs `ui.slot.statusbar` | hello-menu, tailscale-status, carmqtt-status |
 | Icons (api 3/4) | manifest `"icons"`, `ui.icon(name[, Icon.OWN_COLOURS])`, `ui.stockIcon(StockIcons.STAR)` | At most 8 PNGs per plugin, 8-bit RGBA or grey + alpha, ≤ 72 px and ≤ 32 KiB. The build adds a drawer reflection for each | hello-menu, bike-rack |
 | Dialogs (api 5) | `ui.confirm(...)`, `ui.toast(text, icon)`, `ui.speller(...)` (**experimental**) | A confirm has up to 3 lines and 120 characters. A toast has 20 characters, shows for 3 s and needs `ui.slot.statusbar`. A speller holds up to 32 characters | inputs-demo |
 | Storage | `ctx.storage().get/put/remove` | String key/value pairs, kept across reboots. 256 KiB per plugin, 1 MiB for all plugins | hello-menu, inputs-demo |
-| Timers | `ctx.scheduler().after/every` | Runs on the plugin's own worker thread | inputs-demo, daemon-status |
+| Timers | `ctx.scheduler().after/every` | Runs on the plugin's own worker thread | coffee-timer, tailscale-status |
 | Logging | `ctx.log().info/warn/error` | Goes to a ring buffer, mirrored to `/tmp/mibsdk.log` on the unit | all |
-| Network | `ctx.net().query(host, port, request, timeoutMs)` | Loopback only, 8 KiB reply, 3 s timeout. Needs `network` | daemon-status |
+| Network | `ctx.net().query(host, port, request, timeoutMs)` | Loopback only, 8 KiB reply, 3 s timeout. Needs `network` | tailscale-status, carmqtt-status |
 | Vehicle | `ctx.vehicle().parking().soundDirections()` and `overrideSoundDirections(value, scope)` | Reading needs `vehicle.read`. An override needs `vehicle.parking.write`; the runtime's ledger restores the prior value | bike-rack |
 | Events | `ctx.events().on(IgnitionChanged.class, ...)`, `ParkingSoundChanged`, `TrailerHitchedChanged`, `HookObserved` | Delivered asynchronously, after the fact | bike-rack |
 | Hooks | `ctx.hooks().veto(HookPoint.PARKING_SOUND_SET)`, `observe(...)` | Declarative: plugin code never runs on a stock thread. Needs `hooks.parking` | (none) |
@@ -180,7 +181,7 @@ tasks are `./gradlew mibPluginJar` and `./gradlew mibpkgPackage`.
 | `dist/` | Assembles the three unit jars (`mibsdk-runtime.jar`, `mibsdk-adapter-hqc.jar`, `mibsdk-rt-retrotranslator.jar`), link-checks them together against the stock jars, stamps them and packs `mibsdk-<version>.mpk`. `dist/icons/` holds the built-in icon set. |
 | `installer/` | `mibsdk-dev`, the bench developer tool (bash, over SSH), and its Python tests (`test_mibsdk_dev.py`, `test_make_builtin_icons.py`). |
 | `templates/plugin/` | The stand-alone plugin project that `newPlugin` scaffolds from, and the fixture of `standalonePluginCheck`. |
-| `plugins/` | Sample plugins, each a Gradle subproject: `hello` (api 1, minimal), `crashy` (fails on purpose to show quarantine), `hello-menu` (a page, a Car row, a status item and icons), `daemon-status` (`net`), `bike-rack` (Kotlin; vehicle override and events), `inputs-demo` (every api-5 input) and `coffee-timer` (the tutorial). |
+| `plugins/` | The SDK's own Gradle subprojects: `hello` (api 1, minimal), `crashy` (fails on purpose to show quarantine) and `coffee-timer` (the tutorial). The other samples (`bike-rack`, `hello-menu`, `inputs-demo`) live in the `mib2q-plugins` monorepo, with the `tailscale-status`/`carmqtt-status` status icons. |
 | `spikes/` | Throwaway bench experiments: `modern-java` (proves Java 17 and Kotlin run on J9 after backporting) and `hmi-ui` (the UI injection spikes). They are not part of the distribution. |
 | `tools/` | `make_builtin_icons.py`, which regenerates `dist/icons/`, the PNG test vectors and some samples' icons, all deterministically. |
 | `docs/` | The design spec, plans, research notes, bench end-to-end records, car readiness and this guide (see [Documentation](#documentation)). |

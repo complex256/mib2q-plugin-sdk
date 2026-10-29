@@ -52,8 +52,8 @@ final class StatusLine {
     /**
      * One plugin's status item as a unit: its owner, cleaned text and optional icon, and the text colour the plugin
      * chose (null for the bar's own). The fair share is computed on {@link #width}, which counts the icon as
-     * {@link #ICON_CHARS}; {@link #render} and {@link #iconAt} draw it in a share. An item with an empty text is
-     * hidden, icon or not.
+     * {@link #ICON_CHARS}; {@link #render} and {@link #iconAt} draw it in a share. An item with neither text nor icon
+     * is hidden; an item with an icon and no text is an icon-only item (its share is the icon's width).
      */
     static final class Item {
         /** The plugin id, or null (tests, runtime-made items). */
@@ -188,7 +188,7 @@ final class StatusLine {
         if (items != null) {
             for (int i = 0; i < items.size(); i++) {
                 Item s = items.get(i);
-                if (s != null && s.text.length() > 0) {
+                if (s != null && (s.text.length() > 0 || s.icon != null)) {
                     it.add(s);
                 }
             }

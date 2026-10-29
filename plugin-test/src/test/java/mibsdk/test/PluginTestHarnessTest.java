@@ -18,10 +18,20 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** Runs the harness against the real hello-menu jar (the build passes -Dmibsdk.pluginJar and -Dmibsdk.pluginIcons). */
+/** Runs the harness against the real coffee-timer jar (the build passes -Dmibsdk.pluginJar and -Dmibsdk.pluginIcons). */
 class PluginTestHarnessTest {
 
-    private static final String PAGE = "hello-menu/fruits";
+    private static final String PAGE = "coffee-timer/timer";
+
+    /** True if the page renders a line starting with {@code prefix} (a value line carries a range suffix). */
+    private boolean hasLine(String prefix) {
+        for (String l : h.ui().render(PAGE)) {
+            if (l.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     @TempDir
     File tmp;
@@ -39,23 +49,23 @@ class PluginTestHarnessTest {
     void startsTheBuiltJarEnabled() {
         h = PluginTestHarness.start(tmp);
         assertEquals("ENABLED", h.state());
-        assertEquals("hello-menu", h.pluginId());
-        assertEquals(PAGE, h.pageKey("fruits"));
+        assertEquals("coffee-timer", h.pluginId());
+        assertEquals(PAGE, h.pageKey("timer"));
         assertFalse(h.ui().carRows().isEmpty(), h.ui().carRows().toString());
     }
 
     @Test
     void installsIconsUnderTheirSha16() throws Exception {
         h = PluginTestHarness.start(tmp);
-        File dir = new File(FakePlatform.roots(tmp).install(), "icons/hello-menu");
+        File dir = new File(FakePlatform.roots(tmp).install(), "icons/coffee-timer");
         Properties index = new Properties();
         try (InputStream in = new FileInputStream(new File(dir, "index.properties"))) {
             index.load(in);
         }
-        String sha = sha16(new File(System.getProperty("mibsdk.pluginIcons"), "hello.png"));
-        assertEquals(sha + ",72,72", index.getProperty("hello"));
+        String sha = sha16(new File(System.getProperty("mibsdk.pluginIcons"), "cup.png"));
+        assertEquals(sha + ",72,72", index.getProperty("cup"));
         assertTrue(new File(dir, sha + ".png").isFile());
-        assertEquals(sha, h.iconSha("hello"));
+        assertEquals(sha, h.iconSha("cup"));
     }
 
     @Test
@@ -77,13 +87,13 @@ class PluginTestHarnessTest {
         h = PluginTestHarness.start(tmp);
         AssertionError e = assertThrows(AssertionError.class, () -> h.await(() -> false, "the impossible", 50));
         assertTrue(e.getMessage().contains("never the impossible"), e.getMessage());
-        assertTrue(e.getMessage().contains("Selected: <none>"), e.getMessage());
+        assertTrue(e.getMessage().contains("Set a brew time, then Start."), e.getMessage());
     }
 
     @Test
     void openPageFollowsThePluginsMenuLink() {
         h = PluginTestHarness.builder(tmp).features(Features.UI_PAGES).start(); // no Car row: only the Plugins menu leads there
-        h.openPage("fruits");
+        h.openPage("timer");
         assertEquals(PAGE, h.ui().openPageKey());
     }
 
@@ -91,23 +101,23 @@ class PluginTestHarnessTest {
     void restartKeepsStorage() {
         h = PluginTestHarness.start(tmp);
         h.await(() -> !h.ui().render(PAGE).isEmpty(), "the page");
-        h.ui().select(PAGE, "pear");
-        h.await(() -> h.ui().render(PAGE).contains("Selected: Pear"), "Selected: Pear");
+        h.ui().turn(PAGE, "minutes", 7);
+        h.await(() -> hasLine("Brew time: 7"), "Brew time: 7");
         h.restart();
         assertEquals("ENABLED", h.state());
-        h.await(() -> h.ui().render(PAGE).contains("Selected: Pear"), "Selected: Pear after the restart");
+        h.await(() -> hasLine("Brew time: 7"), "Brew time: 7 after the restart");
     }
 
     @Test
     void storedValuesStopsTheRuntimeAndReadsStorage() {
         h = PluginTestHarness.start(tmp);
         h.await(() -> !h.ui().render(PAGE).isEmpty(), "the page");
-        h.ui().select(PAGE, "plum");
-        h.await(() -> h.ui().render(PAGE).contains("Selected: Plum"), "Selected: Plum");
-        assertEquals("plum", h.storedValues().getProperty("last"));
+        h.ui().turn(PAGE, "minutes", 7);
+        h.await(() -> hasLine("Brew time: 7"), "Brew time: 7");
+        assertEquals("7", h.storedValues().getProperty("minutes"));
     }
 
-    /** hello-menu has no timer of its own: the log's timestamps come from the clock the Scheduler reads. */
+    /** The log's timestamps come from the clock the Scheduler reads. */
     @Test
     void advanceMovesTheClock() {
         h = PluginTestHarness.start(tmp);
@@ -142,9 +152,9 @@ class PluginTestHarnessTest {
     @Test
     void storedValuesSeedTheStorageBeforeTheFirstStart() {
         Properties seed = new Properties();
-        seed.setProperty("last", "plum");
+        seed.setProperty("minutes", "7");
         h = PluginTestHarness.builder(tmp).storedValues(seed).start();
-        h.await(() -> h.ui().render(PAGE).contains("Selected: Plum"), "Selected: Plum");
+        h.await(() -> hasLine("Brew time: 7"), "Brew time: 7");
     }
 
     @Test
