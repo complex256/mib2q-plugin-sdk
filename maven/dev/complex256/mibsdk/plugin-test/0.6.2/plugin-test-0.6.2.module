@@ -1,0 +1,112 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "dev.complex256.mibsdk",
+    "module": "plugin-test",
+    "version": "0.6.2",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "dependencies": [
+        {
+          "group": "dev.complex256.mibsdk",
+          "module": "adapter-fake",
+          "version": {
+            "requires": "0.6.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "plugin-test-0.6.2.jar",
+          "url": "plugin-test-0.6.2.jar",
+          "size": 11942,
+          "sha512": "d9c30a58c1d32caff6052102832a0606b8cf93016c0179b2268942491427796e939fb72dc1f699c4c56214168c0b4938154d9ffc9d641071931428558387a905",
+          "sha256": "bdb693f4e2d5edf87660fae0615255de51a929aa0d69c867c050e1fbf28251c2",
+          "sha1": "069fda18b4352bb0ba7160ea855ff75ddc5757d6",
+          "md5": "5b2871fd5073bc0c2bc4aabf6f2b68e0"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "dev.complex256.mibsdk",
+          "module": "runtime",
+          "version": {
+            "requires": "0.6.2"
+          }
+        },
+        {
+          "group": "dev.complex256.mibsdk",
+          "module": "api",
+          "version": {
+            "requires": "0.6.2"
+          }
+        },
+        {
+          "group": "dev.complex256.mibsdk",
+          "module": "adapter-fake",
+          "version": {
+            "requires": "0.6.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "plugin-test-0.6.2.jar",
+          "url": "plugin-test-0.6.2.jar",
+          "size": 11942,
+          "sha512": "d9c30a58c1d32caff6052102832a0606b8cf93016c0179b2268942491427796e939fb72dc1f699c4c56214168c0b4938154d9ffc9d641071931428558387a905",
+          "sha256": "bdb693f4e2d5edf87660fae0615255de51a929aa0d69c867c050e1fbf28251c2",
+          "sha1": "069fda18b4352bb0ba7160ea855ff75ddc5757d6",
+          "md5": "5b2871fd5073bc0c2bc4aabf6f2b68e0"
+        }
+      ]
+    },
+    {
+      "name": "sourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "plugin-test-0.6.2-sources.jar",
+          "url": "plugin-test-0.6.2-sources.jar",
+          "size": 7253,
+          "sha512": "af82646f3ef1bda4cfc5d6659577b4c27e2f98da6c97ae53af8626292385f28aa2872454e3c9c0d75235def054618c68604768f9b6e2734630caea77abfd4c18",
+          "sha256": "73d83361518d568be594d90d883db7498973cdcf9c3b192314bdeafdc15e65bc",
+          "sha1": "74ffd1d013f3dc954c7088d77ebc8dcc29895ae4",
+          "md5": "96195c756dbc5a59fff566229a627688"
+        }
+      ]
+    }
+  ]
+}
