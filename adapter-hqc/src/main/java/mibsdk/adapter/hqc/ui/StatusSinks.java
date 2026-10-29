@@ -36,6 +36,8 @@ final class StatusSinks implements StatusLineSink {
     private final StatusLineSink[] sinks;
     private final State state;
     private final RingLog log; // null in tests that do not check it
+    /** Guards the flags and the sink calls: {@link #show}/{@link #hide} on {@code mibsdk-ui}, the attach callback on HMIEvent. */
+    private final Object lock = new Object();
     private final boolean[] shown = new boolean[2]; // the SDK showed text on the sink, and has not hidden it
     private boolean sdkFailed; // the SDK sink threw: popup 65 for the rest of the boot
     private boolean barShown; // the bar got this show
@@ -53,6 +55,13 @@ final class StatusSinks implements StatusLineSink {
         this.sinks = new StatusLineSink[] {popup65, sdkPopup};
         this.state = state;
         this.log = log;
+        if (bar != null) {
+            bar.setOnAttached(new Runnable() {
+                public void run() {
+                    attached(); // HMIEvent: the bar now carries the line, so the popup must go
+                }
+            });
+        }
     }
 
     /** The sink the next show goes to: 0 popup 65, 1 the SDK popup, 2 the built-in bar. */
@@ -68,15 +77,23 @@ final class StatusSinks implements StatusLineSink {
     }
 
     public void show(List<UiStatusPart> parts, String textLine) {
-        if (bar != null && bar.available()) {
-            hideShown(POPUP65);
-            hideShown(SDK);
+        synchronized (lock) {
+            showLocked(parts, textLine);
+        }
+    }
+
+    private void showLocked(List<UiStatusPart> parts, String textLine) {
+        if (bar != null) {
+            // Always try: while unattached the bar posts its attach job and throws, so this call falls back to the popup
+            // and the next one retries. Gating on available() would never post the job at all.
             try {
                 bar.show(parts, textLine);
+                hideShown(POPUP65);
+                hideShown(SDK);
                 barShown = true;
                 return;
             } catch (Throwable t) {
-                barShown = false; // the bar threw: this show goes to the popup, the next one retries
+                barShown = false; // not attached yet: this show goes to the popup, the next one retries
             }
         }
         if (active() == SDK) {
@@ -100,12 +117,25 @@ final class StatusSinks implements StatusLineSink {
 
     /** Hides every sink the SDK showed text on. */
     public void hide() {
-        if (barShown && bar != null) {
-            barShown = false;
-            bar.hide();
+        synchronized (lock) {
+            if (barShown && bar != null) {
+                barShown = false;
+                bar.hide();
+            }
+            hideShown(POPUP65);
+            hideShown(SDK);
         }
-        hideShown(POPUP65);
-        hideShown(SDK);
+    }
+
+    /**
+     * HMIEvent, from the bar's attach job: the bar now carries the line, so hide the popups it took over from. This
+     * closes the window where the attach update and the popup were both visible (the first show had to fall back).
+     */
+    void attached() {
+        synchronized (lock) {
+            hideShown(POPUP65);
+            hideShown(SDK);
+        }
     }
 
     private void hideShown(int k) {

@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import mibsdk.platform.UiStatusPart;
+import mibsdk.runtime.Clock;
 import mibsdk.runtime.RingLog;
 import org.junit.jupiter.api.Test;
 
@@ -128,6 +129,37 @@ class StatusSinksTest {
         s.show(parts("B"), "B");
         assertEquals(Arrays.asList("show A", "hide"), p65.calls);
         assertEquals(Arrays.asList("show A", "show B"), sdk.calls, "1 and 2 are both the SDK popup");
+    }
+
+    /**
+     * Regression: the old show() only called the bar when available(), but only the bar's show() posts the attach job,
+     * so the bar could never attach. It is now tried every show: an unattached bar throws and the popup carries the line.
+     */
+    @Test
+    void anUnattachedBarIsTriedOnEveryShowAndFallsBackToThePopup() {
+        RecordingSink sdk = new RecordingSink();
+        RecordingSink p65 = new RecordingSink();
+        final List<Runnable> posted = new ArrayList<Runnable>();
+        HmiPoster poster = new HmiPoster(new HmiPoster.Sink() {
+            public void post(Runnable r) {
+                posted.add(r);
+            }
+        }, null, new Clock() {
+            public long uptimeMs() {
+                return 0L;
+            }
+        }, HmiPoster.PENDING_DEADLINE_MS);
+        BarStatusLine bar = new BarStatusLine(new Object(), poster, null, null, null);
+        StatusSinks s = new StatusSinks(bar, sdk, p65, () -> 1, null);
+
+        s.show(parts("A"), "A");
+        assertEquals(Arrays.asList("show A"), sdk.calls, "the same call falls back while the bar is unattached");
+        assertEquals(1, posted.size(), "the bar posts its attach job");
+        posted.get(0).run(); // no framework here: the job fails, the bar stays unattached
+
+        s.show(parts("B"), "B");
+        assertEquals(Arrays.asList("show A", "show B"), sdk.calls);
+        assertEquals(2, posted.size(), "the next show retries the attach");
     }
 
     @Test

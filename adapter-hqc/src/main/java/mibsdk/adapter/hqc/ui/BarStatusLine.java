@@ -61,6 +61,10 @@ final class BarStatusLine implements StatusLineSink {
     private volatile boolean attached;
     private volatile boolean visible = true;
     private volatile List<UiStatusPart> pending;
+    /** HMIEvent, once the bar is attached: the caller hides the popups the bar took over from. */
+    private volatile Runnable onAttached;
+    /** The last attach failure, so a retried attach logs only when the reason changes. HMIEvent only. */
+    private String attachFailure;
     /** The rows in the line now; read by the pager thread for the wrap and the "nothing to page" check. */
     private volatile int pageCount;
     /** The row at y=0; HMIEvent only. */
@@ -93,6 +97,11 @@ final class BarStatusLine implements StatusLineSink {
         return attached;
     }
 
+    /** Set before the first show: runs on HMIEvent right after the bar attaches (and has drawn the pending line). */
+    void setOnAttached(Runnable r) {
+        this.onAttached = r;
+    }
+
     public void show(List<UiStatusPart> parts, String textLine) {
         pending = parts;
         visible = true;
@@ -121,30 +130,48 @@ final class BarStatusLine implements StatusLineSink {
         });
     }
 
-    /** HMIEvent: find the global bar, make the clipped viewport and the rows it needs. */
+    /** HMIEvent: find the global bar, make the clipped viewport and the rows it needs. Retried on every show until it works. */
     private void attach() {
+        if (attached) {
+            return;
+        }
         try {
             IFrameworkAccess fw = (IFrameworkAccess) frameworkAccess;
             HMIService svc = fw.getHMIService();
-            Screen screen = svc.getScreenManager(0).getCurrentConnectedScreen();
+            if (svc == null) {
+                fail("no HMI service");
+                return;
+            }
+            Screen screen = svc.getScreenManager(0) == null ? null
+                    : svc.getScreenManager(0).getCurrentConnectedScreen();
             if (!(screen instanceof AbstractWidget)) {
+                fail("current screen is not a widget: " + screen);
                 return;
             }
             HMITerminalImpl terminal = (HMITerminalImpl) ((AbstractWidget) screen).getTerminal();
-            WidgetRegistry registry = terminal == null ? null : terminal.getWidgetRegistry();
-            IStatusbarGapEventHandler handler = registry == null ? null : registry.getStatusbarGapEventHandler();
+            if (terminal == null) {
+                fail("no terminal on " + screen.getClass().getName());
+                return;
+            }
+            WidgetRegistry registry = terminal.getWidgetRegistry();
+            if (registry == null) {
+                fail("no widget registry");
+                return;
+            }
+            IStatusbarGapEventHandler handler = registry.getStatusbarGapEventHandler();
             if (handler == null) {
+                fail("no status bar handler");
                 return;
             }
             Field field = findField(handler.getClass(), "rightGroupContainer");
             if (field == null) {
-                log("no rightGroupContainer field");
+                fail("no rightGroupContainer field");
                 return;
             }
             field.setAccessible(true);
             Object c = field.get(handler);
             if (!(c instanceof LayoutContainerController)) {
-                log("rightGroup is not a LayoutContainerController: " + c);
+                fail("rightGroup is not a LayoutContainerController: " + c);
                 return;
             }
             group = (LayoutContainerController) c;
@@ -158,13 +185,29 @@ final class BarStatusLine implements StatusLineSink {
             group.add(viewport);
             group.setCompositesDirty(true);
             attached = true;
+            attachFailure = null;
             if (pending != null) {
                 update();
+            }
+            Runnable r = onAttached;
+            if (r != null) {
+                try {
+                    r.run();
+                } catch (Throwable t) {
+                    log("attach callback failed: " + t);
+                }
             }
             startPager();
             log("attached: rightGroup " + w + "x" + group.getHeight());
         } catch (Throwable t) {
-            log("attach failed: " + t);
+            fail("attach failed: " + t);
+        }
+    }
+
+    private void fail(String reason) {
+        if (!reason.equals(attachFailure)) {
+            attachFailure = reason;
+            log(reason);
         }
     }
 
