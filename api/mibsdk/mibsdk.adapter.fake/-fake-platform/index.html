@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" charset="UTF-8">
+    <title>FakePlatform</title>
+    <link href="../../../images/logo-icon.svg" rel="icon" type="image/svg">
+        <script>var pathToRoot = "../../../";</script>
+    <script>document.documentElement.classList.replace("no-js", "js");</script>
+    <script>const storage = localStorage.getItem("dokka-dark-mode")
+      if (storage == null) {
+        const osDarkSchemePreferred = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+        if (osDarkSchemePreferred === true) {
+          document.getElementsByTagName("html")[0].classList.add("theme-dark")
+        }
+      } else {
+        const savedDarkMode = JSON.parse(storage)
+        if (savedDarkMode === true) {
+          document.getElementsByTagName("html")[0].classList.add("theme-dark")
+        }
+      }
+    </script>
+<script type="text/javascript" src="../../../scripts/sourceset_dependencies.js" async="async"></script>
+<link href="../../../styles/style.css" rel="Stylesheet">
+<link href="../../../styles/main.css" rel="Stylesheet">
+<link href="../../../styles/prism.css" rel="Stylesheet">
+<link href="../../../styles/logo-styles.css" rel="Stylesheet">
+<link href="../../../ui-kit/ui-kit.min.css" rel="Stylesheet">
+<script type="text/javascript" src="../../../scripts/safe-local-storage_blocking.js"></script>
+<script type="text/javascript" src="../../../scripts/navigation-loader.js" async="async"></script>
+<script type="text/javascript" src="../../../scripts/platform-content-handler.js" async="async"></script>
+<script type="text/javascript" src="../../../scripts/main.js" defer="defer"></script>
+<script type="text/javascript" src="../../../scripts/prism.js" async="async"></script>
+<script type="text/javascript" src="../../../ui-kit/ui-kit.min.js" defer="defer"></script>
+</head>
+<body>
+<div class="root">
+    <header class="navigation theme-dark" id="navigation-wrapper" role="banner">
+            <a class="library-name--link" href="../../../index.html" tabindex="1">
+                    mibsdk
+            </a>
+        <button class="navigation-controls--btn navigation-controls--btn_toc ui-kit_mobile-only" id="toc-toggle"
+                type="button">Toggle table of contents
+        </button>
+        <div class="navigation-controls--break ui-kit_mobile-only"></div>
+        <div class="library-version" id="library-version">
+        </div>
+        <div class="navigation-controls">
+        <ul class="filter-section filter-section_loading" id="filter-section" aria-label="Target filter">
+                <button class="platform-tag platform-selector jvm-like" data-active="" aria-pressed="true"
+                        data-filter=":docs-api/javaMain">java</button>
+            <div class="dropdown filter-section--dropdown" data-role="dropdown" id="filter-section-dropdown">
+                <button class="button button_dropdown filter-section--dropdown-toggle" role="combobox"
+                        data-role="dropdown-toggle"
+                        aria-controls="platform-tags-listbox"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                        aria-label="Toggle source sets"
+                ></button>
+                <ul role="listbox" id="platform-tags-listbox" class="dropdown--list" data-role="dropdown-listbox" aria-label="Target filter">
+                    <div class="dropdown--header"><span>Target filter</span>
+                        <button class="button" data-role="dropdown-toggle" aria-label="Close target filter">
+                            <i class="ui-kit-icon ui-kit-icon_cross"></i>
+                        </button>
+                    </div>
+                        <li role="option" class="dropdown--option platform-selector-option jvm-like" tabindex="0">
+                            <label class="checkbox">
+                                <input type="checkbox" class="checkbox--input" id=":docs-api/javaMain"
+                                       data-filter=":docs-api/javaMain"/>
+                                <span class="checkbox--icon"></span>
+                                java
+                            </label>
+                        </li>
+                </ul>
+                <div class="dropdown--overlay"></div>
+            </div>
+        </ul>
+            <button class="navigation-controls--btn navigation-controls--btn_theme" id="theme-toggle-button"
+                    type="button">Switch theme
+            </button>
+            <div class="navigation-controls--btn navigation-controls--btn_search" id="searchBar" role="button">Search in
+                API
+            </div>
+        </div>
+    </header>
+    <div id="container">
+        <nav id="leftColumn" class="sidebar" data-item-type="SECTION" data-item-config='{"defaultSize": 280, "minSize": 200, "maxSize": 400}'>
+            <a class="toc--skip-link" href="#main">Skip to content</a>
+            <div class="dropdown theme-dark_mobile" data-role="dropdown" id="toc-dropdown">
+                <ul role="listbox" id="toc-listbox" class="dropdown--list dropdown--list_toc-list"
+                    data-role="dropdown-listbox" aria-label="Table of contents">
+                    <div class="dropdown--header">
+                            <span>
+                                    mibsdk
+                            </span>
+                        <button class="button" data-role="dropdown-toggle" aria-label="Close table of contents">
+                            <i class="ui-kit-icon ui-kit-icon_cross"></i>
+                        </button>
+                    </div>
+                    <div class="sidebar--inner" id="sideMenu"></div>
+                </ul>
+                <div class="dropdown--overlay"></div>
+            </div>
+        </nav>
+        <div id="resizer" class="resizer" data-item-type="BAR"></div>
+        <div id="main" data-item-type="SECTION" role="main">
+<div class="main-content" data-page-type="classlike" id="content" pageIds="mibsdk::mibsdk.adapter.fake/FakePlatform///PointingToDeclaration//-374703565">
+  <div class="breadcrumbs"><a href="../../../index.html">mibsdk</a><span class="delimiter">/</span><a href="../index.html">mibsdk.adapter.fake</a><span class="delimiter">/</span><span class="current">FakePlatform</span></div>
+  <div class="cover ">
+    <h1 class="cover"><span>Fake</span><wbr></wbr><span><span>Platform</span></span></h1>
+    <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">class </span><a href="index.html">FakePlatform</a> : <span data-unresolved-link="mibsdk.platform/PlatformAdapter///PointingToDeclaration/">PlatformAdapter</span></div><p class="paragraph">Host-only in-memory <span data-unresolved-link="mibsdk.platform/PlatformAdapter///PointingToDeclaration/">PlatformAdapter</span> for tests and the dev harness.</p></div></div>
+  </div>
+  <div class="tabbedcontent">
+    <div class="tabs-section" tabs-section="tabs-section"><button class="section-tab" data-active="" data-togglable="CONSTRUCTOR,TYPE,PROPERTY,FUNCTION">Members</button></div>
+    <div class="tabs-section-body">
+      <div data-togglable="CONSTRUCTOR">
+        <h2 class="tableheader">Constructors</h2>
+        <div class="table"><a data-name="-776316242%2FConstructors%2F-374703565" anchor-label="FakePlatform" id="-776316242%2FConstructors%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-togglable="CONSTRUCTOR" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-fake-platform.html"><span>Fake</span><wbr></wbr><span><span>Platform</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-776316242%2FConstructors%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">constructor</span><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">supportedVersion<span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a><span class="token punctuation">, </span></span><span class="parameter ">features<span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/util/Set.html">Set</a><span class="token operator">&lt;</span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a><span class="token operator">&gt;</span></span></span><span class="token punctuation">)</span></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div data-togglable="FUNCTION">
+        <h2 class="tableheader">Functions</h2>
+        <div class="table"><a data-name="1807192688%2FFunctions%2F-374703565" anchor-label="appliedLog" id="1807192688%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="applied-log.html"><span>applied</span><wbr></wbr><span><span>Log</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="1807192688%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="applied-log.html"><span class="token function">appliedLog</span></a><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/util/List.html">List</a><span class="token operator">&lt;</span><a href="../../mibsdk.api/-sound-directions/index.html">SoundDirections</a><span class="token operator">&gt;</span></div><div class="brief ">Every <span data-unresolved-link="mibsdk.platform/ParkingIo/apply/#mibsdk.api.SoundDirections/PointingToDeclaration/">apply</span> call, in order.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="1834853711%2FFunctions%2F-374703565" anchor-label="droppedWrites" id="1834853711%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="dropped-writes.html"><span>dropped</span><wbr></wbr><span><span>Writes</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="1834853711%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="dropped-writes.html"><span class="token function">droppedWrites</span></a><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-int/index.html">Int</a></div><div class="brief ">How many writes were dropped so far.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="1709509418%2FFunctions%2F-374703565" anchor-label="ecuDropWrites" id="1709509418%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="ecu-drop-writes.html"><span>ecu</span><wbr></wbr><span>Drop</span><wbr></wbr><span><span>Writes</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="1709509418%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="ecu-drop-writes.html"><span class="token function">ecuDropWrites</span></a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">n<span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-int/index.html">Int</a></span></span><span class="token punctuation">)</span></div><div class="brief ">The next <code class="lang-java">n</code> writes return normally but the ECU keeps its value and reports nothing.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-2054756455%2FFunctions%2F-374703565" anchor-label="ecuFailWrites" id="-2054756455%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="ecu-fail-writes.html"><span>ecu</span><wbr></wbr><span>Fail</span><wbr></wbr><span><span>Writes</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-2054756455%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="ecu-fail-writes.html"><span class="token function">ecuFailWrites</span></a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">n<span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-int/index.html">Int</a></span></span><span class="token punctuation">)</span></div><div class="brief ">The next <code class="lang-java">n</code> writes throw <a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/IllegalStateException.html">IllegalStateException</a>; checked before drop.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-39309645%2FFunctions%2F-374703565" anchor-label="ecuReportUnchanged" id="-39309645%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="ecu-report-unchanged.html"><span>ecu</span><wbr></wbr><span>Report</span><wbr></wbr><span><span>Unchanged</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-39309645%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="ecu-report-unchanged.html"><span class="token function">ecuReportUnchanged</span></a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">on<span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-boolean/index.html">Boolean</a></span></span><span class="token punctuation">)</span></div><div class="brief ">Whether an accepted write that leaves the ECU's value unchanged is reported too (default true).</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="210808086%2FFunctions%2F-374703565" anchor-label="ecuReportWrites" id="210808086%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="ecu-report-writes.html"><span>ecu</span><wbr></wbr><span>Report</span><wbr></wbr><span><span>Writes</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="210808086%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="ecu-report-writes.html"><span class="token function">ecuReportWrites</span></a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">on<span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-boolean/index.html">Boolean</a></span></span><span class="token punctuation">)</span></div><div class="brief ">Whether an accepted write publishes <a href="../../mibsdk.api/-parking-sound-changed/index.html">ParkingSoundChanged</a> before <code class="lang-java">apply</code> returns (default true).</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-805607690%2FFunctions%2F-374703565" anchor-label="ecuSetSoundDirections" id="-805607690%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="ecu-set-sound-directions.html"><span>ecu</span><wbr></wbr><span>Set</span><wbr></wbr><span>Sound</span><wbr></wbr><span><span>Directions</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-805607690%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="ecu-set-sound-directions.html"><span class="token function">ecuSetSoundDirections</span></a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">v<span class="token operator">: </span><a href="../../mibsdk.api/-sound-directions/index.html">SoundDirections</a></span></span><span class="token punctuation">)</span></div><div class="brief ">Simulates the car (not the SDK) changing the persisted value; publishes <a href="../../mibsdk.api/-parking-sound-changed/index.html">ParkingSoundChanged</a>.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="2123797227%2FFunctions%2F-374703565" anchor-label="ecuSoundDirections" id="2123797227%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="ecu-sound-directions.html"><span>ecu</span><wbr></wbr><span>Sound</span><wbr></wbr><span><span>Directions</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="2123797227%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="ecu-sound-directions.html"><span class="token function">ecuSoundDirections</span></a><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">: </span><a href="../../mibsdk.api/-sound-directions/index.html">SoundDirections</a></div><div class="brief ">The persisted ECU value.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-648666374%2FFunctions%2F-374703565" anchor-label="features" id="-648666374%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="features.html"><span><span>features</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-648666374%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="features.html"><span class="token function">features</span></a><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/util/Set.html">Set</a><span class="token operator">&lt;</span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a><span class="token operator">&gt;</span></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="164969308%2FFunctions%2F-374703565" anchor-label="id" id="164969308%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="id.html"><span><span>id</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="164969308%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="id.html"><span class="token function">id</span></a><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="469038827%2FFunctions%2F-374703565" anchor-label="parking" id="469038827%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="parking.html"><span><span>parking</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="469038827%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="parking.html"><span class="token function">parking</span></a><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">: </span><span data-unresolved-link="mibsdk.platform/ParkingIo///PointingToDeclaration/">ParkingIo</span></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="481379418%2FFunctions%2F-374703565" anchor-label="roots" id="481379418%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="roots.html"><span><span>roots</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="481379418%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="roots.html"><span class="token function">roots</span></a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">tmp<span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/io/File.html">File</a></span></span><span class="token punctuation">)</span><span class="token operator">: </span><span data-unresolved-link="mibsdk.platform/SdkRoots///PointingToDeclaration/">SdkRoots</span></div><div class="brief ">The SDK roots for a test: <code class="lang-java">&lt;tmp&gt;/mibsdk</code> (install, as on the unit), <code class="lang-java">&lt;tmp&gt;/persist</code> and <code class="lang-java">&lt;tmp&gt;/ram</code>, three separate directories so a test sees which root each file lands in.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-1610434497%2FFunctions%2F-374703565" anchor-label="setFeatures" id="-1610434497%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="set-features.html"><span>set</span><wbr></wbr><span><span>Features</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-1610434497%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="set-features.html"><span class="token function">setFeatures</span></a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">features<span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/util/Set.html">Set</a><span class="token operator">&lt;</span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a><span class="token operator">&gt;</span></span></span><span class="token punctuation">)</span></div><div class="brief ">Simulates the adapter learning (or losing) features after start, e.g.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="2029662854%2FFunctions%2F-374703565" anchor-label="setIgnition" id="2029662854%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="set-ignition.html"><span>set</span><wbr></wbr><span><span>Ignition</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="2029662854%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="set-ignition.html"><span class="token function">setIgnition</span></a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">on<span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-boolean/index.html">Boolean</a></span></span><span class="token punctuation">)</span></div><div class="brief ">Simulates the ignition changing; publishes <a href="../../mibsdk.api/-ignition-changed/index.html">IgnitionChanged</a>.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="1842182519%2FFunctions%2F-374703565" anchor-label="simulateHookCall" id="1842182519%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="simulate-hook-call.html"><span>simulate</span><wbr></wbr><span>Hook</span><wbr></wbr><span><span>Call</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="1842182519%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="simulate-hook-call.html"><span class="token function">simulateHookCall</span></a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">p<span class="token operator">: </span><a href="../../mibsdk.api/-hook-point/index.html">HookPoint</a><span class="token punctuation">, </span></span><span class="parameter ">v<span class="token operator">: </span><a href="../../mibsdk.api/-sound-directions/index.html">SoundDirections</a></span></span><span class="token punctuation">)</span><span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-boolean/index.html">Boolean</a></div><div class="brief ">Does what the real DSI proxy does for a stock call: asks the hook table whether the point is vetoed, records the observation, and reports whether the call would be forwarded to the stock service.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="1068053317%2FFunctions%2F-374703565" anchor-label="start" id="1068053317%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="start.html"><span><span>start</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="1068053317%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="start.html"><span class="token function">start</span></a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">host<span class="token operator">: </span><span data-unresolved-link="mibsdk.platform/PlatformHost///PointingToDeclaration/">PlatformHost</span></span></span><span class="token punctuation">)</span></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="1412944853%2FFunctions%2F-374703565" anchor-label="stop" id="1412944853%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="stop.html"><span><span>stop</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="1412944853%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="stop.html"><span class="token function">stop</span></a><span class="token punctuation">(</span><span class="token punctuation">)</span></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="841055886%2FFunctions%2F-374703565" anchor-label="supports" id="841055886%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="supports.html"><span><span>supports</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="841055886%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="supports.html"><span class="token function">supports</span></a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">hmiVersion<span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a></span></span><span class="token punctuation">)</span><span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-boolean/index.html">Boolean</a></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    <div class="footer">
+        <div class="footer--container">
+            <a href="#content" id="go-to-top-link" class="footer--button footer--button_go-to-top"></a>
+            <div class="footer--content">
+                <div>
+                    <span>Generated by </span>
+                    <a class="footer--link footer--link_external" href="https://github.com/Kotlin/dokka">
+                        Dokka
+                    </a>
+                    <div>© 2026 Copyright</div>
+                </div>
+            </div>
+        </div>
+    </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

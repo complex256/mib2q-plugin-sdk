@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" charset="UTF-8">
+    <title>StockIcons</title>
+    <link href="../../../images/logo-icon.svg" rel="icon" type="image/svg">
+        <script>var pathToRoot = "../../../";</script>
+    <script>document.documentElement.classList.replace("no-js", "js");</script>
+    <script>const storage = localStorage.getItem("dokka-dark-mode")
+      if (storage == null) {
+        const osDarkSchemePreferred = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+        if (osDarkSchemePreferred === true) {
+          document.getElementsByTagName("html")[0].classList.add("theme-dark")
+        }
+      } else {
+        const savedDarkMode = JSON.parse(storage)
+        if (savedDarkMode === true) {
+          document.getElementsByTagName("html")[0].classList.add("theme-dark")
+        }
+      }
+    </script>
+<script type="text/javascript" src="../../../scripts/sourceset_dependencies.js" async="async"></script>
+<link href="../../../styles/style.css" rel="Stylesheet">
+<link href="../../../styles/main.css" rel="Stylesheet">
+<link href="../../../styles/prism.css" rel="Stylesheet">
+<link href="../../../styles/logo-styles.css" rel="Stylesheet">
+<link href="../../../ui-kit/ui-kit.min.css" rel="Stylesheet">
+<script type="text/javascript" src="../../../scripts/safe-local-storage_blocking.js"></script>
+<script type="text/javascript" src="../../../scripts/navigation-loader.js" async="async"></script>
+<script type="text/javascript" src="../../../scripts/platform-content-handler.js" async="async"></script>
+<script type="text/javascript" src="../../../scripts/main.js" defer="defer"></script>
+<script type="text/javascript" src="../../../scripts/prism.js" async="async"></script>
+<script type="text/javascript" src="../../../ui-kit/ui-kit.min.js" defer="defer"></script>
+</head>
+<body>
+<div class="root">
+    <header class="navigation theme-dark" id="navigation-wrapper" role="banner">
+            <a class="library-name--link" href="../../../index.html" tabindex="1">
+                    mibsdk
+            </a>
+        <button class="navigation-controls--btn navigation-controls--btn_toc ui-kit_mobile-only" id="toc-toggle"
+                type="button">Toggle table of contents
+        </button>
+        <div class="navigation-controls--break ui-kit_mobile-only"></div>
+        <div class="library-version" id="library-version">
+        </div>
+        <div class="navigation-controls">
+        <ul class="filter-section filter-section_loading" id="filter-section" aria-label="Target filter">
+                <button class="platform-tag platform-selector jvm-like" data-active="" aria-pressed="true"
+                        data-filter=":docs-api/javaMain">java</button>
+            <div class="dropdown filter-section--dropdown" data-role="dropdown" id="filter-section-dropdown">
+                <button class="button button_dropdown filter-section--dropdown-toggle" role="combobox"
+                        data-role="dropdown-toggle"
+                        aria-controls="platform-tags-listbox"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                        aria-label="Toggle source sets"
+                ></button>
+                <ul role="listbox" id="platform-tags-listbox" class="dropdown--list" data-role="dropdown-listbox" aria-label="Target filter">
+                    <div class="dropdown--header"><span>Target filter</span>
+                        <button class="button" data-role="dropdown-toggle" aria-label="Close target filter">
+                            <i class="ui-kit-icon ui-kit-icon_cross"></i>
+                        </button>
+                    </div>
+                        <li role="option" class="dropdown--option platform-selector-option jvm-like" tabindex="0">
+                            <label class="checkbox">
+                                <input type="checkbox" class="checkbox--input" id=":docs-api/javaMain"
+                                       data-filter=":docs-api/javaMain"/>
+                                <span class="checkbox--icon"></span>
+                                java
+                            </label>
+                        </li>
+                </ul>
+                <div class="dropdown--overlay"></div>
+            </div>
+        </ul>
+            <button class="navigation-controls--btn navigation-controls--btn_theme" id="theme-toggle-button"
+                    type="button">Switch theme
+            </button>
+            <div class="navigation-controls--btn navigation-controls--btn_search" id="searchBar" role="button">Search in
+                API
+            </div>
+        </div>
+    </header>
+    <div id="container">
+        <nav id="leftColumn" class="sidebar" data-item-type="SECTION" data-item-config='{"defaultSize": 280, "minSize": 200, "maxSize": 400}'>
+            <a class="toc--skip-link" href="#main">Skip to content</a>
+            <div class="dropdown theme-dark_mobile" data-role="dropdown" id="toc-dropdown">
+                <ul role="listbox" id="toc-listbox" class="dropdown--list dropdown--list_toc-list"
+                    data-role="dropdown-listbox" aria-label="Table of contents">
+                    <div class="dropdown--header">
+                            <span>
+                                    mibsdk
+                            </span>
+                        <button class="button" data-role="dropdown-toggle" aria-label="Close table of contents">
+                            <i class="ui-kit-icon ui-kit-icon_cross"></i>
+                        </button>
+                    </div>
+                    <div class="sidebar--inner" id="sideMenu"></div>
+                </ul>
+                <div class="dropdown--overlay"></div>
+            </div>
+        </nav>
+        <div id="resizer" class="resizer" data-item-type="BAR"></div>
+        <div id="main" data-item-type="SECTION" role="main">
+<div class="main-content" data-page-type="classlike" id="content" pageIds="mibsdk::mibsdk.api/StockIcons///PointingToDeclaration//-374703565">
+  <div class="breadcrumbs"><a href="../../../index.html">mibsdk</a><span class="delimiter">/</span><a href="../index.html">mibsdk.api</a><span class="delimiter">/</span><span class="current">StockIcons</span></div>
+  <div class="cover ">
+    <h1 class="cover"><span>Stock</span><wbr></wbr><span><span>Icons</span></span></h1>
+    <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">class </span><a href="index.html">StockIcons</a><span class="source-link-wrapper"><span class="source-link" data-element-type="source-link">(<a href="https://github.com/complex256/mib2q-plugin-sdk/tree/main/api/src/main/java/mibsdk/api/StockIcons.java#L9">source</a>)</span></span></div><p class="paragraph">The names of the SDK's built-in icons, for <a href="../-ui/stock-icon.html">stockIcon</a>. </p><p class="paragraph">Built-in icons need no file and are always small enough for a Car row, a page item or a status item.</p></div></div>
+  </div>
+  <div class="tabbedcontent">
+    <div class="tabs-section" tabs-section="tabs-section"><button class="section-tab" data-active="" data-togglable="CONSTRUCTOR,TYPE,PROPERTY,FUNCTION">Members</button></div>
+    <div class="tabs-section-body">
+      <div data-togglable="PROPERTY">
+        <h2 class="tableheader">Properties</h2>
+        <div class="table"><a data-name="16165777%2FProperties%2F-374703565" anchor-label="CHECK" id="16165777%2FProperties%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-c-h-e-c-k.html"><span><span>CHECK</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="16165777%2FProperties%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">val </span><a href="-c-h-e-c-k.html">CHECK</a><span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a><span class="token operator"> = </span><span class="token string">&quot;check&quot;</span></div><div class="brief ">A check mark.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="2033800369%2FProperties%2F-374703565" anchor-label="CIRCLE" id="2033800369%2FProperties%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-c-i-r-c-l-e.html"><span><span>CIRCLE</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="2033800369%2FProperties%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">val </span><a href="-c-i-r-c-l-e.html">CIRCLE</a><span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a><span class="token operator"> = </span><span class="token string">&quot;circle&quot;</span></div><div class="brief ">An outlined circle.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-1441036455%2FProperties%2F-374703565" anchor-label="CROSS" id="-1441036455%2FProperties%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-c-r-o-s-s.html"><span><span>CROSS</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-1441036455%2FProperties%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">val </span><a href="-c-r-o-s-s.html">CROSS</a><span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a><span class="token operator"> = </span><span class="token string">&quot;cross&quot;</span></div><div class="brief ">A cross.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-542512784%2FProperties%2F-374703565" anchor-label="DOT" id="-542512784%2FProperties%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-d-o-t.html"><span><span>DOT</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-542512784%2FProperties%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">val </span><a href="-d-o-t.html">DOT</a><span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a><span class="token operator"> = </span><span class="token string">&quot;dot&quot;</span></div><div class="brief ">A small filled dot.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="2016465587%2FProperties%2F-374703565" anchor-label="PLUG" id="2016465587%2FProperties%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-p-l-u-g.html"><span><span>PLUG</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="2016465587%2FProperties%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">val </span><a href="-p-l-u-g.html">PLUG</a><span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a><span class="token operator"> = </span><span class="token string">&quot;plug&quot;</span></div><div class="brief ">A plug.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-1084278524%2FProperties%2F-374703565" anchor-label="SQUARE" id="-1084278524%2FProperties%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-s-q-u-a-r-e.html"><span><span>SQUARE</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-1084278524%2FProperties%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">val </span><a href="-s-q-u-a-r-e.html">SQUARE</a><span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a><span class="token operator"> = </span><span class="token string">&quot;square&quot;</span></div><div class="brief ">A square.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="346685039%2FProperties%2F-374703565" anchor-label="STAR" id="346685039%2FProperties%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-s-t-a-r.html"><span><span>STAR</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="346685039%2FProperties%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">val </span><a href="-s-t-a-r.html">STAR</a><span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a><span class="token operator"> = </span><span class="token string">&quot;star&quot;</span></div><div class="brief ">A star.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="1190427001%2FProperties%2F-374703565" anchor-label="TRIANGLE" id="1190427001%2FProperties%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-t-r-i-a-n-g-l-e.html"><span><span>TRIANGLE</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="1190427001%2FProperties%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">val </span><a href="-t-r-i-a-n-g-l-e.html">TRIANGLE</a><span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a><span class="token operator"> = </span><span class="token string">&quot;triangle&quot;</span></div><div class="brief ">A triangle.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div data-togglable="FUNCTION">
+        <h2 class="tableheader">Functions</h2>
+        <div class="table"><a data-name="263585883%2FFunctions%2F-374703565" anchor-label="isKnown" id="263585883%2FFunctions%2F-374703565" data-filterable-set=":docs-api/javaMain"></a>
+          <div class="table-row table-row_content" data-filterable-current=":docs-api/javaMain" data-filterable-set=":docs-api/javaMain">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="is-known.html"><span>is</span><wbr></wbr><span><span>Known</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="263585883%2FFunctions%2F-374703565"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":docs-api/javaMain"><div class="symbol monospace"><span class="token keyword">open </span><span class="token keyword">fun </span><a href="is-known.html"><span class="token function">isKnown</span></a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">name<span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/String.html">String</a></span></span><span class="token punctuation">)</span><span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-boolean/index.html">Boolean</a></div><div class="brief ">Whether <code class="lang-java">name</code> is one of the built-in icons.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    <div class="footer">
+        <div class="footer--container">
+            <a href="#content" id="go-to-top-link" class="footer--button footer--button_go-to-top"></a>
+            <div class="footer--content">
+                <div>
+                    <span>Generated by </span>
+                    <a class="footer--link footer--link_external" href="https://github.com/Kotlin/dokka">
+                        Dokka
+                    </a>
+                    <div>© 2026 Copyright</div>
+                </div>
+            </div>
+        </div>
+    </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

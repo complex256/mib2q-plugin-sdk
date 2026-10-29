@@ -1,0 +1,2468 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Write plugins for the MIB2 High head unit in modern Java or Kotlin.">
+      
+      
+      
+        <link rel="canonical" href="https://complex256.github.io/mib2q-plugin-sdk/contributing/adapters/">
+      
+      
+        <link rel="prev" href="../stock-files/">
+      
+      
+        <link rel="next" href="../releasing/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Adding a firmware adapter - mib2q plugin SDK</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#adding-a-firmware-adapter" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="mib2q plugin SDK" class="md-header__button md-logo" aria-label="mib2q plugin SDK" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            mib2q plugin SDK
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Adding a firmware adapter
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/complex256/mib2q-plugin-sdk" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    complex256/mib2q-plugin-sdk
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="mib2q plugin SDK" class="md-nav__button md-logo" aria-label="mib2q plugin SDK" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    mib2q plugin SDK
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/complex256/mib2q-plugin-sdk" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    complex256/mib2q-plugin-sdk
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/prerequisites/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/install-sdk/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install the SDK
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/create-a-plugin/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Create a plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/project-layout/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/tutorial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorial
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/test-your-plugin/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Test your plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/install-and-debug/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install and debug
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pages-and-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pages and inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/status-line/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Status line and toasts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/icons/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Icons
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/storage-and-timers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage and timers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/vehicle-and-events/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vehicle and events
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/networking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Package and publish
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/plugin-manifest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    plugin.json
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build-tasks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build tasks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Permissions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limits
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api-levels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API levels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Java compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mibsdk-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://complex256.github.io/mib2q-plugin-sdk/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Generated Java API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://complex256.github.io/mib2q-plugin-sdk/maven/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maven repository
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Explanation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Explanation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanation/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanation/safety-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Safety model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanation/firmware-support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../build-and-test/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build and test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stock-files/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stock files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adding a firmware adapter
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adding a firmware adapter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-what-an-adapter-has-to-provide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. What an adapter has to provide
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-inventory-the-unit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Inventory the unit
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Inventory the unit">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#convert-and-inspect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Convert and inspect
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-build-a-firmware-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Build a firmware map
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Build a firmware map">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-to-find-a-class-you-only-know-by-behaviour" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to find a class you only know by behaviour
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-implement-the-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Implement the adapter
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Implement the adapter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-not-to-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What not to do
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-bench-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Bench loop
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Bench loop">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#evidence-to-collect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence to collect
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-definition-of-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Definition of done
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-tips-for-a-person-or-an-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Tips for a person or an agent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releasing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs-style-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs style guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-what-an-adapter-has-to-provide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. What an adapter has to provide
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-inventory-the-unit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Inventory the unit
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Inventory the unit">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#convert-and-inspect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Convert and inspect
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-build-a-firmware-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Build a firmware map
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Build a firmware map">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-to-find-a-class-you-only-know-by-behaviour" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to find a class you only know by behaviour
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-implement-the-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Implement the adapter
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Implement the adapter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-not-to-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What not to do
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-bench-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Bench loop
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Bench loop">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#evidence-to-collect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence to collect
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-definition-of-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Definition of done
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-tips-for-a-person-or-an-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Tips for a person or an agent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="adding-a-firmware-adapter">Adding a firmware adapter<a class="headerlink" href="#adding-a-firmware-adapter" title="Permanent link">&para;</a></h1>
+<p>The plugin API is firmware-neutral. All car-specific code lives in one adapter behind
+<code>mibsdk.platform.PlatformAdapter</code>. The repository ships one adapter, <code>adapter-hqc</code>, for
+<code>HMI_AU_MIB2_HQC_NAR_G22_C10_180803</code>.</p>
+<p>This page is the investigation and implementation guide for a second adapter. It is deliberately concrete:
+you will pull files, build a map, and prove each layer on a bench unit before touching a car.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>A wrong adapter can boot-loop the HMI. Work on a bench unit, keep SSH or SD-card recovery available,
+and test safe mode before you install anything on a car.</p>
+</div>
+<h2 id="1-what-an-adapter-has-to-provide">1. What an adapter has to provide<a class="headerlink" href="#1-what-an-adapter-has-to-provide" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart TB
+    RT["mibsdk.runtime"] --&gt; SPI["mibsdk.platform.PlatformAdapter"]
+    SPI --&gt; V["supports(hmiVersion)"]
+    SPI --&gt; F["features()"]
+    SPI --&gt; S["start(host) / stop()"]
+    SPI --&gt; P["parking()"]
+    S --&gt; B["bundle activator / configurator"]
+    S --&gt; UI["UI: pages, Car rows, status bar, toasts, dialogs"]
+    S --&gt; EV["events: ignition, parking, trailer, hooks"]</code></pre>
+<table>
+<thead>
+<tr>
+<th>SPI member</th>
+<th>What it must do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id()</code></td>
+<td>A short adapter name, used in logs</td>
+</tr>
+<tr>
+<td><code>supports(hmiVersion)</code></td>
+<td>Exact match against the <code>HMI = ...</code> line, or a deliberate family rule</td>
+</tr>
+<tr>
+<td><code>features()</code></td>
+<td>The <code>mibsdk.api.Features</code> this build can provide</td>
+</tr>
+<tr>
+<td><code>start(PlatformHost)</code></td>
+<td>Register with the stock HMI, create the UI and event bridges, report features</td>
+</tr>
+<tr>
+<td><code>stop()</code></td>
+<td>Remove everything; restore stock state</td>
+</tr>
+<tr>
+<td><code>parking()</code></td>
+<td>A <code>ParkingIo</code> or null when the unit has no parking system</td>
+</tr>
+</tbody>
+</table>
+<p>The runtime never sees an stock HMI class. The adapter is the only module allowed to.</p>
+<h2 id="2-inventory-the-unit">2. Inventory the unit<a class="headerlink" href="#2-inventory-the-unit" title="Permanent link">&para;</a></h2>
+<p>Start with the version and the boot chain.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ssh<span class="w"> </span>root@&lt;unit-ip&gt;<span class="w"> </span><span class="s1">'grep "^HMI" /ifs/version_info.txt'</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>ssh<span class="w"> </span>root@&lt;unit-ip&gt;<span class="w"> </span><span class="s1">'ls -la /mnt/app/eso/hmi/lsd /mnt/app/eso/hmi/lsd/jars /ifs'</span>
+</code></pre></div>
+<p>Pull the stock files (see <a href="../stock-files/">Stock files</a>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>./gradlew<span class="w"> </span>pullStockJars<span class="w"> </span>-Punit<span class="o">=</span>&lt;unit-ip&gt;<span class="w"> </span>-PwithJars<span class="o">=</span><span class="m">1</span><span class="w"> </span>-Pjxe2jarSrc<span class="o">=</span>/path/to/jxe2jar/src
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it tells you</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>version_info.txt</code></td>
+<td>The exact <code>HMI = ...</code> string your <code>supports</code> must match</td>
+</tr>
+<tr>
+<td><code>lsd.sh</code></td>
+<td>Boot classpath, heap, system properties, bundle list selection, JXE path</td>
+</tr>
+<tr>
+<td><code>bundles*.properties</code></td>
+<td>Bundle activators and autostart order</td>
+</tr>
+<tr>
+<td><code>lsd/jars/*.jar</code></td>
+<td>Classes that shadow the JXE; note duplicates and load order</td>
+</tr>
+<tr>
+<td><code>lsd.jxe</code> / <code>lsd.jar</code></td>
+<td>The HMI itself: ~30k classes</td>
+</tr>
+<tr>
+<td><code>hmi.zip</code></td>
+<td>Developer-mode HMI classes, when present</td>
+</tr>
+<tr>
+<td><code>DSITracer.jar</code></td>
+<td>The DSI service tracer the adapter links against</td>
+</tr>
+</tbody>
+</table>
+<h3 id="convert-and-inspect">Convert and inspect<a class="headerlink" href="#convert-and-inspect" title="Permanent link">&para;</a></h3>
+<p>The commands below use <code>de.&lt;vendor&gt;</code> and <code>de.&lt;framework&gt;</code> as placeholders for the package prefixes in your
+image. Find the real prefixes with <code>unzip -l</code> first; do not copy the HQC build's names.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nv">PYTHONPATH</span><span class="o">=</span>/path/to/jxe2jar/src<span class="w"> </span>python3<span class="w"> </span>/path/to/jxe2jar/src/jxe2jar.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span>build/stock/lsd.jxe<span class="w"> </span>build/stock/lsd.jar
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>unzip<span class="w"> </span>-l<span class="w"> </span>build/stock/lsd.jar<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s1">'de/&lt;vendor&gt;|de/&lt;framework&gt;|org/dsi'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>head
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>javap<span class="w"> </span>-classpath<span class="w"> </span>build/stock/lsd.jar<span class="w"> </span>-p<span class="w"> </span>de.&lt;vendor&gt;.atip.base.Framework
+</code></pre></div>
+<p>For readable sources, decompile with CFR or Vineflower. Treat the output as a map, not as truth: <code>jxe2jar</code>
+byte-swaps some numeric constants and can drop <code>InnerClasses</code> attributes. Verify anything you rely on
+against the class file with <code>javap</code> or at runtime.</p>
+<h2 id="3-build-a-firmware-map">3. Build a firmware map<a class="headerlink" href="#3-build-a-firmware-map" title="Permanent link">&para;</a></h2>
+<p>Write down evidence as you go. A table like this is worth more than a memory of a class name:</p>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Where to look</th>
+<th>Record</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>How does the HMI start?</td>
+<td><code>lsd.sh</code>, <code>startup.sh</code>, <code>runHMI.sh</code></td>
+<td>Command line, JXE path, boot classpath</td>
+</tr>
+<tr>
+<td>Which bundles start?</td>
+<td><code>bundles.properties</code>, <code>bundles_*.properties</code></td>
+<td>Activator class, autostart order</td>
+</tr>
+<tr>
+<td>What wraps DSI?</td>
+<td>the <code>serviceDelegateConfigurator</code> property, <code>DSITracer.jar</code></td>
+<td>Configurator class and chain order</td>
+</tr>
+<tr>
+<td>Where is the framework?</td>
+<td><code>IFrameworkAccess</code>, the framework access class</td>
+<td>Service name, lookup method</td>
+</tr>
+<tr>
+<td>Where is the screen model?</td>
+<td><code>DisplayManagerMIB2High</code>, <code>HMITerminalImplMIB2High</code></td>
+<td>Context ids, terminal ids</td>
+</tr>
+<tr>
+<td>Where do screens come from?</td>
+<td><code>*ScreenFactory</code>, <code>ScreenBag</code>, <code>ConditionBank</code></td>
+<td>Factory class, model ids</td>
+</tr>
+<tr>
+<td>Where is the status bar?</td>
+<td><code>StatusBar*</code>, <code>PartialPopup*</code></td>
+<td>Widget ids, model ids</td>
+</tr>
+<tr>
+<td>How does input arrive?</td>
+<td><code>KbdListener</code>, <code>KeyEventDistributorEvo</code></td>
+<td>Key codes, focus path</td>
+</tr>
+<tr>
+<td>How is parking exposed?</td>
+<td><code>org.dsi.ifc.*parking*</code>, <code>ParkingBridge</code> in HQC</td>
+<td>Service name, methods</td>
+</tr>
+</tbody>
+</table>
+<p>The HQC adapter's classes are the reference for each row:</p>
+<table>
+<thead>
+<tr>
+<th>HQC class</th>
+<th>Pattern to copy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HqcVersion</code></td>
+<td>Exact version match</td>
+</tr>
+<tr>
+<td><code>SdkBundleActivator</code></td>
+<td>Bundle entry point and lifecycle</td>
+</tr>
+<tr>
+<td><code>ConfiguratorCore</code>, <code>ChainingConfigurator</code></td>
+<td>Hooking the stock configurator chain</td>
+</tr>
+<tr>
+<td><code>HqcPlatform</code></td>
+<td><code>PlatformAdapter</code> implementation and feature set</td>
+</tr>
+<tr>
+<td><code>SdkBoot</code>, <code>SdkGlobals</code>, <code>SdkFiles</code></td>
+<td>Runtime boot and on-unit paths</td>
+</tr>
+<tr>
+<td><code>ServiceWaiter</code>, <code>RawServices</code></td>
+<td>Waiting for late stock services</td>
+</tr>
+<tr>
+<td><code>DsiServiceProxy</code>, <code>DsiConstants</code>, <code>BridgeListener</code></td>
+<td>DSI proxies and event pumps</td>
+</tr>
+<tr>
+<td><code>IgnitionBridge</code>, <code>ParkingBridge</code>, <code>HookBindings</code></td>
+<td>Events, parking and hooks</td>
+</tr>
+<tr>
+<td><code>ui/HqcUiIds</code>, <code>ui/TextIds</code>, <code>ui/InputTextIds</code></td>
+<td>Stock id tables</td>
+</tr>
+<tr>
+<td><code>ui/SdkCarActivator</code>, <code>ui/SdkCarScreenFactory</code>, <code>ui/SdkCarModelBank</code></td>
+<td>Car drawer and screens</td>
+</tr>
+<tr>
+<td><code>ui/SdkSystemActivator</code>, <code>ui/SdkSystemScreenFactory</code></td>
+<td>Plugins menu and status bar</td>
+</tr>
+<tr>
+<td><code>ui/PageScreens</code>, <code>ui/PageRenderer</code>, <code>ui/PageWidgets</code></td>
+<td>Page rendering</td>
+</tr>
+<tr>
+<td><code>ui/BarStatusLine</code>, <code>ui/StatusSinks</code>, <code>ui/StatusPopupController</code></td>
+<td>Status-line and popup paths</td>
+</tr>
+<tr>
+<td><code>ui/ConfirmScreen</code>, <code>ui/SliderScreen</code>, <code>ui/SpellerScreen</code></td>
+<td>Dialogs and inputs</td>
+</tr>
+<tr>
+<td><code>ui/UiApplier</code>, <code>ui/UiInputs</code>, <code>ui/HmiPoster</code></td>
+<td>Applying snapshots and input</td>
+</tr>
+</tbody>
+</table>
+<h3 id="how-to-find-a-class-you-only-know-by-behaviour">How to find a class you only know by behaviour<a class="headerlink" href="#how-to-find-a-class-you-only-know-by-behaviour" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Class names, without decompiling everything</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>unzip<span class="w"> </span>-l<span class="w"> </span>build/stock/lsd.jar<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span>statusbar
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># A string constant, a log line or a method name in the jar</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>zipgrep<span class="w"> </span>-a<span class="w"> </span><span class="s1">'PDC R OFF'</span><span class="w"> </span>build/stock/lsd.jar<span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1"># One class's full signature</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>javap<span class="w"> </span>-classpath<span class="w"> </span>build/stock/lsd.jar<span class="w"> </span>-p<span class="w"> </span>-c<span class="w"> </span>de.&lt;vendor&gt;.atip.displaymanager.DSIDisplayManagerControllerImpl
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="c1"># Decompile one package</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>cfr<span class="w"> </span>build/stock/lsd.jar<span class="w"> </span>--outputdir<span class="w"> </span>build/stock/src<span class="w"> </span>--jarfilter<span class="w"> </span><span class="s1">'de.&lt;vendor&gt;.atip.base.*'</span>
+</code></pre></div>
+<p>Prefer <code>javap</code> for facts and decompilers for shape. A decompiled name is a guess until the bytecode or the
+bench confirms it.</p>
+<h2 id="4-implement-the-adapter">4. Implement the adapter<a class="headerlink" href="#4-implement-the-adapter" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Copy the module shape.</strong> Create <code>adapter-&lt;name&gt;</code> with the same dependencies as <code>adapter-hqc</code>:
+   the stock <code>lsd.jar</code> and <code>DSITracer.jar</code>, <code>platform</code>, and the <code>mibsdk.car-library</code> convention.</li>
+<li><strong>Version gate first.</strong> Implement <code>supports</code> and make the SDK log <code>adapter=none</code> and stop on an
+   unknown build. Never fall through to an HMI you have not tested.</li>
+<li><strong>Boot.</strong> Register a bundle activator and a configurator chain. Prove that the SDK starts, logs its
+   <code>STATUS</code> lines and stops cleanly before you add UI.</li>
+<li><strong>Services.</strong> Wait for the framework access and the DSI services. Report features only when the
+   service is actually available. Handle services that arrive late: call <code>PlatformHost.featuresChanged()</code>.</li>
+<li><strong>UI, one path at a time:</strong> Plugins menu, page, Car row, status item, toast, confirm. Keep the id
+   tables in one class (<code>HqcUiIds</code> is the model) and never scatter raw stock ids.</li>
+<li><strong>Events and parking.</strong> Prove ignition and parking events, then the override and restore path.</li>
+<li><strong>Hooks last.</strong> Hooks depend on the DSI proxy and the stock thread model. Prove that no plugin code
+   runs on a stock thread.</li>
+</ol>
+<h3 id="what-not-to-do">What not to do<a class="headerlink" href="#what-not-to-do" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Do not let plugin code touch the manufacturer's stock packages or <code>org.dsi.*</code>. The class-loader allow-list
+  is the boundary.</li>
+<li>Do not shadow a stock class unless there is no other way. Every shadow is a firmware-specific liability.</li>
+<li>Do not run plugin code from a stock callback. Queue it on the plugin's worker.</li>
+<li>Do not assume a screen, model id or key code from another firmware. Measure it.</li>
+<li>Do not ship a stock jar, a decompiled class or an HMI image.</li>
+</ul>
+<h2 id="5-bench-loop">5. Bench loop<a class="headerlink" href="#5-bench-loop" title="Permanent link">&para;</a></h2>
+<p>The adapter is the one part that cannot be tested on the host fake. Use a bench unit:</p>
+<ol>
+<li><code>./gradlew :dist:assembleUnit</code> and <code>./gradlew :dist:mibpkgPackage</code>.</li>
+<li>Install the SDK with <code>installer/mibsdk-dev install &lt;unit-ip&gt;</code>.</li>
+<li>Watch <code>installer/mibsdk-dev log &lt;unit-ip&gt;</code> for <code>STATUS</code> lines and startup errors.</li>
+<li>Use <code>installer/mibsdk-dev ui-forcefail factory|screen|off</code> to prove the fallback paths.</li>
+<li>Capture the screen after every UI change. A screenshot is evidence that the stock HMI drew what you
+   think it did.</li>
+<li>Test safe mode: <code>installer/mibsdk-dev safe-mode on</code>, reboot, then <code>off</code>.</li>
+<li>Test a plugin that fails in <code>onEnable</code>, one that hangs, and one that is quarantined.</li>
+</ol>
+<h3 id="evidence-to-collect">Evidence to collect<a class="headerlink" href="#evidence-to-collect" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Version gate</td>
+<td>Unknown build logs <code>adapter=none</code> and loads no plugin</td>
+</tr>
+<tr>
+<td>Boot</td>
+<td>Warm and cold boot, no boot loop, clean stop</td>
+</tr>
+<tr>
+<td>Menu</td>
+<td>SDK entry, Plugins page, Car drawer row</td>
+</tr>
+<tr>
+<td>Pages</td>
+<td>Every row kind and input on the real HMI</td>
+</tr>
+<tr>
+<td>Status bar</td>
+<td>Text, icon, colour, contexts, pagination, icon-only</td>
+</tr>
+<tr>
+<td>Dialogs</td>
+<td>Confirm, speller, toast, BACK and timeout</td>
+</tr>
+<tr>
+<td>Parking</td>
+<td>Read, override, restore on disable and ignition-off</td>
+</tr>
+<tr>
+<td>Hooks</td>
+<td>Veto and observe, no plugin code on a stock thread</td>
+</tr>
+<tr>
+<td>Recovery</td>
+<td>Safe mode, failed restore retry, uninstall restores stock files</td>
+</tr>
+</tbody>
+</table>
+<h2 id="6-definition-of-done">6. Definition of done<a class="headerlink" href="#6-definition-of-done" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>supports</code> matches exactly the documented build; anything else makes the SDK stay off.</li>
+<li>Every <code>PlatformAdapter</code> method is implemented and tested.</li>
+<li>Every reported <code>Feature</code> is real at that boot; a missing service is reported as missing.</li>
+<li>Plugin code never runs on a stock thread.</li>
+<li>The adapter compiles against the stock jars and passes <code>linkCheck</code>.</li>
+<li><code>carJclSignatures</code> is regenerated and committed if the class library changed.</li>
+<li>A bench record exists for every UI path, with screenshots and a clean log.</li>
+<li>Safe mode and uninstall are tested.</li>
+<li>The docs say which build the adapter supports and what is still unproven.</li>
+</ul>
+<h2 id="7-tips-for-a-person-or-an-agent">7. Tips for a person or an agent<a class="headerlink" href="#7-tips-for-a-person-or-an-agent" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Start with the version gate and the boot chain. Do not read 30,000 classes first.</li>
+<li>Build a map with exact class names, method names and evidence. Update it after every bench run.</li>
+<li>Use <code>javap</code> to confirm a signature; use a decompiler to understand the shape.</li>
+<li>Check whether a class is in <code>lsd.jxe</code> or in a shadow jar. The first copy on the boot classpath wins.</li>
+<li>When a name looks meaningful (<code>StatusBarStubController</code>), verify it with the model id it writes.</li>
+<li>Keep every experiment on a branch and in the bench record. A second adapter is a long investigation.</li>
+<li>The repository's internal research notes show the shape of one such map: the onboard Java map and the
+  HMI UI injection notes. They describe the HQC build, not yours, but the questions and evidence style
+  transfer.</li>
+</ul>
+<h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../../explanation/firmware-support/">Firmware support</a></li>
+<li><a href="../stock-files/">Stock files</a></li>
+<li><a href="../../explanation/architecture/">Architecture</a></li>
+<li><a href="../../explanation/safety-model/">Safety model</a></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/complex256/mib2q-plugin-sdk" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

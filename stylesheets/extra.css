@@ -1,0 +1,18 @@
+/* Keep wide tables readable and code blocks from dominating the page. */
+.md-typeset table:not([class]) {
+  display: table;
+  width: 100%;
+}
+
+.md-typeset table:not([class]) th {
+  white-space: nowrap;
+}
+
+.md-typeset .admonition,
+.md-typeset details {
+  font-size: 0.9rem;
+}
+
+.md-typeset code {
+  word-break: break-word;
+}
