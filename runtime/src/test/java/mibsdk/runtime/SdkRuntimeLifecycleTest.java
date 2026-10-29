@@ -523,6 +523,10 @@ class SdkRuntimeLifecycleTest {
             public ParkingIo parking() {
                 return null;
             }
+
+            public mibsdk.platform.WifiIo wifi() {
+                return null;
+            }
         };
         start(null, broken);
         assertTrue(rt.statuses().isEmpty());

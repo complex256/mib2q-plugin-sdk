@@ -33,6 +33,14 @@ public final class Features {
      */
     public static final String UI_INPUTS = "ui.inputs";
 
+    /**
+     * The unit has the stock Wi-Fi service, so {@link PluginContext#wifi()} works and {@link Wifi} calls are live.
+     * Without it those calls throw {@link UnsupportedOperationException}. Needs api 7.
+     *
+     * @since api 7
+     */
+    public static final String WIFI = "network.wifi";
+
     private Features() {
     }
 }

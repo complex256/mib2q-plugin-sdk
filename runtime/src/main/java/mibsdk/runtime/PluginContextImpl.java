@@ -19,8 +19,10 @@ import mibsdk.api.Storage;
 import mibsdk.api.Subscription;
 import mibsdk.api.Ui;
 import mibsdk.api.Vehicle;
+import mibsdk.api.Wifi;
 import mibsdk.platform.HookTable;
 import mibsdk.platform.ParkingIo;
+import mibsdk.platform.WifiIo;
 
 /**
  * A plugin's view of the SDK. Every {@link Subscription} handed out (events, timers) is tracked in the
@@ -46,6 +48,11 @@ final class PluginContextImpl implements PluginContext {
     /** The adapter's parking I/O as of now, or null (no {@link Features#PARKING}, or the adapter failed). */
     interface ParkingSource {
         ParkingIo parkingIo();
+    }
+
+    /** The adapter's Wi-Fi I/O as of now, or null (no {@link Features#WIFI}, or the adapter failed). */
+    interface WifiSource {
+        WifiIo wifiIo();
     }
 
     /**
@@ -100,6 +107,7 @@ final class PluginContextImpl implements PluginContext {
     private final Set<String> declared;
     private final Hooks hooks;
     private final ParkingSource parkingSource;
+    private final WifiSource wifiSource;
     private final OverrideLedger ledger;
     private final Ui ui;
     private final Net net;
@@ -185,7 +193,7 @@ final class PluginContextImpl implements PluginContext {
     PluginContextImpl(String id, RingLog ringLog, PluginStorage storage, EventBus bus, SerialExecutor exec,
             PluginScheduler pluginScheduler, Registrations registrations, LiveFeatures features,
             Set<String> granted, Set<String> declared, HookTable hookTable, ParkingSource parking,
-            OverrideLedger ledger, UiHub uiHub, Clock clock, List<String> declaredIcons, File iconDir) {
+            WifiSource wifi, OverrideLedger ledger, UiHub uiHub, Clock clock, List<String> declaredIcons, File iconDir) {
         this.id = id;
         this.ringLog = ringLog;
         this.storage = storage;
@@ -198,6 +206,7 @@ final class PluginContextImpl implements PluginContext {
         this.declared = declared;
         this.hooks = new HooksImpl(hookTable, bus, id, exec, registrations, features, granted, declared);
         this.parkingSource = parking;
+        this.wifiSource = wifi;
         this.ledger = ledger;
         this.net = new NetImpl(granted, clock);
         this.ui = new UiImpl(id, uiHub, features, granted, declared, exec, registrations, declaredIcons, iconDir);
@@ -269,6 +278,16 @@ final class PluginContextImpl implements PluginContext {
     public Net net() {
         requirePermission(Permissions.NETWORK);
         return net;
+    }
+
+    @Override
+    public Wifi wifi() {
+        requirePermission(Permissions.NETWORK_WIFI);
+        WifiIo io = wifiSource == null ? null : wifiSource.wifiIo();
+        if (io == null) {
+            throw new UnsupportedOperationException("wifi is not available on this platform");
+        }
+        return new WifiImpl(id, io, bus, exec, registrations, granted);
     }
 
     @Override

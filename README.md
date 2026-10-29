@@ -73,7 +73,7 @@ refuses code that uses an undeclared permission.
 | Unit | **MHI2Q** (MIB2 High, QNX), the unit mibpkg calls `MHI2Q` |
 | HMI build | **`HMI_AU_MIB2_HQC_NAR_G22_C10_180803`** |
 | Package manager | mibpkg **0.9.1** or later |
-| Plugin API | 1 through 6 (SDK 0.5.0) |
+| Plugin API | 1 through 7 (SDK 0.6.2) |
 
 The firmware check is strict: on any other HMI build the SDK stays off and loads no plugins. Other MHI2
 variants, regions and other vehicle platforms need a new firmware adapter. See
@@ -138,7 +138,7 @@ See [Build and test](https://complex256.github.io/mib2q-plugin-sdk/contributing/
 
 ## Status
 
-- API 6, SDK 0.5.0. See [CHANGELOG.md](CHANGELOG.md).
+- API 7, SDK 0.6.2. See [CHANGELOG.md](CHANGELOG.md).
 - Verified on a bench unit. One car-readiness gate (parking override against a real PDC ECU) remains open.
 - Not compatible with some third-party phone-projection mods: both replace some of the same stock classes.
 

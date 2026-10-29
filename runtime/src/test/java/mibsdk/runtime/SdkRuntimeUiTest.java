@@ -213,7 +213,7 @@ class SdkRuntimeUiTest {
         UiSnapshot s = r.await(x -> x.pages().containsKey("mibsdk/sdk"), "publishes the SDK page");
         assertEquals("Plugins", s.carRows().get(0).label());
         assertEquals("", s.statusLine());
-        assertTrue(hasInfo(s, "mibsdk/sdk", "API 6 · adapter " + r.fake.id()));
+        assertTrue(hasInfo(s, "mibsdk/sdk", "API 7 · adapter " + r.fake.id()));
         assertTrue(hasInfo(s, "mibsdk/sdk", "Safe mode: off"));
         assertTrue(hasInfo(s, "mibsdk/sdk", "Boot guard: ok"));
 

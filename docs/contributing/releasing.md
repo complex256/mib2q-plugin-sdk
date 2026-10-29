@@ -38,7 +38,7 @@ The SDK follows semver. Bench builds may carry a `+bench.N` tag, but they are no
 8. **Tag and push:**
 
    ```sh
-   git tag v0.5.0
+   git tag v0.6.0
    git push origin main --tags
    ```
 

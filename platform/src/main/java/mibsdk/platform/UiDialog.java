@@ -20,9 +20,15 @@ public final class UiDialog {
     private final String yes;
     private final String no;
     private final int maxLen;
+    private final boolean secret;
 
     public UiDialog(long seq, int kind, String ownerPageKey, String title, String text, String yes, String no,
                     int maxLen) {
+        this(seq, kind, ownerPageKey, title, text, yes, no, maxLen, false);
+    }
+
+    public UiDialog(long seq, int kind, String ownerPageKey, String title, String text, String yes, String no,
+                    int maxLen, boolean secret) {
         this.seq = seq;
         this.kind = kind;
         this.ownerPageKey = ownerPageKey;
@@ -31,6 +37,7 @@ public final class UiDialog {
         this.yes = yes;
         this.no = no;
         this.maxLen = maxLen;
+        this.secret = secret;
     }
 
     /** Increases with every dialog the runtime opens; the answer names it. */
@@ -70,5 +77,14 @@ public final class UiDialog {
     /** A speller's longest text; 0 for a confirm. */
     public int maxLen() {
         return maxLen;
+    }
+
+    /**
+     * True when a speller's field must mask its characters (a password). The answer is still the real text.
+     *
+     * @since api 7
+     */
+    public boolean secret() {
+        return secret;
     }
 }

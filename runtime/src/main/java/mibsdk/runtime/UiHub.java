@@ -143,6 +143,7 @@ final class UiHub {
     /** Owners removed and not registered again: their stray contributions are ignored. */
     private final Set<String> removedOwners = new HashSet<String>();
     private List<UiPage> sdkPages = Collections.<UiPage>emptyList();
+    private Set<String> sdkPageKeys = Collections.<String>emptySet();
     private List<String> indicators = Collections.<String>emptyList();
     private String pluginsRowLabel = DEFAULT_PLUGINS_LABEL;
     private int statusMaxChars = DEFAULT_STATUS_MAX_CHARS;
@@ -441,8 +442,13 @@ final class UiHub {
     void setSdkPages(List<UiPage> pages) {
         List<UiPage> copy = pages == null ? Collections.<UiPage>emptyList()
                 : Collections.unmodifiableList(new ArrayList<UiPage>(pages));
+        Set<String> keys = new HashSet<String>();
+        for (int i = 0; i < copy.size(); i++) {
+            keys.add(((UiPage) copy.get(i)).key());
+        }
         synchronized (lock) {
             sdkPages = copy;
+            sdkPageKeys = Collections.unmodifiableSet(keys);
             for (int i = 0; i < copy.size(); i++) {
                 pageChanged((UiPage) copy.get(i));
             }
@@ -542,6 +548,15 @@ final class UiHub {
      */
     long requestDialog(String owner, int kind, String title, String text, String yes, String no, int maxLen,
             Listener<UiAction> l, SerialExecutor exec) {
+        return requestDialog(owner, kind, title, text, yes, no, maxLen, false, l, exec);
+    }
+
+    /**
+     * As above, with {@code secret} selecting the field's password mode. Only {@code secret} spellers are affected;
+     * a confirm never uses it.
+     */
+    long requestDialog(String owner, int kind, String title, String text, String yes, String no, int maxLen,
+            boolean secret, Listener<UiAction> l, SerialExecutor exec) {
         checkOwner(owner);
         boolean speller = kind == UiDialog.SPELLER;
         String t = UiText.clean(title, PageSpec.MAX_TITLE);
@@ -558,7 +573,39 @@ final class UiHub {
             } else {
                 seq = ++dialogSeq;
                 dialog = new DialogRec(new UiDialog(seq, speller ? UiDialog.SPELLER : UiDialog.CONFIRM, shown, t,
-                        body, y, n, speller ? maxLen : 0), owner, rec.pageId, l, exec);
+                        body, y, n, speller ? maxLen : 0, speller && secret), owner, rec.pageId, l, exec);
+            }
+        }
+        if (seq == 0) {
+            answer(l, exec, speller, null, 0, null);
+        } else {
+            changed();
+        }
+        return seq;
+    }
+
+    /**
+     * Opens a dialog over the SDK's own shown page. The SDK pages are not registered as an owner, so this is the
+     * reserved-owner counterpart of {@link #requestDialog}; the answer names the SDK page key. Returns 0 and answers
+     * at once when no SDK page is shown or another dialog is up.
+     */
+    long requestSdkDialog(int kind, String title, String text, String yes, String no, int maxLen, boolean secret,
+            Listener<UiAction> l, SerialExecutor exec) {
+        boolean speller = kind == UiDialog.SPELLER;
+        String t = UiText.clean(title, PageSpec.MAX_TITLE);
+        String body = speller ? UiText.cut(text, maxLen) : confirmText(text);
+        String y = speller ? null : rowLabel(yes, "Yes");
+        String n = speller ? null : rowLabel(no, "No");
+        long seq;
+        synchronized (lock) {
+            String shown = shownPageKey;
+            boolean sdkShown = shown != null && shown.startsWith(SDK_OWNER + "/") && sdkPageKeys.contains(shown);
+            if (!sdkShown || dialog != null) {
+                seq = 0;
+            } else {
+                seq = ++dialogSeq;
+                dialog = new DialogRec(new UiDialog(seq, speller ? UiDialog.SPELLER : UiDialog.CONFIRM, shown, t,
+                        body, y, n, speller ? maxLen : 0, speller && secret), SDK_OWNER, shown, l, exec);
             }
         }
         if (seq == 0) {

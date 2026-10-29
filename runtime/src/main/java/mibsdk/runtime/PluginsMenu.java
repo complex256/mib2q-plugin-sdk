@@ -23,6 +23,7 @@ final class PluginsMenu {
 
     static final String PLUGINS_KEY = UiHub.PLUGINS_KEY;
     static final String SDK_KEY = UiHub.SDK_OWNER + "/sdk";
+    static final String WIFI_KEY = UiHub.SDK_OWNER + "/wifi";
     static final String PLUGIN_KEY_PREFIX = UiHub.SDK_OWNER + "/plugin.";
     static final String ENABLED_ENTRY = "enabled";
     static final String RESET_ENTRY = "reset";
@@ -33,6 +34,17 @@ final class PluginsMenu {
     static final String BAR_ENABLED_ENTRY = "statusbar.enabled";
     static final String DWELL_ENTRY = "statusbar.dwell";
     static final String ANIMATE_ENTRY = "statusbar.animate";
+    /** The core Internet page: the uplink switch, a manual name, a scan, and one row per found network. */
+    static final String WIFI_ENABLED_ENTRY = "wifi.enabled";
+    static final String WIFI_SCAN_ENTRY = "wifi.scan";
+    static final String WIFI_MANUAL_ENTRY = "wifi.manual";
+    static final String WIFI_FORGET_ENTRY = "wifi.forget";
+    static final String WIFI_NET_PREFIX = "wifi.net.";
+    static final String WIFI_DHCP_ENTRY = "wifi.dhcp";
+    static final String WIFI_IP_ENTRY = "wifi.ip";
+    static final String WIFI_NETMASK_ENTRY = "wifi.netmask";
+    static final String WIFI_GATEWAY_ENTRY = "wifi.gateway";
+    static final String WIFI_DNS_ENTRY = "wifi.dns";
 
     /**
      * What the plugin pages need for the status-item rows: {@code eligible}, the plugins that have a status item or
@@ -52,7 +64,10 @@ final class PluginsMenu {
     static final class Action {
         enum Kind {
             ENABLE, DISABLE, RESET_BOOT_GUARD, STATUS_SHOW, STATUS_HIDE, STATUS_EARLIER, STATUS_LATER,
-            DWELL_NEXT, ANIMATE_NEXT, STATUS_BAR_ENABLE, STATUS_BAR_DISABLE, NONE
+            DWELL_NEXT, ANIMATE_NEXT, STATUS_BAR_ENABLE, STATUS_BAR_DISABLE,
+            WIFI_ENABLE, WIFI_DISABLE, WIFI_SCAN, WIFI_MANUAL, WIFI_FORGET, WIFI_CONNECT,
+            WIFI_DHCP_ENABLE, WIFI_DHCP_DISABLE, WIFI_EDIT_IP, WIFI_EDIT_NETMASK, WIFI_EDIT_GATEWAY,
+            WIFI_EDIT_DNS, NONE
         }
 
         static final Action NONE = new Action(Kind.NONE, null);
@@ -106,6 +121,7 @@ final class PluginsMenu {
             out.add(pluginPage(p, m == null ? null : m.get(p.id()), keys, pageTitles, off, s, g, sc));
         }
         out.add(sdkPage(s));
+        out.add(wifiPage(s));
         return out;
     }
 
@@ -156,6 +172,43 @@ final class PluginsMenu {
         if (in.kind() == UiInput.TOGGLE_REQUESTED && SDK_KEY.equals(key) && BAR_ENABLED_ENTRY.equals(entry)) {
             return in.on() ? new Action(Action.Kind.STATUS_BAR_ENABLE, null)
                     : new Action(Action.Kind.STATUS_BAR_DISABLE, null);
+        }
+        if (WIFI_KEY.equals(key)) {
+            if (in.kind() == UiInput.TOGGLE_REQUESTED && WIFI_ENABLED_ENTRY.equals(entry)) {
+                return in.on() ? new Action(Action.Kind.WIFI_ENABLE, null)
+                        : new Action(Action.Kind.WIFI_DISABLE, null);
+            }
+            if (in.kind() == UiInput.TOGGLE_REQUESTED && WIFI_DHCP_ENTRY.equals(entry)) {
+                return in.on() ? new Action(Action.Kind.WIFI_DHCP_ENABLE, null)
+                        : new Action(Action.Kind.WIFI_DHCP_DISABLE, null);
+            }
+            if (in.kind() == UiInput.ENTRY_SELECTED) {
+                if (WIFI_IP_ENTRY.equals(entry)) {
+                    return new Action(Action.Kind.WIFI_EDIT_IP, null);
+                }
+                if (WIFI_NETMASK_ENTRY.equals(entry)) {
+                    return new Action(Action.Kind.WIFI_EDIT_NETMASK, null);
+                }
+                if (WIFI_GATEWAY_ENTRY.equals(entry)) {
+                    return new Action(Action.Kind.WIFI_EDIT_GATEWAY, null);
+                }
+                if (WIFI_DNS_ENTRY.equals(entry)) {
+                    return new Action(Action.Kind.WIFI_EDIT_DNS, null);
+                }
+                if (WIFI_SCAN_ENTRY.equals(entry)) {
+                    return new Action(Action.Kind.WIFI_SCAN, null);
+                }
+                if (WIFI_MANUAL_ENTRY.equals(entry)) {
+                    return new Action(Action.Kind.WIFI_MANUAL, null);
+                }
+                if (WIFI_FORGET_ENTRY.equals(entry)) {
+                    return new Action(Action.Kind.WIFI_FORGET, null);
+                }
+                if (entry.startsWith(WIFI_NET_PREFIX)) {
+                    return new Action(Action.Kind.WIFI_CONNECT,
+                            entry.substring(WIFI_NET_PREFIX.length()));
+                }
+            }
         }
         if (in.kind() == UiInput.ENTRY_SELECTED && SDK_KEY.equals(key)) {
             if (RESET_ENTRY.equals(entry)) {
@@ -278,6 +331,7 @@ final class PluginsMenu {
     private static UiPage sdkPage(SdkState s) {
         List<UiEntry> e = new ArrayList<UiEntry>();
         e.add(info("API " + SdkInfo.API_VERSION + " · adapter " + s.adapterId));
+        e.add(link("wifi", "Internet", s.wifi.line(), WIFI_KEY));
         e.add(info("Safe mode: " + (s.safeMode ? "on (" + s.safeReason + ")" : "off")));
         e.add(info("Boot guard: " + (s.guardInert ? "inert" : "ok")));
         if (s.safeMode && !s.resetOffered()) {
@@ -298,7 +352,65 @@ final class PluginsMenu {
         return page(SDK_KEY, "SDK", e);
     }
 
+    /** The core Internet page: status, the uplink switch, a manual name, a scan and its results. */
+    private static UiPage wifiPage(SdkState s) {
+        List<UiEntry> e = new ArrayList<UiEntry>();
+        WifiView w = s.wifi;
+        e.add(info("Internet: " + w.line()));
+        if (!w.available) {
+            e.add(info("The car's Wi-Fi service is not available"));
+            e.add(info("A SIM or another uplink may still work"));
+            return page(WIFI_KEY, "Internet", e);
+        }
+        e.add(new UiEntry(UiEntry.TOGGLE, WIFI_ENABLED_ENTRY, "Use Wi-Fi for internet", null, w.enabled, null));
+        e.add(new UiEntry(UiEntry.TOGGLE, WIFI_DHCP_ENTRY, "Use DHCP", null, w.dhcp, null));
+        if (w.dhcp) {
+            e.add(info("Address: automatic (DHCP)"));
+            e.add(info("IP: " + dash(w.ipv4)));
+            e.add(info("Netmask: " + dash(w.liveNetmask)));
+            e.add(info("Gateway: " + dash(w.liveGateway)));
+            e.add(info("DNS: " + dash(w.liveDns)));
+        } else {
+            e.add(new UiEntry(UiEntry.ITEM, WIFI_IP_ENTRY, "IP address", w.ip.length() == 0 ? "not set" : w.ip, false,
+                    null));
+            e.add(new UiEntry(UiEntry.ITEM, WIFI_NETMASK_ENTRY, "Netmask",
+                    w.netmask.length() == 0 ? "not set" : w.netmask, false, null));
+            e.add(new UiEntry(UiEntry.ITEM, WIFI_GATEWAY_ENTRY, "Gateway",
+                    w.gateway.length() == 0 ? "not set" : w.gateway, false, null));
+            e.add(new UiEntry(UiEntry.ITEM, WIFI_DNS_ENTRY, "DNS", w.dns.length() == 0 ? "car default" : w.dns, false,
+                    null));
+            if (w.ipv4.length() > 0) {
+                e.add(info("Current: " + w.ipv4 + " · " + dash(w.liveNetmask) + " · gw " + dash(w.liveGateway)
+                        + " · DNS " + dash(w.liveDns)));
+            }
+        }
+        e.add(info(w.savedSsid.length() == 0 ? "No network saved" : "Saved network: " + w.savedSsid));
+        e.add(new UiEntry(UiEntry.ITEM, WIFI_MANUAL_ENTRY, "Enter network name", null, false, null));
+        e.add(new UiEntry(UiEntry.ITEM, WIFI_SCAN_ENTRY, w.scanning ? "Scanning..." : "Scan for networks", null,
+                false, null));
+        int shown = 0;
+        for (int i = 0; i < w.networks.size() && shown < 8 && e.size() < PageSpec.MAX_ENTRIES - 3; i++) {
+            mibsdk.api.WifiNetwork n = (mibsdk.api.WifiNetwork) w.networks.get(i);
+            String name = n.ssid().length() == 0 ? "(hidden network)" : n.ssid();
+            String value = (n.encryption().length() == 0 ? "unknown" : n.encryption()) + " · " + n.signal() + "%";
+            if (n.ssid().length() > 0 && n.ssid().equals(w.savedSsid)) {
+                name = name + " *";
+            }
+            e.add(new UiEntry(UiEntry.ITEM, WIFI_NET_PREFIX + i, name, value, false, null));
+            shown++;
+        }
+        if (w.savedSsid.length() > 0) {
+            e.add(new UiEntry(UiEntry.ITEM, WIFI_FORGET_ENTRY, "Forget saved network", null, false, null));
+        }
+        e.add(info("The password is stored on this unit only"));
+        return page(WIFI_KEY, "Internet", e);
+    }
+
     // ---- helpers ----
+
+    private static String dash(String s) {
+        return s == null || s.length() == 0 ? "—" : s;
+    }
 
     /** The manifest name, else the id. */
     private static String name(PluginStatus p, PluginManifest m) {

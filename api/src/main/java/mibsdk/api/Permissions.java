@@ -35,6 +35,13 @@ public final class Permissions {
      */
     public static final String NETWORK_OUTBOUND = "network.outbound";
 
+    /**
+     * Use the Wi-Fi client uplink: {@link PluginContext#wifi()}.
+     *
+     * @since api 7
+     */
+    public static final String NETWORK_WIFI = "network.wifi";
+
     private Permissions() {
     }
 }

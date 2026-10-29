@@ -108,6 +108,11 @@ public final class FakePlatform implements PlatformAdapter {
         return parking;
     }
 
+    @Override
+    public mibsdk.platform.WifiIo wifi() {
+        return null;
+    }
+
     /**
      * Simulates the adapter learning (or losing) features after start, e.g. a DSI service that arrived late:
      * replaces {@link #features()} and, if started, calls {@link PlatformHost#featuresChanged()}.

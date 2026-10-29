@@ -4,6 +4,35 @@ All notable changes to the SDK package and the plugin API. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver as mibpkg compares them.
 Bench builds carried a `+bench.N` tag and are not releases.
 
+## 0.6.2 — 2026-10-29
+
+### Fixed
+
+- A failed hotspot join no longer clears the current lease before the new association completes. The
+  adapter keeps the old address until `wpa_cli` reports `COMPLETED`, waits for DHCP then, and does not
+  re-select a network that is already scanning or associating. A wrong SSID/password therefore cannot
+  leave the unit with `0.0.0.0` and no route.
+
+## 0.6.0 — 2026-10-29
+
+Plugin API 1–7.
+
+### Added
+
+- **The phone-hotspot uplink is core.** The SDK's own **Plugins → SDK → Internet** page sets the Wi-Fi
+  network and password in the car, turns the uplink on or off, scans, and shows the current state. The same
+  settings live in `wifi.toml` under the persist root, so mibpkg's web UI edits the same file. On first run
+  the uplink is on when no SIM uplink is present. The same page chooses DHCP or a manual IPv4 address,
+  netmask, gateway and optional DNS; with DHCP on it shows the live IP, netmask, gateway and DNS. The car's
+  own access point stays up: the stock service runs the access point and the client together. When the stock
+  DSI backend acknowledges a connect without moving `mlan0`, the adapter falls back to the same `wpa_cli` the
+  bench uses.
+- **`network.wifi` (api 7).** `ctx.wifi()` exposes `status()`, `scan(ms)`, `connect(ssid, password)`,
+  `disconnect()`, `forget(ssid)` and `onChanged(...)`, with `WifiStatus`, `WifiNetwork` and `WifiChanged`.
+  `Features.WIFI` says whether the stock Wi-Fi service is present.
+- **Secret text input (api 7).** `ui().textInput(title, initial, maxLen, secret, onDone)` accepts up to 64
+  characters and, with `secret`, masks the field through the stock Wi-Fi password input mode.
+
 ## 0.5.0 — 2026-10-28
 
 ### Added

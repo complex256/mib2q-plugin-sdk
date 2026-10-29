@@ -111,13 +111,16 @@ class PermissionMessageTest {
         // the context directly: network is declared but not effective, vehicle.read is neither.
         Set<String> declared = new HashSet<String>(Arrays.asList("network"));
         PluginContextImpl ctx = new PluginContextImpl("p", null, null, null, null, null, new Registrations(),
-                new LiveFeatures(new HashSet<String>()), new HashSet<String>(), declared, null, null, null, null,
+                new LiveFeatures(new HashSet<String>()), new HashSet<String>(), declared, null, null, null, null, null,
                 null, Collections.<String>emptyList(), null);
 
         PermissionDeniedException net = assertThrows(PermissionDeniedException.class, ctx::net);
         assertEquals(PermissionDeniedException.class, net.getClass());
         assertEquals("permission not granted: network", net.getMessage());
         assertEquals("network", net.permission());
+
+        PermissionDeniedException wifi = assertThrows(PermissionDeniedException.class, ctx::wifi);
+        assertEquals("permission not declared in plugin.json: network.wifi", wifi.getMessage());
 
         PermissionDeniedException vehicle = assertThrows(PermissionDeniedException.class, ctx::vehicle);
         assertEquals(UndeclaredPermissionException.class, vehicle.getClass());

@@ -59,6 +59,13 @@ public interface Ui {
     int MAX_SPELLER = 32;
 
     /**
+     * The largest {@link #textInput} {@code maxLen}. Fits a WPA2 passphrase. Needs api 7.
+     *
+     * @since api 7
+     */
+    int MAX_TEXT_INPUT = 64;
+
+    /**
      * Registers a page under this plugin's Plugins-menu entry; actions arrive on the plugin's executor. A plugin has
      * at most {@link #MAX_PAGES} pages live at once. Inert without Features.UI_PAGES.
      *
@@ -186,4 +193,13 @@ public interface Ui {
      * @since api 5
      */
     Subscription speller(String title, String initial, int maxLen, Listener<UiAction> onDone);
+
+    /**
+     * As {@link #speller(String, String, int, Listener)}, with an optional secret field. {@code maxLen} is
+     * 1..{@link #MAX_TEXT_INPUT}. When {@code secret} is true the field masks its characters (the car's password
+     * input mode); {@link UiAction#text()} still returns the real text. A page may offer its own Save row. Needs api 7.
+     *
+     * @since api 7
+     */
+    Subscription textInput(String title, String initial, int maxLen, boolean secret, Listener<UiAction> onDone);
 }

@@ -34,7 +34,7 @@ order the first time; later, use the [guides](../guides/pages-and-inputs.md) and
 
 ## The short version
 
-The examples use SDK **0.5.0**. If you already have a working unit and a JDK:
+The examples use SDK **0.6.2**. If you already have a working unit and a JDK:
 
 ```sh
 git clone https://github.com/complex256/mib2q-plugin-sdk.git

@@ -28,10 +28,13 @@ import mibsdk.api.ParkingSoundChanged;
 import mibsdk.api.Permissions;
 import mibsdk.api.PluginContext;
 import mibsdk.api.Subscription;
+import mibsdk.api.Ui;
+import mibsdk.api.UiAction;
 import mibsdk.platform.HookTable;
 import mibsdk.platform.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
+import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiTable;
@@ -205,6 +208,10 @@ public final class SdkRuntime {
     private final UserToggles toggles;
     /** The built-in bar's settings (enabled, dwell, animation, item order, hidden items); one file. */
     private volatile StatusBarConfig statusBar;
+    /** The core Wi-Fi uplink ({@code wifi.toml}); control thread. Null before start() or when the adapter failed. */
+    private WifiManager wifiManager;
+    /** The SSID a password dialog is currently for; control thread only. */
+    private String wifiPendingSsid;
     /** Set on the control thread once the initial plugin load ran; reload() is deferred until then. */
     private volatile boolean pluginsLoaded;
     private PluginScheduler timer; // posts to the control executor; guarded by this
@@ -292,6 +299,13 @@ public final class SdkRuntime {
     private final PluginContextImpl.ParkingSource parkingSource = new PluginContextImpl.ParkingSource() {
         public ParkingIo parkingIo() {
             return SdkRuntime.this.parkingIo();
+        }
+    };
+
+    /** What plugin contexts ask for the adapter's Wi-Fi I/O, on their first {@code wifi()} call. */
+    private final PluginContextImpl.WifiSource wifiSource = new PluginContextImpl.WifiSource() {
+        public mibsdk.platform.WifiIo wifiIo() {
+            return SdkRuntime.this.wifiIo();
         }
     };
 
@@ -424,6 +438,16 @@ public final class SdkRuntime {
             log.append("ERROR", SOURCE, "adapter failed to start, no plugins will load: " + describe(e));
         }
         if (adapterStarted) {
+            wifiManager = new WifiManager(cfg.wifiFile(), cfg.wifiStatusFile(), new WifiManager.Source() {
+                public mibsdk.platform.WifiIo io() {
+                    return wifiIo();
+                }
+            }, log, clock, new Runnable() {
+                public void run() {
+                    requestUiRefresh();
+                }
+            });
+            wifiManager.start();
             startUiDispatcher(); // also in safe mode: the SDK's own pages take input
         }
         if (safeMode && adapterStarted) {
@@ -1154,8 +1178,8 @@ public final class SdkRuntime {
         h.exec = new SerialExecutor("plugin-" + h.id, clock, cfg.slowMs(), cfg.hungMs(), executorListener(h));
         h.scheduler = new PluginScheduler(h.exec, clock);
         h.ctx = new PluginContextImpl(h.id, log, h.storage, bus, h.exec, h.scheduler, h.registrations, features,
-                effectivePermissions(m), declaredPermissions(m), hooks, parkingSource, ledger, uiHub, clock, m.icons(),
-                cfg.pluginIconDir(h.id));
+                effectivePermissions(m), declaredPermissions(m), hooks, parkingSource, wifiSource, ledger, uiHub, clock,
+                m.icons(), cfg.pluginIconDir(h.id));
         EnableHook hook = testEnableHook;
         if (hook != null) {
             hook.afterResources(h.id);
@@ -1392,6 +1416,15 @@ public final class SdkRuntime {
         }
     }
 
+    private mibsdk.platform.WifiIo wifiIo() {
+        try {
+            return features.has(Features.WIFI) ? platform.wifi() : null;
+        } catch (Throwable t) {
+            log.append("ERROR", SOURCE, "adapter wifi() failed: " + describe(t));
+            return null;
+        }
+    }
+
     /**
      * IgnitionChanged(false) after an IgnitionChanged(true) of this run marks a clean shutdown in boot.state,
      * before publish returns: the unit may lose power any time after the ignition goes off. The one write per
@@ -1573,6 +1606,45 @@ public final class SdkRuntime {
             statusBar = statusBar.withEnabled(on);
             saveStatusBar();
             log.append("INFO", SOURCE, "Plugins menu: status bar " + (on ? "on" : "off"));
+        } else if (a.kind == PluginsMenu.Action.Kind.WIFI_ENABLE || a.kind == PluginsMenu.Action.Kind.WIFI_DISABLE) {
+            if (wifiManager != null) {
+                wifiManager.setEnabled(a.kind == PluginsMenu.Action.Kind.WIFI_ENABLE);
+                log.append("INFO", SOURCE, "Plugins menu: Wi-Fi uplink "
+                        + (a.kind == PluginsMenu.Action.Kind.WIFI_ENABLE ? "on" : "off"));
+            }
+        } else if (a.kind == PluginsMenu.Action.Kind.WIFI_SCAN) {
+            if (wifiManager != null) {
+                wifiManager.scanAsync();
+            }
+        } else if (a.kind == PluginsMenu.Action.Kind.WIFI_FORGET) {
+            if (wifiManager != null) {
+                wifiManager.forget();
+                log.append("INFO", SOURCE, "Plugins menu: Wi-Fi network forgotten");
+            }
+        } else if (a.kind == PluginsMenu.Action.Kind.WIFI_DHCP_ENABLE
+                || a.kind == PluginsMenu.Action.Kind.WIFI_DHCP_DISABLE) {
+            if (wifiManager != null) {
+                wifiManager.setDhcp(a.kind == PluginsMenu.Action.Kind.WIFI_DHCP_ENABLE);
+                log.append("INFO", SOURCE, "Plugins menu: Wi-Fi address "
+                        + (a.kind == PluginsMenu.Action.Kind.WIFI_DHCP_ENABLE ? "DHCP" : "manual"));
+            }
+        } else if (a.kind == PluginsMenu.Action.Kind.WIFI_EDIT_IP
+                || a.kind == PluginsMenu.Action.Kind.WIFI_EDIT_NETMASK
+                || a.kind == PluginsMenu.Action.Kind.WIFI_EDIT_GATEWAY
+                || a.kind == PluginsMenu.Action.Kind.WIFI_EDIT_DNS) {
+            editWifiField(a.kind);
+        } else if (a.kind == PluginsMenu.Action.Kind.WIFI_MANUAL) {
+            openWifiText("Wi-Fi network name", "", Ui.MAX_SPELLER, false, new Listener<UiAction>() {
+                public void on(UiAction answer) {
+                    String ssid = answer == null || answer.text() == null ? "" : answer.text().trim();
+                    if (ssid.length() == 0) {
+                        return;
+                    }
+                    askWifiPassword(ssid, "");
+                }
+            });
+        } else if (a.kind == PluginsMenu.Action.Kind.WIFI_CONNECT) {
+            connectWifiRow(a.id);
         } else if (a.kind == PluginsMenu.Action.Kind.ENABLE || a.kind == PluginsMenu.Action.Kind.DISABLE) {
             boolean off = a.kind == PluginsMenu.Action.Kind.DISABLE;
             toggles.setOff(a.id, off);
@@ -1593,6 +1665,104 @@ public final class SdkRuntime {
                 }
             }
         }
+    }
+
+    /** Opens the editor for one static field, pre-filled with the saved value. Control thread. */
+    private void editWifiField(PluginsMenu.Action.Kind kind) {
+        WifiManager wm = wifiManager;
+        if (wm == null) {
+            return;
+        }
+        WifiView v = wm.view();
+        if (kind == PluginsMenu.Action.Kind.WIFI_EDIT_IP) {
+            editWifiField("ip", "IP address", v.ip, 15);
+        } else if (kind == PluginsMenu.Action.Kind.WIFI_EDIT_NETMASK) {
+            editWifiField("netmask", "Netmask", v.netmask, 15);
+        } else if (kind == PluginsMenu.Action.Kind.WIFI_EDIT_GATEWAY) {
+            editWifiField("gateway", "Gateway", v.gateway, 15);
+        } else if (kind == PluginsMenu.Action.Kind.WIFI_EDIT_DNS) {
+            editWifiField("dns", "DNS server", v.dns, Ui.MAX_TEXT_INPUT);
+        }
+    }
+
+    private void editWifiField(final String field, String title, String initial, int maxLen) {
+        openWifiText(title, initial, maxLen, false, new Listener<UiAction>() {
+            public void on(UiAction answer) {
+                String value = answer == null || answer.text() == null ? "" : answer.text().trim();
+                WifiManager wm = wifiManager;
+                if (wm == null) {
+                    return;
+                }
+                if (!wm.setAddress(field, value)) {
+                    log.append("WARN", SOURCE, "Wi-Fi " + field + " '" + value + "' is not a valid IPv4 address");
+                }
+            }
+        });
+    }
+
+    /** Opens a text field over the SDK's shown page (the Internet page). Control thread. */
+    private void openWifiText(String title, String initial, int maxLen, boolean secret, Listener<UiAction> done) {
+        UiHub hub = uiHub;
+        SerialExecutor c = control;
+        if (hub == null || c == null || isStopped()) {
+            return;
+        }
+        hub.requestSdkDialog(UiDialog.SPELLER, title, initial == null ? "" : initial, null, null, maxLen, secret,
+                done, c);
+    }
+
+    /** Asks for the password of {@code ssid}, then saves and joins it. Control thread. */
+    private void askWifiPassword(final String ssid, String initial) {
+        wifiPendingSsid = ssid;
+        openWifiText("Wi-Fi password", initial, Ui.MAX_TEXT_INPUT, true, new Listener<UiAction>() {
+            public void on(UiAction answer) {
+                WifiManager wm = wifiManager;
+                if (wm == null) {
+                    return;
+                }
+                String password = answer == null || answer.text() == null ? "" : answer.text();
+                if (password.length() == 0) {
+                    password = wm.passwordFor(ssid);
+                }
+                wm.connect(ssid, password, true);
+                wifiPendingSsid = null;
+            }
+        });
+    }
+
+    /** A row on the Internet page: join the network, asking for its password when it is secured. Control thread. */
+    private void connectWifiRow(String index) {
+        WifiManager wm = wifiManager;
+        if (wm == null || index == null) {
+            return;
+        }
+        int i;
+        try {
+            i = Integer.parseInt(index);
+        } catch (NumberFormatException e) {
+            return;
+        }
+        java.util.List<mibsdk.api.WifiNetwork> nets = wm.networks();
+        if (i < 0 || i >= nets.size()) {
+            return;
+        }
+        mibsdk.api.WifiNetwork n = nets.get(i);
+        if (n.ssid().length() == 0) {
+            openWifiText("Wi-Fi network name", "", Ui.MAX_SPELLER, false, new Listener<UiAction>() {
+                public void on(UiAction answer) {
+                    String ssid = answer == null || answer.text() == null ? "" : answer.text().trim();
+                    if (ssid.length() > 0) {
+                        askWifiPassword(ssid, "");
+                    }
+                }
+            });
+            return;
+        }
+        if (!n.secured()) {
+            wm.connect(n.ssid(), "", false);
+            return;
+        }
+        askWifiPassword(n.ssid(), wm.passwordFor(n.ssid()));
     }
 
     /**
@@ -1701,6 +1871,10 @@ public final class SdkRuntime {
             return;
         }
         try {
+            WifiManager wm = wifiManager;
+            if (wm != null) {
+                wm.poll();
+            }
             List<PluginStatus> st = statuses();
             Map<String, PluginManifest> manifests = manifestsById();
             Map<String, List<String>> pageKeys = new HashMap<String, List<String>>();
@@ -1717,7 +1891,8 @@ public final class SdkRuntime {
                 }
             }
             SdkState s = new SdkState(safeMode, safeReason, bootGuard.inert(), resetRequested, adapterId,
-                    ledger.active(), statusBar.dwellMs(), statusBar.animateMs(), statusBar.enabled());
+                    ledger.active(), statusBar.dwellMs(), statusBar.animateMs(), statusBar.enabled(),
+                    wm == null ? WifiView.NONE : wm.view());
             int hidden = PluginsMenu.rootOverflow(st.size(), s);
             if (hidden > 0 && !overflowLogged) {
                 overflowLogged = true;

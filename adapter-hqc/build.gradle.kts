@@ -39,6 +39,7 @@ val hostStockJar = tasks.register<HostStockJarTask>("hostStockJar") {
         "org/dsi/ifc/base/",
         "org/dsi/ifc/carparkingsystem/",
         "org/dsi/ifc/global/",
+        "org/dsi/ifc/networking/",
         "org/dsi/ifc/powermanagement/",
         "de/audi/tghu/dsitrace/",
         // UI (Car activator, bank, models, drawer widgets): the UI tests construct them on the host.

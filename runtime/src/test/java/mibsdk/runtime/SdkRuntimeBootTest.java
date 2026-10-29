@@ -180,11 +180,11 @@ class SdkRuntimeBootTest {
     void newerApiIsBlockedInvalidNotFailed() throws Exception {
         plugin("hello");
         jars.writeRaw(new File(plugins, "future.jar"), "package fx; public class Main {}",
-                "{\"id\":\"future\",\"version\":\"1\",\"api\":7,\"main\":\"fx.Main\",\"permissions\":[]}");
+                "{\"id\":\"future\",\"version\":\"1\",\"api\":8,\"main\":\"fx.Main\",\"permissions\":[]}");
         start("plugin.start.delay.ms=0\nheap.low.bytes=0\n");
         awaitState("hello", PluginState.ENABLED);
         assertEquals(PluginState.BLOCKED_INVALID, status("future").state());
-        assertTrue(status("future").reason().contains("unsupported api 7"), status("future").reason());
+        assertTrue(status("future").reason().contains("unsupported api 8"), status("future").reason());
         int failed = 0;
         for (PluginStatus s : rt.statuses()) {
             if (s.state() == PluginState.FAILED) {
@@ -582,6 +582,10 @@ class SdkRuntimeBootTest {
 
             public mibsdk.platform.ParkingIo parking() {
                 return inner.parking();
+            }
+
+            public mibsdk.platform.WifiIo wifi() {
+                return inner.wifi();
             }
         };
         runtime("plugin.start.delay.ms=30000\nheap.low.bytes=0\n", late).start();

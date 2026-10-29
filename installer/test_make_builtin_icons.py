@@ -111,6 +111,7 @@ def load_tool():
 HELLO_MENU_ICONS = os.path.join(REPO, "plugins", "hello-menu", "src", "main", "icons")
 
 
+@unittest.skipUnless(os.path.isdir(os.path.join(REPO, "plugins", "hello-menu", "src", "main", "icons")), "hello-menu moved to mib2q-plugins")
 class PluginSampleTest(unittest.TestCase):
     def test_left_white_right_blue(self):
         out = load_tool().plugin_sample()
@@ -128,6 +129,7 @@ class PluginSampleTest(unittest.TestCase):
 BIKE_RACK_ICONS = os.path.join(REPO, "plugins", "bike-rack", "src", "main", "icons")
 
 
+@unittest.skipUnless(os.path.isdir(os.path.join(REPO, "plugins", "bike-rack", "src", "main", "icons")), "bike-rack moved to mib2q-plugins")
 class PluginBikeRackTest(unittest.TestCase):
     def test_writes_the_bike_rack_icons(self):
         with tempfile.TemporaryDirectory() as t:
@@ -157,6 +159,7 @@ INPUTS_DEMO_ICONS = os.path.join(REPO, "plugins", "inputs-demo", "src", "main", 
 
 
 class InputsDemoTest(unittest.TestCase):
+    @unittest.skipUnless(os.path.isdir(INPUTS_DEMO_ICONS), "inputs-demo moved to mib2q-plugins")
     def test_committed_icon_is_tool_output(self):
         with tempfile.TemporaryDirectory() as t:
             run("--inputs-demo", t)

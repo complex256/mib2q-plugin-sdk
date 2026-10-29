@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import mibsdk.api.OverrideScope;
+import mibsdk.api.WifiStatus;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
@@ -117,8 +118,9 @@ class PluginsMenuTest {
         UiEntry sdk = root.entries().get(6);
         assertEquals("SDK", sdk.label());
         assertEquals("mibsdk/sdk", sdk.targetPageKey());
-        assertEquals("mibsdk/sdk", pages.get(pages.size() - 1).key());
-        assertEquals(8, pages.size());
+        assertEquals("mibsdk/sdk", page(pages, "mibsdk/sdk").key());
+        assertEquals("mibsdk/wifi", page(pages, "mibsdk/wifi").key());
+        assertEquals(9, pages.size());
 
         UiPage a = page(pages, "mibsdk/plugin.a");
         assertEquals("Name A", a.title());
@@ -153,6 +155,24 @@ class PluginsMenuTest {
     }
 
     @Test
+    void wifiPageShowsDhcpLeaseDetails() throws Exception {
+        WifiConfig cfg = new WifiConfig(true, "the valley", "pw", true, "", "", "", "");
+        WifiView wifi = new WifiView(true, true, false, WifiStatus.CONNECTED, "the valley", "192.168.141.125", "",
+                "the valley", Collections.<mibsdk.api.WifiNetwork>emptyList(), cfg, "255.255.0.0", "192.168.50.1",
+                "192.168.10.11");
+        SdkState s = new SdkState(false, null, false, false, "hqc", Collections.<ActiveOverride>emptyList(), 4000, 300,
+                true, wifi);
+        UiPage p = page(pages(Collections.<PluginStatus>emptyList(), null, null, s, grants("")), "mibsdk/wifi");
+        assertNotNull(p);
+        List<String> info = labels(p, UiEntry.INFO);
+        assertTrue(info.contains("Address: automatic (DHCP)"), info.toString());
+        assertTrue(info.contains("IP: 192.168.141.125"), info.toString());
+        assertTrue(info.contains("Netmask: 255.255.0.0"), info.toString());
+        assertTrue(info.contains("Gateway: 192.168.50.1"), info.toString());
+        assertTrue(info.contains("DNS: 192.168.10.11"), info.toString());
+    }
+
+    @Test
     void safeModeHeaderAndSdkPage() throws Exception {
         SdkState safe = new SdkState(true, "unhealthy-boots", true, false, "hqc",
                 Arrays.asList(new ActiveOverride("parking.soundDirections", "pdc", OverrideScope.PERSISTENT,
@@ -167,7 +187,7 @@ class PluginsMenuTest {
         UiPage sdk = page(pages, "mibsdk/sdk");
         assertEquals("SDK", sdk.title());
         List<String> info = labels(sdk, UiEntry.INFO);
-        assertEquals("API 6 · adapter hqc", info.get(0));
+        assertEquals("API 7 · adapter hqc", info.get(0));
         assertEquals("Safe mode: on (unhealthy-boots)", info.get(1));
         assertEquals("Boot guard: inert", info.get(2));
         assertTrue(info.contains("Override: parking.soundDirections=F1R0L1X1 by pdc (PERSISTENT, restoring)"), info.toString());

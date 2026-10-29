@@ -24,7 +24,7 @@ runtime reads the copy at the jar root.
 | `name` | Yes | Free text shown in the Plugins menu and in mibpkg |
 | `version` | Yes | Semver: `1.2.3` or `1.2.3-beta.1`. mibpkg uses it to order updates |
 | `author` | Yes | Free text. Read by the runtime; ignored by the build |
-| `api` | Yes | Integer 1–6: the newest plugin API your code uses |
+| `api` | Yes | Integer 1–7: the newest plugin API your code uses |
 | `main` | Yes | Fully qualified class that extends `mibsdk.api.MibPlugin` |
 | `permissions` | No | Array of permission ids from [`api/permissions.json`](https://github.com/complex256/mib2q-plugin-sdk/blob/main/api/permissions.json) |
 | `icons` | No | Array of icon names, `[a-z0-9-]{1,32}`, at most 8. Needs `"api": 3` or higher. Each needs `src/main/icons/<name>.png` |
@@ -39,7 +39,7 @@ runtime reads the copy at the jar root.
 - missing `id`, `name`, `version`, `main`;
 - an id outside the rule above, or `mibsdk`;
 - a version that is not semver;
-- an `api` outside 1–6, or a non-integer;
+- an `api` outside 1–7, or a non-integer;
 - an unknown permission, with a "did you mean" hint;
 - an invalid, duplicate or excessive icon name;
 - `"icons"` with an api below 3;

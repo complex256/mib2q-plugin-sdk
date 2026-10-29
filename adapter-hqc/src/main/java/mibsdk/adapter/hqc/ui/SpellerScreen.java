@@ -17,6 +17,7 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.SpellerController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.TouchController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.factories.SpellerControllerFactory;
 import de.esolutions.hmi.widgets.audi.evo.widgets.factories.TouchControllerFactory;
+import mibsdk.adapter.hqc.DsiConstants;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuController;
 import mibsdk.platform.UiDialog;
 
@@ -69,6 +70,15 @@ final class SpellerScreen {
         field.setTouchControllerScreenLevel(HqcUiIds.SPELLER_SCREEN_LEVEL);
         field.setWidgetID(HqcUiIds.SPELLER_WIDGET_ID);
         field.setOpenSpellerOnOtherScreen(false);
+        if (d.secret()) {
+            // the stock Wi-Fi password field: masks its characters, and the typed text is still delivered. The
+            // constant is read at run time: the jxe2jar jar's constant is byte-swapped and javac would inline it.
+            int mode = DsiConstants.get("de.esolutions.hmi.widgets.audi.evo.widgets.TouchController",
+                    "MODE_PASSWORD_INPUT_WLAN_CLIENT");
+            if (mode >= 0) {
+                field.setTouchpadMode(mode);
+            }
+        }
         field.setSpeller(band);
         field.add(stubA, HqcUiIds.SPELLER_STUB_A_LAYER);
         field.add(stubB, HqcUiIds.SPELLER_STUB_B_LAYER);

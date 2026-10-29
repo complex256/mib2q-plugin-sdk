@@ -27,6 +27,7 @@ plugin's worker thread.
 | `events()` | `Events` | — |
 | `ui()` | `Ui` | — (individual calls need slot permissions) |
 | `net()` | `Net` | `network`; `network.outbound` for non-loopback hosts |
+| `wifi()` | `Wifi` | `network.wifi` |
 | `vehicle()` | `Vehicle` | `vehicle.read` |
 | `hooks()` | `Hooks` | `hooks.parking` |
 | `has(feature)` | Whether this unit supports a feature | — |
@@ -57,6 +58,18 @@ Start with [Pages and inputs](../guides/pages-and-inputs.md) and [Status line](.
 | `Listener<E>` | A callback that may throw |
 
 Start with [Storage and timers](../guides/storage-and-timers.md).
+
+## Wi-Fi
+
+| Type | Role |
+|---|---|
+| `Wifi` | The Wi-Fi client uplink: `status`, `scan`, `connect`, `disconnect`, `forget`, `onChanged` |
+| `WifiStatus` | State, SSID, BSSID, IPv4, signal and last error |
+| `WifiNetwork` | One scan result: SSID, BSSID, signal and security |
+| `WifiChanged` | A state change, delivered on the worker |
+
+The car's own access point stays up: the stock service runs the access point and the client together.
+Start with [Networking](../guides/networking.md#wi-fi-uplink).
 
 ## Vehicle
 

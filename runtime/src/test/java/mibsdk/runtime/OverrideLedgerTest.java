@@ -1899,5 +1899,9 @@ class OverrideLedgerTest {
                 }
             };
         }
+
+        public mibsdk.platform.WifiIo wifi() {
+            return inner.wifi();
+        }
     }
 }

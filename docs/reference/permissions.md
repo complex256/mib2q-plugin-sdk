@@ -14,6 +14,7 @@ they do not stop a plugin that sets out to do harm.
 | `ui.slot.statusbar` | `Ui.statusItem`, `Ui.toast` | Show an item in the status bar |
 | `network` | `ctx.net()` for loopback | Query local services on this unit (loopback only) |
 | `network.outbound` | `ctx.net()` for non-loopback hosts | Connect to hosts outside this unit |
+| `network.wifi` | `ctx.wifi()` | Use the Wi-Fi client uplink to connect to a phone hotspot or another network |
 | `platform.unrestricted` | Reflection, raw sockets, stock classes | Unrestricted: may use reflection and stock HMI classes; the SDK cannot contain it |
 
 The source of truth is [`api/permissions.json`](https://github.com/complex256/mib2q-plugin-sdk/blob/main/api/permissions.json).

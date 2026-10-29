@@ -29,20 +29,29 @@ final class SdkState {
     final int animateMs;
     /** The user's "Status bar" switch: false falls back to the popup ({@link StatusBarConfig#enabled()}). */
     final boolean statusBarEnabled;
+    /** The core Wi-Fi uplink; {@link WifiView#NONE} when the runtime has no manager. */
+    final WifiView wifi;
 
     SdkState(boolean safeMode, String safeReason, boolean guardInert, boolean resetRequested, String adapterId,
             List<ActiveOverride> overrides) {
         this(safeMode, safeReason, guardInert, resetRequested, adapterId, overrides,
-                StatusBarConfig.DEFAULT_DWELL_MS, StatusBarConfig.DEFAULT_ANIMATE_MS, true);
+                StatusBarConfig.DEFAULT_DWELL_MS, StatusBarConfig.DEFAULT_ANIMATE_MS, true, WifiView.NONE);
     }
 
     SdkState(boolean safeMode, String safeReason, boolean guardInert, boolean resetRequested, String adapterId,
             List<ActiveOverride> overrides, int dwellMs, int animateMs) {
-        this(safeMode, safeReason, guardInert, resetRequested, adapterId, overrides, dwellMs, animateMs, true);
+        this(safeMode, safeReason, guardInert, resetRequested, adapterId, overrides, dwellMs, animateMs, true,
+                WifiView.NONE);
     }
 
     SdkState(boolean safeMode, String safeReason, boolean guardInert, boolean resetRequested, String adapterId,
             List<ActiveOverride> overrides, int dwellMs, int animateMs, boolean statusBarEnabled) {
+        this(safeMode, safeReason, guardInert, resetRequested, adapterId, overrides, dwellMs, animateMs,
+                statusBarEnabled, WifiView.NONE);
+    }
+
+    SdkState(boolean safeMode, String safeReason, boolean guardInert, boolean resetRequested, String adapterId,
+            List<ActiveOverride> overrides, int dwellMs, int animateMs, boolean statusBarEnabled, WifiView wifi) {
         this.safeMode = safeMode;
         this.safeReason = safeReason;
         this.guardInert = guardInert;
@@ -53,6 +62,7 @@ final class SdkState {
         this.dwellMs = dwellMs;
         this.animateMs = animateMs;
         this.statusBarEnabled = statusBarEnabled;
+        this.wifi = wifi == null ? WifiView.NONE : wifi;
     }
 
     /** Count-based safe mode (not forced by the SAFE_MODE marker): the SDK page may offer a boot-guard reset. */

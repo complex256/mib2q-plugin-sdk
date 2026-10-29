@@ -113,6 +113,10 @@ class AdapterSelectorTest {
             public ParkingIo parking() {
                 return null;
             }
+
+            public mibsdk.platform.WifiIo wifi() {
+                return null;
+            }
         };
         FakePlatform match = new FakePlatform(SUPPORTED, new HashSet<String>());
         assertSame(match, AdapterSelector.select(SUPPORTED, new PlatformAdapter[] {broken, null, match}));

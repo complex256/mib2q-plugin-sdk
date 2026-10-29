@@ -45,6 +45,13 @@ public interface PluginContext {
     Net net();
 
     /**
+     * The Wi-Fi client uplink. Needs the {@code network.wifi} permission.
+     *
+     * @since api 7
+     */
+    Wifi wifi();
+
+    /**
      * Whether the running firmware adapter supports a feature.
      *
      * @param feature one of the {@link Features} constants

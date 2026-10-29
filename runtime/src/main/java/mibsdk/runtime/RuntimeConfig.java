@@ -172,6 +172,20 @@ public final class RuntimeConfig {
         return new File(roots.persist(), "plugins.properties");
     }
 
+    /**
+     * Persistent: the core Wi-Fi uplink ({@link WifiConfig}), also editable from mibpkg's web UI.
+     *
+     * @since api 7
+     */
+    public File wifiFile() {
+        return new File(roots.persist(), "wifi.toml");
+    }
+
+    /** RAM: the Wi-Fi uplink status mibpkg reads ({@link WifiManager}). */
+    public File wifiStatusFile() {
+        return new File("/tmp/mibpkg.wifi.status");
+    }
+
     /** Persistent, legacy: the old status-line order/hidden file, imported once into {@link #statusBarFile()}. */
     public File statusPrefsFile() {
         return new File(roots.persist(), "statusline.properties");

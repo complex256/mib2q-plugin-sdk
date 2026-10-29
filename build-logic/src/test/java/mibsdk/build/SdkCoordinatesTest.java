@@ -28,7 +28,7 @@ class SdkCoordinatesTest {
     @Test
     void permissionCatalogHasEveryIdOfApiPermissionsJson() {
         Map<String, String> catalog = SdkCoordinates.permissionCatalog();
-        assertEquals(8, catalog.size());
+        assertEquals(9, catalog.size());
         for (String id : new String[] {"vehicle.read", "vehicle.parking.write", "hooks.parking", "ui.slot.carmenu",
                 "ui.slot.statusbar", "network.outbound"}) {
             assertTrue(catalog.containsKey(id), id);

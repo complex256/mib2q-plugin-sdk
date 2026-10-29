@@ -127,6 +127,10 @@ public final class ApiLevels {
         put(UI_COLOR, "rgba", "(IIII)Lmibsdk/api/UiColor;", 6, "UiColor.rgba");
         put(UI_COLOR, "of", "(I)Lmibsdk/api/UiColor;", 6, "UiColor.of");
         put(UI_COLOR, "argb", "()I", 6, "UiColor.argb");
+
+        // Api 7: the core Wi-Fi uplink and the wider secret text input.
+        put(CONTEXT, "wifi", "()Lmibsdk/api/Wifi;", 7, "PluginContext.wifi");
+        put(UI, "textInput", "(" + S + S + "IZLmibsdk/api/Listener;)Lmibsdk/api/Subscription;", 7, "Ui.textInput");
     }
 
     private static void put(String owner, String name, String desc, int api, String label) {

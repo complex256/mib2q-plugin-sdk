@@ -51,8 +51,8 @@ class PermissionCatalogTest {
         for (String[] e : entries()) {
             ids.add(e[0]);
         }
-        assertEquals(8, constants.size());
-        assertEquals(8, ids.size());
+        assertEquals(9, constants.size());
+        assertEquals(9, ids.size());
         assertEquals(constants.size(), new java.util.HashSet<String>(ids).size(), "duplicate ids");
         assertTrue(ids.containsAll(constants), "missing from json: " + constants);
         assertTrue(constants.containsAll(ids), "unknown in json: " + ids);

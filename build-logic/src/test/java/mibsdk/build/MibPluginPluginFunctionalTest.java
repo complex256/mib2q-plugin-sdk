@@ -52,7 +52,7 @@ class MibPluginPluginFunctionalTest {
         repo = new File(System.getProperty("mibsdk.repoRoot")).getCanonicalFile();
         String r = repo.getPath().replace('\\', '/');
         write("settings.gradle.kts", "rootProject.name = \"tk\"\n"
-                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:undeclared\", \"plugins:badperm\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api7\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:colour3\", \"plugins:colour4\", \"plugins:inputs4\", \"plugins:inputs5\", \"plugins:tested\", \"plugins:regex\", \"plugins:lambdaop\", \"plugin-test\")\n"
+                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:undeclared\", \"plugins:badperm\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api8\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:colour3\", \"plugins:colour4\", \"plugins:inputs4\", \"plugins:inputs5\", \"plugins:tested\", \"plugins:regex\", \"plugins:lambdaop\", \"plugin-test\")\n"
                 + "project(\":compat\").projectDir = file(\"" + r + "/compat\")\n"
                 + "project(\":api\").projectDir = file(\"" + r + "/api\")\n"
                 + "project(\":plugins:hello\").projectDir = file(\"" + r + "/plugins/hello\")\n"
@@ -98,7 +98,7 @@ class MibPluginPluginFunctionalTest {
                 + "  }\n"
                 + "}\n", "[]");
 
-        for (String[] a : new String[][] {{"api2", "2"}, {"api0", "0"}, {"api7", "7"}, {"apifrac", "1.5"}}) {
+        for (String[] a : new String[][] {{"api2", "2"}, {"api0", "0"}, {"api8", "8"}, {"apifrac", "1.5"}}) {
             javaPlugin(a[0], "sample.refl.ReflPlugin", "package sample.refl;\n"
                     + "import mibsdk.api.*;\n"
                     + "public class ReflPlugin extends MibPlugin {\n"
@@ -555,7 +555,7 @@ class MibPluginPluginFunctionalTest {
 
     @Test
     void apiOutOfRangeOrNonIntegerFailsBuild() {
-        for (String id : new String[] {"api0", "api7", "apifrac"}) {
+        for (String id : new String[] {"api0", "api8", "apifrac"}) {
             String out = runner(":plugins:" + id + ":mibPluginJar").buildAndFail().getOutput();
             String want = id.equals("apifrac") ? "api must be an integer" : "unsupported api";
             assertTrue(out.contains(want), id + ": " + out);

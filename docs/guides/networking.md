@@ -51,6 +51,48 @@ from a plugin. Options:
 The SDK does not ship an HTTP client. If you need one, build the request string yourself, or add a local
 daemon that speaks a simple protocol.
 
+## Wi-Fi uplink
+
+The SDK itself owns the car's internet uplink. The user sets a phone hotspot from **Plugins → SDK →
+Internet** on the car, or from **More → Internet** in mibpkg's web UI. Both edit the same file,
+`/mnt/persist/mibsdk/wifi.toml`, and the SDK applies a change within a second. The same page chooses
+**DHCP** (the default) or a manual IPv4 address, netmask, gateway and optional DNS servers. The SDK
+runs the stock `dhcp.client` itself when the interface has no address, so a reboot does not need a
+manual DHCP kick. With DHCP on, the Internet page also shows the live IP, netmask, gateway and DNS
+from the lease. The car's own access point
+stays up while the client is connected: the stock Wi-Fi service runs the access point and the client
+together. There is no SIM requirement and no extra daemon.
+
+A plugin can use the same uplink with `ctx.wifi()` and the `network.wifi` permission:
+
+```java
+if (ctx.has(Features.WIFI)) {
+    WifiStatus s = ctx.wifi().status();
+    if (!s.connected()) {
+        for (WifiNetwork n : ctx.wifi().scan(5000)) {
+            ctx.log().info(n.ssid() + " " + n.signal() + "% " + n.encryption());
+        }
+    }
+}
+```
+
+| Call | Meaning |
+|---|---|
+| `status()` | The last state, SSID, IPv4, signal and error |
+| `scan(ms)` | A blocking scan; the result is strongest first |
+| `connect(ssid, password)` | Join a network; the result arrives as `WifiChanged` |
+| `disconnect()` | Leave the current network |
+| `forget(ssid)` | Remove a saved network |
+| `onChanged(listener)` | State changes on the plugin's worker |
+
+`connect` and `disconnect` return at once. A password may be null or empty for an open network. Wi-Fi
+scan and connect are the only blocking calls; keep the timeout short on the worker. The API does not
+expose radio settings, the access point, or WPS.
+
+`wifi.toml` also takes `dhcp = false` with `ip`, `netmask`, `gateway` and `dns`; the car page and the
+web page edit the same fields. The SDK's own page and this API never print the saved password. mibpkg's
+web page returns only whether one is set.
+
 ## Patterns
 
 ### Poll a daemon on a schedule
@@ -96,6 +138,7 @@ ctx.scheduler().after(0, () -> {
 |---|---|
 | `network` | Query local services on this unit (loopback only) |
 | `network.outbound` | Connect to hosts outside this unit |
+| `network.wifi` | Use the Wi-Fi client uplink to connect to a phone hotspot or another network |
 
 A plugin that declares a permission but is not granted it is `BLOCKED_PERMISSIONS` and does not start.
 A plugin with `network` but without `network.outbound` can still use loopback; a remote call throws

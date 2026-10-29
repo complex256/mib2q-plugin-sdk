@@ -29,6 +29,9 @@ class ApiLevelsTest {
         assertEquals(6, ApiLevels.since("mibsdk/api/UiColor", "rgb", "(III)Lmibsdk/api/UiColor;"));
         assertEquals(6, ApiLevels.since("mibsdk/api/StatusItem", "visibleIn", "([I)V"));
         assertEquals(6, ApiLevels.since("mibsdk/api/StatusItem", "setIcon", "(Lmibsdk/api/Icon;)V"));
+        assertEquals(7, ApiLevels.since("mibsdk/api/PluginContext", "wifi", "()Lmibsdk/api/Wifi;"));
+        assertEquals(7, ApiLevels.since("mibsdk/api/Ui", "textInput",
+                "(Ljava/lang/String;Ljava/lang/String;IZLmibsdk/api/Listener;)Lmibsdk/api/Subscription;"));
     }
 
     private static final Pattern TAG = Pattern.compile("^\\s*\\*\\s*@since api (\\d+)\\s*$");
@@ -100,7 +103,7 @@ class ApiLevelsTest {
             }
         }
         assertEquals(List.of(), missing);
-        assertEquals(70, checked, "the scan found the tagged members (update this number deliberately"
+        assertEquals(72, checked, "the scan found the tagged members (update this number deliberately"
                 + " when the API grows): " + checked);
     }
 
@@ -157,6 +160,7 @@ class ApiLevelsTest {
             case "Icon": return "Lmibsdk/api/Icon;";
             case "Ui": return "Lmibsdk/api/Ui;";
             case "Net": return "Lmibsdk/api/Net;";
+            case "Wifi": return "Lmibsdk/api/Wifi;";
             case "Boolean": return "Ljava/lang/Boolean;";
             case "Integer": return "Ljava/lang/Integer;";
             case "List": return "Ljava/util/List;";

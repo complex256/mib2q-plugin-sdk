@@ -245,7 +245,7 @@ final class UiImpl implements Ui {
         if (!dialogs()) {
             return inertAnswer(onAnswer, new UiAction(null, null, null, new Integer(0), null), "ui:confirm");
         }
-        return dialog(UiDialog.CONFIRM, title, text, yes, no, 0, onAnswer);
+        return dialog(UiDialog.CONFIRM, title, text, yes, no, 0, false, onAnswer);
     }
 
     @Override
@@ -270,7 +270,18 @@ final class UiImpl implements Ui {
         if (!dialogs()) {
             return inertAnswer(onDone, new UiAction(null, null, null, null, null), "ui:speller");
         }
-        return dialog(UiDialog.SPELLER, title, initial, null, null, maxLen, onDone);
+        return dialog(UiDialog.SPELLER, title, initial, null, null, maxLen, false, onDone);
+    }
+
+    @Override
+    public Subscription textInput(String title, String initial, int maxLen, boolean secret, Listener<UiAction> onDone) {
+        if (maxLen < 1 || maxLen > MAX_TEXT_INPUT) {
+            throw new IllegalArgumentException("maxLen must be 1.." + MAX_TEXT_INPUT + ", not " + maxLen);
+        }
+        if (!dialogs()) {
+            return inertAnswer(onDone, new UiAction(null, null, null, null, null), "ui:textInput");
+        }
+        return dialog(UiDialog.SPELLER, title, initial, null, null, maxLen, secret, onDone);
     }
 
     /** The unit shows confirm and speller (fixed for a boot). */
@@ -284,7 +295,7 @@ final class UiImpl implements Ui {
      * it comes back cancelled, unanswered.
      */
     private Subscription dialog(int kind, String title, String text, String yes, String no, int maxLen,
-            final Listener<UiAction> l) {
+            boolean secret, final Listener<UiAction> l) {
         final AnswerHandle h = new AnswerHandle(this);
         Listener<UiAction> gated = l == null ? null : new Listener<UiAction>() {
             public void on(UiAction a) throws Exception {
@@ -298,7 +309,7 @@ final class UiImpl implements Ui {
                 h.cancel();
                 return h;
             }
-            h.seq = hub.requestDialog(pluginId, kind, title, text, yes, no, maxLen, gated, exec);
+            h.seq = hub.requestDialog(pluginId, kind, title, text, yes, no, maxLen, secret, gated, exec);
         }
         return h;
     }

@@ -12,8 +12,10 @@ import mibsdk.api.Features;
 import mibsdk.platform.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
+import mibsdk.platform.WifiIo;
 import mibsdk.runtime.Clock;
 import org.dsi.ifc.carparkingsystem.DSICarParkingSystem;
+import org.dsi.ifc.networking.DSIWLAN;
 import org.dsi.ifc.powermanagement.DSIPowerManagement;
 import org.osgi.framework.BundleContext;
 
@@ -56,6 +58,9 @@ public final class HqcPlatform implements PlatformAdapter {
     private ServiceWaiter waiter; // guarded by this
     private UiApplier ui; // guarded by this
     private volatile ParkingBridge parking;
+    private volatile WifiBridge wifi;
+    /** True once the stock Wi-Fi service is attached; contributes {@link Features#WIFI}. */
+    private volatile boolean wifiReady;
 
     public HqcPlatform(BundleContext ctx) {
         this(ctx, null);
@@ -96,10 +101,18 @@ public final class HqcPlatform implements PlatformAdapter {
      */
     public Set<String> features() {
         boolean hooked = SdkGlobals.wrappingEnabled && RawServices.get(DSICarParkingSystem.class.getName()) != null;
+        Set<String> base;
         if (SdkGlobals.uiEnabled) {
-            return hooked ? FEATURES_HOOKED_UI : FEATURES_UI;
+            base = hooked ? FEATURES_HOOKED_UI : FEATURES_UI;
+        } else {
+            base = hooked ? FEATURES_HOOKED : FEATURES;
         }
-        return hooked ? FEATURES_HOOKED : FEATURES;
+        if (!wifiReady) {
+            return base;
+        }
+        Set<String> withWifi = new HashSet<String>(base);
+        withWifi.add(Features.WIFI);
+        return Collections.unmodifiableSet(withWifi);
     }
 
     /**
@@ -115,10 +128,12 @@ public final class HqcPlatform implements PlatformAdapter {
         EventPump p = new EventPump("hqc-events", host, EVENT_QUEUE);
         final ParkingBridge pb = new ParkingBridge(p);
         final IgnitionBridge ib = new IgnitionBridge(p);
+        final WifiBridge wb = new WifiBridge(p);
         ServiceWaiter w = new ServiceWaiter(ctx, clock);
         pump = p;
         parking = pb;
         ignition = ib;
+        wifi = wb;
         waiter = w;
         p.start();
         w.await(DSICarParkingSystem.class.getName(), RETRY_MS, new ServiceWaiter.Callback() {
@@ -131,6 +146,14 @@ public final class HqcPlatform implements PlatformAdapter {
         w.await(DSIPowerManagement.class.getName(), RETRY_MS, new ServiceWaiter.Callback() {
             public void onAvailable(Object service) {
                 ib.attach(service);
+            }
+        });
+        w.await(DSIWLAN.class.getName(), RETRY_MS, new ServiceWaiter.Callback() {
+            public void onAvailable(Object service) {
+                wb.attach(service);
+                wifiReady = true;
+                SdkGlobals.LOG.append("INFO", "mibsdk.hqc", "wifi seam: " + SdkBoot.seamLine());
+                host.featuresChanged();
             }
         });
         if (SdkGlobals.uiEnabled) {
@@ -170,15 +193,19 @@ public final class HqcPlatform implements PlatformAdapter {
         IgnitionBridge ib;
         EventPump p;
         UiApplier u;
+        WifiBridge wb;
         synchronized (this) {
             w = waiter;
             pb = parking;
             ib = ignition;
             p = pump;
             u = ui;
+            wb = wifi;
             waiter = null;
             ignition = null;
             ui = null;
+            wifi = null;
+            wifiReady = false;
         }
         if (w != null) {
             w.stop();
@@ -192,6 +219,9 @@ public final class HqcPlatform implements PlatformAdapter {
         if (ib != null) {
             ib.detach();
         }
+        if (wb != null) {
+            wb.detach();
+        }
         if (p != null) {
             p.stop();
         }
@@ -200,5 +230,10 @@ public final class HqcPlatform implements PlatformAdapter {
     /** The parking bridge once started; null before. */
     public ParkingIo parking() {
         return parking;
+    }
+
+    /** The Wi-Fi bridge once started and the service available; null before. */
+    public WifiIo wifi() {
+        return wifiReady ? wifi : null;
     }
 }

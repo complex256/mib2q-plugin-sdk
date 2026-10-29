@@ -19,4 +19,11 @@ public interface PlatformAdapter {
 
     /** Null if the adapter does not provide {@code Features.PARKING}. */
     ParkingIo parking();
+
+    /**
+     * Null if the adapter does not provide {@code Features.WIFI}.
+     *
+     * @since api 7
+     */
+    WifiIo wifi();
 }
