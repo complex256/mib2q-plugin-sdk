@@ -87,12 +87,16 @@ place (the SDK already writes `boot.state` and `ledger.properties` there).
 - `runtime/.../StatusBarItems.java` — merges registered items: user order first, then priority/sequence.
 - `StatusBarConfigTest` — defaults, round-trip, clamping, order dedupe, merge order.
 - `adapter-hqc/.../BarStatusLine.java` — attaches lazily through the terminal widget registry, creates the
-  clipped `CompositeRendererHigh` viewport (200x24) in the right group and writes the text line. It reports
-  `available()` only after attachment; before that it throws so `StatusSinks` falls back to the popups.
+  clipped `CompositeRendererHigh` viewport (200x24) in the right group, builds one row per status part
+  (indicators + items) from `StatusLayout` and swaps the visible row every `StatusBarConfig.dwellMs()`.
+  Built-in icons keep their own colours. It reports `available()` only after attachment; before that it
+  throws so `StatusSinks` falls back to the popups.
 - `StatusSinks`/`UiApplier.create` — bar first, then SDK popup 609600, then popup 65.
 
-Still to come in the host: the row list (one row per item), custom file-backed icons, per-item RGBA colour,
-the dwell/animation page timer, and the Plugins -> Status bar settings page.
+Still to come in the host: custom file-backed icons, per-item RGBA colour and the animated slide (the
+viewport is clipped and the rows share bounds, so the swap is ready to become a vertical translation).
+The global order UI already exists in `PluginsMenu` (per-plugin status toggle + move earlier/later); the
+remaining settings page only needs dwell/animation rows on the SDK page and the config save.
 
 ## Next steps
 
