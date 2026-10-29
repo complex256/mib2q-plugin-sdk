@@ -20,7 +20,7 @@
 - No owner name, personal email or home-directory path in any committed file (this includes generated files and error messages).
 - The car JCL signature list carries names, flags, supertypes and member names/descriptors only, never bytecode.
 - Every task updates the README / `docs/guide/first-plugin.md` text its change makes wrong, in the same commit, and marks its bump fixed in `docs/guide/developer-bumps.md` (add `**Status:** fixed in <task>` under the bump heading).
-- Gates before every commit: `./gradlew check`, `./gradlew :build-logic:test`, `python3 -m unittest discover -s installer -p 'test_*.py'`. Commit with `git -c user.name=complex256 -c user.email=me@complex256.dev commit`, message ending `Co-Authored-By: <model> <noreply@anthropic.com>`.
+- Gates before every commit: `./gradlew check`, `./gradlew :build-logic:test`, `python3 -m unittest discover -s installer -p 'test_*.py'`. Commit with `git -c user.name=complex256 -c user.email=me@complex256.dev commit`; do not add an AI co-author trailer (DeepSeek is not Anthropic, and a wrong trailer is worse than none).
 - Host only: no SSH to any unit, no bench, no car.
 
 ## Review Focus
