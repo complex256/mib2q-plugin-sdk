@@ -4,6 +4,7 @@
 /spikes/*/build/
 .gradle/
 .kotlin/
+.venv/
 .superpowers/
 *.class
 spikes/modern-java/tools/

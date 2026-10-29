@@ -1,6 +1,10 @@
 package mibsdk.api;
 
-/** Which directions the parking sound plays in. Immutable. */
+/**
+ * Which directions the parking sound plays in. Immutable.
+ *
+ * @since api 1
+ */
 public final class SoundDirections {
 
     private final boolean front;
@@ -8,6 +12,12 @@ public final class SoundDirections {
     private final boolean left;
     private final boolean right;
 
+    /**
+     * @param front front tones
+     * @param rear rear tones
+     * @param left left tones
+     * @param right right tones
+     */
     public SoundDirections(boolean front, boolean rear, boolean left, boolean right) {
         this.front = front;
         this.rear = rear;
@@ -15,22 +25,32 @@ public final class SoundDirections {
         this.right = right;
     }
 
+    /** Whether front tones play. */
     public boolean front() {
         return front;
     }
 
+    /** Whether rear tones play. */
     public boolean rear() {
         return rear;
     }
 
+    /** Whether left tones play. */
     public boolean left() {
         return left;
     }
 
+    /** Whether right tones play. */
     public boolean right() {
         return right;
     }
 
+    /**
+     * A copy with the rear direction changed.
+     *
+     * @param rear the new rear value
+     * @return a new instance
+     */
     public SoundDirections withRear(boolean rear) {
         return new SoundDirections(front, rear, left, right);
     }

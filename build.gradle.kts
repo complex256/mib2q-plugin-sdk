@@ -1,4 +1,5 @@
 import mibsdk.build.NewPluginTask
+import org.gradle.api.GradleException
 
 // Root project: shared tasks (carJcl) are registered here by the mibsdk.car-library plugin.
 plugins {
@@ -155,4 +156,68 @@ val standalonePluginCheck = tasks.register<Exec>("standalonePluginCheck") {
 
 tasks.named("check") {
     dependsOn(standalonePluginCheck)
+}
+
+tasks.register<Exec>("pullStockJars") {
+    group = "help"
+    description = "Copies lsd.jxe and DSITracer.jar from a unit over SSH and converts lsd.jxe with jxe2jar."
+    val unit = providers.gradleProperty("unit").orElse(providers.environmentVariable("MIBSDK_HOST"))
+    val stockDir = providers.gradleProperty("stockDir").orElse("build/stock")
+    val jxe2jarSrc = providers.gradleProperty("jxe2jarSrc").orElse(providers.environmentVariable("JXE2JAR_SRC"))
+    workingDir = projectDir
+    environment("MIBSDK_STOCK_DIR", stockDir.get())
+    environment("JXE2JAR_SRC", jxe2jarSrc.orElse("").get())
+    environment("MIBSDK_WITH_JARS", providers.gradleProperty("withJars").orElse("0").get())
+    commandLine("bash", "tools/pull-stock-jars.sh", unit.orElse("").get())
+}
+
+// ---- Documentation ---------------------------------------------------------------------------------
+
+val docsSiteDir = layout.buildDirectory.dir("docs-site")
+
+val docsApi = tasks.register("docsApi") {
+    group = "documentation"
+    description = "Generates the Dokka API reference in build/docs-api."
+    dependsOn(":docs-api:dokkaGenerate")
+}
+
+val docsCheck = tasks.register<Exec>("docsCheck") {
+    group = "documentation"
+    description = "Checks the documentation against the samples, the SDK version and the API level."
+    workingDir = projectDir
+    commandLine("python3", "tools/check_docs.py")
+}
+
+val docsSite = tasks.register<Exec>("docsSite") {
+    group = "documentation"
+    description = "Builds the MkDocs site in build/docs-site, with the generated API reference and the local Maven repo."
+    dependsOn(docsApi, docsCheck)
+    workingDir = projectDir
+    commandLine("mkdocs", "build", "--strict", "--site-dir", docsSiteDir.get().asFile.absolutePath)
+
+    doFirst {
+        val mkdocs = try {
+            ProcessBuilder("mkdocs", "--version").redirectErrorStream(true).start()
+        } catch (e: Exception) {
+            throw GradleException("mkdocs is not installed: run `python3 -m pip install -r docs/requirements.txt`", e)
+        }
+        if (mkdocs.waitFor() != 0) {
+            throw GradleException("mkdocs is not usable: run `python3 -m pip install -r docs/requirements.txt`")
+        }
+    }
+
+    doLast {
+        val site = docsSiteDir.get().asFile
+        copy {
+            from(layout.buildDirectory.dir("docs-api"))
+            into(File(site, "api"))
+        }
+        if (localRepoDir.get().asFile.isDirectory) {
+            copy {
+                from(localRepoDir)
+                into(File(site, "maven"))
+            }
+        }
+        File(site, ".nojekyll").writeText("")
+    }
 }

@@ -1,3 +1,3 @@
 plugins {
-    id("mibsdk.plugin") version "0.3.0"
+    id("mibsdk.plugin") version "0.5.0"
 }

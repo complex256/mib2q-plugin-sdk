@@ -13,10 +13,15 @@ import mibsdk.api.PermissionDeniedException;
 import mibsdk.api.Permissions;
 
 /**
- * Loopback-only TCP query for plugins. Runs on the calling (plugin) thread, never creates one. Hosts other
- * than {@code 127.0.0.1} and {@code localhost} are refused before any socket exists; the connect and the
- * whole read share one deadline of {@code min(timeoutMs, MAX_TIMEOUT_MS)}; the response is capped at
- * {@link Net#MAX_RESPONSE_BYTES} (the excess is dropped).
+ * TCP query for plugins. Runs on the calling (plugin) thread, never creates one for the query itself.
+ *
+ * <p>Loopback hosts ({@code 127.0.0.1} and {@code localhost}) need the {@code network} permission.
+ * Any other host also needs {@code network.outbound}; without it the call is refused before a socket
+ * exists. DNS resolution is bounded by the same deadline as the connect and the read, and runs on a
+ * short-lived daemon thread so a stuck resolver cannot hang the plugin worker.
+ *
+ * <p>The connect and the whole read share one deadline of {@code min(timeoutMs, MAX_TIMEOUT_MS)}; the
+ * response is capped at {@link Net#MAX_RESPONSE_BYTES} (the excess is dropped).
  */
 final class NetImpl implements Net {
 
@@ -37,8 +42,12 @@ final class NetImpl implements Net {
         if (!granted.contains(Permissions.NETWORK)) {
             throw new PermissionDeniedException(Permissions.NETWORK);
         }
-        if (!"127.0.0.1".equals(host) && !"localhost".equals(host)) {
-            throw new IOException("network: loopback only");
+        if (host == null || host.length() == 0) {
+            throw new IOException("network: bad host");
+        }
+        boolean loopback = "127.0.0.1".equals(host) || "localhost".equals(host);
+        if (!loopback && !granted.contains(Permissions.NETWORK_OUTBOUND)) {
+            throw new PermissionDeniedException(Permissions.NETWORK_OUTBOUND);
         }
         if (port < 1 || port > 65535) {
             throw new IOException("network: bad port");
@@ -52,10 +61,16 @@ final class NetImpl implements Net {
         }
         int timeout = Math.max(1, Math.min(timeoutMs, MAX_TIMEOUT_MS));
         long deadline = clock.uptimeMs() + timeout;
+        InetAddress address = loopback
+                ? InetAddress.getByAddress(new byte[] {127, 0, 0, 1})
+                : resolve(host, deadline);
         Socket s = new Socket();
         try {
-            // Both names go to the literal address, so no resolver is involved.
-            s.connect(new InetSocketAddress(InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), port), timeout);
+            long left = deadline - clock.uptimeMs();
+            if (left <= 0) {
+                throw new SocketTimeoutException("network: connect timed out");
+            }
+            s.connect(new InetSocketAddress(address, port), (int) Math.min(left, timeout));
             if (req != null) {
                 OutputStream out = s.getOutputStream();
                 out.write(req);
@@ -66,7 +81,7 @@ final class NetImpl implements Net {
             int n = 0;
             byte[] sink = new byte[512];
             while (true) {
-                long left = deadline - clock.uptimeMs();
+                left = deadline - clock.uptimeMs();
                 if (left <= 0) {
                     throw new SocketTimeoutException("network: read timed out");
                 }
@@ -93,5 +108,52 @@ final class NetImpl implements Net {
                 // closing a failed socket
             }
         }
+    }
+
+    /**
+     * Resolves {@code host} on a daemon thread, bounded by {@code deadline}. A resolver that ignores the
+     * interrupt is left behind as a daemon; it cannot outlive the HMI.
+     */
+    private InetAddress resolve(final String host, final long deadline) throws IOException {
+        final Object lock = new Object();
+        final InetAddress[] result = new InetAddress[1];
+        final IOException[] failure = new IOException[1];
+        final boolean[] done = new boolean[1];
+        Thread t = new Thread(new Runnable() {
+            public void run() {
+                try {
+                    result[0] = InetAddress.getByName(host);
+                } catch (IOException e) {
+                    failure[0] = e;
+                } finally {
+                    synchronized (lock) {
+                        done[0] = true;
+                        lock.notifyAll();
+                    }
+                }
+            }
+        }, "mibsdk-net-resolve");
+        t.setDaemon(true);
+        t.start();
+        synchronized (lock) {
+            while (!done[0]) {
+                long left = deadline - clock.uptimeMs();
+                if (left <= 0) {
+                    t.interrupt();
+                    throw new SocketTimeoutException("network: resolve timed out");
+                }
+                try {
+                    lock.wait(Math.min(left, 1000));
+                } catch (InterruptedException e) {
+                    t.interrupt();
+                    Thread.currentThread().interrupt();
+                    throw new IOException("network: interrupted");
+                }
+            }
+        }
+        if (failure[0] != null) {
+            throw failure[0];
+        }
+        return result[0];
     }
 }

@@ -29,6 +29,11 @@ public final class Permissions {
     public static final String UI_SLOT_STATUS_BAR = "ui.slot.statusbar";
     /** Query loopback services on the unit: {@link PluginContext#net()}. */
     public static final String NETWORK = "network";
+    /**
+     * Connect to hosts outside this unit through {@link PluginContext#net()}. Without it the network API
+     * accepts loopback hosts only. The unit has no TLS stack, so this is plain TCP.
+     */
+    public static final String NETWORK_OUTBOUND = "network.outbound";
 
     private Permissions() {
     }

@@ -1,8 +1,1 @@
-{"format":1,"api":6,"min_api":1,"permissions":[
- {"id":"vehicle.read","group":"Vehicle","text":"Read vehicle state: ignition, gear, parking sensors","loud":false},
- {"id":"vehicle.parking.write","group":"Vehicle","text":"Change parking-sensor settings, for example mute the rear tones","loud":false},
- {"id":"hooks.parking","group":"Hooks","text":"Watch and override parking-system messages","loud":false},
- {"id":"ui.slot.carmenu","group":"Screen","text":"Add a row to the Car menu","loud":false},
- {"id":"ui.slot.statusbar","group":"Screen","text":"Show an item in the status bar","loud":false},
- {"id":"network","group":"Network","text":"Query local services on this unit (loopback only)","loud":false},
- {"id":"platform.unrestricted","group":"Danger","text":"Unrestricted: may use reflection and stock HMI classes; the SDK cannot contain it","loud":true}]}
+{"format":1,"api":6,"min_api":1,"permissions":[{"id":"vehicle.read","group":"Vehicle","text":"Read vehicle state: ignition, gear, parking sensors","loud":false},{"id":"vehicle.parking.write","group":"Vehicle","text":"Change parking-sensor settings, for example mute the rear tones","loud":false},{"id":"hooks.parking","group":"Hooks","text":"Watch and override parking-system messages","loud":false},{"id":"ui.slot.carmenu","group":"Screen","text":"Add a row to the Car menu","loud":false},{"id":"ui.slot.statusbar","group":"Screen","text":"Show an item in the status bar","loud":false},{"id":"network","group":"Network","text":"Query local services on this unit (loopback only)","loud":false},{"id":"network.outbound","group":"Network","text":"Connect to hosts outside this unit","loud":false},{"id":"platform.unrestricted","group":"Danger","text":"Unrestricted: may use reflection and stock HMI classes; the SDK cannot contain it","loud":true}]}

@@ -1,10 +1,15 @@
-// Where Gradle finds the mibsdk build plugin and the SDK artifacts. mibsdk.repo (gradle.properties) is the URL of a
-// Maven repository holding them: until they are hosted, run `./gradlew publishLocal` in an SDK checkout and point
-// mibsdk.repo at that checkout's build/repo directory (as a file: URL).
+// Where Gradle finds the mibsdk build plugin and the SDK artifacts.
+//
+// By default this is the published repository. To build against a local checkout instead, set mibsdk.repo in
+// gradle.properties (or pass -Pmibsdk.repo=...):
+//
+//   mibsdk.repo=file:///absolute/path/to/mib2q-plugin-sdk/build/repo
+//
+// after running `./gradlew publishLocal` in that checkout.
 pluginManagement {
     repositories {
         val sdkRepo = providers.gradleProperty("mibsdk.repo").orNull?.takeIf { it.isNotBlank() }
-            ?: throw GradleException("mibsdk.repo is not set: put the URL of the mibsdk Maven repository in gradle.properties")
+            ?: "https://complex256.github.io/mib2q-plugin-sdk/maven"
         maven { url = uri(sdkRepo) }
         gradlePluginPortal()
     }
@@ -13,7 +18,7 @@ pluginManagement {
 dependencyResolutionManagement {
     repositories {
         val sdkRepo = providers.gradleProperty("mibsdk.repo").orNull?.takeIf { it.isNotBlank() }
-            ?: throw GradleException("mibsdk.repo is not set: put the URL of the mibsdk Maven repository in gradle.properties")
+            ?: "https://complex256.github.io/mib2q-plugin-sdk/maven"
         maven { url = uri(sdkRepo) }
         mavenCentral()
     }

@@ -1,27 +1,36 @@
 package mibsdk.api;
 
 /**
- * The HMI context the built-in status bar is in, for {@link StatusItem#visibleIn(int...) status items that only make
- * sense on some screens}. The values are the stock status bar's {@code HMI_CONTEXT_*} values (model 138): CAR (0) and
- * MEDIA (2) are measured on the bench; the others follow the stock declaration order. {@link #NONE} is never a context
- * to show in.
+ * The HMI context of the built-in status bar, for {@link StatusItem#visibleIn(int...)}.
  *
- * <p>An item with no {@code visibleIn} call shows in every context, which is the default. The built-in bar applies the
- * limit; the popup fallback (where the bar is unavailable) shows every item.
+ * <p>The values are the stock status bar's {@code HMI_CONTEXT_*} values. Car and Media are verified on
+ * the bench; the others follow the stock declaration order. An item with no {@code visibleIn} call shows
+ * in every context.
+ *
  */
 public final class HmiContext {
 
+    /** The Car screen. */
     public static final int CAR = 0;
+    /** Radio / tuner. */
     public static final int TUNER = 1;
+    /** Media. */
     public static final int MEDIA = 2;
+    /** Phone. */
     public static final int PHONE = 3;
+    /** Navigation. */
     public static final int NAVI = 4;
+    /** The map. */
     public static final int MAP = 5;
+    /** Online services. */
     public static final int ONLINE = 6;
+    /** Office. */
     public static final int OFFICE = 7;
+    /** Tone settings. */
     public static final int TONE = 8;
+    /** Settings. */
     public static final int SETTINGS = 9;
-    /** The value the stock bar reports before the screen's stub has pushed model 138. Never pass it to visibleIn. */
+    /** The value reported before the screen has pushed its context. Never pass it to {@code visibleIn}. */
     public static final int NONE = -1;
 
     private HmiContext() {

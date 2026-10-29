@@ -134,7 +134,7 @@ class PluginJsonTest {
         String m = permissionFail("[\"vehicle.read\",\"ui.slot.statusbr\"]");
         assertTrue(m.contains("unknown permission \"ui.slot.statusbr\" (did you mean \"ui.slot.statusbar\"?); known: "), m);
         assertTrue(m.contains("known: vehicle.read, vehicle.parking.write, hooks.parking, ui.slot.carmenu,"
-                + " ui.slot.statusbar, network, platform.unrestricted"), m);
+                + " ui.slot.statusbar, network, network.outbound, platform.unrestricted"), m);
     }
 
     @Test

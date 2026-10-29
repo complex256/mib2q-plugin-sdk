@@ -20,6 +20,8 @@ import org.junit.jupiter.api.Test;
 class NetImplTest {
 
     private static final Set<String> NET = Collections.singleton(Permissions.NETWORK);
+    private static final Set<String> NET_OUTBOUND = new java.util.HashSet<String>(java.util.Arrays.asList(
+            Permissions.NETWORK, Permissions.NETWORK_OUTBOUND));
 
     private static NetImpl net() {
         return new NetImpl(NET, new FakeClock());
@@ -144,13 +146,28 @@ class NetImplTest {
     }
 
     @Test
-    void refusesNonLoopbackHost() {
-        String[] hosts = {"10.0.0.1", "0.0.0.0", "127.0.0.2", "example.com", null, "127.1", "0x7f000001", "localhost.", "::1",
+    void nonLoopbackHostNeedsTheOutboundPermission() {
+        String[] hosts = {"10.0.0.1", "0.0.0.0", "127.0.0.2", "example.com", "127.1", "0x7f000001", "localhost.", "::1",
             "LOCALHOST", " 127.0.0.1"};
         for (String h : hosts) {
-            IOException e = assertThrows(IOException.class, () -> net().query(h, 80, null, 100));
-            assertTrue(e.getMessage().contains("loopback only"), e.getMessage());
+            PermissionDeniedException e = assertThrows(PermissionDeniedException.class,
+                    () -> net().query(h, 80, null, 100));
+            assertEquals(Permissions.NETWORK_OUTBOUND, e.permission());
         }
+    }
+
+    @Test
+    void outboundPermissionIsCheckedBeforeResolution() throws Exception {
+        // A name that cannot resolve: the call must fail as an IOException, not a permission error.
+        IOException e = assertThrows(IOException.class,
+                () -> new NetImpl(NET_OUTBOUND, new FakeClock()).query("no-such-host.invalid", 80, null, 100));
+        assertTrue(e.getMessage() != null, e.toString());
+    }
+
+    @Test
+    void nullHostIsARequestError() {
+        IOException e = assertThrows(IOException.class, () -> net().query(null, 80, null, 100));
+        assertTrue(e.getMessage().contains("bad host"), e.getMessage());
     }
 
     @Test

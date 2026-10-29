@@ -1,0 +1,125 @@
+site_name: mib2q plugin SDK
+site_description: Write plugins for the MIB2 High head unit in modern Java or Kotlin.
+site_url: https://complex256.github.io/mib2q-plugin-sdk/
+repo_url: https://github.com/complex256/mib2q-plugin-sdk
+repo_name: complex256/mib2q-plugin-sdk
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: build/docs-site
+use_directory_urls: true
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+
+exclude_docs: |
+  internal/**
+  guide/**
+  requirements.txt
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/complex256/mib2q-plugin-sdk
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Overview: getting-started/index.md
+      - Prerequisites: getting-started/prerequisites.md
+      - Install the SDK: getting-started/install-sdk.md
+      - Create a plugin: getting-started/create-a-plugin.md
+      - Project layout: getting-started/project-layout.md
+      - Tutorial: getting-started/tutorial.md
+      - Test your plugin: getting-started/test-your-plugin.md
+      - Install and debug: getting-started/install-and-debug.md
+  - Guides:
+      - Pages and inputs: guides/pages-and-inputs.md
+      - Status line and toasts: guides/status-line.md
+      - Icons: guides/icons.md
+      - Storage and timers: guides/storage-and-timers.md
+      - Vehicle and events: guides/vehicle-and-events.md
+      - Networking: guides/networking.md
+      - Package and publish: guides/publishing.md
+  - Reference:
+      - plugin.json: reference/plugin-manifest.md
+      - Build tasks: reference/build-tasks.md
+      - Permissions: reference/permissions.md
+      - Limits: reference/limits.md
+      - API levels: reference/api-levels.md
+      - Java compatibility: reference/compatibility.md
+      - mibsdk-dev: reference/cli.md
+      - Troubleshooting: reference/troubleshooting.md
+      - API overview: reference/api-overview.md
+      - Generated Java API: https://complex256.github.io/mib2q-plugin-sdk/api/
+      - Maven repository: https://complex256.github.io/mib2q-plugin-sdk/maven/
+  - Explanation:
+      - Architecture: explanation/architecture.md
+      - Safety model: explanation/safety-model.md
+      - Firmware support: explanation/firmware-support.md
+  - Contributing:
+      - Overview: contributing/index.md
+      - Build and test: contributing/build-and-test.md
+      - Stock files: contributing/stock-files.md
+      - Adding a firmware adapter: contributing/adapters.md
+      - Releasing: contributing/releasing.md
+      - Docs style guide: contributing/docs-style-guide.md
