@@ -256,7 +256,7 @@ public final class UiApplier {
         });
         // The bar gets its own poster: the animation posts ~one 16 ms frame job at a time, and sharing the applier's
         // single pending slot starved them (the bench showed the page snapping, not sliding).
-        HmiPoster barPoster = new HmiPoster(HmiPoster.HMI_EVENT, null, clock, HmiPoster.PENDING_DEADLINE_MS);
+        HmiPoster barPoster = new HmiPoster(HmiPoster.HMI_EVENT, null, clock, BarStatusLine.POSTER_DEADLINE_MS);
         BarStatusLine bar = new BarStatusLine(frameworkAccess, barPoster, log, SdkGlobals.ICON_IDS,
                 SdkGlobals.builtinIcons);
         StatusLineSink status = new StatusSinks(bar, sdkPopup, new Popup65StatusLine(frameworkAccess, statusMaxChars),

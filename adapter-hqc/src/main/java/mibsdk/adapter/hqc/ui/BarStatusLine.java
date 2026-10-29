@@ -52,6 +52,11 @@ final class BarStatusLine implements StatusLineSink {
     private static final int LABEL_W = WIDTH - LABEL_X;
     /** One animation frame; a 300 ms slide is 18 of them. */
     static final int FRAME_MS = 16;
+    /**
+     * The bar poster's pending deadline: much shorter than the applier's 5 s. A frame the HMI dropped is superseded by
+     * the next post after this long instead of blocking the slide (the pager waits for each frame to run).
+     */
+    static final long POSTER_DEADLINE_MS = 250;
 
     private final Object frameworkAccess;
     private final HmiPoster poster;
@@ -370,8 +375,10 @@ final class BarStatusLine implements StatusLineSink {
                                 return;
                             }
                         }
-                        while (attached && poster.pending()) {
-                            if (!sleep(2)) {
+                        // Bounded: a dropped frame must not hang the pager. The poster's short deadline lets the next
+                        // post supersede it; 8 x 4 ms is longer than a normal frame job in practice.
+                        for (int w = 0; w < 8 && attached && poster.pending(); w++) {
+                            if (!sleep(4)) {
                                 return;
                             }
                         }
