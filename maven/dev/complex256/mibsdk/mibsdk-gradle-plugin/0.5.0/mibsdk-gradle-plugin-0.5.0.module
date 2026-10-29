@@ -1,0 +1,69 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "dev.complex256.mibsdk",
+    "module": "mibsdk-gradle-plugin",
+    "version": "0.5.0",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 11,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "files": [
+        {
+          "name": "mibsdk-gradle-plugin-0.5.0.jar",
+          "url": "mibsdk-gradle-plugin-0.5.0.jar",
+          "size": 176368,
+          "sha512": "1ebf016a953eb7fc3d9bd5c86d8551b478f4c41dc4f6a949dbecbb57a5b70570fff72720f1f30c3a4c8220dca04ba5eda468e5e0ada25f93ec8c58dbcd2f06f0",
+          "sha256": "e24b288cec6da96f8bf39923297d528781c8e806ab1c8118ed986093a3317cbd",
+          "sha1": "12ce071a8ecd705c785c0274d51f8f788924a76f",
+          "md5": "422955cbb2372c771cf5dd72818564bb"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 11,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "org.ow2.asm",
+          "module": "asm",
+          "version": {
+            "requires": "9.7"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "mibsdk-gradle-plugin-0.5.0.jar",
+          "url": "mibsdk-gradle-plugin-0.5.0.jar",
+          "size": 176368,
+          "sha512": "1ebf016a953eb7fc3d9bd5c86d8551b478f4c41dc4f6a949dbecbb57a5b70570fff72720f1f30c3a4c8220dca04ba5eda468e5e0ada25f93ec8c58dbcd2f06f0",
+          "sha256": "e24b288cec6da96f8bf39923297d528781c8e806ab1c8118ed986093a3317cbd",
+          "sha1": "12ce071a8ecd705c785c0274d51f8f788924a76f",
+          "md5": "422955cbb2372c771cf5dd72818564bb"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "dev.complex256.mibsdk",
+    "module": "adapter-fake",
+    "version": "0.5.0",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "dependencies": [
+        {
+          "group": "dev.complex256.mibsdk",
+          "module": "api",
+          "version": {
+            "requires": "0.5.0"
+          }
+        },
+        {
+          "group": "dev.complex256.mibsdk",
+          "module": "platform",
+          "version": {
+            "requires": "0.5.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "adapter-fake-0.5.0.jar",
+          "url": "adapter-fake-0.5.0.jar",
+          "size": 9467,
+          "sha512": "8e33abcc566d237e300bd29b055fc0c6c3bf4e1028a5cbc3bc5a0be8ec7b19f5e6b9bdb34ef478de75977f48e84e99cfd80bf5649751a826117138649c497f3e",
+          "sha256": "5c8fe98d23b083c9c7dcb23449204350a9d8cd2e7bd77f38f9e31f3d22b6ed44",
+          "sha1": "805e56b7bd4b8df9e8d0dac4e5b3a9e314e49615",
+          "md5": "f0cbb463157f0e468ab3056cae99f91d"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "dev.complex256.mibsdk",
+          "module": "api",
+          "version": {
+            "requires": "0.5.0"
+          }
+        },
+        {
+          "group": "dev.complex256.mibsdk",
+          "module": "platform",
+          "version": {
+            "requires": "0.5.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "adapter-fake-0.5.0.jar",
+          "url": "adapter-fake-0.5.0.jar",
+          "size": 9467,
+          "sha512": "8e33abcc566d237e300bd29b055fc0c6c3bf4e1028a5cbc3bc5a0be8ec7b19f5e6b9bdb34ef478de75977f48e84e99cfd80bf5649751a826117138649c497f3e",
+          "sha256": "5c8fe98d23b083c9c7dcb23449204350a9d8cd2e7bd77f38f9e31f3d22b6ed44",
+          "sha1": "805e56b7bd4b8df9e8d0dac4e5b3a9e314e49615",
+          "md5": "f0cbb463157f0e468ab3056cae99f91d"
+        }
+      ]
+    },
+    {
+      "name": "sourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "adapter-fake-0.5.0-sources.jar",
+          "url": "adapter-fake-0.5.0-sources.jar",
+          "size": 5970,
+          "sha512": "e2216f2e58746915ba923aa7a9623309fcf03f51470f6ca783cde196403454bfda44714694ce4c3a405623b6960a4631d6856f7177fb95e94b97f7c60969bf1a",
+          "sha256": "45aa25e83e83e7e10e9b13662cd09775a9df1d53b49b34e04ad34f7a04fa99d2",
+          "sha1": "ad01ddafa0a391615e04e4800d0c5398a67b19dd",
+          "md5": "ed9b527b21540809ca0d9137e659726b"
+        }
+      ]
+    }
+  ]
+}
