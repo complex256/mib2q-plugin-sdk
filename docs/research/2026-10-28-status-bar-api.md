@@ -93,19 +93,18 @@ place (the SDK already writes `boot.state` and `ledger.properties` there).
   throws so `StatusSinks` falls back to the popups.
 - `StatusSinks`/`UiApplier.create` — bar first, then SDK popup 609600, then popup 65.
 
-Still to come in the host: custom file-backed icons, per-item RGBA colour and the animated slide (the
-viewport is clipped and the rows share bounds, so the swap is ready to become a vertical translation).
-The global order UI already exists in `PluginsMenu` (per-plugin status toggle + move earlier/later); the
-remaining settings page only needs dwell/animation rows on the SDK page and the config save.
+Implemented on the branch: file-backed icons (the shared `IconIds` table, served by the System factory too),
+per-item RGBA (`UiColor`, api 6), the animated vertical slide, and the Dwell/Animation rows on the SDK page
+(saved to `statusbar.properties`, re-read by the bar each dwell). The global order UI was already in
+`PluginsMenu`. `StatusItem.setColour` is api 6; the `hello-menu` sample's "Status text colour" exercises it.
 
 ## Next steps
 
-0. **File icons (resolved path).** The bar is System UI, so its image/model resolution is the System module,
-   not the Car factory. `SdkSystemActivator` passes a stock `SystemModelBank`; mirror `SdkCarModelBank` with an
-   `SdkSystemModelBank extends SystemModelBank`, allocate `ResourceLocatorModel` IDs there for the status
-   icons, and have `BarStatusLine` set those IDs on its `IconController`s. This makes plugin PNG paths global
-   (Media/System/EarlyApps), unlike the Car-only image ids the spike used. Keep the stock bank if the subclass
-   fails to construct, exactly like `SdkCarActivator.newBank()`.
+0. **File icons (resolved path).** A grown `SdkSystemModelBank` with `ResourceLocatorModel`s was tried; a plain
+   `LayoutContainerController` never registers a model view (only a partial popup's `setViews` does), so the
+   models did not paint. The working route is the shared `IconIds` table: `SdkSystemScreenFactory.getImagePath`
+   serves the same SDK image ids as the Car factory, and `StatusLayout.Cell` carries the file icon's id. Plugin
+   PNG paths are global (Car, Media, System, EarlyApps), unlike the Car-only image ids the spike used.
 1. `StatusBarHost` in `adapter-hqc`: attach once via the registry; create the clipped viewport; render rows
    (label/icon) from the ordered items; 5 s/300 ms animation; update on `currentHMIContext`/screen changes.
 2. A `StatusLine` sink that uses the bar when available, the popup otherwise; wire the existing
@@ -133,3 +132,19 @@ remaining settings page only needs dwell/animation rows on the SDK page and the 
 - `~/Downloads/bench-spike/statusbar-media.jpg` — label follows the Media palette.
 - `~/Downloads/bench-spike/statusbar-car-icon.jpg` — icon + text.
 - `/tmp/carsession/bench-clip-car.jpg`, `bench-clip-media.jpg` — clipped two-row viewport, one row visible.
+
+## Implementation findings (0.3.0+bench.8)
+
+- **The bar could never attach.** `StatusSinks.show` only called `BarStatusLine.show` when `available()`, but only
+  that show posted the attach job. It now tries the bar on every show: an unattached bar posts the attach job and
+  throws, so the same call falls back to the popup and the next one retries. The bar's attach callback hides the
+  popups on HMIEvent as soon as it has drawn the pending line.
+- **The slide snapped.** The animation frames shared the applier's `HmiPoster` pending slot and were coalesced. The
+  bar has its own poster now: queue one frame, wait for the HMI to apply it, then wait 16 ms.
+- **The bar showed the popup's fair-share cut** (`TS up MQ ...`): `UiStatusPart.fullText` carries the item's whole
+  text; `StatusLayout.of(..., true)` uses it for the bar, while the popup keeps the 24-character cut.
+- **A `ResourceLocatorModel` does not paint in a plain layout container** (see next step 0): file icons use the
+  shared image id, and the System factory serves the same SDK ids as the Car factory.
+- The row label is left-aligned (`LabelRendererHigh.setAlignment(1, 4)`), like the popup's labels.
+- Two items are expected on the bench: `daemon-status` (always) and `hello-menu`; `bike-rack`, `crashy` and
+  `inputs-demo` only publish a status item while active/crashing.
