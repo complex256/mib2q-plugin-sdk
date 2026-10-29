@@ -2,6 +2,7 @@ package sample.hellomenu;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
@@ -65,11 +66,11 @@ class HelloMenuPluginTest {
         ui.selectRow(ui.carRows().indexOf(row));
         h.await(() -> page.equals(ui.openPageKey()), "page open");
         List<String> lines = ui.render(page);
-        assertEquals(7, lines.size(), lines.toString());
+        assertEquals(8, lines.size(), lines.toString());
         assertTrue(lines.get(0).contains("Apple"), lines.toString());
         assertTrue(lines.get(1).contains("Pear"), lines.toString());
         assertTrue(lines.get(2).contains("Plum"), lines.toString());
-        assertTrue(lines.get(6).contains("Selected: <none>"), lines.toString());
+        assertTrue(lines.get(7).contains("Selected: <none>"), lines.toString());
     }
 
     @Test
@@ -77,7 +78,7 @@ class HelloMenuPluginTest {
         start(Features.SLOT_CAR_MENU, Features.UI_PAGES);
         h.await(() -> !ui.render(page).isEmpty(), "page registered");
         ui.select(page, "pear");
-        h.await(() -> ui.render(page).get(6).contains("Selected: Pear"), "Selected: Pear");
+        h.await(() -> ui.render(page).get(7).contains("Selected: Pear"), "Selected: Pear");
         assertEquals("pear", h.storedValues().getProperty("last")); // stops the runtime, which flushes storage
     }
 
@@ -110,7 +111,7 @@ class HelloMenuPluginTest {
     void lastSelectionIsRestoredFromStorage() throws IOException {
         stored.setProperty("last", "plum");
         start(Features.SLOT_CAR_MENU, Features.UI_PAGES);
-        h.await(() -> ui.render(page).size() > 6 && ui.render(page).get(6).contains("Selected: Plum"),
+        h.await(() -> ui.render(page).size() > 7 && ui.render(page).get(7).contains("Selected: Plum"),
                 "Selected: Plum, restored: " + ui.render(page));
     }
 
@@ -163,15 +164,37 @@ class HelloMenuPluginTest {
     }
 
     @Test
+    void statusTextColourTogglesBackToTheBarsOwn() throws IOException {
+        start(Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR, Features.UI_PAGES, Features.UI_ICONS);
+        h.await(() -> ui.statusParts().contains(statusPng), "status up: " + ui.statusParts());
+        assertNull(ui.statusColours().get(0), "the bar's own colour by default");
+
+        ui.select(page, "status-text-colour");
+        h.await(() -> HelloMenuPlugin.TEXT_COLOUR.equals(ui.statusColours().get(0)), "cyan status text");
+        assertEquals("Hello", ui.statusLine(), "the text is unchanged");
+
+        ui.select(page, "status-text-colour");
+        h.await(() -> ui.statusColours().get(0) == null, "back to the bar's own colour");
+    }
+
+    @Test
+    void storedTextColourIsRestored() throws IOException {
+        stored.setProperty("text-colour", "on");
+        start(Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR, Features.UI_PAGES, Features.UI_ICONS);
+        h.await(() -> !ui.statusColours().isEmpty()
+                && HelloMenuPlugin.TEXT_COLOUR.equals(ui.statusColours().get(0)), "cyan restored: " + ui.statusColours());
+    }
+
+    @Test
     void manifestDeclaresTheStatusbarPermission() throws IOException {
         assertTrue(manifest().contains("\"ui.slot.statusbar\""), manifest());
     }
 
     @Test
-    void manifestIsApi4Version120() throws IOException {
+    void manifestIsApi6Version130() throws IOException {
         String json = manifest();
-        assertTrue(json.contains("\"api\":4"), json);
-        assertTrue(json.contains("\"version\":\"1.2.0\""), json);
+        assertTrue(json.contains("\"api\":6"), json);
+        assertTrue(json.contains("\"version\":\"1.3.0\""), json);
     }
 
     private static String manifest() throws IOException {
