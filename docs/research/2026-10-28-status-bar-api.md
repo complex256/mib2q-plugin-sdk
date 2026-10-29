@@ -100,6 +100,12 @@ remaining settings page only needs dwell/animation rows on the SDK page and the 
 
 ## Next steps
 
+0. **File icons (resolved path).** The bar is System UI, so its image/model resolution is the System module,
+   not the Car factory. `SdkSystemActivator` passes a stock `SystemModelBank`; mirror `SdkCarModelBank` with an
+   `SdkSystemModelBank extends SystemModelBank`, allocate `ResourceLocatorModel` IDs there for the status
+   icons, and have `BarStatusLine` set those IDs on its `IconController`s. This makes plugin PNG paths global
+   (Media/System/EarlyApps), unlike the Car-only image ids the spike used. Keep the stock bank if the subclass
+   fails to construct, exactly like `SdkCarActivator.newBank()`.
 1. `StatusBarHost` in `adapter-hqc`: attach once via the registry; create the clipped viewport; render rows
    (label/icon) from the ordered items; 5 s/300 ms animation; update on `currentHMIContext`/screen changes.
 2. A `StatusLine` sink that uses the bar when available, the popup otherwise; wire the existing
@@ -109,6 +115,16 @@ remaining settings page only needs dwell/animation rows on the SDK page and the 
    served everywhere or a file-backed `ResourceLocatorModel`.
 5. Left-side scope: the clock is not hideable via the bar API; decide whether to leave it fixed or invest in a
    left-group rebuild/model-level approach later.
+
+## Build and deploy on the bench
+
+1. Uninstall the throwaway spike first (it points HMICar at `SpikeCarActivator`):
+   `spikes/hmi-ui/run.sh uninstall 10.20.0.23`, then restart and `ssh rpi-bench keypanel up`.
+2. Build the SDK package (bump its bench version, e.g. `0.3.0+bench.2`) with the host mibpkg from
+   `~/complex-projects/car-session-2026-10-26/host/mibpkg-0.9.1-host-darwin-arm64`.
+3. `MIBSDK_MPK=<new>.mpk installer/mibsdk-dev install 10.20.0.23`, restart, `keypanel up`.
+4. Verify on the bench: the bar row on home/Car/Media, a plugin file icon, an RGBA item, one full 5 s/300 ms
+   slide, and the two dwell/animation rows on Plugins -> SDK.
 
 ## Bench evidence
 
