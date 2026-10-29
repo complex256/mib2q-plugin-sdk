@@ -3,6 +3,12 @@
 The `mibsdk` SDK package (`dist/build/dist/mibsdk-<version>.mpk`) and its sample plugins. Versions are semver as
 mibpkg compares them; bench builds carried a `+bench.N` tag on the package version only and are not releases.
 
+## 0.4.1 — 2026-10-28 (SDK; plugin api 1..6)
+
+- **Removing a plugin no longer needs a restart.** When a reload marker finds the plugin's jar gone, the runtime
+  disables it and forgets its host, so the Plugins page drops the row at once; reinstalling the same id discovers it
+  again. (Previously the row stayed as `Off` — `plugin jar not found` — until the next HMI start.)
+
 ## 0.4.0 — 2026-10-28 (SDK; plugin api 1..6)
 
 - **Icon-only status items.** `StatusItem.setIcon(icon)` shows an icon with no text; the built-in bar lays icon-only

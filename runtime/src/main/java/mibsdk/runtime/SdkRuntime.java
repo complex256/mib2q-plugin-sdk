@@ -1251,6 +1251,19 @@ public final class SdkRuntime {
         setState(h, state, reason);
     }
 
+    /**
+     * Control thread: forgets a plugin whose jar is gone (a removal). {@link #disableHost} has already torn its UI
+     * down; dropping the host is what makes the Plugins page stop listing it, without waiting for a restart.
+     */
+    private void removeHost(PluginHost h) {
+        synchronized (this) {
+            hosts.remove(h);
+            enabledOrder.remove(h);
+        }
+        log.append("STATUS", h.id, "REMOVED plugin jar not found");
+        requestUiRefresh();
+    }
+
     private static String displayName(PluginHost h) {
         String name = h.manifest == null ? null : h.manifest.name();
         return name == null || name.length() == 0 ? h.id : name;
@@ -1286,7 +1299,10 @@ public final class SdkRuntime {
         File jar = new File(cfg.pluginsDir(), id + ".jar");
         if (!jar.isFile()) {
             if (old != null) {
-                setState(old, PluginState.DISABLED, "plugin jar not found");
+                // A removal: tear the plugin down and drop it from the list, so the Plugins page stops showing it
+                // without a restart. (A reinstall discovers it again from the new jar.)
+                disableHost(old, PluginState.DISABLED, "plugin jar not found", true, false);
+                removeHost(old);
             }
             restoreOrphanedOverrides();
             purgeSnapshots();

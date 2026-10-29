@@ -1,6 +1,7 @@
 package mibsdk.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -333,6 +334,28 @@ class SdkRuntimeLifecycleTest {
         assertEquals(0, count("swap", "v1"), "old subscription cancelled");
         assertEquals(0, count("swap", "v1 tick"), "old timer cancelled");
         assertEquals(1, new File(roots.ram(), "cache").listFiles().length, "old snapshot purged");
+    }
+
+    @Test
+    void removingTheJarDropsThePluginWithoutARestart() throws Exception {
+        plugin("gone", "1", null, "ctx.log().info(\"up\");");
+        start(null);
+        assertEquals(PluginState.ENABLED, status("gone").state());
+
+        assertTrue(new File(plugins, "gone.jar").delete(), "the jar is gone");
+        rt.reload("gone");
+
+        for (PluginStatus s : rt.statuses()) {
+            assertFalse(s.id().equals("gone"), "the removed plugin is still listed: " + rt.statuses());
+        }
+        assertTrue(rt.log().snapshot().toString().contains("gone REMOVED plugin jar not found"),
+                rt.log().snapshot().toString());
+
+        // A reinstall of the same id is discovered from the new jar, not shadowed by the removed host.
+        plugin("gone", "2", null, "ctx.log().info(\"up\");");
+        rt.reload("gone");
+        assertEquals(PluginState.ENABLED, status("gone").state());
+        assertEquals("2", status("gone").version());
     }
 
     /** /mnt/persist is shared with the stock database: a put past the configured cap fails in the plugin. */
