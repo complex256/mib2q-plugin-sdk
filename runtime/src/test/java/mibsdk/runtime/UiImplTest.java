@@ -551,7 +551,7 @@ class UiImplTest {
 
     @Test
     void bigIconOnAStatusItemThrows() throws Exception {
-        String index = "big=0123456789abcdef,72,72\nhello-20=fedcba9876543210,20,20\ntall=00112233445566ff,20,21\n";
+        String index = "big=0123456789abcdef,72,72\nhello-20=fedcba9876543210,20,20\ntall=00112233445566ff,30,31\n";
         List<Set<String>> runs = Arrays.asList(withIcons(UiTestRuntime.UI_FEATURES), UiTestRuntime.UI_FEATURES);
         for (int r = 0; r < runs.size(); r++) {
             String id = "p" + r;

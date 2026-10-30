@@ -49,7 +49,7 @@ The package also carries a generated `requires.toml`:
 
 ```toml
 [mibsdk]
-min = "0.6.3"
+min = "0.7.0"
 ```
 
 It is stamped with the SDK version the plugin was built against. mibpkg refuses to install the

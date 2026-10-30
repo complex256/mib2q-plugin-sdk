@@ -70,7 +70,7 @@ my-plugin/
 
 ```kotlin
 plugins {
-    id("mibsdk.plugin") version "0.6.3"
+    id("mibsdk.plugin") version "0.7.0"
 }
 ```
 

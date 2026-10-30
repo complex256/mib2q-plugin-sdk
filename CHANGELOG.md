@@ -4,7 +4,7 @@ All notable changes to the SDK package and the plugin API. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver as mibpkg compares them.
 Bench builds carried a `+bench.N` tag and are not releases.
 
-## Unreleased
+## 0.7.0 — 2026-10-30
 
 ### Changed
 
