@@ -86,7 +86,8 @@ set `mibsdk.mibpkg`, or put `mibpkg` on `PATH`.
 
 ### A status icon is too large
 
-`a status icon is at most 20x20 px, this one is 72x72` — use a 20 px icon for `statusItem` and `toast`.
+`a status icon is at most 30x30 px, this one is 72x72` — use a 30 px icon for `statusItem` and `toast`
+(a 20 px icon still works in the bar).
 
 ### A toggle does not stick
 

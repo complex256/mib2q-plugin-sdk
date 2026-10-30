@@ -105,9 +105,10 @@ The manifest declares `X` but the user has not approved it. Reinstall with appro
 `mibsdk-dev grant <id> X <unit-ip>`. Normally such a plugin is `BLOCKED_PERMISSIONS` before it gets far
 enough to throw this.
 
-**`a status icon is at most 20x20 px, this one is 72x72`**
+**`a status icon is at most 30x30 px, this one is 72x72`**
 
-You passed the Car-row icon to `statusItem` or `toast`. Ship a 20 px icon and use it there.
+You passed the Car-row icon to `statusItem` or `toast`. Ship a 30 px icon (a 20 px one still works in
+the bar) and use it there.
 
 **`icon 'cup' is not declared in plugin coffee-timer's plugin.json "icons"`**
 

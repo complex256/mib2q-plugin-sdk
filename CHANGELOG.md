@@ -4,6 +4,19 @@ All notable changes to the SDK package and the plugin API. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver as mibpkg compares them.
 Bench builds carried a `+bench.N` tag and are not releases.
 
+## Unreleased
+
+### Changed
+
+- **Icon-only status items sit on the right.** The built-in bar now groups icon-only items into shared,
+  right-aligned icon rows, highest-priority icons first (left to right). Lower-priority icons spill onto
+  further icon rows when a row is full. Text items, with or without an icon, each get their own full-width
+  row instead of sharing the strip; all rows paginate with the existing dwell/animation settings. When the
+  built-in bar has its own right-side icons, they show first as page 0 and crossfade to the SDK's rows.
+- **Native-size status icons.** Status icons may now be up to 30×30 px (`StatusItem.ICON_MAX_PX`), matching
+  the stock bar's 30 px glyphs. The built-in bar draws them at 30 px; a legacy 20 px icon is upscaled, and
+  the popup fallback and toast scale a 30 px icon down to their 20 px cell.
+
 ## 0.6.3 — 2026-10-29
 
 ### Added

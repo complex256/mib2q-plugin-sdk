@@ -51,7 +51,11 @@ final class SdkPopups {
     /** A 20x20 icon; its bounds come from the popup's layout. */
     static IconController icon() {
         IconController i = new IconController();
-        i.setRenderer(new IconRendererHigh(i));
+        IconRendererHigh r = new IconRendererHigh(i);
+        // A status icon may be up to 30 px; the popup/toast cell is 20 px, so fit it rather than letting it overflow.
+        r.setScaleMode(1);
+        r.setAlignment(2, 5);
+        i.setRenderer(r);
         i.setProcessStateChange(2);
         return i;
     }

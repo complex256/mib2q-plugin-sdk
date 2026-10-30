@@ -39,7 +39,7 @@ their own colours, so a white glyph is the stock look.
 | Use | API | Maximum | Notes |
 |---|---|---|---|
 | Car row | `ui.carMenuRow(label, page, icon)` | 72×72 (`Ui.ROW_ICON_MAX_PX`) | Own colours |
-| Status item, toast | `ui.statusItem(text, icon)`, `ui.toast(text, icon)` | 20×20 (`StatusItem.ICON_MAX_PX`) | Tinted by default; `Icon.OWN_COLOURS` keeps the PNG colours |
+| Status item, toast | `ui.statusItem(text, icon)`, `ui.toast(text, icon)` | 30×30 (`StatusItem.ICON_MAX_PX`) | Native bar size; the popup and toast draw it at 20 px. Tinted by default; `Icon.OWN_COLOURS` keeps the PNG colours |
 | Page item | `PageSpec.item(id, label, value, icon)` | 24×24 (`PageSpec.ITEM_ICON_MAX_PX`) | The cell does not scale |
 | Built-in | `ui.stockIcon(...)` | — | No file |
 
@@ -48,7 +48,7 @@ throws `IllegalArgumentException` when the plugin runs. Ship a small icon for th
 
 ```text
 src/main/icons/cup.png       72×72   Car row
-src/main/icons/cup-20.png    20×20   status item and toast
+src/main/icons/cup-20.png    20×20   status item and toast (30×30 is the native bar size)
 ```
 
 `permissionScan` warns when a call names an oversized icon literally, but only for a literal
@@ -95,7 +95,8 @@ python3 plugins/coffee-timer/make_icons.py src/main/icons
 ```
 
 Any image editor that exports 8-bit RGBA works. Keep the two right-most columns of a 20 px status icon
-clear: the status text starts right after the icon cell.
+clear: the status text starts right after the icon cell. A 30 px icon is the bar's native size; the
+popup and toast scale it down to 20 px.
 
 ## Related
 

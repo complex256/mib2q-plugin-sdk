@@ -63,7 +63,7 @@ package. There is no `plugin.json` field for it.
 - your code uses API newer than `"api"`;
 - your code uses reflection, exec or raw sockets without `platform.unrestricted`.
 
-It warns when a status-bar call names a declared icon larger than 20×20.
+It warns when a status-bar call names a declared icon larger than 30×30.
 
 ### Runtime
 

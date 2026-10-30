@@ -34,7 +34,7 @@ truncated.
 | Use | Maximum | Constant |
 |---|---|---|
 | Car row | 72×72 px | `Ui.ROW_ICON_MAX_PX` |
-| Status item, toast | 20×20 px | `StatusItem.ICON_MAX_PX` |
+| Status item, toast | 30×30 px | `StatusItem.ICON_MAX_PX` |
 | Page item | 24×24 px | `PageSpec.ITEM_ICON_MAX_PX` |
 | File size | 32 KiB | — |
 | Format | 8-bit RGBA or grey + alpha | — |

@@ -22,7 +22,7 @@ my-plugin/
 │   │   │   └── plugin.json             the manifest, copied to the jar root
 │   │   └── icons/
 │   │       ├── icon.png                72 px Car-row icon (optional)
-│   │       └── icon-20.png             20 px status icon (optional)
+│   │       └── icon-30.png             30 px status icon (20 px still works) (optional)
 │   └── test/
 │       └── java/example/myplugin/
 │           └── MyPluginTest.java       host tests on the real runtime

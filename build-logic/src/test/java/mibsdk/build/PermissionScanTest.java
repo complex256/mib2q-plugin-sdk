@@ -394,7 +394,7 @@ class PermissionScanTest {
 
     private static String statusIconWarning(String site, String name) {
         return "mibsdk.plugin: " + site + " passes icon \"" + name + "\" to the status bar, but it is larger than "
-                + "20x20; that throws at runtime";
+                + "30x30; that throws at runtime";
     }
 
     /** One method per icon origin: a literal name (both overloads), a stock icon, a parameter and a field. */

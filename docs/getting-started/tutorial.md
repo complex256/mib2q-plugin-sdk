@@ -76,7 +76,7 @@ coffee-timer/
 | `api` | `5` | The plugin uses a slider and a toast, both api 5 |
 | `main` | `tutorial.coffeetimer.CoffeeTimerPlugin` | The class the runtime instantiates |
 | `permissions` | `ui.slot.carmenu`, `ui.slot.statusbar` | One for the Car row, one for the status item and toast |
-| `icons` | `cup`, `cup-20` | One 72 px row icon and one 20 px status icon |
+| `icons` | `cup`, `cup-20` | One 72 px row icon and one status icon (20 px here; 30 px is the bar's native size) |
 
 The build validates every name against the permission catalog and fails if your code uses a permission
 the manifest does not declare.
@@ -88,7 +88,7 @@ The sample uses two PNGs:
 | Icon | Size | Use |
 |---|---|---|
 | `cup.png` | 72×72 | Car-drawer row |
-| `cup-20.png` | 20×20 | Status item and toast |
+| `cup-20.png` | 20×20 | Status item and toast (the bar upscales it; 30×30 is crisp) |
 
 Icons must be 8-bit RGBA (or grey + alpha), non-interlaced, at most 72 px either way and at most 32 KiB.
 A white glyph on a transparent background looks like the stock icons. The sample's generator is
@@ -316,8 +316,8 @@ line is shared with other plugins and the SDK's own indicators, so put the impor
 ui.toast("Coffee is ready", cupSmall);
 ```
 
-A toast shows 20 characters and an optional 20 px icon for 3 seconds. It needs `ui.slot.statusbar` and
-is inert if the unit cannot show inputs.
+A toast shows 20 characters and an optional status icon (up to 30 px, drawn at 20 px) for 3 seconds. It
+needs `ui.slot.statusbar` and is inert if the unit cannot show inputs.
 
 **Storage.** `storage.get/put/remove` is a string map per plugin, persisted across reboots. It is capped
 at 256 KiB per plugin and 1 MiB for all plugins; a `put` past the cap throws. Parse stored values

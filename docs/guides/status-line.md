@@ -18,7 +18,7 @@ status.set(null); // hide
 |---|---|
 | Items per plugin | 1 |
 | Text | 12 characters, truncated |
-| Icon | 20×20 px, optional |
+| Icon | 30×30 px, optional (a 20 px icon is upscaled) |
 | Permission | `ui.slot.statusbar` |
 
 `set(null)` or `set("")` hides the item. The item is not an error if the user hides it: the user can
@@ -33,7 +33,8 @@ Icon star = ctx.ui().stockIcon(StockIcons.STAR);
 ```
 
 - A plug-in icon is declared in `plugin.json` and lives at `src/main/icons/<name>.png`.
-- Status icons are at most 20×20 px; a larger one throws `IllegalArgumentException`.
+- Status icons are at most 30×30 px; a larger one throws `IllegalArgumentException`. A 20×20 icon still
+  works: the built-in bar upscales it to the native 30 px, while a 30 px icon stays crisp.
 - The icon must come from this plugin's `Ui`.
 - Built-in icons need no file.
 
@@ -44,8 +45,12 @@ status.setIcon(ctx.ui().icon("cup-20"));
 status.setIcon(null); // hide
 ```
 
-An icon-only item gets a fixed slot in the bar's left strip, so several plugin icons can be visible at
-once. Calling `set(text)` goes back to a text item.
+An icon-only item joins a shared icon row. The bar right-aligns the row and shows the highest-priority
+icons first, left to right; when more icons exist than fit, the lower-priority ones continue on further
+icon rows. A text item, with or without an icon, gets its own full-width row instead. The bar pages
+through all of those rows with the dwell and animation settings below. Where the built-in bar has its
+own right-side icons, those are the first page; the SDK's rows follow it. Calling `set(text)` goes back
+to a text item.
 
 ### Colour
 
@@ -71,9 +76,11 @@ Contexts are the stock status bar's contexts: `CAR`, `TUNER`, `MEDIA`, `PHONE`, 
 
 The built-in bar applies the limit. The popup fallback shows every item.
 
-## How the line is shared
+## How the fallback line is shared
 
-The line is shared with the SDK's own indicators and other plugins:
+In the built-in bar each text item gets its own row, so the sharing rules here apply to the popup
+fallback (where the built-in bar is unavailable). There the line is shared with the SDK's own indicators
+and other plugins:
 
 - Safety indicators (`SAFE`, `PDC R OFF`) always show.
 - Plugin items share the remaining width fairly, in the user's order, then plugin id.
@@ -91,7 +98,7 @@ ctx.ui().toast("Coffee is ready", cupSmall);
 | Rule | Value |
 |---|---|
 | Text | 20 characters, truncated |
-| Icon | 20×20 px, optional |
+| Icon | 30×30 px, optional (drawn at 20 px in the toast) |
 | Duration | 3 seconds |
 | Permission | `ui.slot.statusbar` |
 | Feature | `Features.UI_INPUTS`; inert without it |

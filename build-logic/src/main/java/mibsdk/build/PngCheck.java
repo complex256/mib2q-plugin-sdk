@@ -24,7 +24,7 @@ import java.util.zip.Inflater;
  */
 public final class PngCheck {
     static final int MAX_BYTES = 32768;
-    /** The largest icon (mirrors mibsdk.api.Ui.ROW_ICON_MAX_PX); status icons are further held to 20 at runtime. */
+    /** The largest icon (mirrors mibsdk.api.Ui.ROW_ICON_MAX_PX); status icons are further held to 30 at runtime. */
     static final int MAX_PX = 72;
     private static final byte[] SIGNATURE = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
 

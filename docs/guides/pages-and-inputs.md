@@ -159,7 +159,7 @@ ctx.ui().confirm("Stop the timer?", "The brew will be lost.", "Stop", "Keep brew
 ctx.ui().toast("Coffee is ready", cupSmall);
 ```
 
-- 20 characters, optional 20 px icon, 3 seconds.
+- 20 characters, optional 30 px icon (drawn at 20 px), 3 seconds.
 - Needs `ui.slot.statusbar`; without it, `PermissionDeniedException`.
 - Inert without `Features.UI_INPUTS`.
 

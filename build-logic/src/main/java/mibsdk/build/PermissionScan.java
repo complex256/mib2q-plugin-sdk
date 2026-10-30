@@ -32,7 +32,7 @@ public final class PermissionScan {
      * {@code mibsdk.api.StatusItem.ICON_MAX_PX} (as {@link PngCheck#MAX_PX} mirrors {@code Ui.ROW_ICON_MAX_PX}) — the
      * build logic does not depend on {@code api}, so it cannot derive the value.
      */
-    static final int STATUS_ICON_MAX_PX = 20;
+    static final int STATUS_ICON_MAX_PX = 30;
 
     /** Where a status call's icon argument came from: a stock icon, a literal {@code Ui.icon} name, or unknown. */
     private static final int ICON_UNKNOWN = 0;

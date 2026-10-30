@@ -6,8 +6,11 @@ public interface StatusItem extends Subscription {
     /** Longer text is truncated by the runtime, never rejected. */
     int MAX_TEXT = 12;
 
-    /** The largest status icon, in pixels, either way. */
-    int ICON_MAX_PX = 20;
+    /**
+     * The largest status icon, in pixels, either way. 30 px matches the built-in bar's native glyph; a 20 px icon still
+     * works and is upscaled there, while the popup fallback and toast draw it at 20 px.
+     */
+    int ICON_MAX_PX = 30;
 
     /**
      * {@code null} or {@code ""} hides the item. The item keeps its icon.
@@ -26,9 +29,10 @@ public interface StatusItem extends Subscription {
     void set(String text, Icon icon);
 
     /**
-     * Shows the icon alone, with no text (an icon-only status item); null hides the item. The built-in bar lays
-     * icon-only items out side by side in a fixed strip, so several plugin icons are visible at once; {@link #set}
-     * with a text goes back to a text item. The icon rules are {@link #set(String, Icon)}'s.
+     * Shows the icon alone, with no text (an icon-only status item); null hides the item. The built-in bar shows
+     * icon-only items in one or more shared rows, right-aligned and in priority order, so several plugin icons are
+     * visible at once. A text item (with or without an icon) gets its own row; {@link #set} with a text goes back to a
+     * text item. The icon rules are {@link #set(String, Icon)}'s.
      *
      * @since api 6
      */
