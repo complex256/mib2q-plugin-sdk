@@ -2033,7 +2033,7 @@ the wrapper, the build file and the settings file.</p>
 <tr>
 <td><code>icons</code></td>
 <td><code>cup</code>, <code>cup-20</code></td>
-<td>One 72 px row icon and one 20 px status icon</td>
+<td>One 72 px row icon and one status icon (20 px here; 30 px is the bar's native size)</td>
 </tr>
 </tbody>
 </table>
@@ -2058,7 +2058,7 @@ the manifest does not declare.</p>
 <tr>
 <td><code>cup-20.png</code></td>
 <td>20×20</td>
-<td>Status item and toast</td>
+<td>Status item and toast (the bar upscales it; 30×30 is crisp)</td>
 </tr>
 </tbody>
 </table>
@@ -2259,8 +2259,8 @@ line is shared with other plugins and the SDK's own indicators, so put the impor
 <p><strong>A toast.</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">ui</span><span class="p">.</span><span class="na">toast</span><span class="p">(</span><span class="s">"Coffee is ready"</span><span class="p">,</span><span class="w"> </span><span class="n">cupSmall</span><span class="p">);</span>
 </code></pre></div>
-<p>A toast shows 20 characters and an optional 20 px icon for 3 seconds. It needs <code>ui.slot.statusbar</code> and
-is inert if the unit cannot show inputs.</p>
+<p>A toast shows 20 characters and an optional status icon (up to 30 px, drawn at 20 px) for 3 seconds. It
+needs <code>ui.slot.statusbar</code> and is inert if the unit cannot show inputs.</p>
 <p><strong>Storage.</strong> <code>storage.get/put/remove</code> is a string map per plugin, persisted across reboots. It is capped
 at 256 KiB per plugin and 1 MiB for all plugins; a <code>put</code> past the cap throws. Parse stored values
 defensively, as <code>storedMinutes()</code> does, because the data may come from an older version of your plugin.</p>

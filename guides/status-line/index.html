@@ -794,10 +794,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-the-line-is-shared" class="md-nav__link">
+  <a href="#how-the-fallback-line-is-shared" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How the line is shared
+        How the fallback line is shared
       
     </span>
   </a>
@@ -1858,10 +1858,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-the-line-is-shared" class="md-nav__link">
+  <a href="#how-the-fallback-line-is-shared" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How the line is shared
+        How the fallback line is shared
       
     </span>
   </a>
@@ -1960,7 +1960,7 @@ screen. Both need the <code>ui.slot.statusbar</code> permission.</p>
 </tr>
 <tr>
 <td>Icon</td>
-<td>20×20 px, optional</td>
+<td>30×30 px, optional (a 20 px icon is upscaled)</td>
 </tr>
 <tr>
 <td>Permission</td>
@@ -1977,7 +1977,8 @@ reorder or hide items from the SDK's page in the Plugins menu, and <code>set</co
 </code></pre></div>
 <ul>
 <li>A plug-in icon is declared in <code>plugin.json</code> and lives at <code>src/main/icons/&lt;name&gt;.png</code>.</li>
-<li>Status icons are at most 20×20 px; a larger one throws <code>IllegalArgumentException</code>.</li>
+<li>Status icons are at most 30×30 px; a larger one throws <code>IllegalArgumentException</code>. A 20×20 icon still
+  works: the built-in bar upscales it to the native 30 px, while a 30 px icon stays crisp.</li>
 <li>The icon must come from this plugin's <code>Ui</code>.</li>
 <li>Built-in icons need no file.</li>
 </ul>
@@ -1985,8 +1986,12 @@ reorder or hide items from the SDK's page in the Plugins menu, and <code>set</co
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">status</span><span class="p">.</span><span class="na">setIcon</span><span class="p">(</span><span class="n">ctx</span><span class="p">.</span><span class="na">ui</span><span class="p">().</span><span class="na">icon</span><span class="p">(</span><span class="s">"cup-20"</span><span class="p">));</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">status</span><span class="p">.</span><span class="na">setIcon</span><span class="p">(</span><span class="kc">null</span><span class="p">);</span><span class="w"> </span><span class="c1">// hide</span>
 </code></pre></div>
-<p>An icon-only item gets a fixed slot in the bar's left strip, so several plugin icons can be visible at
-once. Calling <code>set(text)</code> goes back to a text item.</p>
+<p>An icon-only item joins a shared icon row. The bar right-aligns the row and shows the highest-priority
+icons first, left to right; when more icons exist than fit, the lower-priority ones continue on further
+icon rows. A text item, with or without an icon, gets its own full-width row instead. The bar pages
+through all of those rows with the dwell and animation settings below. Where the built-in bar has its
+own right-side icons, those are the first page; the SDK's rows follow it. Calling <code>set(text)</code> goes back
+to a text item.</p>
 <h3 id="colour">Colour<a class="headerlink" href="#colour" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">status</span><span class="p">.</span><span class="na">setColour</span><span class="p">(</span><span class="n">UiColor</span><span class="p">.</span><span class="na">rgb</span><span class="p">(</span><span class="mi">255</span><span class="p">,</span><span class="w"> </span><span class="mi">180</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">));</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">status</span><span class="p">.</span><span class="na">setColour</span><span class="p">(</span><span class="kc">null</span><span class="p">);</span><span class="w"> </span><span class="c1">// the bar's own colour</span>
@@ -2002,8 +2007,10 @@ text keeps the popup's colour.</p>
 <p>Contexts are the stock status bar's contexts: <code>CAR</code>, <code>TUNER</code>, <code>MEDIA</code>, <code>PHONE</code>, <code>NAVI</code>, <code>MAP</code>, <code>ONLINE</code>,
 <code>OFFICE</code>, <code>TONE</code>, <code>SETTINGS</code>. <code>HmiContext.NONE</code> is not a context and is rejected.</p>
 <p>The built-in bar applies the limit. The popup fallback shows every item.</p>
-<h2 id="how-the-line-is-shared">How the line is shared<a class="headerlink" href="#how-the-line-is-shared" title="Permanent link">&para;</a></h2>
-<p>The line is shared with the SDK's own indicators and other plugins:</p>
+<h2 id="how-the-fallback-line-is-shared">How the fallback line is shared<a class="headerlink" href="#how-the-fallback-line-is-shared" title="Permanent link">&para;</a></h2>
+<p>In the built-in bar each text item gets its own row, so the sharing rules here apply to the popup
+fallback (where the built-in bar is unavailable). There the line is shared with the SDK's own indicators
+and other plugins:</p>
 <ul>
 <li>Safety indicators (<code>SAFE</code>, <code>PDC R OFF</code>) always show.</li>
 <li>Plugin items share the remaining width fairly, in the user's order, then plugin id.</li>
@@ -2028,7 +2035,7 @@ text keeps the popup's colour.</p>
 </tr>
 <tr>
 <td>Icon</td>
-<td>20×20 px, optional</td>
+<td>30×30 px, optional (drawn at 20 px in the toast)</td>
 </tr>
 <tr>
 <td>Duration</td>

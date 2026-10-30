@@ -2363,7 +2363,8 @@ Publish the SDK with <code>./gradlew publishLocal</code>, and make the version i
 set <code>mibsdk.mibpkg</code>, or put <code>mibpkg</code> on <code>PATH</code>.</p>
 <h2 id="runtime-errors">Runtime errors<a class="headerlink" href="#runtime-errors" title="Permanent link">&para;</a></h2>
 <h3 id="a-status-icon-is-too-large">A status icon is too large<a class="headerlink" href="#a-status-icon-is-too-large" title="Permanent link">&para;</a></h3>
-<p><code>a status icon is at most 20x20 px, this one is 72x72</code> — use a 20 px icon for <code>statusItem</code> and <code>toast</code>.</p>
+<p><code>a status icon is at most 30x30 px, this one is 72x72</code> — use a 30 px icon for <code>statusItem</code> and <code>toast</code>
+(a 20 px icon still works in the bar).</p>
 <h3 id="a-toggle-does-not-stick">A toggle does not stick<a class="headerlink" href="#a-toggle-does-not-stick" title="Permanent link">&para;</a></h3>
 <p>The HMI does not flip a checkbox by itself. Store the requested value and call <code>page.update(spec())</code>.</p>
 <h3 id="a-blank-row-icon-after-a-push">A blank row icon after a push<a class="headerlink" href="#a-blank-row-icon-after-a-push" title="Permanent link">&para;</a></h3>

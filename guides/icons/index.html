@@ -1956,8 +1956,8 @@ their own colours, so a white glyph is the stock look.</p>
 <tr>
 <td>Status item, toast</td>
 <td><code>ui.statusItem(text, icon)</code>, <code>ui.toast(text, icon)</code></td>
-<td>20×20 (<code>StatusItem.ICON_MAX_PX</code>)</td>
-<td>Tinted by default; <code>Icon.OWN_COLOURS</code> keeps the PNG colours</td>
+<td>30×30 (<code>StatusItem.ICON_MAX_PX</code>)</td>
+<td>Native bar size; the popup and toast draw it at 20 px. Tinted by default; <code>Icon.OWN_COLOURS</code> keeps the PNG colours</td>
 </tr>
 <tr>
 <td>Page item</td>
@@ -1976,7 +1976,7 @@ their own colours, so a white glyph is the stock look.</p>
 <p>The size check is <strong>per use, at runtime</strong>. A 72 px icon passed to <code>statusItem</code> builds and packages, then
 throws <code>IllegalArgumentException</code> when the plugin runs. Ship a small icon for the status line:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>src/main/icons/cup.png       72×72   Car row
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>src/main/icons/cup-20.png    20×20   status item and toast
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>src/main/icons/cup-20.png    20×20   status item and toast (30×30 is the native bar size)
 </code></pre></div>
 <p><code>permissionScan</code> warns when a call names an oversized icon literally, but only for a literal
 <code>ui.icon("name")</code>; a field or a local is not judged.</p>
@@ -2010,7 +2010,8 @@ need no file and are always small enough for any use.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>python3<span class="w"> </span>plugins/coffee-timer/make_icons.py<span class="w"> </span>src/main/icons
 </code></pre></div>
 <p>Any image editor that exports 8-bit RGBA works. Keep the two right-most columns of a 20 px status icon
-clear: the status text starts right after the icon cell.</p>
+clear: the status text starts right after the icon cell. A 30 px icon is the bar's native size; the
+popup and toast scale it down to 20 px.</p>
 <h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../status-line/">Status line</a></li>

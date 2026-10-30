@@ -1952,7 +1952,7 @@ runtime reads the copy at the jar root.</p>
 </ul>
 <p>The package also carries a generated <code>requires.toml</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">[mibsdk]</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">min</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"0.6.3"</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">min</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"0.7.0"</span>
 </code></pre></div>
 <p>It is stamped with the SDK version the plugin was built against. mibpkg refuses to install the
 plugin on an older SDK, so it cannot silently run against a runtime missing a fix it was built with.
@@ -1964,7 +1964,7 @@ package. There is no <code>plugin.json</code> field for it.</p>
 <li>your code uses API newer than <code>"api"</code>;</li>
 <li>your code uses reflection, exec or raw sockets without <code>platform.unrestricted</code>.</li>
 </ul>
-<p>It warns when a status-bar call names a declared icon larger than 20×20.</p>
+<p>It warns when a status-bar call names a declared icon larger than 30×30.</p>
 <h3 id="runtime">Runtime<a class="headerlink" href="#runtime" title="Permanent link">&para;</a></h3>
 <p><code>ManifestParser</code> re-checks the manifest when the jar is loaded. A plugin whose manifest is invalid is
 <code>BLOCKED_INVALID</code>. A plugin whose declared permissions are not all granted is <code>BLOCKED_PERMISSIONS</code> and
