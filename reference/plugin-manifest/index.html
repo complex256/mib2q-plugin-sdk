@@ -1950,6 +1950,14 @@ runtime reads the copy at the jar root.</p>
 <li><code>"icons"</code> with an api below 3;</li>
 <li>a missing icon PNG, or a PNG that fails the format rules.</li>
 </ul>
+<p>The package also carries a generated <code>requires.toml</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">[mibsdk]</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">min</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"0.6.3"</span>
+</code></pre></div>
+<p>It is stamped with the SDK version the plugin was built against. mibpkg refuses to install the
+plugin on an older SDK, so it cannot silently run against a runtime missing a fix it was built with.
+It is a sidecar file rather than a manifest field so older mibpkg releases still install the
+package. There is no <code>plugin.json</code> field for it.</p>
 <p><code>permissionScan</code> additionally fails the build when:</p>
 <ul>
 <li>your code uses a permission the manifest does not declare;</li>
@@ -2010,8 +2018,8 @@ digit). Use the build's rule; it is the one that determines whether a package ca
 <p>See <a href="../permissions/">Permissions</a> for the enforcement model.</p>
 <h2 id="icons">Icons<a class="headerlink" href="#icons" title="Permanent link">&para;</a></h2>
 <p><code>"icons"</code> lists file names without the <code>.png</code> extension:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>src/main/icons/cup.png      declared as "cup"
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>src/main/icons/cup-20.png   declared as "cup-20"
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>src/main/icons/cup.png      declared as "cup"
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>src/main/icons/cup-20.png   declared as "cup-20"
 </code></pre></div>
 <p>The package carries them as <code>icons/&lt;name&gt;.png</code>; mibpkg installs them as <code>icons/&lt;id&gt;/&lt;sha16&gt;.png</code>.</p>
 <h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>

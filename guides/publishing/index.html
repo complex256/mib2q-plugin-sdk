@@ -1898,7 +1898,8 @@ jar's SHA-256. mibpkg refuses a jar without a valid stamp, so do not edit the ja
 <li>the icons from <code>src/main/icons/</code>, plus a generated <code>&lt;name&gt;.r.png</code> reflection for each icon taller than
   20 px;</li>
 <li>a generated <code>manifest.toml</code> with the id, version, unit compatibility, api level, permissions and
-  icons.</li>
+  icons;</li>
+<li>a generated <code>requires.toml</code> naming the oldest SDK the plugin runs on.</li>
 </ul>
 <p>The staged files are in <code>build/mibpkg-stage/</code>. The task is <code>mibpkgPackage</code>; <code>mibPackage</code> is a
 deprecated alias.</p>
@@ -1909,7 +1910,8 @@ deprecated alias.</p>
 <p>mibpkg uses it to order updates. Raise it for every release you publish. Pre-release tags such as
 <code>1.2.3-beta.1</code> are accepted.</p>
 <p>The <code>"api"</code> field is different from the version: it is the newest plugin API your code uses. See
-<a href="../../reference/api-levels/">API levels</a>.</p>
+<a href="../../reference/api-levels/">API levels</a>. The build also stamps the package with <code>min_sdk</code>, the SDK
+version it compiled against, so mibpkg can require a new enough runtime.</p>
 <h2 id="install-and-approve">Install and approve<a class="headerlink" href="#install-and-approve" title="Permanent link">&para;</a></h2>
 <p>mibpkg shows the plugin's permissions in plain words and installs only after approval:</p>
 <ul>
