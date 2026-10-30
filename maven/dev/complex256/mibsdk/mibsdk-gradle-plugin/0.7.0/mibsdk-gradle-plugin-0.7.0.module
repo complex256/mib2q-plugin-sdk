@@ -1,0 +1,69 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "dev.complex256.mibsdk",
+    "module": "mibsdk-gradle-plugin",
+    "version": "0.7.0",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 11,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "files": [
+        {
+          "name": "mibsdk-gradle-plugin-0.7.0.jar",
+          "url": "mibsdk-gradle-plugin-0.7.0.jar",
+          "size": 176608,
+          "sha512": "138431954030f137591edf4d12705b851b52aea7f9155421e71b199f65373c203d4db57efc96808440194d7c536ac0a41dbf2d28190a11748b603ac03427ad68",
+          "sha256": "6c2f2a335f08e563df13e313d2631ab4576548d307472000eea81979ab8b42b4",
+          "sha1": "35acc6a9bb8b5cb3f19f2aba7c558a3f80e11251",
+          "md5": "80f3ed3ddd7cacd9c3b94fcf41081cb7"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 11,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "org.ow2.asm",
+          "module": "asm",
+          "version": {
+            "requires": "9.7"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "mibsdk-gradle-plugin-0.7.0.jar",
+          "url": "mibsdk-gradle-plugin-0.7.0.jar",
+          "size": 176608,
+          "sha512": "138431954030f137591edf4d12705b851b52aea7f9155421e71b199f65373c203d4db57efc96808440194d7c536ac0a41dbf2d28190a11748b603ac03427ad68",
+          "sha256": "6c2f2a335f08e563df13e313d2631ab4576548d307472000eea81979ab8b42b4",
+          "sha1": "35acc6a9bb8b5cb3f19f2aba7c558a3f80e11251",
+          "md5": "80f3ed3ddd7cacd9c3b94fcf41081cb7"
+        }
+      ]
+    }
+  ]
+}
