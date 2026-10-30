@@ -45,6 +45,18 @@ runtime reads the copy at the jar root.
 - `"icons"` with an api below 3;
 - a missing icon PNG, or a PNG that fails the format rules.
 
+The package also carries a generated `requires.toml`:
+
+```toml
+[mibsdk]
+min = "0.6.3"
+```
+
+It is stamped with the SDK version the plugin was built against. mibpkg refuses to install the
+plugin on an older SDK, so it cannot silently run against a runtime missing a fix it was built with.
+It is a sidecar file rather than a manifest field so older mibpkg releases still install the
+package. There is no `plugin.json` field for it.
+
 `permissionScan` additionally fails the build when:
 
 - your code uses a permission the manifest does not declare;

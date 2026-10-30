@@ -20,7 +20,7 @@ The current SDK implements api 1–7.
 
 ## Rules
 
-**Levels are additive.** A newer SDK runs older plugins unchanged. SDK 0.6.2 loads api 1–7.
+**Levels are additive.** A newer SDK runs older plugins unchanged. SDK 0.6.3 loads api 1–7.
 
 **Declare the lowest level that covers what you use.** The build enforces it: a call to an api 5 member
 while the manifest declares api 4 fails with the call site:

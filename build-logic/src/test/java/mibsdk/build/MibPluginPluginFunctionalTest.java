@@ -471,7 +471,7 @@ class MibPluginPluginFunctionalTest {
         Process tar = new ProcessBuilder("tar", "-tzf", mpk.getPath()).redirectErrorStream(true).start();
         String listing = new String(tar.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertEquals(0, tar.waitFor(), listing);
-        for (String entry : new String[] {"manifest.toml", "hello.jar", "hello.jar.stamp"}) {
+        for (String entry : new String[] {"manifest.toml", "requires.toml", "hello.jar", "hello.jar.stamp"}) {
             assertTrue(listing.lines().anyMatch(l -> l.equals(entry) || l.equals("./" + entry)), entry + " in " + listing);
         }
         assertFalse(listing.contains("icons/"), listing);

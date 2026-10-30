@@ -1,0 +1,96 @@
+name: publish feed
+
+# Publish the .mpk attached to an SDK release to the official mibpkg collection.
+# The package is built locally (dist needs the unit's stock jars); CI only republishes it.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing SDK release tag (for example v0.6.2)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: official-feed
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release tag
+        id: release
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "feed=mibsdk-${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Host mibpkg
+        run: |
+          curl -fsSL -o mibpkg "$MIBSDK_MIBPKG_URL"
+          chmod +x mibpkg
+        env:
+          MIBSDK_MIBPKG_URL: ${{ vars.MIBSDK_MIBPKG_URL }}
+
+      - name: Download the SDK package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p pkg
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'mibsdk-*.mpk' --dir pkg
+          find pkg -name '*.mpk' -print
+
+      - name: Official source list
+        run: |
+          set -euo pipefail
+          url=https://github.com/complex256/mibpkg-packages/releases/latest/download/sources.json
+          curl -fsSL "$url" -o sources.json ||
+            curl -fsSL https://raw.githubusercontent.com/complex256/mibpkg/main/packaging/sources.json -o sources.json
+
+      - name: Already published?
+        id: exists
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+          FEED_TAG: ${{ steps.release.outputs.feed }}
+        run: |
+          set -euo pipefail
+          if gh release view "$FEED_TAG" --repo complex256/mibpkg-packages >/dev/null 2>&1; then
+            echo "yes=1" >> "$GITHUB_OUTPUT"
+            echo "$FEED_TAG is already in the feed; nothing to publish"
+          else
+            echo "yes=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to the official collection
+        if: steps.exists.outputs.yes != '1'
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+          FEED_TAG: ${{ steps.release.outputs.feed }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::PACKAGES_TOKEN is not set. Add a token with contents:write on complex256/mibpkg-packages."
+            exit 1
+          fi
+          ./mibpkg release pkg/mibsdk-*.mpk \
+            --repo complex256/mibpkg-packages \
+            --tag "$FEED_TAG" \
+            --id complex256-mibpkg \
+            --name mibpkg \
+            --asset sources.json \
+            --out "$RUNNER_TEMP/feed" \
+            --publish
+
+      - name: Verify the collection
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: ./mibpkg verify github:complex256/mibpkg-packages --latest

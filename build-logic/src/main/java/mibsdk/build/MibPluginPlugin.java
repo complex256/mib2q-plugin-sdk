@@ -186,8 +186,10 @@ public class MibPluginPlugin implements Plugin<Project> {
                 try {
                     java.nio.file.Files.write(new File(t.getDestinationDir(), "manifest.toml").toPath(),
                             MpkStage.pluginManifest(m).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    java.nio.file.Files.write(new File(t.getDestinationDir(), "requires.toml").toPath(),
+                            MpkStage.pluginRequires().getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 } catch (java.io.IOException e) {
-                    throw new GradleException("mibsdk.plugin: cannot write manifest.toml: " + e, e);
+                    throw new GradleException("mibsdk.plugin: cannot write the package metadata: " + e, e);
                 }
             });
         });

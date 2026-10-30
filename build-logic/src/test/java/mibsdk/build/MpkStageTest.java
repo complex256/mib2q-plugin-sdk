@@ -162,6 +162,11 @@ class MpkStageTest {
     }
 
     @Test
+    void pluginRequiresNamesTheBuildSdkAsAMinimum() {
+        assertEquals("[mibsdk]\nmin = \"" + SdkCoordinates.version() + "\"\n", MpkStage.pluginRequires());
+    }
+
+    @Test
     void sdkStageWritesNoReflections() throws IOException {
         File src = dir.resolve("src").toFile();
         Files.createDirectories(src.toPath());

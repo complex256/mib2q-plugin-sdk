@@ -4,6 +4,15 @@ All notable changes to the SDK package and the plugin API. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver as mibpkg compares them.
 Bench builds carried a `+bench.N` tag and are not releases.
 
+## 0.6.3 — 2026-10-29
+
+### Added
+
+- **A minimum SDK version on every plugin package.** `mibpkgPackage` now writes `requires.toml` with
+  `[mibsdk] min = "<the SDK version it was built against>"`. mibpkg 0.11.1 enforces it on install and
+  update, and updates the SDK before plugins. It is a sidecar file, so older mibpkg releases still
+  install the package and ignore the constraint.
+
 ## 0.6.2 — 2026-10-29
 
 ### Fixed

@@ -33,7 +33,8 @@ The package contains:
 - the icons from `src/main/icons/`, plus a generated `<name>.r.png` reflection for each icon taller than
   20 px;
 - a generated `manifest.toml` with the id, version, unit compatibility, api level, permissions and
-  icons.
+  icons;
+- a generated `requires.toml` naming the oldest SDK the plugin runs on.
 
 The staged files are in `build/mibpkg-stage/`. The task is `mibpkgPackage`; `mibPackage` is a
 deprecated alias.
@@ -50,7 +51,8 @@ mibpkg uses it to order updates. Raise it for every release you publish. Pre-rel
 `1.2.3-beta.1` are accepted.
 
 The `"api"` field is different from the version: it is the newest plugin API your code uses. See
-[API levels](../reference/api-levels.md).
+[API levels](../reference/api-levels.md). The build also stamps the package with `min_sdk`, the SDK
+version it compiled against, so mibpkg can require a new enough runtime.
 
 ## Install and approve
 

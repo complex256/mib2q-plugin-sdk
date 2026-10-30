@@ -37,6 +37,14 @@ public final class MpkStage {
     }
 
     /**
+     * A plugin package's {@code requires.toml}. It is a sidecar, not a manifest field, so older
+     * mibpkg releases (which reject unknown manifest fields) still install the package.
+     */
+    static String pluginRequires() {
+        return "[mibsdk]\nmin = " + str(SdkCoordinates.version()) + "\n";
+    }
+
+    /**
      * The SDK package's manifest. {@code icons} names the built-in set, staged as {@code icons/<name>.png}
      * ({@link #stageIcons}); mibpkg 0.9.0 needs {@code hmisystem_stock} and {@code hmisystem} together.
      */
