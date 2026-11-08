@@ -4,6 +4,24 @@ All notable changes to the SDK package and the plugin API. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver as mibpkg compares them.
 Bench builds carried a `+bench.N` tag and are not releases.
 
+## 0.7.1 — 2026-11-08
+
+### Fixed
+
+- **`PDC R OFF` stuck in the status bar after the override ended.** A restore only completed once the car
+  reported the prior value. `setPDCSoundReproduction` is a one-way DSI call and the parking ECU only reports
+  while PDC is active, so a released override (disable the plugin, turn the rack off) stayed "restoring" for
+  ever: the `PDC R OFF` indicator never cleared and `ledger.properties` never emptied. A restore now also
+  completes when its write returned and the car has stayed silent for the confirmation window, with a WARN in
+  the log; a report of another value still retries it.
+- **Jumpy Plugins menu transitions.** Every page shared one list model and one title text, so the next page's
+  rows were painted into the screen that was still fading out, then popped in again when it connected. The
+  page list and title are now double-buffered (one bank per page), and the page change is modelled as a
+  forward transition into a page and a backward one to its parent.
+- **The SDK row is first on the Plugins page**, above the plugin list.
+- **MENU leaves the Plugins menu to the main menu ring**, as it does on every other page, when the menu was
+  opened from the MENU ring (it stays stock's when opened from the Car drawer).
+
 ## 0.7.0 — 2026-10-30
 
 ### Changed
