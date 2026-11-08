@@ -266,11 +266,13 @@ final class PluginsMenu {
 
     // ---- pages ----
 
+    /** The SDK row first (right under a safe-mode header), then one link per plugin, then the overflow notice. */
     private static UiPage root(List<PluginStatus> st, Map<String, PluginManifest> m, SdkState s) {
         List<UiEntry> e = new ArrayList<UiEntry>();
         if (s.safeMode) {
             e.add(info("SDK safe mode: plugins are off (" + s.safeReason + ")"));
         }
+        e.add(link("sdk", "SDK", null, SDK_KEY));
         int hidden = rootOverflow(st.size(), s);
         for (int i = 0; i < st.size() - hidden; i++) {
             PluginStatus p = st.get(i);
@@ -280,7 +282,6 @@ final class PluginsMenu {
         if (hidden > 0) {
             e.add(info("+" + hidden + " more"));
         }
-        e.add(link("sdk", "SDK", null, SDK_KEY));
         return page(PLUGINS_KEY, "Plugins", e);
     }
 

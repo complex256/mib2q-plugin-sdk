@@ -30,11 +30,15 @@ public final class HqcUiIds {
     /** The drawer rows' models: the 9 visibility models and the selection model ({@code MODEL_BASE + 0..9}). */
     public static final int ROW_MODEL_COUNT = ROW_SLOTS + 1;
     /**
-     * The SDK page's ListModel (spike B, 5 columns since spike D, 6 since bench B): label, value, row kind, enabled,
+     * The SDK page's ListModels (spike B, 5 columns since spike D, 6 since bench B): label, value, row kind, enabled,
      * value text, row id ({@link #PAGE_COL_LABEL} .. {@link #PAGE_COL_ID}). The kind is the record-set column: it picks the item
-     * factory's row. Id {@code MODEL_BASE + 10} stays unused (spike B's row-label model).
+     * factory's row. Two banks, because a page change is a stock animation: the outgoing screen stays connected
+     * through its fade-out, so writing the next page's rows into the one list would show them in the outgoing
+     * screen's last frames (the "pop-in" seen on the car). The incoming page gets the other bank.
      */
     public static final int PAGE_LIST_MODEL = MODEL_BASE + 11;
+    /** The second page ListModel ({@code MODEL_BASE + 10}, unused before): see {@link #PAGE_LIST_MODEL}. */
+    public static final int PAGE_LIST_MODEL_ALT = MODEL_BASE + 10;
     /**
      * SDK status popup {@link #POPUP_SDK_STATUS}: its visibility ChoiceModel (0 hidden, 1 shown), also the stub's
      * model.
@@ -61,7 +65,7 @@ public final class HqcUiIds {
     public static final int TOAST_LABEL_MODEL = MODEL_BASE + 38;
     public static final int TOAST_FILE_ICON_MODEL = MODEL_BASE + 39;
     /**
-     * Model ids the SDK bank reserves: {@code MODEL_BASE .. MODEL_BASE + MODEL_COUNT - 1} (602738..602779). {@code +10},
+     * Model ids the SDK bank reserves: {@code MODEL_BASE .. MODEL_BASE + MODEL_COUNT - 1} (602738..602779).
      * {@link #CONFIRM_TEXT_RESERVED} ({@code +34}), {@code +40} and {@code +41} are reserved with no model (F22).
      * Spike C proved 602738..602753 on the bench, spike D 602754..602759. Checked in {@code lsd-src} (native inputs
      * Task 5 Step 0): CarModelBank is built with 2738 models ({@code super(6, 2738, 1147)},
@@ -91,10 +95,26 @@ public final class HqcUiIds {
     public static final int PAGE_SCREEN_ID = 609500;
     /** The Car main screen (the drawer's): where SDK pages return when no stock screen was saved. */
     public static final int CAR_MAIN_SCREEN = 600044;
-    /** Factory text id of the page title (outside the drawer rows' {@code TEXT_BASE + 0..8}). */
+    /** Factory text id of the page title, first bank; the second bank is {@link #TEXT_PAGE_TITLE_ALT}. HMIEvent. */
     public static final int TEXT_PAGE_TITLE = TEXT_BASE + 20;
+    /** The page title of the second bank ({@link #PAGE_LIST_MODEL_ALT}'s screen): see {@link #PAGE_LIST_MODEL}. */
+    public static final int TEXT_PAGE_TITLE_ALT = TEXT_BASE + 21;
     /** Hard key BACK (KeyEvent code; the page's MenuController consumes its press and release). */
     public static final int KEY_BACK = 15;
+    /**
+     * Hard key MENU (KeyEvent code; the console's MENU key, DSI 78). An app-change hard key: the stock
+     * {@code KeyEventDistributorEvo} sends it to the drawer focus manager only, never to the screen's
+     * {@code keyPressed}, so an SDK page intercepts it through
+     * {@code ScreenWidgetEVO.doesHKFilterContainsKey} (the one hook that runs before anything else).
+     */
+    public static final int KEY_MENU = 30;
+    /**
+     * A page change's modelled animation ({@code ScreenData.getAnimationInfo}): bits 1 (forward) and 2 (backward)
+     * of the low word pick the transition {@code AnimationControllerMIB2High} computes. 0 is modelled as
+     * backward, which made every page change animate in the wrong direction.
+     */
+    public static final int ANIM_FORWARD = 2;
+    public static final int ANIM_BACK = 4;
     /** Menu-item type of a list row (EngineeringScreenBag2's list items). */
     public static final int LIST_ITEM_TYPE = 16;
     /**

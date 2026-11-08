@@ -122,16 +122,20 @@ final class PageScreens implements PageRenderer {
         boolean isCurrent(Object screen);
 
         /**
-         * A new page screen for {@code pageKey}, its cells built for {@code layout}; callbacks go to {@code owner}. Once
-         * connected it focuses focus code {@code focus} (a list row, {@link #typedFocus}, or {@link #NO_FOCUS}: stock's
-         * first item), with the call that moves the knob's position and the drawn focus together.
+         * A new page screen for {@code pageKey}, its cells built for {@code layout}; callbacks go to {@code owner}.
+         * {@code bank} picks the page list model and factory title text ({@link PageWidgets#pageListId}): the
+         * incoming page's, while the outgoing screen still shows the other. Once connected it focuses focus code
+         * {@code focus} (a list row, {@link #typedFocus}, or {@link #NO_FOCUS}: stock's first item), with the call
+         * that moves the knob's position and the drawn focus together.
          */
-        Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus) throws Exception;
+        Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus, int bank)
+                throws Exception;
 
         /** The focus code of page screen {@code screen}'s focused row, or {@link #NO_FOCUS}. */
         int focused(Object screen);
 
-        void show(Object screen) throws Exception;
+        /** Shows {@code screen} with the page change's animation ({@link HqcUiIds#ANIM_FORWARD}/{@code BACK}). */
+        void show(Object screen, int animation) throws Exception;
 
         /** Shows the stock screen {@code data} (from {@link #currentData}) again. */
         void showStock(Object data) throws Exception;
@@ -139,8 +143,8 @@ final class PageScreens implements PageRenderer {
         /** Shows stock screen {@code id} (built by its module's factory), keeping the current partial popups. */
         void showCarScreen(int id) throws Exception;
 
-        /** Replaces the page list model's rows. */
-        void writeRows(PageRow[] rows) throws Exception;
+        /** Replaces the rows of the page list model {@code bank} ({@link HqcUiIds#PAGE_LIST_MODEL} or its alt). */
+        void writeRows(int bank, PageRow[] rows) throws Exception;
 
         /**
          * A new slider edit screen ({@link HqcUiIds#SLIDER_SCREEN_ID}) for typed slot {@code slot} of {@code layout};
@@ -164,11 +168,13 @@ final class PageScreens implements PageRenderer {
         String spellerText();
     }
 
-    /** One requested navigation: BACK, a LINK (or CHOICE) to {@code target}, the slider screen, or BACK from it. */
+    /** One requested navigation: BACK, a LINK (or CHOICE) to {@code target}, the slider screen, BACK from it, or MENU. */
     private static final class Nav {
         static final int PAGE = 0;
         static final int SLIDER = 1;
         static final int SUB_BACK = 2;
+        /** MENU on a page opened from the main menu: leave every SDK page and show the ring again. */
+        static final int MENU = 3;
 
         final int kind;
         final String target; // PAGE: null is BACK
@@ -204,18 +210,21 @@ final class PageScreens implements PageRenderer {
 
     /**
      * The page screen on show: its key, the layout it was built with (read by the row writes, the typed rows' input
-     * and texts, and on {@code mibsdk-ui} by the applier's typed-model writes), and its generation: new at each build,
-     * so the applier writes every typed model again for a new screen. Immutable.
+     * and texts, and on {@code mibsdk-ui} by the applier's typed-model writes), its page bank
+     * ({@link HqcUiIds#PAGE_LIST_MODEL} or its alt: the model and title text it reads), and its generation: new at
+     * each build, so the applier writes every typed model again for a new screen. Immutable.
      */
     static final class Shown {
         final String pageKey;
         final PageLayout layout;
         final int generation;
+        final int bank;
 
-        Shown(String pageKey, PageLayout layout, int generation) {
+        Shown(String pageKey, PageLayout layout, int generation, int bank) {
             this.pageKey = pageKey;
             this.layout = layout == null ? PageLayout.EMPTY : layout;
             this.generation = generation;
+            this.bank = bank;
         }
     }
 
@@ -224,8 +233,13 @@ final class PageScreens implements PageRenderer {
     private static volatile PageScreens live;
     /** The stock screen SDK pages return to: recorded when a page opens over a stock screen. */
     private static Object stockReturn;
-    /** The title {@link SdkCarScreenFactory#getText} serves for {@link HqcUiIds#TEXT_PAGE_TITLE}. */
+    /** The page bank the next built screen gets: flipped on every build so it never touches the shown page's rows. */
+    private int bank = 1; // so the first build gets bank 0 (HqcUiIds.PAGE_LIST_MODEL)
+    /** The page titles by bank: {@link HqcUiIds#TEXT_PAGE_TITLE} and its alt, each read by its own screens. */
     private static volatile String title = "";
+    private static volatile String titleAlt = "";
+    /** The SDK pages were opened from the main menu ring (screen 46): MENU leaves them for it. */
+    private static volatile boolean menuOrigin;
     /** The dialog whose texts {@link InputTextIds} serves: the one on show; null for none. */
     private static volatile UiDialog dialog;
     /** Counts page screen builds and adoptions: each {@link Shown} gets the next. */
@@ -416,7 +430,12 @@ final class PageScreens implements PageRenderer {
         return id >= 0 && id / 100000 == HqcUiIds.EARLY_APPS_MODULE;
     }
 
-    /** The shown page's title (HMIEvent, from the factory's getText). */
+    /** The shown page's title for {@code bank} (HMIEvent, from the factory's getText). */
+    static String title(int bank) {
+        return bank == 0 ? title : titleAlt;
+    }
+
+    /** The shown page's title, first bank; see {@link #title(int)}. */
     static String title() {
         return title;
     }
@@ -461,10 +480,11 @@ final class PageScreens implements PageRenderer {
             orphanPending = false;
             if (!isSdkScreen(current)) {
                 stockReturn = screens.currentData();
+                menuOrigin = current == HqcUiIds.SYS_SCREEN_MAINWIZARD; // MENU goes back to the ring it came from
             }
             stack.open(pageKey, stockReturn);
             stack.reconcile(s);
-            showTop(s);
+            showTop(s, HqcUiIds.ANIM_FORWARD);
         } catch (Throwable t) {
             failed("open " + pageKey, t);
         }
@@ -504,10 +524,10 @@ final class PageScreens implements PageRenderer {
             rebuildPending = rebuild && current && !allowed;
             if (rebuild && current && allowed) {
                 rememberFocus(); // the rebuilt page keeps its focused entry
-                showTop(s);
+                showTop(s, HqcUiIds.ANIM_FORWARD);
             } else {
                 // not connected yet, or the screen may not change: the title and layout follow on a later refresh
-                writeRows(p, shownLayout);
+                writeRows(p, shownLayout, shownBank());
             }
         } catch (Throwable t) {
             failed("refresh", t);
@@ -808,8 +828,9 @@ final class PageScreens implements PageRenderer {
     /**
      * Shows {@code screen} (sub-screen {@code screenId}, 609501..609503) over the page, in a job: the page stays open
      * (its leaving is not the user leaving) and input keeps going to its key until {@link #subBack} or a stock screen.
+     * {@code animation}: {@link HqcUiIds#ANIM_FORWARD} entering a sub-screen, {@link HqcUiIds#ANIM_BACK} leaving one.
      */
-    void openSub(int screenId, Object screen) {
+    void openSub(int screenId, Object screen, int animation) {
         rememberFocus(); // the page shown again after it focuses the same entry
         sub = screen;
         subId = screenId;
@@ -820,7 +841,7 @@ final class PageScreens implements PageRenderer {
         lastSubSlot = -1;
         lastSubShown = shownPage;
         try {
-            screens.show(screen);
+            screens.show(screen, animation);
         } catch (Throwable t) {
             failed("show sub-screen " + screenId, t);
             clearSub();
@@ -841,6 +862,27 @@ final class PageScreens implements PageRenderer {
             requestNav(new Nav(Nav.SUB_BACK, null, -1));
         } catch (Throwable t) {
             // never propagate into the HMI
+        }
+    }
+
+    /**
+     * MENU on an SDK page (or a sub-screen over one) opened from the main menu ring: leave every page at once and
+     * show the ring again, as MENU does on every other page of the HMI. True when the SDK takes the key; false leaves
+     * it to the stock handler (a page opened from the Car drawer, or a popup/parking display that owns it). Never
+     * throws.
+     */
+    boolean menuPressed() {
+        try {
+            if (down || orphanPending || !menuOrigin || shown == null) {
+                return false;
+            }
+            if (!changeAllowed()) {
+                return false; // a popup, the parking display or a screen change owns the key
+            }
+            requestNav(new Nav(Nav.MENU, null, -1));
+            return true;
+        } catch (Throwable t) {
+            return false; // never propagate into the HMI: stock handling stays
         }
     }
 
@@ -882,7 +924,7 @@ final class PageScreens implements PageRenderer {
         sub = screen;
         subId = lastSubId;
         subWaiting = false;
-        shownPage = new Shown(was.pageKey, was.layout, ++generations);
+        shownPage = new Shown(was.pageKey, was.layout, ++generations, was.bank);
         UiEntry e = lastSubId == HqcUiIds.SLIDER_SCREEN_ID && was.pageKey.equals(stack.top())
                 ? sliderEntry(shownPage, lastSubSlot, s) : null;
         PageLayout.TypedRow r = was.layout.typedAt(lastSubSlot);
@@ -1055,7 +1097,8 @@ final class PageScreens implements PageRenderer {
         dialogUp = d;
         dialogSeen = false;
         spellerSession = isSpeller ? new SpellerSession(d.seq(), d.text()) : null;
-        openSub(isSpeller ? HqcUiIds.SPELLER_SCREEN_ID : HqcUiIds.CONFIRM_SCREEN_ID, screen);
+        openSub(isSpeller ? HqcUiIds.SPELLER_SCREEN_ID : HqcUiIds.CONFIRM_SCREEN_ID, screen,
+                HqcUiIds.ANIM_FORWARD);
     }
 
     /**
@@ -1200,14 +1243,14 @@ final class PageScreens implements PageRenderer {
                     + " screen change is under way");
             return;
         }
-        showTop(s);
+        showTop(s, HqcUiIds.ANIM_BACK);
     }
 
     /**
      * A page screen connected. Ours, shown last: nothing to do. Ours, after the user had left it (a popup or the
      * RVC ended and the HMI went back to it): it is the open page again. Never throws.
      */
-    void screenConnected(Object screen, String pageKey, PageLayout layout) {
+    void screenConnected(Object screen, String pageKey, PageLayout layout, int bank) {
         try {
             if (down) {
                 poster.post(retryJob); // a dead page came back: take it off screen (a pending job retries too)
@@ -1224,12 +1267,12 @@ final class PageScreens implements PageRenderer {
             orphanPending = false; // our own page is up: whatever was orphaned is gone
             shown = screen;
             lastShown = screen;
-            shownPage = new Shown(pageKey, layout, ++generations);
+            shownPage = new Shown(pageKey, layout, ++generations, bank);
             live = this;
             stack.open(pageKey, stockReturn);
             UiSnapshot s = table.snapshot();
             stack.reconcile(s);
-            writeRows(pageOf(stack.top(), s), shownLayout());
+            writeRows(pageOf(stack.top(), s), shownLayout(), bank);
             retryDialog();
         } catch (Throwable t) {
             failed("connect", t);
@@ -1296,6 +1339,11 @@ final class PageScreens implements PageRenderer {
                 return;
             }
             try {
+                if (n.kind == Nav.MENU) {
+                    toMainMenu();
+                    clearNavs();
+                    return;
+                }
                 if (n.kind == Nav.SLIDER) {
                     showSlider(n.slot, s);
                 } else if (n.kind == Nav.SUB_BACK) {
@@ -1321,7 +1369,7 @@ final class PageScreens implements PageRenderer {
             focusMarkedOption(n.target, s);
         }
         stack.push(n.target, null, s);
-        showTop(s);
+        showTop(s, HqcUiIds.ANIM_FORWARD);
     }
 
     /** In a job: BACK to the page under the top (its remembered focus), or out to the stock screen. */
@@ -1336,7 +1384,7 @@ final class PageScreens implements PageRenderer {
             shown = null;
             returnToStock();
         } else {
-            showTop(s);
+            showTop(s, HqcUiIds.ANIM_BACK);
         }
     }
 
@@ -1350,7 +1398,7 @@ final class PageScreens implements PageRenderer {
         PageLayout.TypedRow r = sp.layout.typedAt(slot);
         slider = new SliderSession(r.min, r.step, r.steps, e.number(), slot); // its texts are served at connect
         try {
-            openSub(HqcUiIds.SLIDER_SCREEN_ID, screens.buildSlider(slot, sp.layout, this));
+            openSub(HqcUiIds.SLIDER_SCREEN_ID, screens.buildSlider(slot, sp.layout, this), HqcUiIds.ANIM_FORWARD);
             lastSubSlot = slot;
         } catch (Exception x) {
             clearSub();
@@ -1358,8 +1406,13 @@ final class PageScreens implements PageRenderer {
         }
     }
 
-    /** Builds and shows the stack's top page. On failure nothing of ours is on screen and the stack is empty. */
-    private void showTop(UiSnapshot s) {
+    /**
+     * Builds and shows the stack's top page. On failure nothing of ours is on screen and the stack is empty.
+     * {@code animation}: the stock page change's modelled transition ({@link HqcUiIds#ANIM_FORWARD} into a page,
+     * {@link HqcUiIds#ANIM_BACK} back to the parent). The page gets the other bank of the list model and title text,
+     * so the screen on its way out never renders these rows.
+     */
+    private void showTop(UiSnapshot s, int animation) {
         String key = stack.top();
         try {
             if (!changeAllowed()) { // callers check first; this is the last guard before showScreen
@@ -1372,9 +1425,15 @@ final class PageScreens implements PageRenderer {
             UiPage p = pageOf(key, s);
             String t = p.title() == null ? "" : p.title();
             PageLayout layout = PageLayout.of(p, itemIcons);
-            writeRows(p, layout);
-            title = t;
-            Object screen = screens.build(key, t, this, layout, focusOf(key, layout));
+            bank ^= 1;
+            int b = bank;
+            writeRows(p, layout, b);
+            if (b == 0) {
+                title = t;
+            } else {
+                titleAlt = t;
+            }
+            Object screen = screens.build(key, t, this, layout, focusOf(key, layout), b);
             PageScreens prev = live;
             if (prev != null && prev != this) {
                 prev.shown = null; // a replaced applier's page: its leaving is not the user leaving
@@ -1382,9 +1441,9 @@ final class PageScreens implements PageRenderer {
             live = this;
             shown = screen;
             lastShown = screen;
-            shownPage = new Shown(key, layout, ++generations);
+            shownPage = new Shown(key, layout, ++generations, b);
             shownTitle = t;
-            screens.show(screen);
+            screens.show(screen, animation);
         } catch (Throwable t) {
             failed("show " + key, t);
             shown = null;
@@ -1469,6 +1528,28 @@ final class PageScreens implements PageRenderer {
         }
     }
 
+    /**
+     * MENU: leaves every SDK page at once and shows the main menu ring again. The stack's clear sends PAGE_CLOSED
+     * for the top page, so the runtime stops counting one as shown. Behind the screen-change gate.
+     */
+    private void toMainMenu() {
+        clearSub();
+        shown = null;
+        rebuildPending = false;
+        stack.clear(); // PAGE_CLOSED for the top page (the pages under it were never "shown")
+        stockReturn = null;
+        try {
+            if (!changeAllowed()) {
+                log.append("INFO", SOURCE, "ui page: main menu not shown: a popup, parking display or screen change"
+                        + " is under way");
+                return;
+            }
+            screens.showCarScreen(HqcUiIds.SYS_SCREEN_MAINWIZARD);
+        } catch (Throwable t) {
+            failed("main menu", t);
+        }
+    }
+
     /** Back to the saved stock screen; without one, to the Car main screen. Behind the screen-change gate. */
     private void returnToStock() {
         Object to = stockReturn;
@@ -1500,8 +1581,17 @@ final class PageScreens implements PageRenderer {
         return sp == null ? PageLayout.EMPTY : sp.layout;
     }
 
-    /** Writes {@code p}'s list rows for a screen built with {@code layout}: an icon not in it is not drawn. */
-    private void writeRows(UiPage p, PageLayout layout) {
+    /** The page bank of the screen shown last (0 before one). */
+    private int shownBank() {
+        Shown sp = shownPage;
+        return sp == null ? 0 : sp.bank;
+    }
+
+    /**
+     * Writes {@code p}'s list rows into bank {@code b} for a screen built with {@code layout}: an icon not in it is not
+     * drawn.
+     */
+    private void writeRows(UiPage p, PageLayout layout, int b) {
         List<UiEntry> all = p.entries();
         List<UiEntry> entries = new ArrayList<UiEntry>(all.size());
         for (int i = 0; i < all.size(); i++) {
@@ -1516,9 +1606,9 @@ final class PageScreens implements PageRenderer {
             rows[i] = PageRow.of(e, e.kind() == UiEntry.ITEM ? layout.iconIndex(e.icon()) : -1, keyless);
             keyless += e.key() == null ? 1 : 0; // INFO rows: ids by place among them
         }
-        rowEntries = entries;
+        rowEntries = entries; // `selected` maps a row of the page just written (focusOf reads it too)
         try {
-            screens.writeRows(rows);
+            screens.writeRows(b, rows);
         } catch (Throwable t) {
             failed("rows", t);
         }

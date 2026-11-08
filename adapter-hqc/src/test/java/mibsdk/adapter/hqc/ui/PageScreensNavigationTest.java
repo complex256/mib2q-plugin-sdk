@@ -55,6 +55,9 @@ class PageScreensNavigationTest {
         boolean failBuild;
         boolean failScreenManager;
         final List<PageLayout> layouts = new ArrayList<PageLayout>();
+        final List<Integer> banks = new ArrayList<Integer>(); // each build's page bank
+        final List<Integer> rowBanks = new ArrayList<Integer>(); // each row write's page bank
+        final List<Integer> animations = new ArrayList<Integer>(); // each show's animation
         PageRow[] lastRows;
         String spellerText; // the SpellerModel's text (null: none)
         boolean connectLater; // a shown screen stays pending until the test connects it
@@ -90,21 +93,23 @@ class PageScreensNavigationTest {
             return screen != null && screen == current;
         }
 
-        public Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus) {
+        public Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus, int bank) {
             if (failBuild) {
                 throw new IllegalStateException("no factory");
             }
             calls.add("build " + pageKey + " '" + title + "'");
             layouts.add(layout);
+            banks.add(bank);
             focuses.add(focus);
             return "screen" + (++built) + ":" + pageKey;
         }
 
-        public void show(Object screen) {
+        public void show(Object screen, int animation) {
             if (failShow) {
                 throw new IllegalStateException("show failed");
             }
             calls.add("show " + screen);
+            animations.add(animation);
             lastShownScreen = screen;
             if (!connectLater) {
                 current = screen; // connects at once here; on the unit it connects later
@@ -150,12 +155,13 @@ class PageScreensNavigationTest {
             return focused;
         }
 
-        public void writeRows(PageRow[] rows) {
+        public void writeRows(int bank, PageRow[] rows) {
             List<String> labels = new ArrayList<String>();
             for (PageRow r : rows) {
                 labels.add(r.label);
             }
             calls.add("rows " + labels);
+            rowBanks.add(bank);
             lastRows = rows;
         }
     }
@@ -347,6 +353,91 @@ class PageScreensNavigationTest {
         assertTrue(calls().contains("show screen2:a/q"));
     }
 
+    /**
+     * A page change is a stock animation: the outgoing screen stays connected through its fade-out. The incoming page
+     * must therefore get the other page list bank and title text, or its rows show in the outgoing screen's last
+     * frames (the "pop-in" seen on the car). The direction is modelled too, so it plays forward into a page and
+     * backward to the parent.
+     */
+    @Test
+    void eachPageChangeGetsTheOtherBankAndItsDirection() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", link("more", "More", "a/q")),
+                page("a/q", "Beta", item("x", "X")));
+        pages.open("a/p", s, 0);
+        assertEquals(Collections.singletonList(0), hmi.banks, "the first page, bank 0");
+        assertEquals(Collections.singletonList(0), hmi.rowBanks);
+        assertEquals(Collections.singletonList(HqcUiIds.ANIM_FORWARD), hmi.animations);
+        assertEquals("Alpha", PageScreens.title(0));
+
+        PageScreens.listSelected(0); // "More" -> the child page
+        runJobs();
+        assertEquals(Arrays.asList(0, 1), hmi.banks, "the child gets the other bank");
+        assertEquals(Arrays.asList(0, 1), hmi.rowBanks, "written into the bank the outgoing screen does not read");
+        assertEquals(Arrays.asList(HqcUiIds.ANIM_FORWARD, HqcUiIds.ANIM_FORWARD), hmi.animations);
+        assertEquals("Beta", PageScreens.title(1));
+
+        pages.backPressed();
+        runJobs();
+        assertEquals(Arrays.asList(0, 1, 0), hmi.banks);
+        assertEquals(Arrays.asList(HqcUiIds.ANIM_FORWARD, HqcUiIds.ANIM_FORWARD, HqcUiIds.ANIM_BACK),
+                hmi.animations, "BACK animates backward");
+    }
+
+    /** MENU on a page opened from the main menu ring leaves every page and shows the ring again. */
+    @Test
+    void menuReturnsToTheMainMenuRing() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", link("more", "More", "a/q")),
+                page("a/q", "Beta", item("x", "X")));
+        hmi.currentId = HqcUiIds.SYS_SCREEN_MAINWIZARD; // opened from the MENU ring
+        hmi.current = "sys:46";
+        pages.open("a/p", s, 0);
+        PageScreens.listSelected(0);
+        runJobs();
+        calls();
+        inputs();
+
+        assertTrue(pages.menuPressed(), "the SDK takes MENU");
+        runJobs();
+        assertEquals(Collections.singletonList("car " + HqcUiIds.SYS_SCREEN_MAINWIZARD), calls());
+        assertEquals(Collections.singletonList("closed a/q"), inputs(), "the runtime stops counting a page as shown");
+    }
+
+    /** Opened from the Car drawer, MENU stays stock's: it is not the SDK's to consume. */
+    @Test
+    void menuFromTheCarDrawerIsLeftToStock() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("x", "X")));
+        pages.open("a/p", s, 0);
+        assertFalse(pages.menuPressed());
+    }
+
+    /** The screen's hard-key filter is what catches MENU (the stock distributor never sends it to keyPressed). */
+    @Test
+    void screenFilterConsumesMenuOnlyFromTheMenuRing() throws Exception {
+        UiSnapshot s = publish(page("a/p", "Alpha", item("x", "X")));
+        hmi.currentId = HqcUiIds.SYS_SCREEN_MAINWIZARD;
+        hmi.current = "sys:46";
+        pages.open("a/p", s, 0);
+        calls();
+
+        PageWidgets.PageScreen screen = new PageWidgets.PageScreen(HqcUiIds.PAGE_SCREEN_ID, pages, "a/p",
+                PageLayout.EMPTY, null, 0);
+        assertFalse(screen.doesHKFilterContainsKey(HqcUiIds.KEY_BACK), "BACK belongs to the page's menu");
+        assertTrue(screen.doesHKFilterContainsKey(HqcUiIds.KEY_MENU));
+        runJobs();
+        assertEquals(Collections.singletonList("car " + HqcUiIds.SYS_SCREEN_MAINWIZARD), calls());
+
+        // A page opened from the Car drawer leaves MENU to stock.
+        hmi.currentId = CAR_SCREEN;
+        hmi.current = STOCK;
+        UiSnapshot t = publish(page("a/p", "Alpha", item("x", "X")));
+        pages.open("a/p", t, 0);
+        calls(); // the open's own build/show
+        PageWidgets.PageScreen carPage = new PageWidgets.PageScreen(HqcUiIds.PAGE_SCREEN_ID, pages, "a/p",
+                PageLayout.EMPTY, null, 0);
+        assertFalse(carPage.doesHKFilterContainsKey(HqcUiIds.KEY_MENU));
+        assertEquals(Collections.emptyList(), calls(), "nothing navigated");
+    }
+
     /** The open request replaces the stack; from an SDK page the bottom returnTo stays the stock screen. */
     @Test
     void openOverAnSdkPageKeepsTheStockReturn() throws Exception {
@@ -377,7 +468,7 @@ class PageScreensNavigationTest {
 
         hmi.current = screen;
         hmi.currentId = HqcUiIds.PAGE_SCREEN_ID;
-        pages.screenConnected(screen, "a/p", PageLayout.EMPTY);
+        pages.screenConnected(screen, "a/p", PageLayout.EMPTY, 0);
         assertEquals(Collections.singletonList("shown a/p"), inputs());
         assertEquals(Collections.singletonList("rows [Y]"), calls(), "the rows catch up with the snapshot");
         pages.backPressed();
@@ -589,7 +680,7 @@ class PageScreensNavigationTest {
         assertEquals(Collections.singletonList("closed a/p"), inputs());
 
         hmi.pendingId = -1; // the RVC ended; the HMI goes back to the page
-        pages.screenConnected(screen, "a/p", PageLayout.EMPTY);
+        pages.screenConnected(screen, "a/p", PageLayout.EMPTY, 0);
         runJobs();
         assertEquals(Collections.singletonList("stock " + STOCK), calls(), "the close is retried");
         assertEquals(Collections.emptyList(), inputs(), "not adopted again: the runtime is down");
@@ -763,7 +854,7 @@ class PageScreensNavigationTest {
 
         hmi.current = screen;
         hmi.currentId = HqcUiIds.PAGE_SCREEN_ID;
-        pages.screenConnected(screen, "a/p", PageLayout.EMPTY); // the HMI went back to the dead page
+        pages.screenConnected(screen, "a/p", PageLayout.EMPTY, 0); // the HMI went back to the dead page
         runJobs();
         assertEquals(Collections.singletonList("stock " + STOCK), calls());
         inputs();
@@ -789,7 +880,7 @@ class PageScreensNavigationTest {
         inputs();
 
         Object mine = "mine:a/p";
-        pages.screenConnected(mine, "a/p", PageLayout.EMPTY); // one of the new renderer's own pages connects
+        pages.screenConnected(mine, "a/p", PageLayout.EMPTY, 0); // one of the new renderer's own pages connects
         assertEquals(Collections.singletonList("shown a/p"), inputs(), "adopted");
 
         hmi.blocked = false;
@@ -1004,7 +1095,7 @@ class PageScreensNavigationTest {
         calls();
         inputs();
         Object page = hmi.current;
-        pages.openSub(HqcUiIds.SLIDER_SCREEN_ID, "sub");
+        pages.openSub(HqcUiIds.SLIDER_SCREEN_ID, "sub", HqcUiIds.ANIM_FORWARD);
         assertEquals(Collections.singletonList("show sub"), calls());
         pages.screenDisconnecting(page);
         pages.subConnected("sub");
@@ -1505,7 +1596,7 @@ class PageScreensNavigationTest {
         Object page = hmi.lastShownScreen;
         hmi.current = page;
         hmi.currentId = HqcUiIds.PAGE_SCREEN_ID;
-        pages.screenConnected(page, "a/p", pages.shown().layout);
+        pages.screenConnected(page, "a/p", pages.shown().layout, 0);
         runJobs();
         assertEquals(Arrays.asList("confirm 3 [Yes, No]", "show confirm2"), calls(), "shown once the page is up");
         assertEquals(Collections.emptyList(), inputs());

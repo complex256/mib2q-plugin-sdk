@@ -130,8 +130,18 @@ final class PageWidgets implements PageScreens.Screens {
         return screen != null && sm != null && sm.getCurrentConnectedScreen() == screen;
     }
 
-    public Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus) {
-        return build(factory(), TERMINAL, owner, pageKey, layout, focus);
+    public Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus, int bank) {
+        return build(factory(), TERMINAL, owner, pageKey, layout, focus, bank);
+    }
+
+    /** The page bank's ListModel id: {@link HqcUiIds#PAGE_LIST_MODEL} or its alt (see {@link #build}). */
+    static int pageListId(int bank) {
+        return bank == 0 ? HqcUiIds.PAGE_LIST_MODEL : HqcUiIds.PAGE_LIST_MODEL_ALT;
+    }
+
+    /** The page bank's factory title text id. */
+    static int pageTitleId(int bank) {
+        return bank == 0 ? HqcUiIds.TEXT_PAGE_TITLE : HqcUiIds.TEXT_PAGE_TITLE_ALT;
     }
 
     /** The page menu's focus code ({@link PageMenu#codeOf}); {@link PageScreens#NO_FOCUS} if none. Never throws. */
@@ -172,9 +182,10 @@ final class PageWidgets implements PageScreens.Screens {
     /**
      * Shows a prebuilt SDK screen (the page or a sub-screen, under its own id): it needs its terminal set (the cache
      * path that does it is bypassed) and the current screen's partial popups, colour scheme and screen mode (spike B,
-     * S2a).
+     * S2a). {@code animation}: the page change's modelled animation info ({@link HqcUiIds#ANIM_FORWARD} or
+     * {@link HqcUiIds#ANIM_BACK}): 0 is modelled as a backward transition by the stock animation controller.
      */
-    public void show(Object screen) {
+    public void show(Object screen, int animation) {
         FwHMI fw = fw();
         IScreenData cur = fw.getScreenManager(TERMINAL).getCurrentConnectedScreenData();
         Screen page = (Screen) screen;
@@ -183,7 +194,7 @@ final class PageWidgets implements PageScreens.Screens {
         int scheme = cur == null ? 0 : cur.getColorScheme();
         int mode = cur == null ? 0 : cur.getScreenMode();
         fw.showScreen(TERMINAL, 0, new ScreenData(page.getID(), false, false, null, false, page, popups,
-                null, -1L, -1L, 0, scheme, mode, null));
+                null, -1L, -1L, animation, scheme, mode, null));
     }
 
     /**
@@ -224,9 +235,9 @@ final class PageWidgets implements PageScreens.Screens {
         return a == null ? null : (int[]) a.clone();
     }
 
-    /** Writes the rows ({@link #write}: each kept entry stays in its own row, so the focus stays on it). */
-    public void writeRows(PageRow[] rows) {
-        ListModel m = SdkCarModelBank.pageList();
+    /** Writes the rows of the page bank {@code bank} ({@link #write}: each kept entry stays in its own row). */
+    public void writeRows(int bank, PageRow[] rows) {
+        ListModel m = SdkCarModelBank.pageList(bank);
         if (m == null) {
             throw new IllegalStateException("no page list model");
         }
@@ -334,19 +345,21 @@ final class PageWidgets implements PageScreens.Screens {
         private final PageScreens owner;
         private final String pageKey;
         private final PageLayout layout;
+        private final int bank;
         final PageMenu menu;
 
-        PageScreen(int id, PageScreens owner, String pageKey, PageLayout layout, PageMenu menu) {
+        PageScreen(int id, PageScreens owner, String pageKey, PageLayout layout, PageMenu menu, int bank) {
             super(id);
             this.owner = owner;
             this.pageKey = pageKey;
             this.layout = layout;
             this.menu = menu;
+            this.bank = bank;
         }
 
         public void connected(InitializationContext c) {
             super.connected(c);
-            owner.screenConnected(this, pageKey, layout); // never throws
+            owner.screenConnected(this, pageKey, layout, bank); // never throws
         }
 
         public void disconnecting() {
@@ -355,6 +368,19 @@ final class PageWidgets implements PageScreens.Screens {
             } finally {
                 owner.screenDisconnecting(this); // never throws
             }
+        }
+
+        /**
+         * MENU on a page opened from the main menu ring: the SDK leaves every page and shows the ring, like every
+         * other page of the HMI does. This filter is the only hook before the stock distributor: MENU is an
+         * app-change hard key, so {@code DrawerFocusManager} never sends it to the screen's {@code keyPressed}. A page
+         * opened from the Car drawer is left to stock.
+         */
+        public boolean doesHKFilterContainsKey(int keyCode) {
+            if (keyCode == HqcUiIds.KEY_MENU && owner.menuPressed()) {
+                return true;
+            }
+            return super.doesHKFilterContainsKey(keyCode);
         }
     }
 
@@ -481,9 +507,9 @@ final class PageWidgets implements PageScreens.Screens {
 
     /** The page screen; {@code focus}: the focus code its menu sets once connected ({@link PageMenu}). */
     static Screen build(SdkCarScreenFactory f, int t, PageScreens owner, String pageKey, PageLayout layout,
-                        int focus) {
+                        int focus, int bank) {
         AbstractWidgetController ref0 = f.getRefWidget(t, 0, f);
-        ListController list = list(layout);
+        ListController list = list(pageListId(bank), layout);
         PageLayout.TypedRow[] typed = layout == null ? new PageLayout.TypedRow[0] : layout.typed();
         PageMenu menu = new PageMenu(owner, list, typed.length, focus);
         dressMenu(menu, f, t, 32);
@@ -491,7 +517,7 @@ final class PageWidgets implements PageScreens.Screens {
 
         int[] ids = new int[1 + typed.length];
         HMIView[][] views = new HMIView[ids.length][];
-        ids[0] = HqcUiIds.PAGE_LIST_MODEL;
+        ids[0] = pageListId(bank);
         views[0] = new HMIView[] {list};
         for (int s = 0; s < typed.length; s++) {
             MenuItemController row = typedRow(typed[s], s, f, t);
@@ -499,8 +525,8 @@ final class PageWidgets implements PageScreens.Screens {
             ids[1 + s] = row.getModelID();
             views[1 + s] = new HMIView[] {row};
         }
-        ScreenWidgetEVO s = new PageScreen(HqcUiIds.PAGE_SCREEN_ID, owner, pageKey, layout, menu);
-        return shell(s, f, t, ref0, menu, HqcUiIds.TEXT_PAGE_TITLE, 3, ids, views);
+        ScreenWidgetEVO s = new PageScreen(HqcUiIds.PAGE_SCREEN_ID, owner, pageKey, layout, menu, bank);
+        return shell(s, f, t, ref0, menu, pageTitleId(bank), 3, ids, views);
     }
 
     /**

@@ -3,6 +3,7 @@ package mibsdk.adapter.hqc.ui;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -176,10 +177,10 @@ class SdkCarActivatorTest {
         assertNotNull(SdkCarModelBank.statusModels());
         int[] ids = bank.getAllModelIds();
         assertEquals(before.length, ids.length);
-        int sdk = HqcUiIds.MODEL_COUNT - 4; // +10, +34, +40, +41 are reserved
+        int sdk = HqcUiIds.MODEL_COUNT - 3; // +34, +40 and +41 are reserved
         int at = ids.length - sdk;
         for (int i = 0; i < HqcUiIds.MODEL_COUNT; i++) {
-            if (i == HqcUiIds.ROW_MODEL_COUNT || i == 34 || i >= 40) {
+            if (i == 34 || i >= 40) {
                 continue;
             }
             assertEquals(HqcUiIds.MODEL_BASE + i, ids[at++], "the SDK ids ascending, without the reserved ones");
@@ -189,18 +190,25 @@ class SdkCarActivatorTest {
     }
 
     /**
-     * Task 11: the page ListModel (5 columns since native inputs, F14) exists on demand; the reserved id between it
-     * and the rows has none.
+     * Task 11: the two page ListModels (one bank per direction of a page change) exist on demand; the reserved ids
+     * between them and the rows have none.
      */
     @Test
-    void bankGrowsThePageListModel() throws Exception {
+    void bankGrowsThePageListModels() throws Exception {
         SdkGlobals.uiEnabled = true;
         SdkCarModelBank bank = (SdkCarModelBank) bankOf(new SdkCarActivator());
-        de.audi.atip.hmi.model.ListModel list = SdkCarModelBank.pageList();
+        de.audi.atip.hmi.model.ListModel list = SdkCarModelBank.pageList(0);
         assertNotNull(list);
-        assertSame(list, SdkCarModelBank.pageList(), "created once");
+        assertSame(list, SdkCarModelBank.pageList(0), "created once");
         assertEquals(6, list.getMaxColumns()); // + the row id column (bench B)
-        int reserved = BASE_INDEX + HqcUiIds.ROW_MODEL_COUNT;
+        assertEquals(HqcUiIds.PAGE_LIST_MODEL, list.getID());
+
+        de.audi.atip.hmi.model.ListModel alt = SdkCarModelBank.pageList(1);
+        assertNotNull(alt);
+        assertEquals(HqcUiIds.PAGE_LIST_MODEL_ALT, alt.getID());
+        assertNotSame(list, alt, "the incoming page writes its own list");
+
+        int reserved = BASE_INDEX + HqcUiIds.CONFIRM_TEXT_RESERVED - HqcUiIds.MODEL_BASE;
         bank.createModel(reserved);
         Field f = de.audi.atip.hmi.model.AbstractModelBank.class.getDeclaredField("models");
         f.setAccessible(true);

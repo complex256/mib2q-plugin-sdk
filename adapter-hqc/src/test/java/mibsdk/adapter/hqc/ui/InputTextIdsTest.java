@@ -22,7 +22,7 @@ class InputTextIdsTest {
     private static PageScreens.Shown shown() {
         UiPage p = new UiPage("p/main", "Main", Arrays.asList(MODE,
                 new UiEntry(UiEntry.ITEM, "go", "Go", null, false, null), BASS, LEVEL));
-        return new PageScreens.Shown("p/main", PageLayout.of(p, ItemIcons.NONE), 1);
+        return new PageScreens.Shown("p/main", PageLayout.of(p, ItemIcons.NONE), 1, 0);
     }
 
     private static String text(int id, SliderSession slider, UiDialog d) {

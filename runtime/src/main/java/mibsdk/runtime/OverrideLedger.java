@@ -27,7 +27,8 @@ import mibsdk.api.VehicleOverride;
  * before anything is applied; a release has its {@code R} queued to the file before the first restore
  * attempt, and {@link #shutdown()} writes the final state, so a restore still pending at stop is finished
  * by the next boot (a loaded {@code R} entry is restored as soon as {@link #attach} gives it an applier).
- * An entry leaves the file only once the car has reported its prior (see Confirmation).
+ * An entry leaves the file only once its restore is done: the car reported the prior, or the write
+ * returned and the car stayed silent for {@link #CONFIRM_TIMEOUT_MS} (see Confirmation).
  * An unreadable file is treated as empty (logged, and kept aside as {@code ledger.properties.corrupt});
  * a malformed line is skipped (logged).
  *
@@ -47,12 +48,13 @@ import mibsdk.api.VehicleOverride;
  * <p>Sticky: while an override is in force, an observed value different from it is re-applied
  * 1000 ms after the last change, at most 5 times per 60000 ms (all on the {@link Clock}); then the ledger gives up re-applying (logged) but still restores later.
  *
- * <p>Confirmation: a restore is complete only when the car reports the prior, never because the write
+ * <p>Confirmation: a restore also completes when the car reports the prior, never <em>because</em> the write
  * returned (on HQC {@link mibsdk.platform.ParkingIo#current()} only echoes the last write, so it is not
  * read). Each entry counts the reports of its key; a report counts for the restore if it arrived after the
  * entry became restoring, including one that overtakes the return of the write. A write that returns
  * starts a {@link #CONFIRM_TIMEOUT_MS} wait on the Clock: a report of the prior completes the restore; a
- * report of another value, or no report by the timeout, is a failed attempt, unless at the timeout the
+ * report of another value is a failed attempt; silence at the timeout completes it with a warning (the
+ * parking ECU only reports while PDC is active, so a one-way write is all HQC ever gives), unless the
  * car's last report of the key is the prior and was made after the override's own write: an ECU need not
  * report a write that leaves its value unchanged, so that completes it too (logged as a warning). A report
  * from before that write (or one that overtook it) does not: the override may have taken with its report
@@ -884,12 +886,19 @@ public final class OverrideLedger {
     /**
      * {@link #CONFIRM_TIMEOUT_MS} after a restore write returned: done if the car reported the prior (also
      * when its last report, made after the override's own write, is the prior and nothing came after the
-     * restore write), else a failed attempt.
+     * restore write), a failed attempt if the car reported another value, and done with a WARN when the car
+     * reported nothing at all.
+     *
+     * <p>Silence is not a failure: {@code setPDCSoundReproduction} is a one-way DSI call, and the parking ECU
+     * only publishes {@code updatePDCSoundReproduction} while PDC is active. Waiting for a report that the car
+     * will never send left the entry (and so the {@code PDC R OFF} indicator and the ledger file) in force for
+     * ever. A contradicting report still retries the restore.
      */
     private void confirmCheck(String key, int gen, int seq) {
         Entry e;
         String reason = null;
         boolean byLastReport = false;
+        boolean silent = false;
         boolean wrote;
         synchronized (lock) {
             e = find(key);
@@ -905,11 +914,13 @@ public final class OverrideLedger {
             } else if (e.prior.equals(e.lastReport) && e.observations > e.applyMark) {
                 byLastReport = true; // reported after the override's own write, so the car kept the prior
             } else {
-                reason = "no report within " + CONFIRM_TIMEOUT_MS + " ms";
+                silent = true;
             }
         }
         if (reason != null) {
             onNotConfirmed(e, gen, reason, false);
+        } else if (silent) {
+            finishRestore(e, gen, "the car did not report; the write returned", true);
         } else if (byLastReport) {
             finishRestore(e, gen, "confirmed by the car's last report; none after the write", true);
         } else {

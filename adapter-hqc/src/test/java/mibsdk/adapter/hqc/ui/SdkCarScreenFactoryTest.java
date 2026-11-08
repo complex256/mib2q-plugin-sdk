@@ -437,11 +437,17 @@ class SdkCarScreenFactoryTest {
             Object list = model(bank, base + 35);
             assertSame(de.audi.atip.hmi.model.ListModel.class, list.getClass());
             assertEquals(6, ((de.audi.atip.hmi.model.ListModel) list).getMaxColumns());
+            // the two page list banks (+10 and +11)
+            for (int off : new int[] {10, 11}) {
+                Object pageList = model(bank, base + off);
+                assertSame(de.audi.atip.hmi.model.ListModel.class, pageList.getClass(), "+" + off);
+                assertEquals(6, ((de.audi.atip.hmi.model.ListModel) pageList).getMaxColumns());
+            }
             assertSame(de.audi.atip.hmi.model.SpellerModel.class, model(bank, base + 36).getClass());
             assertSame(de.audi.atip.hmi.model.ChoiceModel.class, model(bank, base + 37).getClass());
             assertSame(de.audi.atip.hmi.model.LabelModel.class, model(bank, base + 38).getClass());
             assertSame(de.audi.atip.hmi.model.ResourceLocatorModel.class, model(bank, base + 39).getClass());
-            for (int off : new int[] {10, 34, 40, 41}) {
+            for (int off : new int[] {34, 40, 41}) {
                 assertNull(model(bank, base + off), "+" + off + " is reserved");
             }
             int[] all = bank.getAllModelIds();
@@ -451,8 +457,8 @@ class SdkCarScreenFactoryTest {
                     sdk.add(id - base);
                 }
             }
-            assertEquals(38, sdk.size(), "42 ids, 4 reserved: " + sdk);
-            assertFalse(sdk.contains(10) || sdk.contains(34) || sdk.contains(40) || sdk.contains(41));
+            assertEquals(39, sdk.size(), "42 ids, 3 reserved: " + sdk);
+            assertFalse(sdk.contains(34) || sdk.contains(40) || sdk.contains(41));
             assertEquals(0, (int) sdk.get(0));
             assertEquals(39, (int) sdk.get(sdk.size() - 1));
         } finally {

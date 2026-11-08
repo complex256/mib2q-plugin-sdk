@@ -104,18 +104,18 @@ class PluginsMenuTest {
         UiPage root = pages.get(0);
         assertEquals("mibsdk/plugins", root.key());
         assertEquals("Plugins", root.title());
-        assertEquals(7, root.entries().size(), "six plugins and the SDK link, no header outside safe mode");
+        assertEquals(7, root.entries().size(), "the SDK link, six plugins, no header outside safe mode");
         String[] words = {"On", "Off", "Failed", "Quarantined", "Blocked", "Blocked"};
         String[] names = {"Name A", "Name B", "Name C", "Name D", "Name E", "f"};
         for (int i = 0; i < 6; i++) {
-            UiEntry e = root.entries().get(i);
+            UiEntry e = root.entries().get(i + 1);
             assertEquals(UiEntry.LINK, e.kind());
             assertEquals(names[i], e.label());
             assertEquals(words[i], e.value());
             assertEquals("mibsdk/plugin." + st.get(i).id(), e.targetPageKey());
             assertNotNull(page(pages, e.targetPageKey()), "the link target is one of the pages");
         }
-        UiEntry sdk = root.entries().get(6);
+        UiEntry sdk = root.entries().get(0);
         assertEquals("SDK", sdk.label());
         assertEquals("mibsdk/sdk", sdk.targetPageKey());
         assertEquals("mibsdk/sdk", page(pages, "mibsdk/sdk").key());
@@ -305,7 +305,7 @@ class PluginsMenuTest {
         List<PluginStatus> st = Collections.singletonList(status("a", PluginState.FAILED, "r\nr"));
         Map<String, PluginManifest> m = Collections.singletonMap("a", manifest("a", longName));
         List<UiPage> pages = pages(st, m, null, NORMAL, grants(""));
-        UiEntry link = pages.get(0).entries().get(0);
+        UiEntry link = pages.get(0).entries().get(1); // after the SDK row
         assertEquals(40, link.label().length());
         assertTrue(link.label().startsWith("N ame xxx"), link.label());
         assertTrue(link.label().endsWith("..."));
@@ -358,10 +358,11 @@ class PluginsMenuTest {
         UiPage root = pages(st, null, null, NORMAL, grants("")).get(0);
         assertEquals(24, root.entries().size());
         assertEquals(22, labels(root, UiEntry.LINK).size() - 1, "22 plugins and the SDK link");
-        UiEntry more = root.entries().get(22);
+        assertEquals("SDK", root.entries().get(0).label(), "the SDK row is first");
+        assertEquals("p00", root.entries().get(1).label());
+        UiEntry more = root.entries().get(23);
         assertEquals(UiEntry.INFO, more.kind());
         assertEquals("+8 more", more.label());
-        assertEquals("SDK", root.entries().get(23).label());
         assertEquals(8, PluginsMenu.rootOverflow(30, NORMAL));
         assertEquals(0, PluginsMenu.rootOverflow(23, NORMAL), "23 plugins and SDK fit exactly");
         assertEquals(2, PluginsMenu.rootOverflow(23, state(true, "marker", false)), "the header takes a slot: 21 links + more");

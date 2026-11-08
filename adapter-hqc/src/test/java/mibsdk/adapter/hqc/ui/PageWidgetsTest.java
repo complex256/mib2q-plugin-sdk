@@ -243,7 +243,7 @@ class PageWidgetsTest {
                 new UiEntry(UiEntry.SLIDER, "bass", "Bass", null, false, null).withRange(-6, 6, 1, true)));
         SdkCarScreenFactory f = new SdkCarScreenFactory(SdkCarScreenFactoryTest.fw());
         de.audi.atip.hmi.view.Screen screen = PageWidgets.build(f, 0, null, "p/main",
-                PageLayout.of(p, ItemIcons.NONE), PageScreens.NO_FOCUS);
+                PageLayout.of(p, ItemIcons.NONE), PageScreens.NO_FOCUS, 0);
         de.esolutions.hmi.widgets.audi.base.AbstractScreenWidget sw =
                 (de.esolutions.hmi.widgets.audi.base.AbstractScreenWidget) screen;
         assertEquals(HqcUiIds.PAGE_SCREEN_ID, sw.getID());
@@ -492,7 +492,7 @@ class PageWidgetsTest {
                 new UiEntry(UiEntry.SLIDER, "bass", "Bass", null, false, null).withRange(-6, 6, 1, true)));
         SdkCarScreenFactory f = new SdkCarScreenFactory(SdkCarScreenFactoryTest.fw());
         de.audi.atip.hmi.view.Screen screen = PageWidgets.build(f, 0, null, "p/main",
-                PageLayout.of(p, ItemIcons.NONE), PageScreens.typedFocus(1));
+                PageLayout.of(p, ItemIcons.NONE), PageScreens.typedFocus(1), 0);
         de.esolutions.hmi.widgets.audi.base.AbstractScreenWidget sw =
                 (de.esolutions.hmi.widgets.audi.base.AbstractScreenWidget) screen;
         ListController list = (ListController) sw.findViews(HqcUiIds.PAGE_LIST_MODEL)[0];

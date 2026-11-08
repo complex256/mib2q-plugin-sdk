@@ -58,6 +58,14 @@ final class SliderScreen {
             }
         }
 
+        /** MENU over a sub-screen: back to the main menu the page was opened from (see {@code PageScreen}). */
+        public boolean doesHKFilterContainsKey(int keyCode) {
+            if (keyCode == HqcUiIds.KEY_MENU && owner.menuPressed()) {
+                return true;
+            }
+            return super.doesHKFilterContainsKey(keyCode);
+        }
+
         public void keyPressed(KeyEvent e) {
             try {
                 if (e.getKeyCode() == HqcUiIds.KEY_BACK && owner.ownsSub(this)) {

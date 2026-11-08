@@ -1199,7 +1199,7 @@ class OverrideLedgerTest {
         assertEquals("k=p|PERSISTENT|OLD|NEW|R\n", text(ledgerFile()), "nothing after shutdown rewrites it");
     }
 
-    // ---- a restore completes only when the car reports the prior (I4) ----
+    // ---- a restore completes on the car's report, and on silence (I4, revised on the car) ----
 
     private static boolean logHas(RingLog log, String level, String fragment) {
         for (String line : log.snapshot()) {
@@ -1210,8 +1210,14 @@ class OverrideLedgerTest {
         return false;
     }
 
+    /**
+     * On the car the parking ECU only publishes {@code updatePDCSoundReproduction} while PDC is active, and
+     * {@code setPDCSoundReproduction} is a one-way DSI call: waiting for a report that never comes kept the entry
+     * (the {@code PDC R OFF} indicator and the ledger file) in force for ever. Silence at the timeout is taken as
+     * done, with a warning.
+     */
     @Test
-    void restoreStaysPendingUntilTheCarReportsThePrior() throws Exception {
+    void restoreCompletesOnSilenceWithAWarning() throws Exception {
         RingLog log = new RingLog(100);
         OverrideLedger l = ledger(log);
         RecordingApplier a = new RecordingApplier(); // a silent ECU: accepts writes, reports nothing
@@ -1221,25 +1227,17 @@ class OverrideLedgerTest {
         ov.release();
         a.await(2);
         assertEquals("k=OLD", a.calls.get(1));
-        assertFalse(l.awaitSettled(300), "the write returned; the car has not confirmed it");
+        assertFalse(l.awaitSettled(300), "the write returned; the car has not reported yet");
         assertEquals(1, l.active().size());
         assertTrue(l.active().get(0).restorePending());
         assertEquals("k=p|PERSISTENT|OLD|NEW|R\n", text(ledgerFile()));
 
         clock.advance(5000);
-        awaitLog(log, "restore of k to OLD for p not confirmed by the car (no report within 5000 ms) (attempt 1);"
-                + " retrying in 5000 ms");
-        assertTrue(l.active().get(0).restorePending());
-        clock.advance(5000);
-        a.await(3);
-        assertEquals("k=OLD", a.calls.get(2));
-
-        l.onObserved("k", "OLD");
         awaitActiveSize(l, 0);
         awaitLedgerEmpty();
         assertEquals(0, ledgerFile().length());
-        assertEquals(3, a.calls.size());
-        awaitLog(log, "restored k=OLD (confirmed by the car)");
+        assertEquals(2, a.calls.size(), "one restore write, no retry");
+        awaitLogHas(log, "WARN", "restored k=OLD (the car did not report; the write returned)");
     }
 
     @Test
@@ -1314,34 +1312,33 @@ class OverrideLedgerTest {
         assertFalse(logContains(log, "(reported NEW) (attempt 1); retrying in"), log.snapshot().toString());
     }
 
+    /**
+     * A dropped restore write normally completes on silence (a sleeping ECU cannot be told apart from a one-way
+     * DSI write), but a report restating the override value means the write did not take: the restore goes in
+     * again at once.
+     */
     @Test
-    void droppedRestoreWriteIsRetriedUntilObserved() throws Exception {
+    void restoreReportedBackAsTheOverrideValueIsRetried() throws Exception {
         togglePlugin("muter", null); // UNTIL_IGNITION_OFF, rear=false
         start(null);
         fake.ecuSetSoundDirections(F1R1L0X0);
         fake.setIgnition(true);
         awaitApplied(1, F1R0L0X0);
 
-        fake.ecuDropWrites(2);
+        fake.ecuDropWrites(1); // the restore write is dropped
         fake.setIgnition(false);
         awaitApplied(2, F1R1L0X0);
         assertFalse(rt.ledger().awaitSettled(300));
         assertTrue(rt.activeOverrides().get(0).restorePending());
         assertTrue(text(ledgerFile()).endsWith("|R\n"), text(ledgerFile()));
 
-        clock.advance(5000); // timeout 1
-        awaitLog(rt.log(), "(no report within 5000 ms) (attempt 1); retrying in 5000 ms");
-        clock.advance(5000); // backoff 1
+        fake.ecuSetSoundDirections(F1R0L0X0); // the car still holds the override value
+        awaitLog(rt.log(), "not confirmed by the car (reported F1R0L0X0)");
         awaitApplied(3, F1R1L0X0);
-        assertFalse(rt.ledger().awaitSettled(300));
-        clock.advance(5000); // timeout 2
-        awaitLog(rt.log(), "(no report within 5000 ms) (attempt 2); retrying in 10000 ms");
-        clock.advance(10000); // backoff 2: the third restore write is accepted and reported
-        awaitApplied(4, F1R1L0X0);
         awaitNoOverrides();
         awaitLedgerEmpty();
         assertEquals(F1R1L0X0, fake.ecuSoundDirections());
-        assertEquals(2, fake.droppedWrites());
+        assertEquals(1, fake.droppedWrites());
     }
 
     /** Review Focus 1 with the fake ECU: the restore rewrites the value the ECU already holds, so it stays silent. */
@@ -1391,12 +1388,12 @@ class OverrideLedgerTest {
     }
 
     /**
-     * Ruling A: at the timeout, a last report equal to the prior confirms only if it came after the
-     * override's own apply. Here the car reports OLD before the NEW write lands, NEW's notification is lost and
-     * the restore write is dropped: the car still holds NEW, so the restore must be retried.
+     * Ruling A, revised on the car: a restore whose write the car answers with silence completes at the timeout,
+     * even when the car's last report predates the override's own write. A one-way DSI write is the only signal HQC
+     * gives, and waiting for a report kept the override (and its {@code PDC R OFF} indicator) in force for ever.
      */
     @Test
-    void lastReportFromBeforeTheOverrideApplyDoesNotConfirmAtTimeout() throws Exception {
+    void silenceCompletesEvenWhenTheCarsLastReportPredatesTheOverride() throws Exception {
         RingLog log = new RingLog(100);
         final OverrideLedger l = ledger(log);
         final List<String> calls = Collections.synchronizedList(new ArrayList<String>());
@@ -1416,21 +1413,14 @@ class OverrideLedgerTest {
         ov.release();
         awaitFirst(calls, "OLD");
         assertFalse(l.awaitSettled(300));
-        clock.advance(5000);
-        awaitLog(log, "restore of k to OLD for p not confirmed by the car (no report within 5000 ms) (attempt 1);"
-                + " retrying in 5000 ms");
-        assertEquals(1, l.active().size());
         assertTrue(l.active().get(0).restorePending());
         assertFalse(logContains(log, "confirmed by the car's last report"), log.snapshot().toString());
 
         clock.advance(5000);
-        for (int i = 0; i < 500 && calls.size() < 3; i++) {
-            Thread.sleep(10);
-        }
-        assertEquals(Arrays.asList("NEW", "OLD", "OLD"), calls, "the restore is written again");
-        l.onObserved("k", "OLD");
         awaitActiveSize(l, 0);
         awaitLedgerEmpty();
+        assertEquals(Arrays.asList("NEW", "OLD"), calls, "one restore write, no retry");
+        awaitLogHas(log, "WARN", "restored k=OLD (the car did not report; the write returned)");
     }
 
     /** Ruling B: a restore moved to backoff (not awaiting confirmation) still means "not settled". */

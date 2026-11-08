@@ -16,12 +16,13 @@ import mibsdk.adapter.hqc.SdkGlobals;
 
 /**
  * CarModelBank grown at {@link HqcUiIds#MODEL_BASE} (spike A's technique): a visibility ChoiceModel per drawer slot,
- * the selection ChoiceModel shared by the SDK rows, the SDK page's ListModel ({@link HqcUiIds#PAGE_LIST_MODEL}), and
+ * the selection ChoiceModel shared by the SDK rows, the SDK page's two ListModels ({@link HqcUiIds#PAGE_LIST_MODEL}
+ * and {@link HqcUiIds#PAGE_LIST_MODEL_ALT}), and
  * the status popup's models (its visibility ChoiceModel, 7 LabelModels and 6 ResourceLocatorModels, from
  * {@link HqcUiIds#STATUS_POPUP_VISIBLE_MODEL}), the typed rows' pooled models (4 ChoiceModels from
  * {@link HqcUiIds#TYPED_CHOICE_MODEL_0}, 4 RangeModels from {@link HqcUiIds#TYPED_RANGE_MODEL_0}), the confirm
- * ListModel, the SpellerModel and the toast's ChoiceModel, LabelModel and ResourceLocatorModel. {@code +10},
- * {@code +34}, {@code +40} and {@code +41} are reserved with no model.
+ * ListModel, the SpellerModel and the toast's ChoiceModel, LabelModel and ResourceLocatorModel. {@code +34},
+ * {@code +40} and {@code +41} are reserved with no model.
  *
  * <p>Built on LSD's startup thread (arrays only: no thread, no I/O). The stock framework creates the models on
  * HMIEvent, through {@link #createModel}, when the drawer is first built; once every row model exists the bank
@@ -36,8 +37,9 @@ final class SdkCarModelBank extends CarModelBank {
 
     /** Index of {@link HqcUiIds#MODEL_BASE} in {@code models[]} (ids are module * 100000 + index). */
     private static final int BASE_INDEX = HqcUiIds.MODEL_BASE - HqcUiIds.CAR_MODULE * 100000;
-    /** Index of the page ListModel; the reserved ids between the row models and it have no model. */
+    /** Indices of the two page ListModels ({@link HqcUiIds#PAGE_LIST_MODEL} and its alt bank). */
     private static final int PAGE_LIST_INDEX = BASE_INDEX + HqcUiIds.PAGE_LIST_MODEL - HqcUiIds.MODEL_BASE;
+    private static final int PAGE_LIST_ALT_INDEX = BASE_INDEX + HqcUiIds.PAGE_LIST_MODEL_ALT - HqcUiIds.MODEL_BASE;
     /** Index of the status popup's first model; it and the next {@link #POPUP_MODELS} are the popup's (+12..+25). */
     private static final int POPUP_INDEX = BASE_INDEX + HqcUiIds.STATUS_POPUP_VISIBLE_MODEL - HqcUiIds.MODEL_BASE;
     private static final int POPUP_MODELS = HqcUiIds.STATUS_FILE_ICON_MODEL_1 + HqcUiIds.STATUS_CELLS
@@ -94,21 +96,30 @@ final class SdkCarModelBank extends CarModelBank {
         return ids;
     }
 
-    /** The SDK ids with no model: {@code +10}, {@code +34}, {@code +40} and {@code +41} (F22). */
+    /** The SDK ids with no model: {@code +34}, {@code +40} and {@code +41} (F22). */
     static boolean reserved(int id) {
         int off = id - HqcUiIds.MODEL_BASE;
-        return off == HqcUiIds.ROW_MODEL_COUNT || id == HqcUiIds.CONFIRM_TEXT_RESERVED
+        return id == HqcUiIds.CONFIRM_TEXT_RESERVED
                 || off >= HqcUiIds.TOAST_FILE_ICON_MODEL + 1 - HqcUiIds.MODEL_BASE;
     }
 
-    /** The SDK page's ListModel (created on first use), or null before the bank exists. HMIEvent. */
-    static ListModel pageList() {
+    /**
+     * The page ListModel of {@code bank} (0 or 1; created on first use), or null before the bank exists. HMIEvent:
+     * the incoming page writes the bank the outgoing screen does not read ({@link HqcUiIds#PAGE_LIST_MODEL}).
+     */
+    static ListModel pageList(int bank) {
         SdkCarModelBank b = current;
         if (b == null) {
             return null;
         }
-        b.createModel(PAGE_LIST_INDEX);
-        return (ListModel) b.models[PAGE_LIST_INDEX];
+        int i = bank == 0 ? PAGE_LIST_INDEX : PAGE_LIST_ALT_INDEX;
+        b.createModel(i);
+        return (ListModel) b.models[i];
+    }
+
+    /** The first bank's page ListModel; see {@link #pageList(int)}. */
+    static ListModel pageList() {
+        return pageList(0);
     }
 
     /** The confirm screen's Yes/No ListModel (created on first use), or null before the bank exists. HMIEvent. */
@@ -258,8 +269,8 @@ final class SdkCarModelBank extends CarModelBank {
         if (this.models[i] != null) {
             return;
         }
-        if (i == PAGE_LIST_INDEX) {
-            createPageList();
+        if (i == PAGE_LIST_INDEX || i == PAGE_LIST_ALT_INDEX) {
+            createPageList(i);
             return;
         }
         if (i >= POPUP_INDEX && i < POPUP_INDEX + POPUP_MODELS) {
@@ -297,13 +308,14 @@ final class SdkCarModelBank extends CarModelBank {
      * {@link HqcUiIds#PAGE_COLUMNS} columns: label, value, row kind (the list's record-set column), enabled, value
      * text (F14), row id (the list's id column, bench B); rows are written by PageScreens. Never throws.
      */
-    private void createPageList() {
+    private void createPageList(int i) {
         try {
-            ListModel l = new ListModel(HqcUiIds.PAGE_LIST_MODEL);
+            int id = HqcUiIds.MODEL_BASE + (i - BASE_INDEX);
+            ListModel l = new ListModel(id);
             l.setMaxColumns(HqcUiIds.PAGE_COLUMNS);
             l.setMaxRows(PAGE_MAX_ROWS);
             l.setListListener(new PageListListener());
-            this.models[PAGE_LIST_INDEX] = l;
+            this.models[i] = l;
         } catch (Throwable t) {
             // no list model: pages cannot be drawn (PageScreens logs it)
         }

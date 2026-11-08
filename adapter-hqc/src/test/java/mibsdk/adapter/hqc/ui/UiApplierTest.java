@@ -1254,7 +1254,7 @@ class UiApplierTest {
         a.step(0);
         assertEquals(Collections.emptyList(), typed, "no page shown: nothing");
 
-        shownPage = new PageScreens.Shown("p/main", PageLayout.of(shownMain, ItemIcons.NONE), 1);
+        shownPage = new PageScreens.Shown("p/main", PageLayout.of(shownMain, ItemIcons.NONE), 1, 0);
         a.step(0);
         assertEquals(Arrays.asList("c0=1", "r1=12/6/8"), typed, "the shown layout's slots only, in index space");
         typed.clear();
@@ -1268,7 +1268,7 @@ class UiApplierTest {
         typed.clear();
 
         PageLayout both = PageLayout.of(pm.get("p/main"), ItemIcons.NONE);
-        shownPage = new PageScreens.Shown("p/main", both, 2);
+        shownPage = new PageScreens.Shown("p/main", both, 2, 0);
         a.step(0);
         assertEquals(Arrays.asList("c0=1", "r1=12/6/0", "r2=5/0/2"), typed, "a new screen: every slot again");
     }

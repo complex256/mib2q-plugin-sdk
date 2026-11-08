@@ -357,13 +357,17 @@ final class SdkCarScreenFactory extends CarScreenFactory {
 
     /**
      * The SDK's text for {@code id}, or null for a stock id: the input texts first ({@link InputTextIds}: typed rows,
-     * the slider screen, dialogs), then the page title and the drawer rows' labels. Reads volatile state only.
+     * the slider screen, dialogs), then a page title ({@link HqcUiIds#TEXT_PAGE_TITLE} or its alt bank) and the
+     * drawer rows' labels. Reads volatile state only.
      */
     private String sdkText(int id) {
         String s = InputTextIds.textFor(id, PageScreens.shownNow(), PageScreens.sliderNow(), PageScreens.dialogNow());
         if (s != null) {
             return s;
         }
-        return id == HqcUiIds.TEXT_PAGE_TITLE ? PageScreens.title() : texts.textFor(id, SdkGlobals.uiSlots);
+        if (id == HqcUiIds.TEXT_PAGE_TITLE || id == HqcUiIds.TEXT_PAGE_TITLE_ALT) {
+            return PageScreens.title(id == HqcUiIds.TEXT_PAGE_TITLE ? 0 : 1);
+        }
+        return texts.textFor(id, SdkGlobals.uiSlots);
     }
 }

@@ -236,9 +236,13 @@ revoked or uninstalled, and at **safe-mode boot**: safe mode means the SDK is on
 it replays pending restores. The runtime also owns the on-screen indicator for active safety-relevant
 overrides (e.g. "rear PDC muted"), so a plugin can't forget to show it. Plugins can declare an override
 as "until ignition off" (the default for safety-relevant writes) or "persistent". The ledger itself is
-persisted. A restore is complete only when the car reports the prior value (an observation after the
-restore began), never because the write returned. Until then the entry stays in the ledger file marked
-restoring, and the next boot finishes it. Known gap: if a firmware update leaves no matching adapter, the SDK is off and can't restore.
+persisted. A restore is done when the car reports the prior value (an observation after the restore
+began) or, failing that, when the restore write returns and the car has stayed silent for
+`CONFIRM_TIMEOUT_MS`: `setPDCSoundReproduction` is a one-way DSI call, and the parking ECU only reports
+while PDC is active, so waiting for a report that never comes left the override — and its indicator — in
+force for ever (seen on the car, 2026-11). A report of another value is still a failed attempt and the
+restore is retried. Until then the entry stays in the ledger file marked restoring, and the next boot
+finishes it. Known gap: if a firmware update leaves no matching adapter, the SDK is off and can't restore.
 The mibpkg SDK package must therefore replay the ledger, or warn, before any firmware update it knows
 about.
 
