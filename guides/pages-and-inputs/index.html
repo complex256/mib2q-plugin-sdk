@@ -788,6 +788,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#ring-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ring pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#handling-actions" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1930,6 +1941,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#ring-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ring pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#handling-actions" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2151,19 +2173,35 @@ selected. Any other kind throws.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">spec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">spec</span><span class="p">.</span><span class="na">progress</span><span class="p">(</span><span class="s">"copy"</span><span class="p">,</span><span class="w"> </span><span class="s">"Copying"</span><span class="p">,</span><span class="w"> </span><span class="n">percent</span><span class="p">);</span>
 </code></pre></div>
 <p><code>percent</code> is clamped to 0..100. Progress is display-only.</p>
+<h2 id="ring-pages">Ring pages<a class="headerlink" href="#ring-pages" title="Permanent link">&para;</a></h2>
+<p>A page can be drawn as the car's own 3D ring instead of a list. The same rows work either way, so nothing is lost on
+a unit that cannot draw the ring:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">Page</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">ui</span><span class="p">().</span><span class="na">page</span><span class="p">(</span><span class="n">PageSpec</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="s">"status"</span><span class="p">,</span><span class="w"> </span><span class="s">"Status"</span><span class="p">),</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">PageSpec</span><span class="w"> </span><span class="n">menu</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">PageSpec</span><span class="p">.</span><span class="na">ring</span><span class="p">(</span><span class="s">"main"</span><span class="p">,</span><span class="w"> </span><span class="s">"My plugin"</span><span class="p">)</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">        </span><span class="p">.</span><span class="na">link</span><span class="p">(</span><span class="s">"status"</span><span class="p">,</span><span class="w"> </span><span class="s">"Status"</span><span class="p">,</span><span class="w"> </span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">ui</span><span class="p">().</span><span class="na">stockIcon</span><span class="p">(</span><span class="n">StockIcons</span><span class="p">.</span><span class="na">CHECK</span><span class="p">))</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">        </span><span class="p">.</span><span class="na">item</span><span class="p">(</span><span class="s">"sync"</span><span class="p">,</span><span class="w"> </span><span class="s">"Sync now"</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">ui</span><span class="p">().</span><span class="na">stockIcon</span><span class="p">(</span><span class="n">StockIcons</span><span class="p">.</span><span class="na">SERVICE</span><span class="p">));</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="n">Page</span><span class="w"> </span><span class="n">page</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">ui</span><span class="p">().</span><span class="na">page</span><span class="p">(</span><span class="n">menu</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">::</span><span class="n">onAction</span><span class="p">);</span>
+</code></pre></div>
+<p>Rules: a ring page holds LINK and ITEM rows only, each with an icon, at most <code>PageSpec.MAX_RING_ENTRIES</code>; the rules
+throw <code>IllegalArgumentException</code> / <code>IllegalStateException</code> as the other builders do. The knob turns through the items and
+OK opens a link or fires an item, with the same <code>UiAction</code> you get from a list row. The ring opens on the item the user
+last left it on. <code>StockIcons</code> has the car's ring glyphs (<code>CAR</code>, <code>RADIO</code>, <code>MEDIA</code>, <code>PHONE</code>, <code>NAVIGATION</code>, <code>MAP</code>,
+<code>GLOBE</code>, <code>OFFICE</code>, <code>SOUND</code>, <code>SETTINGS</code>, <code>WARNING</code>, <code>NIGHT_VISION</code>, <code>HEADSET</code>, <code>SERVICE</code>, <code>FLOWER</code>, <code>TRAFFIC</code>,
+<code>WRENCH</code>, <code>SMARTPHONE</code>) beside the shapes; those are drawn by the 3D ring, and on a Car row, list row or status item
+they show without an icon. A plugin's own PNG shows the fallback glyph on a ring.</p>
 <h2 id="handling-actions">Handling actions<a class="headerlink" href="#handling-actions" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">onAction</span><span class="p">(</span><span class="n">UiAction</span><span class="w"> </span><span class="n">a</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="p">.</span><span class="na">itemId</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="s">"start"</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">start</span><span class="p">();</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="s">"stop"</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">stop</span><span class="p">();</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="s">"brightness"</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">            </span><span class="n">brightness</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">a</span><span class="p">.</span><span class="na">value</span><span class="p">().</span><span class="na">intValue</span><span class="p">();</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">            </span><span class="n">storage</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">"brightness"</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="p">.</span><span class="na">valueOf</span><span class="p">(</span><span class="n">brightness</span><span class="p">));</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">        </span><span class="p">}</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">        </span><span class="k">default</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">"unknown item "</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">a</span><span class="p">.</span><span class="na">itemId</span><span class="p">());</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">    </span><span class="p">}</span>
-<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">    </span><span class="n">page</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="n">spec</span><span class="p">());</span>
-<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">onAction</span><span class="p">(</span><span class="n">UiAction</span><span class="w"> </span><span class="n">a</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="p">.</span><span class="na">itemId</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="s">"start"</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">start</span><span class="p">();</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="s">"stop"</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">stop</span><span class="p">();</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="s">"brightness"</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">            </span><span class="n">brightness</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">a</span><span class="p">.</span><span class="na">value</span><span class="p">().</span><span class="na">intValue</span><span class="p">();</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">            </span><span class="n">storage</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">"brightness"</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="p">.</span><span class="na">valueOf</span><span class="p">(</span><span class="n">brightness</span><span class="p">));</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">        </span><span class="p">}</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">        </span><span class="k">default</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">"unknown item "</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">a</span><span class="p">.</span><span class="na">itemId</span><span class="p">());</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="w">    </span><span class="n">page</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="n">spec</span><span class="p">());</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="p">}</span>
 </code></pre></div>
 <p><code>UiAction</code> gives you:</p>
 <table>
@@ -2201,11 +2239,11 @@ call <code>page.update(spec)</code>; that is the pattern every sample uses.</p>
 <h2 id="dialogs">Dialogs<a class="headerlink" href="#dialogs" title="Permanent link">&para;</a></h2>
 <p>Dialogs need api 5 and <code>Features.UI_INPUTS</code>. They open only while one of your pages is the open page.</p>
 <h3 id="confirm">Confirm<a class="headerlink" href="#confirm" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">ctx</span><span class="p">.</span><span class="na">ui</span><span class="p">().</span><span class="na">confirm</span><span class="p">(</span><span class="s">"Stop the timer?"</span><span class="p">,</span><span class="w"> </span><span class="s">"The brew will be lost."</span><span class="p">,</span><span class="w"> </span><span class="s">"Stop"</span><span class="p">,</span><span class="w"> </span><span class="s">"Keep brewing"</span><span class="p">,</span><span class="w"> </span><span class="n">answer</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">answer</span><span class="p">.</span><span class="na">value</span><span class="p">().</span><span class="na">intValue</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">        </span><span class="n">stop</span><span class="p">();</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="p">}</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="p">});</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">ctx</span><span class="p">.</span><span class="na">ui</span><span class="p">().</span><span class="na">confirm</span><span class="p">(</span><span class="s">"Stop the timer?"</span><span class="p">,</span><span class="w"> </span><span class="s">"The brew will be lost."</span><span class="p">,</span><span class="w"> </span><span class="s">"Stop"</span><span class="p">,</span><span class="w"> </span><span class="s">"Keep brewing"</span><span class="p">,</span><span class="w"> </span><span class="n">answer</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">answer</span><span class="p">.</span><span class="na">value</span><span class="p">().</span><span class="na">intValue</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">        </span><span class="n">stop</span><span class="p">();</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="p">});</span>
 </code></pre></div>
 <ul>
 <li>At most 3 lines and 120 characters.</li>
@@ -2213,7 +2251,7 @@ call <code>page.update(spec)</code>; that is the pattern every sample uses.</p>
 <li>The listener is called exactly once unless you cancel the returned <code>Subscription</code> first.</li>
 </ul>
 <h3 id="toast">Toast<a class="headerlink" href="#toast" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">ctx</span><span class="p">.</span><span class="na">ui</span><span class="p">().</span><span class="na">toast</span><span class="p">(</span><span class="s">"Coffee is ready"</span><span class="p">,</span><span class="w"> </span><span class="n">cupSmall</span><span class="p">);</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">ctx</span><span class="p">.</span><span class="na">ui</span><span class="p">().</span><span class="na">toast</span><span class="p">(</span><span class="s">"Coffee is ready"</span><span class="p">,</span><span class="w"> </span><span class="n">cupSmall</span><span class="p">);</span>
 </code></pre></div>
 <ul>
 <li>20 characters, optional 30 px icon (drawn at 20 px), 3 seconds.</li>
@@ -2221,9 +2259,9 @@ call <code>page.update(spec)</code>; that is the pattern every sample uses.</p>
 <li>Inert without <code>Features.UI_INPUTS</code>.</li>
 </ul>
 <h3 id="speller-experimental">Speller (experimental)<a class="headerlink" href="#speller-experimental" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">ctx</span><span class="p">.</span><span class="na">ui</span><span class="p">().</span><span class="na">speller</span><span class="p">(</span><span class="s">"Name"</span><span class="p">,</span><span class="w"> </span><span class="n">initial</span><span class="p">,</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="n">done</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">text</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">done</span><span class="p">.</span><span class="na">text</span><span class="p">();</span><span class="w"> </span><span class="c1">// null if the speller never showed</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="p">});</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">ctx</span><span class="p">.</span><span class="na">ui</span><span class="p">().</span><span class="na">speller</span><span class="p">(</span><span class="s">"Name"</span><span class="p">,</span><span class="w"> </span><span class="n">initial</span><span class="p">,</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="n">done</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">text</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">done</span><span class="p">.</span><span class="na">text</span><span class="p">();</span><span class="w"> </span><span class="c1">// null if the speller never showed</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="p">});</span>
 </code></pre></div>
 <p>The HMI speller has no OK key: BACK leaves it and counts as done. <code>text()</code> is null when the speller never
 showed or was dismissed because its page closed.</p>
