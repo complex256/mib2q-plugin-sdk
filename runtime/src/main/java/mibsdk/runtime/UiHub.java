@@ -1121,7 +1121,8 @@ final class UiHub {
             } else if (k == PageSpec.Kind.INFO) {
                 u = new UiEntry(UiEntry.INFO, null, label, null, false, null);
             } else if (k == PageSpec.Kind.LINK) {
-                u = new UiEntry(UiEntry.LINK, id, label, null, false, linkTarget(owner, o, id, e.target()));
+                u = new UiEntry(UiEntry.LINK, id, label, null, false, linkTarget(owner, o, id, e.target()))
+                        .withIcon(itemIcon(id, e.icon()));
             } else if (k == PageSpec.Kind.CHOICE) {
                 u = new UiEntry(UiEntry.CHOICE, id, label, null, false, choiceKey(pageKey, id))
                         .withOptions(cleanOptions(e.options())).withNumber(e.number());
@@ -1138,7 +1139,7 @@ final class UiHub {
             }
             out.add(e.enabled() ? u : u.withEnabled(false));
         }
-        return new UiPage(pageKey, UiText.clean(spec.title(), PageSpec.MAX_TITLE), out);
+        return new UiPage(pageKey, UiText.clean(spec.title(), PageSpec.MAX_TITLE), out, spec.ring());
     }
 
     private static String[] cleanOptions(String[] options) {

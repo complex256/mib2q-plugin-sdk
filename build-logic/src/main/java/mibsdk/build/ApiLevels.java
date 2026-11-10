@@ -131,6 +131,12 @@ public final class ApiLevels {
         // Api 7: the core Wi-Fi uplink and the wider secret text input.
         put(CONTEXT, "wifi", "()Lmibsdk/api/Wifi;", 7, "PluginContext.wifi");
         put(UI, "textInput", "(" + S + S + "IZLmibsdk/api/Listener;)Lmibsdk/api/Subscription;", 7, "Ui.textInput");
+
+        // Api 8: the ring page.
+        put(PAGE_SPEC, "ring", "(" + S + S + ")" + R_SPEC.substring(1), 8, "PageSpec.ring");
+        put(PAGE_SPEC, "ring", "()Z", 8, "PageSpec.ring()");
+        put(PAGE_SPEC, "link", "(" + S + S + "L" + PAGE + ";" + ICON + R_SPEC, 8,
+                "PageSpec.link(String,String,Page,Icon)");
     }
 
     private static void put(String owner, String name, String desc, int api, String label) {

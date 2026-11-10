@@ -57,7 +57,7 @@ you ask it to.
 ## Verify
 
 1. Restart the HMI or wait for the next boot.
-2. Open **MENU → Plugins**. You should see the Plugins page with an **SDK** entry.
+2. Open **MENU → Plugins**. You should see Installed, Updates, Available, Networking and Settings. Installing a plugin puts it under **Installed**, and its own settings are under **Settings**.
 3. If the SDK could not initialise, the page header says **Plugins (safe mode)** and no plugin runs.
    Check `/tmp/mibsdk.log` or run `installer/mibsdk-dev log <unit-ip>`.
 

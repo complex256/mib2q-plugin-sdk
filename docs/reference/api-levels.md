@@ -15,12 +15,13 @@ it still loads.
 | 5 | SDK 0.3.0 | `PageSpec.choice`, `dropdown`, `slider`, `progress`, item icons, `enabled`; `UiAction.value()` / `text()`; `Ui.confirm`, `Ui.toast`, `Ui.speller`; `Features.UI_INPUTS` |
 | 6 | SDK 0.3.0 | `StatusItem.setColour`, `StatusItem.visibleIn`, `StatusItem.setIcon`; `UiColor`; `HmiContext` |
 | 7 | SDK 0.6.2 | `ctx.wifi()` with `Wifi`, `WifiStatus`, `WifiNetwork`, `WifiChanged`; `Ui.textInput`; `Features.WIFI`; `network.wifi` |
+| 8 | SDK 0.8.0 | `PageSpec.ring` with `PageSpec.ring()`; `PageSpec.link(…, Icon)`; the `StockIcons` ring set (`CAR` … `SMARTPHONE`) |
 
-The current SDK implements api 1–7.
+The current SDK implements api 1–8.
 
 ## Rules
 
-**Levels are additive.** A newer SDK runs older plugins unchanged. SDK 0.7.0 loads api 1–7.
+**Levels are additive.** A newer SDK runs older plugins unchanged. SDK 0.8.0 loads api 1–8.
 
 **Declare the lowest level that covers what you use.** The build enforces it: a call to an api 5 member
 while the manifest declares api 4 fails with the call site:

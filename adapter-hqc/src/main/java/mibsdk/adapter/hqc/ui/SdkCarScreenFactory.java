@@ -368,6 +368,11 @@ final class SdkCarScreenFactory extends CarScreenFactory {
         if (id == HqcUiIds.TEXT_PAGE_TITLE || id == HqcUiIds.TEXT_PAGE_TITLE_ALT) {
             return PageScreens.title(id == HqcUiIds.TEXT_PAGE_TITLE ? 0 : 1);
         }
+        if (id >= HqcUiIds.TEXT_RING_BASE && id < HqcUiIds.TEXT_RING_BASE + HqcUiIds.TEXT_RING_COUNT) {
+            String[] labels = SdkGlobals.ringLabels;
+            int i = id - HqcUiIds.TEXT_RING_BASE;
+            return labels != null && i < labels.length ? labels[i] : "";
+        }
         return texts.textFor(id, SdkGlobals.uiSlots);
     }
 }

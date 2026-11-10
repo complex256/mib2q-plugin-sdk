@@ -54,6 +54,14 @@ public final class PageSpec {
      */
     public static final int ITEM_ICON_MAX_PX = 24;
 
+    /**
+     * The most items of a {@link #ring} page. The ring scrolls like the stock main menu, but a page longer than
+     * this is a list, not a ring. Needs api 8.
+     *
+     * @since api 8
+     */
+    public static final int MAX_RING_ENTRIES = 12;
+
     static final int MAX_ID = 32;
 
     /** The kind of a page row. CHOICE, DROPDOWN, SLIDER and PROGRESS need api 5. */
@@ -256,11 +264,17 @@ public final class PageSpec {
     private final String id;
     private final String title;
     private final List<Entry> entries;
+    private final boolean ring;
 
     private PageSpec(String id, String title, List<Entry> entries) {
+        this(id, title, entries, false);
+    }
+
+    private PageSpec(String id, String title, List<Entry> entries, boolean ring) {
         this.id = id;
         this.title = title;
         this.entries = entries;
+        this.ring = ring;
     }
 
     /**
@@ -269,6 +283,30 @@ public final class PageSpec {
     public static PageSpec of(String id, String title) {
         requireId(id, "page id");
         return new PageSpec(id, title, Collections.<Entry>emptyList());
+    }
+
+    /**
+     * A page drawn as a ring, like the car's main menu: its {@link #link} and {@link #item} rows are the ring's
+     * items, each carrying an {@link Icon} (a {@link Ui#stockIcon} name is the usual choice). The knob turns through
+     * them; OK opens a link or fires an item. A unit that cannot draw the ring shows the same rows as a list, so
+     * nothing is lost where the 3D scene is not available. A ring page holds LINK and ITEM rows only, at most
+     * {@link #MAX_RING_ENTRIES}, and every row needs an icon; anything else throws
+     * {@link IllegalArgumentException}.
+     *
+     * @since api 8
+     */
+    public static PageSpec ring(String id, String title) {
+        requireId(id, "page id");
+        return new PageSpec(id, title, Collections.<Entry>emptyList(), true);
+    }
+
+    /**
+     * True for a page made with {@link #ring}.
+     *
+     * @since api 8
+     */
+    public boolean ring() {
+        return ring;
     }
 
     /**
@@ -303,6 +341,21 @@ public final class PageSpec {
             throw new IllegalArgumentException("link '" + itemId + "' needs a target page");
         }
         return with(new Entry(Kind.LINK, checked, label, null, false, target));
+    }
+
+    /**
+     * {@link #link(String, String, Page)} with an icon. On a {@link #ring} page the icon is the ring item's glyph and
+     * is required; on a list page it is drawn like an {@link #item(String, String, String, Icon) item's} icon. Needs
+     * api 8.
+     *
+     * @since api 8
+     */
+    public PageSpec link(String itemId, String label, Page target, Icon icon) {
+        String checked = checkedItemId(itemId);
+        if (target == null) {
+            throw new IllegalArgumentException("link '" + itemId + "' needs a target page");
+        }
+        return with(new Entry(Kind.LINK, checked, label, null, false, target, null, 0, 0, 0, 0, false, icon, true));
     }
 
     /**
@@ -415,7 +468,7 @@ public final class PageSpec {
                 }
                 List<Entry> next = new ArrayList<Entry>(entries);
                 next.set(i, e.withEnabled(enabled));
-                return new PageSpec(id, title, Collections.unmodifiableList(next));
+                return new PageSpec(id, title, Collections.unmodifiableList(next), ring);
             }
         }
         throw new IllegalArgumentException("no item '" + itemId + "' on page '" + id + "'");
@@ -490,10 +543,22 @@ public final class PageSpec {
         if (entries.size() >= MAX_ENTRIES) {
             throw new IllegalStateException("page '" + id + "' already has " + MAX_ENTRIES + " entries");
         }
+        if (ring) {
+            if (e.kind() != Kind.LINK && e.kind() != Kind.ITEM) {
+                throw new IllegalArgumentException("ring page '" + id + "' holds LINK and ITEM rows only, not "
+                        + e.kind());
+            }
+            if (e.icon() == null) {
+                throw new IllegalArgumentException("ring page '" + id + "': row '" + e.itemId() + "' needs an icon");
+            }
+            if (entries.size() >= MAX_RING_ENTRIES) {
+                throw new IllegalStateException("ring page '" + id + "' already has " + MAX_RING_ENTRIES + " items");
+            }
+        }
         List<Entry> next = new ArrayList<Entry>(entries.size() + 1);
         next.addAll(entries);
         next.add(e);
-        return new PageSpec(id, title, Collections.unmodifiableList(next));
+        return new PageSpec(id, title, Collections.unmodifiableList(next), ring);
     }
 
     private static void requireId(String s, String what) {

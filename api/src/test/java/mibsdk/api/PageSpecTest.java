@@ -2,6 +2,7 @@ package mibsdk.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -258,5 +259,55 @@ class PageSpecTest {
         assertEquals("v", withIcon.value());
         assertNull(PageSpec.of("p", "T").item("i", "I", "v", null).entries().get(0).icon());
         assertEquals(24, PageSpec.ITEM_ICON_MAX_PX);
+    }
+
+    // ---- ring pages (api 8) ----
+
+    @Test
+    void ringPageTakesLinksAndItemsWithIcons() {
+        PageSpec ring = PageSpec.ring("main", "Plugins")
+                .link("a", "Installed", TARGET, stock(StockIcons.WRENCH))
+                .item("b", "Sync", null, stock(StockIcons.SERVICE));
+        assertTrue(ring.ring());
+        assertFalse(PageSpec.of("plain", "Plain").ring(), "a list page is not a ring");
+        assertEquals(2, ring.entries().size());
+        assertEquals(PageSpec.Kind.LINK, ring.entries().get(0).kind());
+        assertEquals(StockIcons.WRENCH, ring.entries().get(0).icon().toString());
+        assertEquals(PageSpec.Kind.ITEM, ring.entries().get(1).kind());
+        assertNotNull(ring.entries().get(1).icon());
+        // a disabled ring item keeps the ring flag and its icon
+        PageSpec off = ring.enabled("a", false);
+        assertTrue(off.ring());
+        assertFalse(off.entries().get(0).enabled());
+        assertNotNull(off.entries().get(0).icon());
+    }
+
+    @Test
+    void ringPageRefusesListOnlyRowsAndMissingIcons() {
+        assertThrows(IllegalArgumentException.class,
+                () -> PageSpec.ring("main", "P").info("hello"), "no INFO rows on a ring");
+        assertThrows(IllegalArgumentException.class,
+                () -> PageSpec.ring("main", "P").toggle("t", "T", true), "no toggles on a ring");
+        assertThrows(IllegalArgumentException.class,
+                () -> PageSpec.ring("main", "P").link("a", "A", TARGET), "a ring row needs an icon");
+        assertThrows(IllegalArgumentException.class,
+                () -> PageSpec.ring("main", "P").item("b", "B", null), "a ring item needs an icon");
+        PageSpec full = PageSpec.ring("main", "P");
+        for (int i = 0; i < PageSpec.MAX_RING_ENTRIES; i++) {
+            full = full.link("i" + i, "I" + i, TARGET, stock(StockIcons.DOT));
+        }
+        PageSpec max = full;
+        assertThrows(IllegalStateException.class,
+                () -> max.link("more", "More", TARGET, stock(StockIcons.DOT)));
+    }
+
+    /** A stock icon handle; the api module has no Ui implementation, so this stands in for one. */
+    private static Icon stock(final String name) {
+        return new Icon() {
+            @Override
+            public String toString() {
+                return name;
+            }
+        };
     }
 }

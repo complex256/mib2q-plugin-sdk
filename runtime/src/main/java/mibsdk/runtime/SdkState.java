@@ -31,6 +31,10 @@ final class SdkState {
     final boolean statusBarEnabled;
     /** The core Wi-Fi uplink; {@link WifiView#NONE} when the runtime has no manager. */
     final WifiView wifi;
+    /** What mibpkg last wrote about installed and offered packages ({@link PackageCatalog}); EMPTY until read. */
+    final PackageCatalog catalog;
+    /** The package thread's last line ("Checking for updates", "Installed hello 1.1.0", "Failed: ..."), or null. */
+    final String packageStatus;
 
     SdkState(boolean safeMode, String safeReason, boolean guardInert, boolean resetRequested, String adapterId,
             List<ActiveOverride> overrides) {
@@ -63,6 +67,27 @@ final class SdkState {
         this.animateMs = animateMs;
         this.statusBarEnabled = statusBarEnabled;
         this.wifi = wifi == null ? WifiView.NONE : wifi;
+        this.catalog = PackageCatalog.EMPTY;
+        this.packageStatus = null;
+    }
+
+    /** As the previous constructor, plus the package catalog and the last package action's line. */
+    SdkState(boolean safeMode, String safeReason, boolean guardInert, boolean resetRequested, String adapterId,
+            List<ActiveOverride> overrides, int dwellMs, int animateMs, boolean statusBarEnabled, WifiView wifi,
+            PackageCatalog catalog, String packageStatus) {
+        this.safeMode = safeMode;
+        this.safeReason = safeReason;
+        this.guardInert = guardInert;
+        this.resetRequested = resetRequested;
+        this.adapterId = adapterId;
+        this.overrides = overrides == null ? Collections.<ActiveOverride>emptyList()
+                : Collections.unmodifiableList(new ArrayList<ActiveOverride>(overrides));
+        this.dwellMs = dwellMs;
+        this.animateMs = animateMs;
+        this.statusBarEnabled = statusBarEnabled;
+        this.wifi = wifi == null ? WifiView.NONE : wifi;
+        this.catalog = catalog == null ? PackageCatalog.EMPTY : catalog;
+        this.packageStatus = packageStatus;
     }
 
     /** Count-based safe mode (not forced by the SAFE_MODE marker): the SDK page may offer a boot-guard reset. */

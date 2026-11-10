@@ -75,7 +75,7 @@ public final class HqcUiIds {
      * namespace) and condition 602738 in CarConditionBank (condition ids, another namespace). The same check found no
      * Car text id 609040..609082 and no menu-item internal id 609960..609963, decoded or byte-swapped.
      */
-    public static final int MODEL_COUNT = 42;
+    public static final int MODEL_COUNT = 43;
     /** SDK rows' menu-item internal ids, one per slot (as spike A wired them). */
     public static final int ROW_INTERNAL_ID_BASE = 609900;
     /**
@@ -99,6 +99,12 @@ public final class HqcUiIds {
     public static final int TEXT_PAGE_TITLE = TEXT_BASE + 20;
     /** The page title of the second bank ({@link #PAGE_LIST_MODEL_ALT}'s screen): see {@link #PAGE_LIST_MODEL}. */
     public static final int TEXT_PAGE_TITLE_ALT = TEXT_BASE + 21;
+    /**
+     * The ring page's item labels, one id per slot ({@code +24 .. +35}); the factory serves them from the labels
+     * {@link PageScreens} left for the ring it is building ({@code SdkGlobals.ringLabels}).
+     */
+    public static final int TEXT_RING_BASE = TEXT_BASE + 24;
+    public static final int TEXT_RING_COUNT = 12;
     /** Hard key BACK (KeyEvent code; the page's MenuController consumes its press and release). */
     public static final int KEY_BACK = 15;
     /**
@@ -299,6 +305,12 @@ public final class HqcUiIds {
     public static final int MAIN_MENU_INTERNAL_ID = 90100;
     /** Hard key ENTER / knob SELECT (KeyEvent code), as the spike's wizard key handler consumed it. */
     public static final int KEY_ENTER = 17;
+    /**
+     * The ring's own ChoiceModel: the wizard writes the focused item's widget id into it on every turn, as it does
+     * for the stock ring's model 138. A model of its own keeps the SDK ring out of the main menu's last-application
+     * state.
+     */
+    public static final int RING_MODEL = MODEL_BASE + 42;
 
     // ---- typed rows and the slider screen (spike D, research note 2026-10-25 §7.2) ----------------------------------
 
@@ -336,6 +348,8 @@ public final class HqcUiIds {
 
     /** The slider edit screen (Car module, unused by the Car factory): the {@code tONESOUNDBASS} recipe. */
     public static final int SLIDER_SCREEN_ID = 609501;
+    /** The ring page screen: the stock 3D wizard, built by {@code RingScreen}. */
+    public static final int RING_SCREEN_ID = 609504;
     /** The last SDK sub-screen id: 609501 slider, 609502 confirm, 609503 speller (Task 6). */
     public static final int SUB_SCREEN_LAST = 609503;
     /** The screen's glassplate and the glassplate's coordinate set. */

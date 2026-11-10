@@ -69,6 +69,12 @@ public final class SdkGlobals {
     /** The SDK's built-in icons; read by {@code HqcPlatform.start} (an SDK thread), {@link BuiltinIcons#NONE} before. */
     public static volatile BuiltinIcons builtinIcons = BuiltinIcons.NONE;
 
+    /**
+     * The ring page's item labels, as the factory's {@code getText} serves them ({@code HqcUiIds.TEXT_RING_BASE} + i).
+     * Written on HMIEvent just before a ring screen is built; the wizard reads it on every render.
+     */
+    public static volatile String[] ringLabels = new String[0];
+
     /** The SDK drawer rows' visibility models; null until the Car bank created them (first drawer build). */
     public static volatile RowModels uiRowModels;
 

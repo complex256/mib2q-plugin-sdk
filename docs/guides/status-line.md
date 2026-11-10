@@ -108,7 +108,7 @@ disappears on its own.
 
 ## The SDK's status-bar settings
 
-The SDK's entry in the Plugins menu holds the built-in bar's settings: on/off, dwell time (default 5 s),
+**Settings** in the Plugins menu holds the built-in bar's settings: on/off, dwell time (default 5 s),
 animation (default 300 ms) and the global item order. They are stored in
 `/mnt/persist/mibsdk/statusbar.properties`. A plugin cannot read or change them.
 

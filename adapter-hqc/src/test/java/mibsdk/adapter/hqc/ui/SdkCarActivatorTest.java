@@ -175,12 +175,13 @@ class SdkCarActivatorTest {
         }
         assertNotNull(SdkCarModelBank.pageList());
         assertNotNull(SdkCarModelBank.statusModels());
+        model(bank, HqcUiIds.RING_MODEL); // the ring page's selection model
         int[] ids = bank.getAllModelIds();
         assertEquals(before.length, ids.length);
         int sdk = HqcUiIds.MODEL_COUNT - 3; // +34, +40 and +41 are reserved
         int at = ids.length - sdk;
         for (int i = 0; i < HqcUiIds.MODEL_COUNT; i++) {
-            if (i == 34 || i >= 40) {
+            if (i == 34 || i == 40 || i == 41) { // no model at +34, +40, +41
                 continue;
             }
             assertEquals(HqcUiIds.MODEL_BASE + i, ids[at++], "the SDK ids ascending, without the reserved ones");

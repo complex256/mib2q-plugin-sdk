@@ -57,6 +57,7 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemIndex;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.list.ListItemFactory;
 import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiEntry;
+import mibsdk.platform.UiPage;
 
 /**
  * The stock side of SDK pages: spike B's page recipe (research note §8, modelled on
@@ -503,6 +504,11 @@ final class PageWidgets implements PageScreens.Screens {
             }
             super.keyReleased(e);
         }
+    }
+
+    /** The ring screen for {@code page} (the stock 3D wizard); the caller falls back to {@link #build} on a throw. */
+    public Screen buildRing(String pageKey, PageScreens owner, UiPage page) throws Exception {
+        return RingScreen.build(SdkCarScreenFactory.current, TERMINAL, owner, pageKey, page, 0);
     }
 
     /** The page screen; {@code focus}: the focus code its menu sets once connected ({@link PageMenu}). */

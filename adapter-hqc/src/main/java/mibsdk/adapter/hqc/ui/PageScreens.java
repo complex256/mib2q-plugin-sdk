@@ -131,6 +131,9 @@ final class PageScreens implements PageRenderer {
         Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus, int bank)
                 throws Exception;
 
+        /** The ring screen for {@code page} (its LINK/ITEM rows as the stock 3D wizard); throws if it cannot build. */
+        Object buildRing(String pageKey, PageScreens owner, UiPage page) throws Exception;
+
         /** The focus code of page screen {@code screen}'s focused row, or {@link #NO_FOCUS}. */
         int focused(Object screen);
 
@@ -175,6 +178,8 @@ final class PageScreens implements PageRenderer {
         static final int SUB_BACK = 2;
         /** MENU on a page opened from the main menu: leave every SDK page and show the ring again. */
         static final int MENU = 3;
+        /** SELECT on a ring page's item; {@code slot} is its index among the page's LINK/ITEM rows. */
+        static final int RING = 4;
 
         final int kind;
         final String target; // PAGE: null is BACK
@@ -219,12 +224,19 @@ final class PageScreens implements PageRenderer {
         final PageLayout layout;
         final int generation;
         final int bank;
+        /** The screen is a ring: the list model holds no rows of it. */
+        final boolean ring;
 
         Shown(String pageKey, PageLayout layout, int generation, int bank) {
+            this(pageKey, layout, generation, bank, false);
+        }
+
+        Shown(String pageKey, PageLayout layout, int generation, int bank, boolean ring) {
             this.pageKey = pageKey;
             this.layout = layout == null ? PageLayout.EMPTY : layout;
             this.generation = generation;
             this.bank = bank;
+            this.ring = ring;
         }
     }
 
@@ -525,7 +537,7 @@ final class PageScreens implements PageRenderer {
             if (rebuild && current && allowed) {
                 rememberFocus(); // the rebuilt page keeps its focused entry
                 showTop(s, HqcUiIds.ANIM_FORWARD);
-            } else {
+            } else if (shownPage == null || !shownPage.ring) {
                 // not connected yet, or the screen may not change: the title and layout follow on a later refresh
                 writeRows(p, shownLayout, shownBank());
             }
@@ -862,6 +874,48 @@ final class PageScreens implements PageRenderer {
             requestNav(new Nav(Nav.SUB_BACK, null, -1));
         } catch (Throwable t) {
             // never propagate into the HMI
+        }
+    }
+
+    /**
+     * SELECT on a ring page's item ({@code entry}: its index among the page's LINK/ITEM rows). A LINK opens its page,
+     * an ITEM fires its selection. Never throws.
+     */
+    void ringSelected(int entry) {
+        try {
+            if (down || orphanPending || shown == null) {
+                poster.post(retryJob);
+                return;
+            }
+            requestNav(new Nav(Nav.RING, null, entry));
+        } catch (Throwable t) {
+            // never propagate into the HMI
+        }
+    }
+
+    /** In a job: a ring item, by its index among the shown ring page's LINK/ITEM rows. */
+    private void ringEntry(int index, UiSnapshot s) {
+        String key = stack.top();
+        UiPage p = pageOf(key, s);
+        List<UiEntry> all = p.entries();
+        int at = 0;
+        for (int i = 0; i < all.size(); i++) {
+            UiEntry e = all.get(i);
+            if (e.kind() != UiEntry.LINK && e.kind() != UiEntry.ITEM) {
+                continue;
+            }
+            if (at++ != index) {
+                continue;
+            }
+            if (e.kind() == UiEntry.LINK && e.targetPageKey() != null) {
+                rememberFocus();
+                focus.remove(e.targetPageKey());
+                stack.push(e.targetPageKey(), null, s);
+                showTop(s, HqcUiIds.ANIM_FORWARD);
+            } else if (e.kind() == UiEntry.ITEM && e.key() != null) {
+                table.input(new UiInput(UiInput.ENTRY_SELECTED, key, e.key(), false));
+            }
+            return;
         }
     }
 
@@ -1344,6 +1398,10 @@ final class PageScreens implements PageRenderer {
                     clearNavs();
                     return;
                 }
+                if (n.kind == Nav.RING) {
+                    ringEntry(n.slot, s);
+                    continue;
+                }
                 if (n.kind == Nav.SLIDER) {
                     showSlider(n.slot, s);
                 } else if (n.kind == Nav.SUB_BACK) {
@@ -1427,13 +1485,26 @@ final class PageScreens implements PageRenderer {
             PageLayout layout = PageLayout.of(p, itemIcons);
             bank ^= 1;
             int b = bank;
-            writeRows(p, layout, b);
             if (b == 0) {
                 title = t;
             } else {
                 titleAlt = t;
             }
-            Object screen = screens.build(key, t, this, layout, focusOf(key, layout), b);
+            boolean ring = p.ring() && ringItems(p) > 0;
+            Object screen = null;
+            if (ring) {
+                try {
+                    screen = screens.buildRing(key, this, p);
+                } catch (Throwable t2) {
+                    // The 3D scene is not there (or refused): the same rows as a list, which is the documented fallback.
+                    log.append("WARN", SOURCE, "ui ring " + key + " not drawn, its list is shown: " + t2);
+                    ring = false;
+                }
+            }
+            if (!ring) {
+                writeRows(p, layout, b);
+                screen = screens.build(key, t, this, layout, focusOf(key, layout), b);
+            }
             PageScreens prev = live;
             if (prev != null && prev != this) {
                 prev.shown = null; // a replaced applier's page: its leaving is not the user leaving
@@ -1441,7 +1512,7 @@ final class PageScreens implements PageRenderer {
             live = this;
             shown = screen;
             lastShown = screen;
-            shownPage = new Shown(key, layout, ++generations, b);
+            shownPage = new Shown(key, layout, ++generations, b, ring);
             shownTitle = t;
             screens.show(screen, animation);
         } catch (Throwable t) {
@@ -1573,6 +1644,19 @@ final class PageScreens implements PageRenderer {
     /** {@link #screenChangeAllowed} on the screen now. */
     private boolean changeAllowed() {
         return screenChangeAllowed(screens.currentBlocked(), screens.pendingId());
+    }
+
+    /** The LINK and ITEM rows of {@code p}: a ring page's items. */
+    private static int ringItems(UiPage p) {
+        int n = 0;
+        List<UiEntry> all = p.entries();
+        for (int i = 0; i < all.size(); i++) {
+            int k = all.get(i).kind();
+            if (k == UiEntry.LINK || k == UiEntry.ITEM) {
+                n++;
+            }
+        }
+        return n;
     }
 
     /** The layout of the page screen shown last ({@link PageLayout#EMPTY} before one). */

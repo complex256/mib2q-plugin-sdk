@@ -103,7 +103,7 @@ class ApiLevelsTest {
             }
         }
         assertEquals(List.of(), missing);
-        assertEquals(72, checked, "the scan found the tagged members (update this number deliberately"
+        assertEquals(75, checked, "the scan found the tagged members (update this number deliberately"
                 + " when the API grows): " + checked);
     }
 

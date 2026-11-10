@@ -221,6 +221,20 @@ public final class SdkRuntime {
     private volatile UiHub uiHub;
     private UiDispatcher uiDispatcher; // guarded by this
     private SerialExecutor uiPublisher; // builds and publishes UI snapshots; guarded by this
+    /** Runs the SDK's own package actions (check for updates, install); created here, started on first use. */
+    private final SerialExecutor packageExec;
+    /** How package actions run; the real mibpkg unless a test stands in. */
+    private PackageOps packageOps = new PackageOps.Mibpkg();
+    /** What mibpkg says about packages, re-read when its file changes; control thread. */
+    private PackageCatalog packageCatalog = PackageCatalog.EMPTY;
+    /** The package thread's last line; null before the first action. Volatile: written off the control thread. */
+    private volatile String packageStatus;
+    /** One package action at a time. Volatile: the package thread clears it. */
+    private volatile boolean packageBusy;
+    /** The package file's size+mtime as last read; -1 before the first read. Control thread. */
+    private long packageStamp = -1;
+    /** Tests: the catalog is theirs, so the file is not polled. */
+    private boolean packageCatalogFixed;
     private boolean uiRefreshQueued; // guarded by this
     // ---- the last SDK UI pushed to the hub; control thread only ----
     private List<UiPage> lastSdkPages;
@@ -344,6 +358,7 @@ public final class SdkRuntime {
         this.storageQuota = new StorageQuota(cfg.dataDir(), cfg.storagePluginMaxBytes(), cfg.storageTotalMaxBytes());
         this.toggles = new UserToggles(cfg.userTogglesFile(), log);
         this.statusBar = loadStatusBar();
+        this.packageExec = new SerialExecutor("packages", clock, 60000, 600000, sdkListener("packages"));
     }
 
     /**
@@ -716,6 +731,7 @@ public final class SdkRuntime {
             log.append("ERROR", SOURCE, "adapter stop failed: " + describe(t));
         }
         c.shutdown();
+        packageExec.shutdown();
         ledger.shutdown();
         log.append("STATUS", SOURCE, "runtime stopped");
         writeLogFile();
@@ -1645,6 +1661,10 @@ public final class SdkRuntime {
             });
         } else if (a.kind == PluginsMenu.Action.Kind.WIFI_CONNECT) {
             connectWifiRow(a.id);
+        } else if (a.kind == PluginsMenu.Action.Kind.CHECK_UPDATES) {
+            startPackageJob("Checking for updates", "online-check");
+        } else if (a.kind == PluginsMenu.Action.Kind.INSTALL) {
+            installPackage(a.id);
         } else if (a.kind == PluginsMenu.Action.Kind.ENABLE || a.kind == PluginsMenu.Action.Kind.DISABLE) {
             boolean off = a.kind == PluginsMenu.Action.Kind.DISABLE;
             toggles.setOff(a.id, off);
@@ -1668,6 +1688,113 @@ public final class SdkRuntime {
     }
 
     /** Opens the editor for one static field, pre-filled with the saved value. Control thread. */
+    // ---- package actions (the Updates and Available pages) ----
+
+    /**
+     * Re-reads mibpkg's snapshot when it changed (size and mtime): a stat per UI refresh, no parse while
+     * nothing moved. Control thread.
+     */
+    private void reloadPackageCatalog() {
+        if (packageCatalogFixed) {
+            return;
+        }
+        try {
+            File f = cfg.catalogFile();
+            // The unit's /tmp is /dev/shmem, where length and mtime can both read 0: then there is no
+            // stamp to compare, so the small file is simply read again (it is RAM).
+            long stamp = f.isFile() ? f.length() * 31 + f.lastModified() : 0;
+            if (stamp == 0 || stamp != packageStamp) {
+                packageStamp = stamp;
+                packageCatalog = PackageCatalog.load(f);
+            }
+        } catch (Throwable t) {
+            log.append("WARN", SOURCE, "package catalog unreadable: " + describe(t));
+        }
+    }
+
+    /**
+     * Installs or updates one package through mibpkg, on the package thread. The snapshot says which
+     * collection offers it and which permissions it declares; mibpkg's own approval check is the gate, so
+     * the MMI approves exactly what the page showed.
+     */
+    private void installPackage(String id) {
+        PackageCatalog.Pkg p = packageCatalog.find(id);
+        if (p == null || p.avail == null || p.availFrom == null) {
+            packageStatus = "Not in the package catalog";
+            log.append("WARN", SOURCE, "package install: " + id + " is not offered");
+            return;
+        }
+        if (!p.compatible) {
+            packageStatus = id + " is not compatible with this unit";
+            log.append("WARN", SOURCE, "package install: " + id + " is not compatible with this unit");
+            return;
+        }
+        List<String> perms = p.permList();
+        String list = perms.isEmpty() ? "" : join(perms);
+        log.append("INFO", SOURCE, "package install: " + id + " " + p.avail + " from " + p.availFrom
+                + (list.length() == 0 ? "" : ", approving " + list));
+        startPackageJob("Installing " + id, "gem", "install", id, p.availFrom, "--approve=" + list);
+    }
+
+    /** Queues one mibpkg run off the control thread; its last line becomes {@link #packageStatus}. */
+    private void startPackageJob(final String label, final String... args) {
+        if (packageBusy) {
+            packageStatus = "Busy: " + label;
+            return;
+        }
+        packageBusy = true;
+        packageStatus = label + "...";
+        packageExec.submit("pkg:" + label, new Runnable() {
+            public void run() {
+                String out;
+                try {
+                    out = packageOps.run(args);
+                } catch (Throwable t) {
+                    out = "FAILED: " + describe(t);
+                } finally {
+                    packageBusy = false;
+                }
+                packageStatus = summarise(label, out);
+                String level = out != null && out.startsWith("FAILED") ? "WARN" : "INFO";
+                log.append(level, SOURCE, label.toLowerCase() + ": " + packageStatus);
+            }
+        });
+    }
+
+    /** {@code a,b,c} for mibpkg's --approve. */
+    private static String join(List<String> parts) {
+        StringBuffer b = new StringBuffer();
+        for (int i = 0; i < parts.size(); i++) {
+            b.append(i == 0 ? "" : ",").append(parts.get(i));
+        }
+        return b.toString();
+    }
+
+    /** Test seam: the package runner. */
+    void packageOpsForTests(PackageOps ops) {
+        this.packageOps = ops;
+    }
+
+    /** Test seam: the catalog the pages show. */
+    void packageCatalogForTests(PackageCatalog c) {
+        this.packageCatalog = c;
+        this.packageCatalogFixed = true;
+    }
+
+    /** "Installed x (output tail)", or the failure, in one line for the page. */
+    private static String summarise(String label, String out) {
+        String text = out == null ? "" : out.trim();
+        if (text.length() == 0) {
+            return label + ": done";
+        }
+        int nl = text.lastIndexOf('\n');
+        String last = nl < 0 ? text : text.substring(nl + 1);
+        if (last.length() > 120) {
+            last = last.substring(0, 117) + "...";
+        }
+        return last;
+    }
+
     private void editWifiField(PluginsMenu.Action.Kind kind) {
         WifiManager wm = wifiManager;
         if (wm == null) {
@@ -1890,9 +2017,10 @@ public final class SdkRuntime {
                     }
                 }
             }
+            reloadPackageCatalog();
             SdkState s = new SdkState(safeMode, safeReason, bootGuard.inert(), resetRequested, adapterId,
                     ledger.active(), statusBar.dwellMs(), statusBar.animateMs(), statusBar.enabled(),
-                    wm == null ? WifiView.NONE : wm.view());
+                    wm == null ? WifiView.NONE : wm.view(), packageCatalog, packageStatus);
             int hidden = PluginsMenu.rootOverflow(st.size(), s);
             if (hidden > 0 && !overflowLogged) {
                 overflowLogged = true;

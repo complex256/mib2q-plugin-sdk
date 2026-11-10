@@ -99,8 +99,9 @@ final class SdkCarModelBank extends CarModelBank {
     /** The SDK ids with no model: {@code +34}, {@code +40} and {@code +41} (F22). */
     static boolean reserved(int id) {
         int off = id - HqcUiIds.MODEL_BASE;
-        return id == HqcUiIds.CONFIRM_TEXT_RESERVED
-                || off >= HqcUiIds.TOAST_FILE_ICON_MODEL + 1 - HqcUiIds.MODEL_BASE;
+        int afterToast = HqcUiIds.TOAST_FILE_ICON_MODEL + 1 - HqcUiIds.MODEL_BASE; // +40
+        // +34 and +40..+41 have no model; +42 is the ring page's selection model.
+        return id == HqcUiIds.CONFIRM_TEXT_RESERVED || off == afterToast || off == afterToast + 1;
     }
 
     /**
@@ -273,6 +274,10 @@ final class SdkCarModelBank extends CarModelBank {
             createPageList(i);
             return;
         }
+        if (i == BASE_INDEX + HqcUiIds.RING_MODEL - HqcUiIds.MODEL_BASE) {
+            createRingModel(i);
+            return;
+        }
         if (i >= POPUP_INDEX && i < POPUP_INDEX + POPUP_MODELS) {
             createPopupModel(i);
             return;
@@ -301,6 +306,15 @@ final class SdkCarModelBank extends CarModelBank {
             publishRowModelsOnceComplete();
         } catch (Throwable t) {
             // the model stays absent: the row it backs is not shown
+        }
+    }
+
+    /** The ring page's ChoiceModel (the wizard's selection model). Never throws. */
+    private void createRingModel(int i) {
+        try {
+            this.models[i] = new ChoiceModel(HqcUiIds.RING_MODEL);
+        } catch (Throwable t) {
+            // no model: the ring still draws, its rotation just does not record a selection
         }
     }
 

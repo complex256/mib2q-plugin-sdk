@@ -122,7 +122,7 @@ class SdkRuntimeUiTest {
     }
 
     private static String stateWord(UiSnapshot s, String id) {
-        UiEntry e = entry(s, "mibsdk/plugins", "plugin." + id);
+        UiEntry e = entry(s, "mibsdk/installed", "plugin." + id);
         return e == null ? null : e.value();
     }
 
@@ -200,7 +200,7 @@ class SdkRuntimeUiTest {
         UiSnapshot s = r.await(x -> x.statusLine().startsWith("SAFE")
                 && "Plugins (safe mode)".equals(x.carRows().get(0).label()), "shows safe mode");
         assertEquals(1, s.carRows().size());
-        assertTrue(hasInfo(s, "mibsdk/plugins", "SDK safe mode: plugins are off (marker)"));
+        assertTrue(hasInfo(s, "mibsdk/installed", "SDK safe mode: plugins are off (marker)"));
         assertTrue(hasInfo(s, "mibsdk/sdk", "Safe mode: on (marker)"));
         assertTrue(hasInfo(s, "mibsdk/sdk", "SAFE_MODE marker set: clear it with mibsdk-dev safe-mode off"));
         assertNull(entry(s, "mibsdk/sdk", "reset"), "no on-car reset for the marker");
@@ -213,7 +213,7 @@ class SdkRuntimeUiTest {
         UiSnapshot s = r.await(x -> x.pages().containsKey("mibsdk/sdk"), "publishes the SDK page");
         assertEquals("Plugins", s.carRows().get(0).label());
         assertEquals("", s.statusLine());
-        assertTrue(hasInfo(s, "mibsdk/sdk", "API 7 · adapter " + r.fake.id()));
+        assertTrue(hasInfo(s, "mibsdk/sdk", "API 8 · adapter " + r.fake.id()));
         assertTrue(hasInfo(s, "mibsdk/sdk", "Safe mode: off"));
         assertTrue(hasInfo(s, "mibsdk/sdk", "Boot guard: ok"));
 
@@ -326,7 +326,7 @@ class SdkRuntimeUiTest {
         UiSnapshot s = r.await(x -> entry(x, "mibsdk/plugin.rack", "enabled") != null, "lists rack with a toggle");
         assertTrue(entry(s, "mibsdk/plugin.rack", "enabled").on(), "the user's choice: on");
         assertTrue(hasInfo(s, "mibsdk/plugin.rack", "Safe mode: changes apply after it ends"));
-        assertEquals("Bike rack", entry(s, "mibsdk/plugins", "plugin.rack").label());
+        assertEquals("Bike rack", entry(s, "mibsdk/installed", "plugin.rack").label());
         assertEquals("Off", stateWord(s, "rack"));
         assertNotNull(status("rack"));
         assertTrue(status("rack").state() != PluginState.ENABLED, "statuses() reports it not running");
@@ -577,5 +577,65 @@ class SdkRuntimeUiTest {
             }
         }
         assertEquals(5, actions, r.rt.log().snapshot().toString());
+    }
+
+    /**
+     * The Updates page's Check and a package's Install run mibpkg on the package thread, and the page shows
+     * its last line. The catalog is mibpkg's; the runner is the test's.
+     */
+    @Test
+    void checkForUpdatesAndInstallRunThroughMibpkg() throws Exception {
+        runtime();
+        r.start();
+        final java.util.List<String> calls = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+        r.rt.packageOpsForTests(new PackageOps() {
+            public String run(String... args) {
+                calls.add(String.join(" ", args));
+                return "OK: " + args[0];
+            }
+        });
+        java.io.File f = new java.io.File(tmp, "mibpkg.catalog");
+        java.nio.file.Files.write(f.toPath(), ("format=1\nupdated=1\ncount=1\n"
+                + "pkg.bike-rack.kind=plugin\n"
+                + "pkg.bike-rack.installed=1.1.0\n"
+                + "pkg.bike-rack.update=1.2.0\n"
+                + "pkg.bike-rack.updatefrom=complex256-mibpkg\n"
+                + "pkg.bike-rack.avail=1.2.0\n"
+                + "pkg.bike-rack.availfrom=complex256-mibpkg\n"
+                + "pkg.bike-rack.availname=mibpkg\n"
+                + "pkg.bike-rack.compatible=true\n"
+                + "pkg.bike-rack.perms=vehicle.read,ui.slot.statusbar\n").getBytes("UTF-8"));
+        r.rt.packageCatalogForTests(PackageCatalog.load(f));
+        r.table.input(new UiInput(UiInput.ROW_SELECTED, "mibsdk/plugins", null, false));
+        for (int i = 0; i < 100 && entry(r.table.snapshot(), "mibsdk/updates", "pkg.bike-rack") == null; i++) {
+            r.clock.advance(SdkRuntime.UI_POLL_MS); // the catalog arrives on the UI poll, like on the unit
+            Thread.sleep(20);
+        }
+        assertTrue(entry(r.table.snapshot(), "mibsdk/updates", "pkg.bike-rack") != null, "lists the update");
+
+        r.table.input(new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/updates", "check", false));
+        for (int i = 0; i < 200 && calls.isEmpty(); i++) {
+            Thread.sleep(10);
+        }
+        assertEquals("online-check", calls.get(0));
+        for (int i = 0; i < 100 && !hasInfo(r.table.snapshot(), "mibsdk/updates", "OK: online-check"); i++) {
+            r.clock.advance(SdkRuntime.UI_POLL_MS);
+            Thread.sleep(20);
+        }
+        assertTrue(hasInfo(r.table.snapshot(), "mibsdk/updates", "OK: online-check"),
+                r.table.snapshot().toString());
+
+        r.table.input(new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/pkg.bike-rack", "install", false));
+        for (int i = 0; i < 200 && calls.size() < 2; i++) {
+            Thread.sleep(10);
+        }
+        assertEquals("gem install bike-rack complex256-mibpkg --approve=vehicle.read,ui.slot.statusbar",
+                calls.get(1), calls.toString());
+        for (int i = 0; i < 100 && !hasInfo(r.table.snapshot(), "mibsdk/pkg.bike-rack", "OK: gem"); i++) {
+            r.clock.advance(SdkRuntime.UI_POLL_MS);
+            Thread.sleep(20);
+        }
+        assertTrue(hasInfo(r.table.snapshot(), "mibsdk/pkg.bike-rack", "OK: gem"),
+                r.table.snapshot().toString());
     }
 }

@@ -186,6 +186,14 @@ public final class RuntimeConfig {
         return new File("/tmp/mibpkg.wifi.status");
     }
 
+    /**
+     * RAM: mibpkg's package catalog snapshot ({@link PackageCatalog}); mibpkg rewrites it after every
+     * package action and on every boot.
+     */
+    public File catalogFile() {
+        return new File("/tmp/mibpkg.catalog");
+    }
+
     /** Persistent, legacy: the old status-line order/hidden file, imported once into {@link #statusBarFile()}. */
     public File statusPrefsFile() {
         return new File(roots.persist(), "statusline.properties");

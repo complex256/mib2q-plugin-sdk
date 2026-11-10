@@ -4,6 +4,24 @@ All notable changes to the SDK package and the plugin API. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver as mibpkg compares them.
 Bench builds carried a `+bench.N` tag and are not releases.
 
+## 0.8.0 — 2026-11-09
+
+### Added
+
+- **Ring pages (api 8).** `PageSpec.ring(id, title)` makes a page the car's own 3D ring: its LINK and ITEM rows
+  are the ring's items, each with a `StockIcons` glyph, the knob turns through them and OK opens one. A unit that
+  cannot draw the ring shows the same rows as a list, so the page works either way, and it reopens on the item you
+  left it on, like the car's own ring. `PageSpec.link(…, Icon)` gives a
+  link an icon (a ring item's glyph), and `StockIcons` gained the ring set (`CAR` … `SMARTPHONE`) beside the shapes.
+- **The Plugins menu is a ring of five items**: Installed, Updates, Available, Networking and Settings.
+  Installed lists the plugins; Updates and Available list the packages mibpkg's collections offer, with a
+  "Check for updates" row; a package opens on its own page with its version, description and declared
+  permissions, and installs or updates from there (mibpkg's approval is the gate, so the MMI approves
+  exactly what the page shows). Networking is the core Wi-Fi page, and Settings holds it plus the status
+  bar, boot guard and override rows.
+- The SDK reads mibpkg's package snapshot (`/tmp/mibpkg.catalog`, written by mibpkg 0.12) instead of
+  talking to it; the pages say so when it is missing.
+
 ## 0.7.1 — 2026-11-08
 
 ### Fixed

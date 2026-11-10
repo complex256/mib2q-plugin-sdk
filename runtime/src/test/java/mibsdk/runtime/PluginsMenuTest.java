@@ -104,23 +104,36 @@ class PluginsMenuTest {
         UiPage root = pages.get(0);
         assertEquals("mibsdk/plugins", root.key());
         assertEquals("Plugins", root.title());
-        assertEquals(7, root.entries().size(), "the SDK link, six plugins, no header outside safe mode");
+        assertTrue(root.ring(), "the Plugins page is a ring");
+        List<String> ring = labels(root, UiEntry.LINK);
+        assertEquals(Arrays.asList("Installed", "Updates", "Available", "Networking", "Settings"), ring,
+                "the ring's five items");
+        assertEquals("mibsdk/installed", entry(root, "installed").targetPageKey());
+        assertEquals("mibsdk/updates", entry(root, "updates").targetPageKey());
+        assertEquals("mibsdk/available", entry(root, "available").targetPageKey());
+        assertEquals("mibsdk/wifi", entry(root, "networking").targetPageKey());
+        assertEquals("mibsdk/sdk", entry(root, "settings").targetPageKey());
+        for (int i = 0; i < root.entries().size(); i++) {
+            assertNotNull(root.entries().get(i).icon(), "ring row " + i + " has its glyph");
+        }
+
+        UiPage installed = page(pages, "mibsdk/installed");
+        assertEquals("Installed", installed.title());
+        assertFalse(installed.ring());
         String[] words = {"On", "Off", "Failed", "Quarantined", "Blocked", "Blocked"};
         String[] names = {"Name A", "Name B", "Name C", "Name D", "Name E", "f"};
+        assertEquals(6, installed.entries().size());
         for (int i = 0; i < 6; i++) {
-            UiEntry e = root.entries().get(i + 1);
+            UiEntry e = installed.entries().get(i);
             assertEquals(UiEntry.LINK, e.kind());
             assertEquals(names[i], e.label());
             assertEquals(words[i], e.value());
             assertEquals("mibsdk/plugin." + st.get(i).id(), e.targetPageKey());
             assertNotNull(page(pages, e.targetPageKey()), "the link target is one of the pages");
         }
-        UiEntry sdk = root.entries().get(0);
-        assertEquals("SDK", sdk.label());
-        assertEquals("mibsdk/sdk", sdk.targetPageKey());
-        assertEquals("mibsdk/sdk", page(pages, "mibsdk/sdk").key());
+        assertEquals("Settings", page(pages, "mibsdk/sdk").title());
         assertEquals("mibsdk/wifi", page(pages, "mibsdk/wifi").key());
-        assertEquals(9, pages.size());
+        assertEquals(12, pages.size());
 
         UiPage a = page(pages, "mibsdk/plugin.a");
         assertEquals("Name A", a.title());
@@ -180,14 +193,17 @@ class PluginsMenuTest {
         List<PluginStatus> st = Collections.singletonList(status("a", PluginState.DISABLED, "x"));
         List<UiPage> pages = pages(st, null, null, safe, grants(""));
         UiPage root = pages.get(0);
-        assertEquals(UiEntry.INFO, root.entries().get(0).kind());
-        assertEquals("SDK safe mode: plugins are off (unhealthy-boots)", root.entries().get(0).label());
+        // the ring holds its five items; the safe-mode notice is on the Installed list
+        assertEquals("Installed", root.entries().get(0).label());
+        UiPage installed = page(pages, "mibsdk/installed");
+        assertEquals(UiEntry.INFO, installed.entries().get(0).kind());
+        assertEquals("SDK safe mode: plugins are off (unhealthy-boots)", installed.entries().get(0).label());
         assertTrue(labels(page(pages, "mibsdk/plugin.a"), UiEntry.INFO).contains("Safe mode: changes apply after it ends"));
 
         UiPage sdk = page(pages, "mibsdk/sdk");
-        assertEquals("SDK", sdk.title());
+        assertEquals("Settings", sdk.title());
         List<String> info = labels(sdk, UiEntry.INFO);
-        assertEquals("API 7 · adapter hqc", info.get(0));
+        assertEquals("API 8 · adapter hqc", info.get(0));
         assertEquals("Safe mode: on (unhealthy-boots)", info.get(1));
         assertEquals("Boot guard: inert", info.get(2));
         assertTrue(info.contains("Override: parking.soundDirections=F1R0L1X1 by pdc (PERSISTENT, restoring)"), info.toString());
@@ -287,9 +303,9 @@ class PluginsMenuTest {
             keys.put(id, Collections.singletonList(id + "/main"));
         }
         List<UiPage> pages = pages(st, m, keys, NORMAL, grants(""));
-        UiPage root = pages.get(0);
-        List<String> links = labels(root, UiEntry.LINK);
-        assertEquals(10, links.size(), "9 plugins (8 Car row slots) plus SDK");
+        UiPage installed = page(pages, "mibsdk/installed");
+        List<String> links = labels(installed, UiEntry.LINK);
+        assertEquals(9, links.size(), "9 plugins, all listed");
         for (int i = 1; i <= 9; i++) {
             UiPage p = page(pages, "mibsdk/plugin.p" + i);
             UiEntry link = p.entries().get(p.entries().size() - 1);
@@ -305,7 +321,7 @@ class PluginsMenuTest {
         List<PluginStatus> st = Collections.singletonList(status("a", PluginState.FAILED, "r\nr"));
         Map<String, PluginManifest> m = Collections.singletonMap("a", manifest("a", longName));
         List<UiPage> pages = pages(st, m, null, NORMAL, grants(""));
-        UiEntry link = pages.get(0).entries().get(1); // after the SDK row
+        UiEntry link = page(pages, "mibsdk/installed").entries().get(0);
         assertEquals(40, link.label().length());
         assertTrue(link.label().startsWith("N ame xxx"), link.label());
         assertTrue(link.label().endsWith("..."));
@@ -355,17 +371,17 @@ class PluginsMenuTest {
         for (int i = 0; i < 30; i++) {
             st.add(status("p" + (i < 10 ? "0" : "") + i, PluginState.ENABLED, "enabled"));
         }
-        UiPage root = pages(st, null, null, NORMAL, grants("")).get(0);
-        assertEquals(24, root.entries().size());
-        assertEquals(22, labels(root, UiEntry.LINK).size() - 1, "22 plugins and the SDK link");
-        assertEquals("SDK", root.entries().get(0).label(), "the SDK row is first");
-        assertEquals("p00", root.entries().get(1).label());
-        UiEntry more = root.entries().get(23);
+        List<UiPage> all = pages(st, null, null, NORMAL, grants(""));
+        UiPage installed = page(all, "mibsdk/installed");
+        assertEquals(24, installed.entries().size());
+        assertEquals(23, labels(installed, UiEntry.LINK).size(), "23 plugins, then the notice");
+        assertEquals("p00", installed.entries().get(0).label());
+        UiEntry more = installed.entries().get(23);
         assertEquals(UiEntry.INFO, more.kind());
-        assertEquals("+8 more", more.label());
-        assertEquals(8, PluginsMenu.rootOverflow(30, NORMAL));
-        assertEquals(0, PluginsMenu.rootOverflow(23, NORMAL), "23 plugins and SDK fit exactly");
-        assertEquals(2, PluginsMenu.rootOverflow(23, state(true, "marker", false)), "the header takes a slot: 21 links + more");
+        assertEquals("+7 more", more.label());
+        assertEquals(7, PluginsMenu.rootOverflow(30, NORMAL));
+        assertEquals(0, PluginsMenu.rootOverflow(24, NORMAL), "24 plugins fit exactly");
+        assertEquals(2, PluginsMenu.rootOverflow(25, NORMAL));
     }
 
     @Test
@@ -431,4 +447,102 @@ class PluginsMenuTest {
         assertEquals(PluginsMenu.Action.Kind.NONE, PluginsMenu.handle(new UiInput(UiInput.ENTRY_SELECTED,
                 "mibsdk/sdk", "status.later", false)).kind, "only on a plugin page");
     }
+
+// ---- the ring's package pages (Updates, Available, one package) ----
+
+/** A catalog as mibpkg writes it, from a temporary file. */
+private static PackageCatalog catalog(String text) throws Exception {
+    java.io.File f = java.io.File.createTempFile("mibpkg", ".catalog");
+    f.deleteOnExit();
+    java.nio.file.Files.write(f.toPath(), text.getBytes("UTF-8"));
+    return PackageCatalog.load(f);
+}
+
+private static final String CATALOG_TEXT = "format=1\nupdated=1\ncount=3\n"
+        + "pkg.bike-rack.desc=Bike Rack (mibsdk plugin)\n"
+        + "pkg.bike-rack.kind=plugin\n"
+        + "pkg.bike-rack.installed=1.1.0\n"
+        + "pkg.bike-rack.update=1.2.0\n"
+        + "pkg.bike-rack.updatefrom=complex256-mibpkg\n"
+        + "pkg.bike-rack.avail=1.2.0\n"
+        + "pkg.bike-rack.availfrom=complex256-mibpkg\n"
+        + "pkg.bike-rack.availname=mibpkg\n"
+        + "pkg.bike-rack.compatible=true\n"
+        + "pkg.bike-rack.perms=vehicle.read,vehicle.parking.write\n"
+        + "pkg.bike-rack.perm.vehicle.read=Read vehicle state\n"
+        + "pkg.hello.desc=Sample plugin\n"
+        + "pkg.hello.kind=plugin\n"
+        + "pkg.hello.avail=1.0.0\n"
+        + "pkg.hello.availfrom=complex256-mibpkg\n"
+        + "pkg.hello.availname=mibpkg\n"
+        + "pkg.hello.compatible=true\n"
+        + "pkg.mibsdk.kind=sdk\n"
+        + "pkg.mibsdk.installed=0.7.1\n";
+
+@Test
+void updatesAndAvailableListTheCatalog() throws Exception {
+    SdkState s = new SdkState(false, null, false, false, "hqc", null, 5000, 300, true, WifiView.NONE,
+            catalog(CATALOG_TEXT), null);
+    List<UiPage> pages = pages(Collections.<PluginStatus>emptyList(), null, null, s, grants(""));
+
+    UiPage root = pages.get(0);
+    assertEquals("1 update", entry(root, "updates").value());
+    assertEquals("1 package", entry(root, "available").value());
+
+    UiPage updates = page(pages, "mibsdk/updates");
+    assertEquals("Check for updates", updates.entries().get(0).label());
+    assertEquals(UiEntry.ITEM, updates.entries().get(0).kind());
+    UiEntry rack = entry(updates, "pkg.bike-rack");
+    assertEquals("bike-rack", rack.label(), "the package id: the same on Updates and Available");
+    assertEquals("1.1.0 -> 1.2.0", rack.value());
+    assertEquals("mibsdk/pkg.bike-rack", rack.targetPageKey());
+
+    UiPage available = page(pages, "mibsdk/available");
+    assertEquals("hello", entry(available, "pkg.hello").label());
+    assertEquals("1.0.0", entry(available, "pkg.hello").value());
+
+    // one page per offered package; the installed SDK has none
+    UiPage pkg = page(pages, "mibsdk/pkg.bike-rack");
+    assertTrue(labels(pkg, UiEntry.INFO).contains("Installed: 1.1.0"));
+    assertTrue(labels(pkg, UiEntry.INFO).contains("Update: 1.2.0 from mibpkg"));
+    assertTrue(labels(pkg, UiEntry.INFO).contains("Permission: vehicle.read - Read vehicle state"));
+    assertEquals("Update to 1.2.0", entry(pkg, "install").label());
+    assertEquals(UiEntry.ITEM, entry(pkg, "install").kind());
+
+    // installed and already on the offered version: no action row, "Up to date" instead
+    SdkState same = new SdkState(false, null, false, false, "hqc", null, 5000, 300, true, WifiView.NONE,
+            catalog(CATALOG_TEXT.replace("pkg.bike-rack.installed=1.1.0", "pkg.bike-rack.installed=1.2.0")
+                    .replace("pkg.bike-rack.update=1.2.0\n", "")
+                    .replace("pkg.bike-rack.updatefrom=complex256-mibpkg\n", "")), null);
+    UiPage upToDate = page(pages(Collections.<PluginStatus>emptyList(), null, null, same, grants("")),
+            "mibsdk/pkg.bike-rack");
+    assertNull(entry(upToDate, "install"), "nothing to install");
+    assertTrue(labels(upToDate, UiEntry.INFO).contains("Up to date"));
+    assertNull(page(pages, "mibsdk/pkg.mibsdk"), "the SDK itself has no MMI package page");
+
+    // the last package action's line shows on the pages it belongs to
+    SdkState busy = new SdkState(false, null, false, false, "hqc", null, 5000, 300, true, WifiView.NONE,
+            catalog(CATALOG_TEXT), "Checking for updates...");
+    assertTrue(labels(page(pages(Collections.<PluginStatus>emptyList(), null, null, busy, grants("")),
+            "mibsdk/updates"), UiEntry.INFO).contains("Checking for updates..."));
+}
+
+@Test
+void packageRowsMapToCheckForUpdatesAndInstall() throws Exception {
+    PluginsMenu.Action check = PluginsMenu.handle(
+            new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/updates", "check", false));
+    assertEquals(PluginsMenu.Action.Kind.CHECK_UPDATES, check.kind);
+    PluginsMenu.Action all = PluginsMenu.handle(
+            new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/available", "check", false));
+    assertEquals(PluginsMenu.Action.Kind.CHECK_UPDATES, all.kind);
+
+    PluginsMenu.Action install = PluginsMenu.handle(
+            new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/pkg.bike-rack", "install", false));
+    assertEquals(PluginsMenu.Action.Kind.INSTALL, install.kind);
+    assertEquals("bike-rack", install.id);
+    assertEquals(PluginsMenu.Action.Kind.NONE, PluginsMenu.handle(
+            new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/pkg.not a name", "install", false)).kind);
+    assertEquals(PluginsMenu.Action.Kind.NONE, PluginsMenu.handle(
+            new UiInput(UiInput.ENTRY_SELECTED, "mibsdk/installed", "check", false)).kind);
+}
 }

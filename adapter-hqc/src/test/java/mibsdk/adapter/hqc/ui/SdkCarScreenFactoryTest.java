@@ -417,7 +417,7 @@ class SdkCarScreenFactoryTest {
             SdkGlobals.uiEnabled = true;
             SdkCarModelBank bank = new SdkCarModelBank();
             int base = HqcUiIds.MODEL_BASE;
-            assertEquals(42, HqcUiIds.MODEL_COUNT);
+            assertEquals(43, HqcUiIds.MODEL_COUNT);
             int popup = 0;
             for (int off = 12; off <= 25; off++) {
                 Object m = model(bank, base + off);
@@ -434,6 +434,7 @@ class SdkCarScreenFactoryTest {
                 assertSame(de.audi.atip.hmi.model.RangeModel.class, model(bank, base + 30 + s).getClass(),
                         "+" + (30 + s));
             }
+            model(bank, base + 42); // the ring page's selection model
             Object list = model(bank, base + 35);
             assertSame(de.audi.atip.hmi.model.ListModel.class, list.getClass());
             assertEquals(6, ((de.audi.atip.hmi.model.ListModel) list).getMaxColumns());
@@ -457,10 +458,10 @@ class SdkCarScreenFactoryTest {
                     sdk.add(id - base);
                 }
             }
-            assertEquals(39, sdk.size(), "42 ids, 3 reserved: " + sdk);
+            assertEquals(40, sdk.size(), "43 ids, 3 reserved: " + sdk);
             assertFalse(sdk.contains(34) || sdk.contains(40) || sdk.contains(41));
             assertEquals(0, (int) sdk.get(0));
-            assertEquals(39, (int) sdk.get(sdk.size() - 1));
+            assertEquals(42, (int) sdk.get(sdk.size() - 1));
         } finally {
             SdkGlobals.uiEnabled = was;
         }

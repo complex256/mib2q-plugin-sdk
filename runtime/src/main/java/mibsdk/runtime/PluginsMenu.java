@@ -7,9 +7,11 @@ import java.util.Map;
 import java.util.Set;
 import mibsdk.api.PageSpec;
 import mibsdk.api.SdkInfo;
+import mibsdk.api.StockIcons;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
+import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiText;
 
 /**
@@ -24,7 +26,16 @@ final class PluginsMenu {
     static final String PLUGINS_KEY = UiHub.PLUGINS_KEY;
     static final String SDK_KEY = UiHub.SDK_OWNER + "/sdk";
     static final String WIFI_KEY = UiHub.SDK_OWNER + "/wifi";
+    static final String INSTALLED_KEY = UiHub.SDK_OWNER + "/installed";
+    static final String UPDATES_KEY = UiHub.SDK_OWNER + "/updates";
+    static final String AVAILABLE_KEY = UiHub.SDK_OWNER + "/available";
     static final String PLUGIN_KEY_PREFIX = UiHub.SDK_OWNER + "/plugin.";
+    /** One page per package the catalog describes: {@code mibsdk/pkg.<name>}. */
+    static final String PKG_KEY_PREFIX = UiHub.SDK_OWNER + "/pkg.";
+    /** The Updates and Available pages' first row: fetch the online collections again. */
+    static final String CHECK_ENTRY = "check";
+    /** A package page's action row. */
+    static final String INSTALL_ENTRY = "install";
     static final String ENABLED_ENTRY = "enabled";
     static final String RESET_ENTRY = "reset";
     static final String STATUS_ENTRY = "status";
@@ -67,7 +78,7 @@ final class PluginsMenu {
             DWELL_NEXT, ANIMATE_NEXT, STATUS_BAR_ENABLE, STATUS_BAR_DISABLE,
             WIFI_ENABLE, WIFI_DISABLE, WIFI_SCAN, WIFI_MANUAL, WIFI_FORGET, WIFI_CONNECT,
             WIFI_DHCP_ENABLE, WIFI_DHCP_DISABLE, WIFI_EDIT_IP, WIFI_EDIT_NETMASK, WIFI_EDIT_GATEWAY,
-            WIFI_EDIT_DNS, NONE
+            WIFI_EDIT_DNS, CHECK_UPDATES, INSTALL, NONE
         }
 
         static final Action NONE = new Action(Kind.NONE, null);
@@ -114,6 +125,15 @@ final class PluginsMenu {
             Grants g, StatusChoices sc) {
         List<UiPage> out = new ArrayList<UiPage>();
         out.add(root(st, m, s));
+        out.add(installedPage(st, m, s));
+        out.add(updatesPage(s));
+        out.add(availablePage(s));
+        for (int i = 0; i < s.catalog.packages.size(); i++) {
+            PackageCatalog.Pkg p = s.catalog.packages.get(i);
+            if (p.avail != null || p.hasUpdate()) {
+                out.add(packagePage(p, s));
+            }
+        }
         for (int i = 0; i < st.size(); i++) {
             PluginStatus p = st.get(i);
             List<String> keys = pluginPageKeys == null ? null : pluginPageKeys.get(p.id());
@@ -127,7 +147,7 @@ final class PluginsMenu {
 
     /** How many of {@code plugins} the Plugins page cannot list (it then ends with a {@code +N more} INFO). */
     static int rootOverflow(int plugins, SdkState s) {
-        int room = PageSpec.MAX_ENTRIES - (s.safeMode ? 1 : 0) - 1; // header, SDK link
+        int room = PageSpec.MAX_ENTRIES;
         return plugins <= room ? 0 : plugins - (room - 1); // one more slot for "+N more"
     }
 
@@ -210,6 +230,14 @@ final class PluginsMenu {
                 }
             }
         }
+        if (in.kind() == UiInput.ENTRY_SELECTED
+                && (UPDATES_KEY.equals(key) || AVAILABLE_KEY.equals(key)) && CHECK_ENTRY.equals(entry)) {
+            return new Action(Action.Kind.CHECK_UPDATES, null);
+        }
+        if (in.kind() == UiInput.ENTRY_SELECTED && key.startsWith(PKG_KEY_PREFIX) && INSTALL_ENTRY.equals(entry)) {
+            String id = key.substring(PKG_KEY_PREFIX.length());
+            return ManifestParser.isValidId(id) ? new Action(Action.Kind.INSTALL, id) : Action.NONE;
+        }
         if (in.kind() == UiInput.ENTRY_SELECTED && SDK_KEY.equals(key)) {
             if (RESET_ENTRY.equals(entry)) {
                 return Action.RESET_BOOT_GUARD;
@@ -266,13 +294,40 @@ final class PluginsMenu {
 
     // ---- pages ----
 
-    /** The SDK row first (right under a safe-mode header), then one link per plugin, then the overflow notice. */
+    /**
+     * The Plugins ring: Installed, Updates, Available, Networking and Settings. A ring page (the adapter draws it as
+     * the stock 3D wizard), so every row carries one of the HMI's ring glyphs; the values stay for the list fallback.
+     */
     private static UiPage root(List<PluginStatus> st, Map<String, PluginManifest> m, SdkState s) {
+        List<UiEntry> e = new ArrayList<UiEntry>();
+        int updates = s.catalog.updates().size();
+        e.add(ringLink("installed", "Installed", count(st.size(), "plugin"), INSTALLED_KEY, StockIcons.WRENCH));
+        e.add(ringLink("updates", "Updates", updates == 0 ? "none" : count(updates, "update"), UPDATES_KEY,
+                StockIcons.SERVICE));
+        e.add(ringLink("available", "Available", count(s.catalog.available().size(), "package"), AVAILABLE_KEY,
+                StockIcons.FLOWER));
+        e.add(ringLink("networking", "Networking", s.wifi.line(), WIFI_KEY, StockIcons.GLOBE));
+        e.add(ringLink("settings", "Settings", null, SDK_KEY, StockIcons.SETTINGS));
+        return new UiPage(PLUGINS_KEY, UiText.clean("Plugins", PageSpec.MAX_TITLE), Collections.unmodifiableList(e),
+                true);
+    }
+
+    /** A ring row: a LINK with its ring glyph (a {@link StockIcons} name) and the list fallback's value. */
+    private static UiEntry ringLink(String key, String label, String value, String target, String icon) {
+        return link(key, label, value, target).withIcon(UiIcon.stock(icon));
+    }
+
+    /** {@code n plugin}, {@code n plugins}: the ring's count values. */
+    private static String count(int n, String what) {
+        return n + " " + what + (n == 1 ? "" : "s");
+    }
+
+    /** One link per installed plugin, with its state word, then the overflow notice. */
+    private static UiPage installedPage(List<PluginStatus> st, Map<String, PluginManifest> m, SdkState s) {
         List<UiEntry> e = new ArrayList<UiEntry>();
         if (s.safeMode) {
             e.add(info("SDK safe mode: plugins are off (" + s.safeReason + ")"));
         }
-        e.add(link("sdk", "SDK", null, SDK_KEY));
         int hidden = rootOverflow(st.size(), s);
         for (int i = 0; i < st.size() - hidden; i++) {
             PluginStatus p = st.get(i);
@@ -282,7 +337,100 @@ final class PluginsMenu {
         if (hidden > 0) {
             e.add(info("+" + hidden + " more"));
         }
-        return page(PLUGINS_KEY, "Plugins", e);
+        if (e.isEmpty()) {
+            e.add(info("No plugins installed"));
+        }
+        return page(INSTALLED_KEY, "Installed", e);
+    }
+
+    /** Check for updates, the runtime's last result, then one link per package with a newer version. */
+    private static UiPage updatesPage(SdkState s) {
+        List<UiEntry> e = new ArrayList<UiEntry>();
+        e.add(item(CHECK_ENTRY, "Check for updates"));
+        if (s.packageStatus != null) {
+            e.add(info(s.packageStatus));
+        }
+        List<PackageCatalog.Pkg> up = s.catalog.updates();
+        for (int i = 0; i < up.size(); i++) {
+            PackageCatalog.Pkg p = up.get(i);
+            e.add(link("pkg." + p.name, p.name, p.installed + " -> " + p.update, PKG_KEY_PREFIX + p.name));
+        }
+        if (up.isEmpty() && s.packageStatus == null) {
+            e.add(info("All packages are up to date"));
+        }
+        if (s.catalog.error != null) {
+            e.add(info("Package catalog: " + s.catalog.error));
+        }
+        return page(UPDATES_KEY, "Updates", e);
+    }
+
+    /** Check for updates, then one link per package a collection offers that is not installed. */
+    private static UiPage availablePage(SdkState s) {
+        List<UiEntry> e = new ArrayList<UiEntry>();
+        e.add(item(CHECK_ENTRY, "Check for updates"));
+        if (s.packageStatus != null) {
+            e.add(info(s.packageStatus));
+        }
+        List<PackageCatalog.Pkg> av = s.catalog.available();
+        for (int i = 0; i < av.size(); i++) {
+            PackageCatalog.Pkg p = av.get(i);
+            e.add(link("pkg." + p.name, p.name, p.avail + (p.compatible ? "" : " (not compatible)"),
+                    PKG_KEY_PREFIX + p.name));
+        }
+        if (av.isEmpty() && s.packageStatus == null) {
+            e.add(info("Nothing to install"));
+        }
+        if (s.catalog.error != null) {
+            e.add(info("Package catalog: " + s.catalog.error));
+        }
+        return page(AVAILABLE_KEY, "Available", e);
+    }
+
+    /** One package: what it is, the versions, the permissions it asks for, and the install/update row. */
+    private static UiPage packagePage(PackageCatalog.Pkg p, SdkState s) {
+        List<UiEntry> e = new ArrayList<UiEntry>();
+        if (p.desc.length() > 0) {
+            e.add(info(p.desc));
+        }
+        if (p.installedPkg()) {
+            e.add(info("Installed: " + p.installed + (p.blocked.length() == 0 ? "" : " (blocked: " + p.blocked + ")")));
+        }
+        if (p.hasUpdate()) {
+            e.add(info("Update: " + p.update + (p.availName.length() == 0 ? "" : " from " + p.availName)));
+        } else if (!p.installedPkg() && p.avail != null) {
+            e.add(info("Available: " + p.avail + (p.availName.length() == 0 ? "" : " from " + p.availName)));
+        }
+        if (!p.compatible) {
+            e.add(info("Not compatible with this unit"));
+        }
+        if (p.minSdk != null) {
+            e.add(info("Needs SDK " + p.minSdk + " or newer"));
+        }
+        List<String> perms = p.permList();
+        for (int i = 0; i < perms.size() && e.size() < PageSpec.MAX_ENTRIES - 3; i++) {
+            String id = perms.get(i);
+            String text = p.permText.get(id);
+            e.add(info("Permission: " + id + (text == null ? "" : " - " + text)));
+        }
+        if (s.packageStatus != null) {
+            e.add(info(s.packageStatus));
+        }
+        // An installed, up-to-date package has nothing to install: no action row.
+        boolean can = p.compatible && p.avail != null && !p.kind.equals("sdk")
+                && (p.hasUpdate() || !p.installedPkg());
+        if (can) {
+            e.add(item(INSTALL_ENTRY, p.hasUpdate() ? "Update to " + p.update : "Install " + p.avail));
+        } else if (p.installedPkg() && !p.hasUpdate()) {
+            e.add(info("Up to date"));
+        } else if (p.kind.equals("sdk")) {
+            e.add(info("Update the SDK from mibpkg"));
+        }
+        return page(PKG_KEY_PREFIX + p.name, p.name, e);
+    }
+
+    /** An ITEM row (selectable, no check box). */
+    private static UiEntry item(String key, String label) {
+        return new UiEntry(UiEntry.ITEM, key, UiText.clean(label, PageSpec.MAX_LABEL), null, false, null);
     }
 
     private static UiPage pluginPage(PluginStatus p, PluginManifest m, List<String> pageKeys,
@@ -350,7 +498,7 @@ final class PluginsMenu {
         for (int i = 0; i < s.overrides.size() && e.size() < PageSpec.MAX_ENTRIES; i++) {
             e.add(info("Override: " + s.overrides.get(i)));
         }
-        return page(SDK_KEY, "SDK", e);
+        return page(SDK_KEY, "Settings", e);
     }
 
     /** The core Internet page: status, the uplink switch, a manual name, a scan and its results. */

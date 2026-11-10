@@ -105,6 +105,27 @@ spec = spec.progress("copy", "Copying", percent);
 
 `percent` is clamped to 0..100. Progress is display-only.
 
+## Ring pages
+
+A page can be drawn as the car's own 3D ring instead of a list. The same rows work either way, so nothing is lost on
+a unit that cannot draw the ring:
+
+```java
+Page status = ctx.ui().page(PageSpec.of("status", "Status"), null);
+PageSpec menu = PageSpec.ring("main", "My plugin")
+        .link("status", "Status", status, ctx.ui().stockIcon(StockIcons.CHECK))
+        .item("sync", "Sync now", null, ctx.ui().stockIcon(StockIcons.SERVICE));
+Page page = ctx.ui().page(menu, this::onAction);
+```
+
+Rules: a ring page holds LINK and ITEM rows only, each with an icon, at most `PageSpec.MAX_RING_ENTRIES`; the rules
+throw `IllegalArgumentException` / `IllegalStateException` as the other builders do. The knob turns through the items and
+OK opens a link or fires an item, with the same `UiAction` you get from a list row. The ring opens on the item the user
+last left it on. `StockIcons` has the car's ring glyphs (`CAR`, `RADIO`, `MEDIA`, `PHONE`, `NAVIGATION`, `MAP`,
+`GLOBE`, `OFFICE`, `SOUND`, `SETTINGS`, `WARNING`, `NIGHT_VISION`, `HEADSET`, `SERVICE`, `FLOWER`, `TRAFFIC`,
+`WRENCH`, `SMARTPHONE`) beside the shapes; those are drawn by the 3D ring, and on a Car row, list row or status item
+they show without an icon. A plugin's own PNG shows the fallback glyph on a ring.
+
 ## Handling actions
 
 ```java

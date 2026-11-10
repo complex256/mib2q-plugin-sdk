@@ -93,6 +93,14 @@ class PageScreensNavigationTest {
             return screen != null && screen == current;
         }
 
+        public Object buildRing(String pageKey, PageScreens owner, mibsdk.platform.UiPage page) {
+            if (failBuild) {
+                throw new IllegalStateException("no ring");
+            }
+            calls.add("ring " + pageKey);
+            return "ring:" + pageKey;
+        }
+
         public Object build(String pageKey, String title, PageScreens owner, PageLayout layout, int focus, int bank) {
             if (failBuild) {
                 throw new IllegalStateException("no factory");
