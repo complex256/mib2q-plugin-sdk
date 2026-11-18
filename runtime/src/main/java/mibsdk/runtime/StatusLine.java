@@ -5,7 +5,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import mibsdk.api.UiColor;
+import mibsdk.api.ui.UiColor;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiText;

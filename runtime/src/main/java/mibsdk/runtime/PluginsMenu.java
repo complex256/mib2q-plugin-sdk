@@ -5,9 +5,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import mibsdk.api.PageSpec;
+import mibsdk.api.ui.PageSpec;
 import mibsdk.api.SdkInfo;
-import mibsdk.api.StockIcons;
+import mibsdk.api.ui.StockIcons;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
@@ -539,7 +539,7 @@ final class PluginsMenu {
                 false, null));
         int shown = 0;
         for (int i = 0; i < w.networks.size() && shown < 8 && e.size() < PageSpec.MAX_ENTRIES - 3; i++) {
-            mibsdk.api.WifiNetwork n = (mibsdk.api.WifiNetwork) w.networks.get(i);
+            mibsdk.api.net.WifiNetwork n = (mibsdk.api.net.WifiNetwork) w.networks.get(i);
             String name = n.ssid().length() == 0 ? "(hidden network)" : n.ssid();
             String value = (n.encryption().length() == 0 ? "unknown" : n.encryption()) + " · " + n.signal() + "%";
             if (n.ssid().length() > 0 && n.ssid().equals(w.savedSsid)) {

@@ -59,7 +59,7 @@ Copied verbatim from the 2026-10-24 plan where they still bind:
 
 **Amended by this plan**
 - API: additive only. `SdkInfo.API_VERSION = 4` and `MIN_API_VERSION = 1`, so manifests with api 1–4 load. Plugin limits are unchanged: ≤ 2 Car rows, ≤ 1 status item of ≤ 12 chars.
-- API use: a plugin whose classes reference `mibsdk/api/Ui.icon(Ljava/lang/String;I)Lmibsdk/api/Icon;` must declare `"api": 4` or higher; the build refuses it otherwise (Task 1 scan).
+- API use: a plugin whose classes reference `mibsdk/api/ui/Ui.icon(Ljava/lang/String;I)Lmibsdk/api/Icon;` must declare `"api": 4` or higher; the build refuses it otherwise (Task 1 scan).
 - Index: one extra line kind, `<name>.r=<rsha16>,<w>,<h>`, only for a declared `<name>`, sorted with the rest by key bytes (`hello` < `hello-20` < `hello.r`). A `.r` file is never declared in `plugin.json` and never counts toward the 8 / 32 limits.
 - Reflection recipe (from `tools/make_builtin_icons.py` `reflection`), authoritative here:
   - generated for every **plugin** icon with `h > 20`; the SDK set gets none (its built-ins already ship `-72r`, which `BuiltinIcons` uses);
@@ -93,14 +93,14 @@ Copied verbatim from the 2026-10-24 plan where they still bind:
 
 **Interfaces:**
 - Produces:
-  - `mibsdk.api.Icon`: `int TINTED = 0; int OWN_COLOURS = 1;` (constants only).
+  - `mibsdk.api.ui.Icon`: `int TINTED = 0; int OWN_COLOURS = 1;` (constants only).
   - `Ui.icon(String name, int colour)`; `icon(name) == icon(name, Icon.TINTED)`. Any other `colour` → `IllegalArgumentException("colour must be Icon.TINTED or Icon.OWN_COLOURS")`. The Javadoc says "Needs api 4." and then, verbatim from the spec: "Status items honour it. Car rows ignore it: the drawer draws every row icon in its own colours and multiplies the selected row by the app colour, so ship a white glyph for the stock look."
   - `stockIcon(name)` is unchanged and tinted only (its Javadoc says why: the built-ins are white glyphs).
   - `UiIcon.ownColours()`, `UiIcon withOwnColours(boolean)`: in `equals`/`hashCode`/`toString`; `key()` and `owner()` unchanged.
   - `UiImpl` caches one handle per (name, colour). A declared-but-not-installed icon is inert in both colours.
   - `FakeUi` tag: `[png:<key>+own] ` for an own-colour file icon **in status parts only**. Car-row tags never show `+own`, because rows ignore the flag.
   - `SdkInfo.API_VERSION = 4`; `PluginJson.MAX_API = 4`; `MpkStage.sdkManifest` follows `MAX_API`, so it stages `api = 4`.
-  - `PermissionScan.Result.needsApi() -> int`: 4 when any class references `mibsdk/api/Ui.icon(Ljava/lang/String;I)Lmibsdk/api/Icon;`, else 1. Each such site is also listed by `apiFindings()` as `owner.method -> Ui.icon(String,int)`.
+  - `PermissionScan.Result.needsApi() -> int`: 4 when any class references `mibsdk/api/ui/Ui.icon(Ljava/lang/String;I)Lmibsdk/api/Icon;`, else 1. Each such site is also listed by `apiFindings()` as `owner.method -> Ui.icon(String,int)`.
   - `PermissionScanTask` gets `@Input Property<Integer> declaredApi` (from `plugin.json`). It fails with `<site> needs api 4; plugin.json declares api <n>` when `needsApi() > declaredApi`.
 
 - [ ] **Step 1: Write the failing tests:**

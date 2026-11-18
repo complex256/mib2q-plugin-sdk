@@ -10,7 +10,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import mibsdk.api.IgnitionChanged;
+import mibsdk.api.vehicle.IgnitionChanged;
 import mibsdk.api.Listener;
 import mibsdk.api.Subscription;
 import org.junit.jupiter.api.AfterEach;

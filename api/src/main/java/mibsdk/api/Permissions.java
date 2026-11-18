@@ -1,5 +1,10 @@
 package mibsdk.api;
 
+import mibsdk.api.hooks.Hooks;
+import mibsdk.api.ui.Ui;
+import mibsdk.api.vehicle.Parking;
+import mibsdk.api.vehicle.Vehicle;
+
 /**
  * Permission ids a plugin declares in {@code plugin.json}. The build refuses a call whose permission is not declared,
  * and the runtime refuses it when the owner has not granted it: a permission must be both declared and granted, and a

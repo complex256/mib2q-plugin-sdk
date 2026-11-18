@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import mibsdk.adapter.hqc.SdkGlobals;
-import mibsdk.api.Ui;
+import mibsdk.api.ui.Ui;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiPage;

@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import mibsdk.adapter.hqc.Fakes.Recorder;
 import mibsdk.adapter.hqc.Fakes.RecordingHost;
-import mibsdk.api.IgnitionChanged;
+import mibsdk.api.vehicle.IgnitionChanged;
 import org.dsi.ifc.powermanagement.ClampSignal;
 import org.dsi.ifc.powermanagement.DSIPowerManagement;
 import org.dsi.ifc.powermanagement.DSIPowerManagementListener;

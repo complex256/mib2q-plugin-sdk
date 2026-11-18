@@ -20,16 +20,16 @@ import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import mibsdk.api.Features;
-import mibsdk.api.IgnitionChanged;
+import mibsdk.api.vehicle.IgnitionChanged;
 import mibsdk.api.Listener;
 import mibsdk.api.MibPlugin;
-import mibsdk.api.OverrideScope;
-import mibsdk.api.ParkingSoundChanged;
+import mibsdk.api.vehicle.OverrideScope;
+import mibsdk.api.vehicle.ParkingSoundChanged;
 import mibsdk.api.Permissions;
 import mibsdk.api.PluginContext;
 import mibsdk.api.Subscription;
-import mibsdk.api.Ui;
-import mibsdk.api.UiAction;
+import mibsdk.api.ui.Ui;
+import mibsdk.api.ui.UiAction;
 import mibsdk.platform.HookTable;
 import mibsdk.platform.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
@@ -1869,11 +1869,11 @@ public final class SdkRuntime {
         } catch (NumberFormatException e) {
             return;
         }
-        java.util.List<mibsdk.api.WifiNetwork> nets = wm.networks();
+        java.util.List<mibsdk.api.net.WifiNetwork> nets = wm.networks();
         if (i < 0 || i >= nets.size()) {
             return;
         }
-        mibsdk.api.WifiNetwork n = nets.get(i);
+        mibsdk.api.net.WifiNetwork n = nets.get(i);
         if (n.ssid().length() == 0) {
             openWifiText("Wi-Fi network name", "", Ui.MAX_SPELLER, false, new Listener<UiAction>() {
                 public void on(UiAction answer) {

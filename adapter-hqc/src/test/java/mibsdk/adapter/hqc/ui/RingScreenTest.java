@@ -2,7 +2,7 @@ package mibsdk.adapter.hqc.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import mibsdk.api.StockIcons;
+import mibsdk.api.ui.StockIcons;
 import mibsdk.platform.UiIcon;
 import org.junit.jupiter.api.Test;
 

@@ -10,7 +10,7 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import mibsdk.api.HookPoint;
+import mibsdk.api.hooks.HookPoint;
 import mibsdk.platform.HookTable;
 import org.dsi.ifc.base.DSIListener;
 

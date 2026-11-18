@@ -1,5 +1,7 @@
 package mibsdk.api;
 
+import mibsdk.api.hooks.Hooks;
+
 /**
  * Vehicle and hook events. Obtain it from {@link PluginContext#events()}.
  *

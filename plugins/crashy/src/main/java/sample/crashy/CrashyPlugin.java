@@ -1,10 +1,10 @@
 package sample.crashy;
 
-import mibsdk.api.IgnitionChanged;
+import mibsdk.api.vehicle.IgnitionChanged;
 import mibsdk.api.MibPlugin;
-import mibsdk.api.PageSpec;
+import mibsdk.api.ui.PageSpec;
 import mibsdk.api.PluginContext;
-import mibsdk.api.StatusItem;
+import mibsdk.api.ui.StatusItem;
 
 /**
  * Misbehaves on purpose, to show the SDK contains it. The mode comes from storage key {@code mode}

@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import mibsdk.api.OverrideScope;
+import mibsdk.api.vehicle.OverrideScope;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiStatusPart;
 import org.junit.jupiter.api.Test;

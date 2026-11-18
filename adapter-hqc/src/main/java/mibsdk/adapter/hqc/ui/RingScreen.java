@@ -14,7 +14,7 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import java.lang.reflect.Field;
 import java.util.List;
 import mibsdk.adapter.hqc.SdkGlobals;
-import mibsdk.api.StockIcons;
+import mibsdk.api.ui.StockIcons;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiPage;

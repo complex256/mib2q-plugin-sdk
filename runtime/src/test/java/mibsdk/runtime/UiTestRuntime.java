@@ -59,7 +59,7 @@ final class UiTestRuntime {
     void plugin(String id, String name, String[] perms, String onEnableBody, String members, String[] deps)
             throws IOException {
         String source = "package fx;\n"
-                + "import mibsdk.api.*;\n"
+                + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                 + "public class Main extends MibPlugin {\n"
                 + "  PluginContext ctx;\n"
                 + (members == null ? "" : members) + "\n"

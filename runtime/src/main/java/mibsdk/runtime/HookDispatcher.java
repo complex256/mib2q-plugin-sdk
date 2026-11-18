@@ -1,6 +1,6 @@
 package mibsdk.runtime;
 
-import mibsdk.api.HookObserved;
+import mibsdk.api.hooks.HookObserved;
 import mibsdk.platform.HookTable;
 
 /**

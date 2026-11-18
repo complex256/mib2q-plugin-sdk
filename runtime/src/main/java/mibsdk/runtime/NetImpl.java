@@ -8,7 +8,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.util.Set;
-import mibsdk.api.Net;
+import mibsdk.api.net.Net;
 import mibsdk.api.PermissionDeniedException;
 import mibsdk.api.Permissions;
 

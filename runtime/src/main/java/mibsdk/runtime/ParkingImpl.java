@@ -1,13 +1,13 @@
 package mibsdk.runtime;
 
 import java.util.Set;
-import mibsdk.api.OverrideConflictException;
-import mibsdk.api.OverrideScope;
-import mibsdk.api.Parking;
+import mibsdk.api.vehicle.OverrideConflictException;
+import mibsdk.api.vehicle.OverrideScope;
+import mibsdk.api.vehicle.Parking;
 import mibsdk.api.Permissions;
-import mibsdk.api.SoundDirections;
+import mibsdk.api.vehicle.SoundDirections;
 import mibsdk.api.Subscription;
-import mibsdk.api.VehicleOverride;
+import mibsdk.api.vehicle.VehicleOverride;
 import mibsdk.platform.ParkingIo;
 
 /**

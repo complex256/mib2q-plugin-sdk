@@ -16,8 +16,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import mibsdk.api.OverrideScope;
-import mibsdk.api.WifiStatus;
+import mibsdk.api.vehicle.OverrideScope;
+import mibsdk.api.net.WifiStatus;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
@@ -171,7 +171,7 @@ class PluginsMenuTest {
     void wifiPageShowsDhcpLeaseDetails() throws Exception {
         WifiConfig cfg = new WifiConfig(true, "the valley", "pw", true, "", "", "", "");
         WifiView wifi = new WifiView(true, true, false, WifiStatus.CONNECTED, "the valley", "192.168.141.125", "",
-                "the valley", Collections.<mibsdk.api.WifiNetwork>emptyList(), cfg, "255.255.0.0", "192.168.50.1",
+                "the valley", Collections.<mibsdk.api.net.WifiNetwork>emptyList(), cfg, "255.255.0.0", "192.168.50.1",
                 "192.168.10.11");
         SdkState s = new SdkState(false, null, false, false, "hqc", Collections.<ActiveOverride>emptyList(), 4000, 300,
                 true, wifi);

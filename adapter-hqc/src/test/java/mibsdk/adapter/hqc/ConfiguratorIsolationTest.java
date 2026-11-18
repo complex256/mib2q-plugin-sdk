@@ -23,7 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Dictionary;
 import java.util.List;
-import mibsdk.api.HookPoint;
+import mibsdk.api.hooks.HookPoint;
 import mibsdk.platform.HookTable;
 import mibsdk.runtime.RingLog;
 import org.junit.jupiter.api.BeforeEach;

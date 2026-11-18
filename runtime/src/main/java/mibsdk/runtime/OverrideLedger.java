@@ -10,9 +10,9 @@ import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Properties;
-import mibsdk.api.OverrideConflictException;
-import mibsdk.api.OverrideScope;
-import mibsdk.api.VehicleOverride;
+import mibsdk.api.vehicle.OverrideConflictException;
+import mibsdk.api.vehicle.OverrideScope;
+import mibsdk.api.vehicle.VehicleOverride;
 
 /**
  * Runtime-owned record of every override of persistent vehicle/ECU state, so the runtime (not the plugin)

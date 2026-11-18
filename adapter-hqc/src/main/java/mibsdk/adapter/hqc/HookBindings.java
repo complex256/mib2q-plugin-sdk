@@ -3,8 +3,8 @@ package mibsdk.adapter.hqc;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
-import mibsdk.api.HookPoint;
-import mibsdk.api.SoundDirections;
+import mibsdk.api.hooks.HookPoint;
+import mibsdk.api.vehicle.SoundDirections;
 
 /**
  * Which DSI interface methods are hook points, and how their arguments become API values. Immutable after

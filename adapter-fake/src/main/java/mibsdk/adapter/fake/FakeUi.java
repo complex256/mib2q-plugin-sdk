@@ -61,8 +61,8 @@ public final class FakeUi {
     }
 
     /** The text colour of each status part, in the same order as {@link #statusParts()}; null for the bar's own. */
-    public List<mibsdk.api.UiColor> statusColours() {
-        List<mibsdk.api.UiColor> out = new ArrayList<mibsdk.api.UiColor>();
+    public List<mibsdk.api.ui.UiColor> statusColours() {
+        List<mibsdk.api.ui.UiColor> out = new ArrayList<mibsdk.api.ui.UiColor>();
         for (UiStatusPart p : table.snapshot().statusParts()) {
             out.add(p.colour());
         }

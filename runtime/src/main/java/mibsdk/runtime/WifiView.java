@@ -3,8 +3,8 @@ package mibsdk.runtime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import mibsdk.api.WifiNetwork;
-import mibsdk.api.WifiStatus;
+import mibsdk.api.net.WifiNetwork;
+import mibsdk.api.net.WifiStatus;
 
 /** What the SDK's Internet page shows about the Wi-Fi uplink. Immutable. */
 final class WifiView {

@@ -15,15 +15,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
-import mibsdk.api.HmiContext;
+import mibsdk.api.ui.HmiContext;
 import mibsdk.api.Listener;
-import mibsdk.api.Page;
-import mibsdk.api.PageSpec;
+import mibsdk.api.ui.Page;
+import mibsdk.api.ui.PageSpec;
 import mibsdk.api.Permissions;
 import mibsdk.api.Scheduler;
 import mibsdk.api.Subscription;
-import mibsdk.api.UiAction;
-import mibsdk.api.UiColor;
+import mibsdk.api.ui.UiAction;
+import mibsdk.api.ui.UiColor;
 import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiInput;
@@ -1037,7 +1037,7 @@ class UiHubTest {
                 .dropdown("lvl", "Level", new String[] {"Off", "a very long option text over twenty"}, 0)
                 .slider("bal", "Balance", -6, 6, 2, 2, true)
                 .progress("dl", "Download", 60)
-                .item("star", "Star", "v", ui.stockIcon(mibsdk.api.StockIcons.STAR))
+                .item("star", "Star", "v", ui.stockIcon(mibsdk.api.ui.StockIcons.STAR))
                 .toggle("wifi", "Wi-Fi", true).enabled("wifi", false), null);
         hub.publishNow();
         List<UiEntry> e = table.snapshot().pages().get("p/main").entries();
@@ -1054,7 +1054,7 @@ class UiHubTest {
         assertEquals(UiEntry.PROGRESS, e.get(3).kind());
         assertEquals(60, e.get(3).number());
         assertEquals(UiEntry.ITEM, e.get(4).kind());
-        assertEquals(UiIcon.stock(mibsdk.api.StockIcons.STAR), e.get(4).icon());
+        assertEquals(UiIcon.stock(mibsdk.api.ui.StockIcons.STAR), e.get(4).icon());
         assertTrue(e.get(4).enabled());
         assertFalse(e.get(5).enabled());
         assertNotNull(table.snapshot().pages().get("p/main#lang"));
@@ -1381,14 +1381,14 @@ class UiHubTest {
         mibsdk.platform.UiToast t1 = table.snapshot().toast();
         assertEquals("Saved", t1.text());
         assertNull(t1.icon());
-        UiIcon check = UiIcon.stock(mibsdk.api.StockIcons.CHECK);
+        UiIcon check = UiIcon.stock(mibsdk.api.ui.StockIcons.CHECK);
         hub.showToast("q", "A rather long toast text here", check);
         hub.showToast("q", " \t ", check); // empty: ignored
         hub.showToast("q", null, check);
         hub.publishNow();
         mibsdk.platform.UiToast t2 = table.snapshot().toast();
         assertTrue(t2.seq() > t1.seq());
-        assertEquals(mibsdk.api.Ui.MAX_TOAST, t2.text().length());
+        assertEquals(mibsdk.api.ui.Ui.MAX_TOAST, t2.text().length());
         assertEquals("A rather long toa...", t2.text());
         assertEquals(check, t2.icon());
         hub.removeOwner("q", null);
@@ -1412,6 +1412,6 @@ class UiHubTest {
         confirm(hub, "  first\t line \n" + big, a, exec);
         String text = publishedDialog(hub).text();
         assertTrue(text.startsWith("first line\nxxx"), text);
-        assertEquals(mibsdk.api.Ui.MAX_CONFIRM_TEXT, text.length() - 1, "the lines share the limit: " + text);
+        assertEquals(mibsdk.api.ui.Ui.MAX_CONFIRM_TEXT, text.length() - 1, "the lines share the limit: " + text);
     }
 }

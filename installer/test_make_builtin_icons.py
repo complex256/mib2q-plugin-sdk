@@ -13,7 +13,7 @@ REPO = os.path.dirname(HERE)
 TOOL = os.path.join(REPO, "tools", "make_builtin_icons.py")
 ICONS = os.path.join(REPO, "dist", "icons")
 FIXTURES = os.path.join(REPO, "build-logic", "src", "test", "resources", "png")
-STOCK = ["dot", "circle", "star", "triangle", "square", "check", "cross", "plug"]  # mibsdk.api.StockIcons
+STOCK = ["dot", "circle", "star", "triangle", "square", "check", "cross", "plug"]  # mibsdk.api.ui.StockIcons
 
 
 def run(*args):

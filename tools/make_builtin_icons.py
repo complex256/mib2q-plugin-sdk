@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The SDK's built-in icon set, the shared PNG test vectors and the sample plugins' icons (pure Python, deterministic).
 
-For each mibsdk.api.StockIcons name, three white-on-transparent 8-bit RGBA PNGs:
+For each mibsdk.api.ui.StockIcons name, three white-on-transparent 8-bit RGBA PNGs:
 - <name>-72.png   72x72, the Car-drawer row icon;
 - <name>-72r.png  72x68, its reflection: the 72x72 glyph flipped and cut to 68 rows, alpha fading 40 % -> 0;
 - <name>-20.png   20x20, the status-line icon. Its 2 right-most columns stay transparent: the status layout puts the

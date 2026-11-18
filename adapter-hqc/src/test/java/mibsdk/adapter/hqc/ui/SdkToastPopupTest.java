@@ -78,7 +78,7 @@ class SdkToastPopupTest {
         assertEquals(0, id.getBitmapIndices().length, "no icon");
         assertEquals(HqcUiIds.STATUS_PAD_PX, SdkToastPopup.Part.of(new UiToast(3, "12345678901234567890123", null),
                 ids, null).iconX(), "never left of the padding");
-        assertEquals(HqcUiIds.TOAST_MS, mibsdk.api.Ui.TOAST_MS, "the stock-thread literal follows the API");
+        assertEquals(HqcUiIds.TOAST_MS, mibsdk.api.ui.Ui.TOAST_MS, "the stock-thread literal follows the API");
     }
 
     /** Fix round 1: the bench-proven popup recipe lives in one helper ({@link SdkPopups}) that both popups use. */

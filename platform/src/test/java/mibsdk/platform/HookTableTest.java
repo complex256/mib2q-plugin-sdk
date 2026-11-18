@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import mibsdk.api.HookObserved;
-import mibsdk.api.HookPoint;
+import mibsdk.api.hooks.HookObserved;
+import mibsdk.api.hooks.HookPoint;
 import org.junit.jupiter.api.Test;
 
 class HookTableTest {

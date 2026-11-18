@@ -3,8 +3,8 @@ package mibsdk.runtime;
 import java.io.File;
 import java.util.Collections;
 import java.util.List;
-import mibsdk.api.WifiNetwork;
-import mibsdk.api.WifiStatus;
+import mibsdk.api.net.WifiNetwork;
+import mibsdk.api.net.WifiStatus;
 import mibsdk.platform.WifiIo;
 
 /**

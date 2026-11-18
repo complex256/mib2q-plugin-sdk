@@ -7,10 +7,10 @@ import mibsdk.api.Listener;
 import mibsdk.api.PermissionDeniedException;
 import mibsdk.api.Permissions;
 import mibsdk.api.Subscription;
-import mibsdk.api.Wifi;
-import mibsdk.api.WifiChanged;
-import mibsdk.api.WifiNetwork;
-import mibsdk.api.WifiStatus;
+import mibsdk.api.net.Wifi;
+import mibsdk.api.net.WifiChanged;
+import mibsdk.api.net.WifiNetwork;
+import mibsdk.api.net.WifiStatus;
 import mibsdk.platform.WifiIo;
 
 /**

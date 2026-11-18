@@ -2,13 +2,13 @@ package mibsdk.runtime;
 
 import java.util.Set;
 import mibsdk.api.Features;
-import mibsdk.api.HookObserved;
-import mibsdk.api.HookPoint;
-import mibsdk.api.Hooks;
+import mibsdk.api.hooks.HookObserved;
+import mibsdk.api.hooks.HookPoint;
+import mibsdk.api.hooks.Hooks;
 import mibsdk.api.Listener;
 import mibsdk.api.Permissions;
 import mibsdk.api.Subscription;
-import mibsdk.api.Veto;
+import mibsdk.api.hooks.Veto;
 import mibsdk.platform.HookTable;
 
 /**

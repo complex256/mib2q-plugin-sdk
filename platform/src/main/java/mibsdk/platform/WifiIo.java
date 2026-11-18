@@ -1,12 +1,12 @@
 package mibsdk.platform;
 
 import java.util.List;
-import mibsdk.api.WifiNetwork;
-import mibsdk.api.WifiStatus;
+import mibsdk.api.net.WifiNetwork;
+import mibsdk.api.net.WifiStatus;
 
 /**
  * The adapter's Wi-Fi client uplink. The runtime's {@code Wifi} API and its own Internet page both talk to this.
- * Implementations report state changes by publishing {@code mibsdk.api.WifiChanged} through the platform host.
+ * Implementations report state changes by publishing {@code mibsdk.api.net.WifiChanged} through the platform host.
  *
  * <p>The car's access point is not this interface's concern: an implementation only joins and leaves client
  * networks, leaving the stock access point alone.

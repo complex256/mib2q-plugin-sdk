@@ -157,7 +157,7 @@ class PermissionScanTest {
     void findsTheColourIconOverload() throws Exception {
         File colour = Fixtures.compileV48(tmp.resolve("colour"), Map.of("mibsdk.api.Icon", ICON_STUB,
                 "mibsdk.api.Ui", UI_STUB, "fixture.C",
-                "package fixture; import mibsdk.api.*; public class C {"
+                "package fixture; import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*; public class C {"
                         + " public Icon status(Ui ui) { return ui.icon(\"x\", Icon.OWN_COLOURS); }"
                         + " public Icon row(Ui ui) { return ui.icon(\"x\"); } }"));
         PermissionScan.Result r = PermissionScan.run(colour);
@@ -168,14 +168,14 @@ class PermissionScanTest {
 
         File plain = Fixtures.compileV48(tmp.resolve("plain"), Map.of("mibsdk.api.Icon", ICON_STUB,
                 "mibsdk.api.Ui", UI_STUB, "fixture.T",
-                "package fixture; import mibsdk.api.*; public class T {"
+                "package fixture; import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*; public class T {"
                         + " public Icon row(Ui ui) { return ui.icon(\"x\"); } }"));
         assertEquals(3, PermissionScan.run(plain).needsApi());
         assertEquals(List.of("fixture/T.row -> Ui.icon(String)"), PermissionScan.run(plain).apiFindings());
 
         // The plugin's own icon(String,int), with the same name and descriptor, is not Ui's.
         File own = Fixtures.compileV48(tmp.resolve("own"), Map.of("mibsdk.api.Icon", ICON_STUB,
-                "fixture.O", "package fixture; import mibsdk.api.*; public class O {"
+                "fixture.O", "package fixture; import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*; public class O {"
                         + " public Icon icon(String name, int colour) { return null; }"
                         + " public Icon use() { return icon(\"x\", Icon.OWN_COLOURS); } }"));
         assertEquals(1, PermissionScan.run(own).needsApi());
@@ -192,14 +192,14 @@ class PermissionScanTest {
         // The stub is on the classpath, not scanned: a plugin's classes never include the SDK's own.
         File stub = Fixtures.compileV48(tmp.resolve("stub"), Map.of("mibsdk.api.PageSpec", PAGESPEC_STUB));
         File choice = Fixtures.compileV48(tmp.resolve("choice"), Map.of(
-                "fixture.C", "package fixture; import mibsdk.api.*; public class C {"
+                "fixture.C", "package fixture; import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*; public class C {"
                         + " public PageSpec page(PageSpec p) { return p.choice(\"c\", \"C\", new String[] {\"a\"}, 0); } }"), stub);
         PermissionScan.Result r = PermissionScan.run(choice);
         assertEquals(5, r.needsApi());
         assertEquals(List.of("fixture/C.page -> PageSpec.choice"), r.apiFindings());
 
         File kind = Fixtures.compileV48(tmp.resolve("kind"), Map.of(
-                "fixture.K", "package fixture; import mibsdk.api.*; public class K {"
+                "fixture.K", "package fixture; import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*; public class K {"
                         + " public boolean slider(PageSpec.Kind k) { return k == PageSpec.Kind.SLIDER; }"
                         + " public boolean toggle(PageSpec.Kind k) { return k == PageSpec.Kind.TOGGLE; } }"), stub);
         r = PermissionScan.run(kind);
@@ -209,7 +209,7 @@ class PermissionScanTest {
         assertEquals(List.of("fixture/K.slider -> PageSpec.Kind.SLIDER needs api 5"), r.tooNew(4));
 
         File toggle = Fixtures.compileV48(tmp.resolve("toggle"), Map.of(
-                "fixture.T", "package fixture; import mibsdk.api.*; public class T {"
+                "fixture.T", "package fixture; import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*; public class T {"
                         + " public PageSpec page(PageSpec p) { return p.toggle(\"t\", \"T\", true); } }"), stub);
         assertEquals(2, PermissionScan.run(toggle).needsApi());
         assertEquals(List.of("fixture/T.page -> PageSpec.toggle"), PermissionScan.run(toggle).apiFindings());
@@ -245,7 +245,7 @@ class PermissionScanTest {
                         + " String query(String host, int port, String request, int timeoutMs) throws java.io.IOException; }"),
                 Map.entry("mibsdk.api.Ui", DAEMON_STATUS_UI),
                 Map.entry("mibsdk.api.PluginContext", DAEMON_STATUS_CONTEXT),
-                Map.entry("fixture.D", "package fixture; import mibsdk.api.*; public class D {"
+                Map.entry("fixture.D", "package fixture; import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*; public class D {"
                         + " public void enable(PluginContext ctx) throws Exception {"
                         + " Ui ui = ctx.ui();"
                         + " Page page = ui.page(PageSpec.of(\"status\", \"Daemons\").info(\"x\"), null);"
@@ -274,7 +274,7 @@ class PermissionScanTest {
                 + " Icon icon(String name); Icon icon(String name, int colour); void toast(String text, Icon icon); }";
         File both = Fixtures.compileV48(tmp.resolve("both"), Map.of("mibsdk.api.Icon", ICON_STUB,
                 "mibsdk.api.Ui", ui, "fixture.B",
-                "package fixture; import mibsdk.api.*; public class B {"
+                "package fixture; import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*; public class B {"
                         + " public void status(Ui ui) { ui.icon(\"x\", Icon.OWN_COLOURS); }"
                         + " public void toast(Ui ui) { ui.toast(\"hi\", null); } }"));
         PermissionScan.Result r = PermissionScan.run(both);
@@ -294,7 +294,7 @@ class PermissionScanTest {
     private File carMenuCaller(String body) throws Exception {
         return Fixtures.compileV48(tmp.resolve("car"), Map.of("mibsdk.api.Ui", UI_PERMISSION_STUB,
                 "mibsdk.api.PluginContext", CTX_STUB, "fixture.R",
-                "package fixture; import mibsdk.api.*; public class R { public void run(PluginContext ctx) { "
+                "package fixture; import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*; public class R { public void run(PluginContext ctx) { "
                         + body + " } }"));
     }
 
@@ -342,7 +342,7 @@ class PermissionScanTest {
     private File observerCaller(String body) throws Exception {
         return Fixtures.compileV48(tmp.resolve("observer"), Map.of("mibsdk.api.Events", OBSERVER_STUBS_EVENTS,
                 "mibsdk.api.HookObserved", OBSERVER_STUB_HOOK, "mibsdk.api.Other", "package mibsdk.api; public final class Other {}",
-                "fixture.O", "package fixture; import mibsdk.api.*; public class O { public void run(Events ev) { "
+                "fixture.O", "package fixture; import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*; public class O { public void run(Events ev) { "
                         + body + " } }"));
     }
 
@@ -403,7 +403,7 @@ class PermissionScanTest {
                 "mibsdk.api.Icon", ICON_STUB,
                 "mibsdk.api.StatusItem", STATUS_ICON_ITEM,
                 "mibsdk.api.Ui", STATUS_ICON_UI,
-                "fixture.S", "package fixture; import mibsdk.api.*; public class S {"
+                "fixture.S", "package fixture; import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*; public class S {"
                         + " private Icon saved;"
                         + " public void run(Ui ui, StatusItem item) { ui.statusItem(\"x\", ui.icon(\"cup\")); }"
                         + " public void tail(Ui ui, StatusItem item) { item.set(\"Y\", ui.icon(\"cup\")); }"

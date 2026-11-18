@@ -38,7 +38,7 @@ public final class UiIcon {
         this.reflection = reflection;
     }
 
-    /** A built-in icon by name (a {@code mibsdk.api.StockIcons} constant). Its owner is {@code mibsdk}. */
+    /** A built-in icon by name (a {@code mibsdk.api.ui.StockIcons} constant). Its owner is {@code mibsdk}. */
     public static UiIcon stock(String name) {
         return new UiIcon(STOCK, name, SDK_OWNER, null, null, 0, 0, false, null);
     }

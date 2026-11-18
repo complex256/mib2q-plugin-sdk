@@ -7,7 +7,7 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
-import mibsdk.api.Ui;
+import mibsdk.api.ui.Ui;
 
 /**
  * The installed icons of one package: {@code <dir>/index.properties}, written by mibpkg, with lines

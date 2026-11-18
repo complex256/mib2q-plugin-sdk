@@ -1,6 +1,6 @@
 package mibsdk.platform;
 
-import mibsdk.api.UiColor;
+import mibsdk.api.ui.UiColor;
 
 /**
  * One piece of the status line in a {@link UiSnapshot}: the runtime's indicators joined into one part
@@ -36,7 +36,7 @@ public final class UiStatusPart {
     }
 
     /**
-     * @param contexts a bitmask of {@link mibsdk.api.HmiContext} values the item shows in; 0 for every context
+     * @param contexts a bitmask of {@link mibsdk.api.ui.HmiContext} values the item shows in; 0 for every context
      */
     public UiStatusPart(String text, UiIcon icon, boolean indicator, UiColor colour, String fullText, long contexts) {
         this.text = text == null ? "" : text;
@@ -66,12 +66,12 @@ public final class UiStatusPart {
         return indicator;
     }
 
-    /** The contexts the item shows in: a bitmask of {@link mibsdk.api.HmiContext} values; 0 for every context. */
+    /** The contexts the item shows in: a bitmask of {@link mibsdk.api.ui.HmiContext} values; 0 for every context. */
     public long contexts() {
         return contexts;
     }
 
-    /** True if this part shows in {@code context} ({@link mibsdk.api.HmiContext}); an unknown (-1) context shows all. */
+    /** True if this part shows in {@code context} ({@link mibsdk.api.ui.HmiContext}); an unknown (-1) context shows all. */
     public boolean showsIn(int context) {
         return contexts == 0L || context < 0
                 || (context < 64 && (contexts & (1L << context)) != 0L);

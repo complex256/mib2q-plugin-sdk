@@ -1,5 +1,11 @@
 package mibsdk.api;
 
+import mibsdk.api.hooks.Hooks;
+import mibsdk.api.net.Net;
+import mibsdk.api.net.Wifi;
+import mibsdk.api.ui.Ui;
+import mibsdk.api.vehicle.Vehicle;
+
 /**
  * Everything a plugin may touch. Obtained in {@link MibPlugin#onEnable(PluginContext)}.
  *

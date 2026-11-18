@@ -1,5 +1,9 @@
 package mibsdk.api;
 
+import mibsdk.api.hooks.Hooks;
+import mibsdk.api.net.Wifi;
+import mibsdk.api.ui.Ui;
+
 /**
  * Features the running firmware adapter may support. Read them with {@link PluginContext#has(String)}, at call time:
  * the adapter can learn a feature after this plugin was enabled, and a feature it lacks this boot may be there after a

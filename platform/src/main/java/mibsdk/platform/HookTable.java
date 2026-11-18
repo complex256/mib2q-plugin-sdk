@@ -2,8 +2,8 @@ package mibsdk.platform;
 
 import java.util.ArrayList;
 import java.util.List;
-import mibsdk.api.HookObserved;
-import mibsdk.api.HookPoint;
+import mibsdk.api.hooks.HookObserved;
+import mibsdk.api.hooks.HookPoint;
 
 /**
  * Meeting point between the stock HMI threads and the SDK runtime.

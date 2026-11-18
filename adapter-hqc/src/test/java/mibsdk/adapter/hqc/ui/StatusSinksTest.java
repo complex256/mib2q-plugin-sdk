@@ -9,7 +9,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import mibsdk.platform.UiStatusPart;
-import mibsdk.api.HmiContext;
+import mibsdk.api.ui.HmiContext;
 import mibsdk.runtime.Clock;
 import mibsdk.runtime.RingLog;
 import mibsdk.runtime.StatusBarConfig;

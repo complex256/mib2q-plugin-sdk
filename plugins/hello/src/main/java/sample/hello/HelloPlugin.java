@@ -1,6 +1,6 @@
 package sample.hello;
 
-import mibsdk.api.IgnitionChanged;
+import mibsdk.api.vehicle.IgnitionChanged;
 import mibsdk.api.MibPlugin;
 import mibsdk.api.PluginContext;
 import mibsdk.api.Storage;

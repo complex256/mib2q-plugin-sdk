@@ -12,7 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
-import mibsdk.api.UiColor;
+import mibsdk.api.ui.UiColor;
 import mibsdk.platform.UiIcon;
 import mibsdk.platform.UiStatusPart;
 import org.junit.jupiter.api.Test;

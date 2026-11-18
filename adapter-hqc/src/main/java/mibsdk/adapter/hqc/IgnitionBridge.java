@@ -1,6 +1,6 @@
 package mibsdk.adapter.hqc;
 
-import mibsdk.api.IgnitionChanged;
+import mibsdk.api.vehicle.IgnitionChanged;
 import org.dsi.ifc.base.DSIListener;
 import org.dsi.ifc.powermanagement.ClampSignal;
 import org.dsi.ifc.powermanagement.DSIPowerManagement;

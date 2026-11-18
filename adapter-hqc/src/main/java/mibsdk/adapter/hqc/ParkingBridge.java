@@ -1,8 +1,8 @@
 package mibsdk.adapter.hqc;
 
-import mibsdk.api.ParkingSoundChanged;
-import mibsdk.api.SoundDirections;
-import mibsdk.api.TrailerHitchedChanged;
+import mibsdk.api.vehicle.ParkingSoundChanged;
+import mibsdk.api.vehicle.SoundDirections;
+import mibsdk.api.vehicle.TrailerHitchedChanged;
 import mibsdk.platform.ParkingIo;
 import org.dsi.ifc.base.DSIListener;
 import org.dsi.ifc.carparkingsystem.DSICarParkingSystem;

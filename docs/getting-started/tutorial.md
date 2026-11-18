@@ -109,18 +109,18 @@ Create `src/main/java/tutorial/coffeetimer/CoffeeTimerPlugin.java`:
 ```java
 package tutorial.coffeetimer;
 
-import mibsdk.api.Icon;
+import mibsdk.api.ui.Icon;
 import mibsdk.api.Log;
 import mibsdk.api.MibPlugin;
-import mibsdk.api.Page;
-import mibsdk.api.PageSpec;
+import mibsdk.api.ui.Page;
+import mibsdk.api.ui.PageSpec;
 import mibsdk.api.PluginContext;
 import mibsdk.api.Scheduler;
-import mibsdk.api.StatusItem;
+import mibsdk.api.ui.StatusItem;
 import mibsdk.api.Storage;
 import mibsdk.api.Subscription;
-import mibsdk.api.Ui;
-import mibsdk.api.UiAction;
+import mibsdk.api.ui.Ui;
+import mibsdk.api.ui.UiAction;
 
 /**
  * A brew timer: a Car-drawer row opens the "Coffee timer" page, where you set the brew time (a slider) and whether a

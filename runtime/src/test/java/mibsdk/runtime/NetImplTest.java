@@ -12,7 +12,7 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.util.Collections;
 import java.util.Set;
-import mibsdk.api.Net;
+import mibsdk.api.net.Net;
 import mibsdk.api.PermissionDeniedException;
 import mibsdk.api.Permissions;
 import org.junit.jupiter.api.Test;

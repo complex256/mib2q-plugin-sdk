@@ -1,6 +1,6 @@
 package mibsdk.runtime;
 
-import mibsdk.api.OverrideScope;
+import mibsdk.api.vehicle.OverrideScope;
 
 /** Immutable snapshot of one ledger entry whose effect may still be on the car (for the indicator UI). */
 public final class ActiveOverride {

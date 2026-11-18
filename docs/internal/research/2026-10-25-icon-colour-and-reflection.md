@@ -240,10 +240,10 @@ takes the same `Color` (kzb binding), so a coloured icon's reflection is coloure
 ### 5.1 API: an additive runtime choice, not a manifest field
 
 ```java
-// mibsdk.api.Icon (constants only; the interface stays empty of methods)
+// mibsdk.api.ui.Icon (constants only; the interface stays empty of methods)
 int TINTED = 0;       // drawn in the app colour like stock icons (white glyphs); the default
 int OWN_COLOURS = 1;  // drawn in the PNG's own colours
-// mibsdk.api.Ui
+// mibsdk.api.ui.Ui
 Icon icon(String name, int colour);   // icon(name) == icon(name, Icon.TINTED)
 ```
 

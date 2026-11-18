@@ -41,7 +41,7 @@ final class PluginJars {
     File write(File pluginsDir, String id, String version, String[] dependencies, String[] permissions,
             String onEnableBody, String members, String onDisableBody) throws IOException {
         String source = "package fx;\n"
-                + "import mibsdk.api.*;\n"
+                + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                 + "public class Main extends MibPlugin {\n"
                 + "  PluginContext ctx;\n"
                 + (members == null ? "" : members) + "\n"

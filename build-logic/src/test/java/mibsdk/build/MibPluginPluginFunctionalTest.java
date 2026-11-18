@@ -63,7 +63,7 @@ class MibPluginPluginFunctionalTest {
         write("gradle.properties", "kotlin.compiler.execution.strategy=in-process\norg.gradle.jvmargs=-Xmx1g\n");
 
         String reflBody = "package sample.refl;\n"
-                + "import mibsdk.api.*;\n"
+                + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                 + "public class ReflPlugin extends MibPlugin {\n"
                 + "  protected void onEnable(PluginContext ctx) throws Exception { ctx.log().info(load(\"java.lang.Object\").getName()); }\n"
                 + "  Class<?> load(String name) throws Exception { return Class.forName(name); }\n"
@@ -72,7 +72,7 @@ class MibPluginPluginFunctionalTest {
         javaPlugin("unrestricted", "sample.refl.ReflPlugin", reflBody, "[\"platform.unrestricted\"]");
         // Calls ctx.net() and Ui.statusItem without declaring them; platform.unrestricted does not excuse that.
         javaPlugin("undeclared", "sample.undeclared.UndeclaredPlugin", "package sample.undeclared;\n"
-                + "import mibsdk.api.*;\n"
+                + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                 + "public class UndeclaredPlugin extends MibPlugin {\n"
                 + "  protected void onEnable(PluginContext ctx) throws Exception {\n"
                 + "    ctx.net();\n"
@@ -84,14 +84,14 @@ class MibPluginPluginFunctionalTest {
                 manifest("undeclared", "sample.undeclared.UndeclaredPlugin", "[\"platform.unrestricted\"]")
                         .replace("\"api\":1", "\"api\":2"));
         javaPlugin("badperm", "sample.refl.ReflPlugin", "package sample.refl;\n"
-                + "import mibsdk.api.*;\n"
+                + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                 + "public class ReflPlugin extends MibPlugin {\n"
                 + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
                 + "}\n", "[\"netwrk\"]");
 
         // Calls a regex method the car lacks, so linkCheck must name the method and the hint.
         javaPlugin("regex", "sample.regex.RegexPlugin", "package sample.regex;\n"
-                + "import mibsdk.api.*;\n"
+                + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                 + "public class RegexPlugin extends MibPlugin {\n"
                 + "  protected void onEnable(PluginContext ctx) throws Exception {\n"
                 + "    if (\"x\".matches(\"y\")) { ctx.log().info(\"matched\"); }\n"
@@ -100,7 +100,7 @@ class MibPluginPluginFunctionalTest {
 
         for (String[] a : new String[][] {{"api2", "2"}, {"api0", "0"}, {"api9", "9"}, {"apifrac", "1.5"}}) {
             javaPlugin(a[0], "sample.refl.ReflPlugin", "package sample.refl;\n"
-                    + "import mibsdk.api.*;\n"
+                    + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                     + "public class ReflPlugin extends MibPlugin {\n"
                     + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
                     + "}\n", "[]");
@@ -111,7 +111,7 @@ class MibPluginPluginFunctionalTest {
         // Icons (api 3): a valid one, a refused one (a shared PNG vector), and one declared without its file.
         for (String id : new String[] {"icons", "badicon", "noicon"}) {
             javaPlugin(id, "sample.refl.ReflPlugin", "package sample.refl;\n"
-                    + "import mibsdk.api.*;\n"
+                    + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                     + "public class ReflPlugin extends MibPlugin {\n"
                     + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
                     + "}\n", "[]");
@@ -127,7 +127,7 @@ class MibPluginPluginFunctionalTest {
         // java.util.function.BinaryOperator is not in the JDK 1.4 API: the compat interface and the
         // Retrotranslator backport of the package are what let a typed lambda link.
         javaPlugin("lambdaop", "sample.lambdaop.LambdaPlugin", "package sample.lambdaop;\n"
-                + "import mibsdk.api.*;\n"
+                + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                 + "import java.util.function.BinaryOperator;\n"
                 + "public class LambdaPlugin extends MibPlugin {\n"
                 + "  protected void onEnable(PluginContext ctx) throws Exception {\n"
@@ -139,7 +139,7 @@ class MibPluginPluginFunctionalTest {
         // Ui.icon(String, int) is api 4: the same plugin declaring api 3 and api 4.
         for (String[] a : new String[][] {{"colour3", "3"}, {"colour4", "4"}}) {
             javaPlugin(a[0], "sample.colour.ColourPlugin", "package sample.colour;\n"
-                    + "import mibsdk.api.*;\n"
+                    + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                     + "public class ColourPlugin extends MibPlugin {\n"
                     + "  protected void onEnable(PluginContext ctx) throws Exception {\n"
                     + "    ctx.ui().statusItem(\"x\", ctx.ui().icon(\"status\", Icon.OWN_COLOURS));\n"
@@ -154,7 +154,7 @@ class MibPluginPluginFunctionalTest {
         // PageSpec.slider is api 5: the same plugin declaring api 4 and api 5.
         for (String[] a : new String[][] {{"inputs4", "4"}, {"inputs5", "5"}}) {
             javaPlugin(a[0], "sample.inputs.InputsPlugin", "package sample.inputs;\n"
-                    + "import mibsdk.api.*;\n"
+                    + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                     + "public class InputsPlugin extends MibPlugin {\n"
                     + "  protected void onEnable(PluginContext ctx) throws Exception {\n"
                     + "    ctx.ui().page(PageSpec.of(\"main\", \"Inputs\").slider(\"bass\", \"Bass\", -6, 6, 1, 0, true), null);\n"
@@ -171,7 +171,7 @@ class MibPluginPluginFunctionalTest {
 
         // A plugin whose build file is only the plugins block, with a host test that reads what the convention wired.
         javaPlugin("tested", "sample.tested.TestedPlugin", "package sample.tested;\n"
-                + "import mibsdk.api.*;\n"
+                + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                 + "public class TestedPlugin extends MibPlugin {\n"
                 + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
                 + "}\n", "[]");
@@ -712,7 +712,7 @@ class MibPluginPluginFunctionalTest {
                 .getBytes(StandardCharsets.UTF_8));
         Path java = Files.createDirectories(alone.resolve("src/main/java/sample/alone"));
         Files.write(java.resolve("AlonePlugin.java"), ("package sample.alone;\n"
-                + "import mibsdk.api.*;\n"
+                + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                 + "public class AlonePlugin extends MibPlugin {\n"
                 + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
                 + "}\n").getBytes(StandardCharsets.UTF_8));
