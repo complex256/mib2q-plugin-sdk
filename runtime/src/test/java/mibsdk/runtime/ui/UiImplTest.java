@@ -35,11 +35,11 @@ import mibsdk.api.Subscription;
 import mibsdk.api.ui.Ui;
 import mibsdk.api.ui.UiAction;
 import mibsdk.api.ui.UiColor;
-import mibsdk.platform.UiEntry;
-import mibsdk.platform.UiIcon;
-import mibsdk.platform.UiPage;
-import mibsdk.platform.UiSnapshot;
-import mibsdk.platform.UiTable;
+import mibsdk.platform.ui.UiEntry;
+import mibsdk.platform.ui.UiIcon;
+import mibsdk.platform.ui.UiPage;
+import mibsdk.platform.ui.UiSnapshot;
+import mibsdk.platform.ui.UiTable;
 import mibsdk.runtime.LiveFeatures;
 import mibsdk.runtime.UiTestRuntime;
 import mibsdk.runtime.health.RingLog;
@@ -716,10 +716,10 @@ class UiImplTest {
         assertTrue(published().statusParts().isEmpty());
 
         item.setIcon(a.stockIcon(StockIcons.STAR));
-        List<mibsdk.platform.UiStatusPart> p = published().statusParts();
+        List<mibsdk.platform.ui.UiStatusPart> p = published().statusParts();
         assertEquals(1, p.size());
         assertEquals("", p.get(0).text());
-        assertEquals(mibsdk.platform.UiIcon.stock("star"), p.get(0).icon());
+        assertEquals(mibsdk.platform.ui.UiIcon.stock("star"), p.get(0).icon());
 
         item.set("Back"); // a text goes back to a text item, keeping the icon
         assertEquals("Back", published().statusParts().get(0).text());
@@ -930,7 +930,7 @@ class UiImplTest {
 
     /** Hands every input the FakeUi queued to the hub, as the dispatcher does, then publishes. */
     private void pump() throws InterruptedException {
-        mibsdk.platform.UiInput in;
+        mibsdk.platform.ui.UiInput in;
         while ((in = table.poll(0)) != null) {
             hub.dispatch(in);
         }

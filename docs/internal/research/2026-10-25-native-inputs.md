@@ -300,7 +300,7 @@ Leave the unit on its home screen.
 Date: 2026-10-25. Bench MHI2Q, `HMI_AU_MIB2_HQC_NAR_G22_C10_180803`, mibsdk 0.2.0 installed by mibpkg 0.9.1 with the
 takeover active (`HMICar=`/`HMISystem=` are the SDK activators), 5 plugins ENABLED. Code: `spikes/hmi-ui` at commit
 `51e15f6` (README "Spike D"). Boot A only: `run.sh install --car-only` swapped `HMICar=` to
-`mibsdk.spike.ui.SpikeCarActivator` and kept `HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator` byte for byte (the
+`mibsdk.spike.ui.SpikeCarActivator` and kept `HMISystem=mibsdk.adapter.hqc.ui.car.SdkSystemActivator` byte for byte (the
 live diff was that one line). The pre-spike bundles file (10238 bytes) is `/mnt/persist/mibsdk-spike/bundles.before-d`,
 `cmp`-equal on the host to a snapshot taken before anything changed. The MENU ring's Plugins row was not used.
 

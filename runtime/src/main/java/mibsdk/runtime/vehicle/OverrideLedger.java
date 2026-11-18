@@ -55,7 +55,7 @@ import mibsdk.runtime.util.SerialExecutor;
  * 1000 ms after the last change, at most 5 times per 60000 ms (all on the {@link Clock}); then the ledger gives up re-applying (logged) but still restores later.
  *
  * <p>Confirmation: a restore also completes when the car reports the prior, never <em>because</em> the write
- * returned (on HQC {@link mibsdk.platform.ParkingIo#current()} only echoes the last write, so it is not
+ * returned (on HQC {@link mibsdk.platform.io.ParkingIo#current()} only echoes the last write, so it is not
  * read). Each entry counts the reports of its key; a report counts for the restore if it arrived after the
  * entry became restoring, including one that overtakes the return of the write. A write that returns
  * starts a {@link #CONFIRM_TIMEOUT_MS} wait on the Clock: a report of the prior completes the restore; a

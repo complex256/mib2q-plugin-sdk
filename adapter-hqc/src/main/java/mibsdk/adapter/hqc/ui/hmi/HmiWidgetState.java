@@ -1,0 +1,132 @@
+package mibsdk.adapter.hqc.ui.hmi;
+
+import java.util.Arrays;
+import mibsdk.adapter.hqc.ui.ids.HqcUiIds;
+import mibsdk.adapter.hqc.ui.popup.SdkToastPopup;
+import mibsdk.adapter.hqc.ui.status.SdkPopupStatusLine;
+import mibsdk.adapter.hqc.ui.status.StatusLayout;
+
+/**
+ * What the SDK wants on its stock widgets, as one immutable value: built on {@code mibsdk-ui}, applied on HMIEvent by
+ * {@link HmiWidgets}. Holds each drawer slot's bitmaps (an id pair, or null for none), the status popup's
+ * {@link StatusLayout}, of which only the bounds and the built-in icon ids are widget state (texts and file paths are
+ * models, written by {@link SdkPopupStatusLine}), the toast popup's {@link SdkToastPopup.Part} (its icon's place, its
+ * built-in icon id and colours; the text and the file path are models, written on {@code mibsdk-ui}), and whether the
+ * main menu's Plugins row is visible ({@code SdkGlobals.mainMenuRow}: the UI is not down and the main menu is ACTIVE).
+ */
+public final class HmiWidgetState {
+
+    public static final HmiWidgetState EMPTY = new HmiWidgetState(new int[0][]);
+
+    private final int[][] slotBitmaps = new int[HqcUiIds.ROW_SLOTS][];
+    private final StatusLayout status;
+    private final boolean mainMenuRowVisible;
+    private final SdkToastPopup.Part toast;
+
+    /** No status line ({@link StatusLayout#EMPTY}). */
+    public HmiWidgetState(int[][] slotBitmaps) {
+        this(slotBitmaps, StatusLayout.EMPTY);
+    }
+
+    /** Copies at most {@link HqcUiIds#ROW_SLOTS} entries; a null entry is a slot without bitmaps. */
+    public HmiWidgetState(int[][] slotBitmaps, StatusLayout status) {
+        this(slotBitmaps, status, false);
+    }
+
+    /** {@code mainMenuRowVisible}: the main menu's Plugins row is wanted visible. */
+    public HmiWidgetState(int[][] slotBitmaps, StatusLayout status, boolean mainMenuRowVisible) {
+        this(slotBitmaps, status, mainMenuRowVisible, SdkToastPopup.Part.NONE);
+    }
+
+    /** {@code toast}: the toast popup's part (null: {@link SdkToastPopup.Part#NONE}). */
+    public HmiWidgetState(int[][] slotBitmaps, StatusLayout status, boolean mainMenuRowVisible, SdkToastPopup.Part toast) {
+        for (int i = 0; i < HqcUiIds.ROW_SLOTS && i < slotBitmaps.length; i++) {
+            this.slotBitmaps[i] = slotBitmaps[i] == null ? null : (int[]) slotBitmaps[i].clone();
+        }
+        this.status = status == null ? StatusLayout.EMPTY : status;
+        this.mainMenuRowVisible = mainMenuRowVisible;
+        this.toast = toast == null ? SdkToastPopup.Part.NONE : toast;
+    }
+
+    /** The same slots and main-menu row with {@code layout}. */
+    public HmiWidgetState withStatus(StatusLayout layout) {
+        return new HmiWidgetState(slotBitmaps, layout, mainMenuRowVisible, toast);
+    }
+
+    /** The same slots, status layout and main-menu row with the toast {@code part}. */
+    public HmiWidgetState withToast(SdkToastPopup.Part part) {
+        return new HmiWidgetState(slotBitmaps, status, mainMenuRowVisible, part);
+    }
+
+    /** The toast popup's part. */
+    public SdkToastPopup.Part toast() {
+        return toast;
+    }
+
+    /** The same slots and status layout; the main menu's Plugins row wanted visible iff {@code visible}. */
+    public HmiWidgetState withMainMenuRow(boolean visible) {
+        return visible == mainMenuRowVisible ? this : new HmiWidgetState(slotBitmaps, status, visible, toast);
+    }
+
+    /** Whether the main menu's Plugins row is wanted visible. */
+    public boolean mainMenuRowVisible() {
+        return mainMenuRowVisible;
+    }
+
+    /** The status popup's layout. */
+    public StatusLayout status() {
+        return status;
+    }
+
+    /** The bitmaps of {@code slot} (a copy), or null. */
+    int[] bitmapsAt(int slot) {
+        int[] b = slot >= 0 && slot < slotBitmaps.length ? slotBitmaps[slot] : null;
+        return b == null ? null : (int[]) b.clone();
+    }
+
+    /** True if {@code slot} has the same bitmaps in both. */
+    boolean sameSlot(int slot, HmiWidgetState o) {
+        return Arrays.equals(slotBitmaps[slot], o.slotBitmaps[slot]);
+    }
+
+    /** True if every drawer slot has the same bitmaps in both (the status layout aside). */
+    public boolean sameRows(HmiWidgetState o) {
+        for (int i = 0; i < slotBitmaps.length; i++) {
+            if (!sameSlot(i, o)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** A status layout with the same geometry and built-in icons in both (texts and paths are models). */
+    public boolean sameStatus(HmiWidgetState o) {
+        return status.sameGeometry(o.status) && status.sameIcons(o.status);
+    }
+
+    /** A toast drawn alike in both ({@link SdkToastPopup.Part#sameDrawn}). */
+    public boolean sameToast(HmiWidgetState o) {
+        return toast.sameDrawn(o.toast);
+    }
+
+    /**
+     * Same rows, status layout and toast as {@link #sameStatus} and {@link #sameToast} compare them. The main-menu row
+     * is left out: {@link HmiWidgets} compares it with the row it applied it to (screen 46 may be rebuilt).
+     */
+    public boolean equals(Object o) {
+        if (!(o instanceof HmiWidgetState)) {
+            return false;
+        }
+        HmiWidgetState s = (HmiWidgetState) o;
+        return sameStatus(s) && sameToast(s) && sameRows(s);
+    }
+
+    /** Hashes the slots only: equal states have equal slots (the status layout compares by bounds and ids). */
+    public int hashCode() {
+        int h = 0;
+        for (int i = 0; i < slotBitmaps.length; i++) {
+            h = 31 * h + Arrays.hashCode(slotBitmaps[i]);
+        }
+        return h;
+    }
+}

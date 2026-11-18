@@ -199,7 +199,7 @@ One restart (R1) was used. The unit ends in the required state.
 ## End state (verified)
 
 - `mibpkg sdk status`:
-  - `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator` and `HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator`, so the
+  - `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator` and `HMISystem=mibsdk.adapter.hqc.ui.car.SdkSystemActivator`, so the
     takeover is ACTIVE;
   - sdk 0.3.0, api 1..5, running yes, reboot needed no, ledger 0;
   - all 6 plugins ENABLED: bike-rack, crashy, daemon-status, hello, hello-menu and inputs-demo.

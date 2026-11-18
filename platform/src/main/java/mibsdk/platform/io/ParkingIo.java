@@ -1,0 +1,11 @@
+package mibsdk.platform.io;
+
+import mibsdk.api.vehicle.SoundDirections;
+
+/** Reads and writes the parking-sound configuration of the head unit. */
+public interface ParkingIo {
+
+    SoundDirections current();
+
+    void apply(SoundDirections value) throws Exception;
+}

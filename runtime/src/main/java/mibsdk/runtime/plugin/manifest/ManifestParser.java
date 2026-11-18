@@ -5,7 +5,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import mibsdk.api.SdkInfo;
-import mibsdk.platform.IconIndex;
+import mibsdk.platform.ui.IconIndex;
 import mibsdk.runtime.util.MiniJson;
 
 /** Parses and validates plugin.json. No java.util.regex: the car has none. */

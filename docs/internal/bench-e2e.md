@@ -563,7 +563,7 @@ until it was fixed on the unit.**
 | P3-F2 | **`mibsdk-dev install` refused with `cannot list /mnt/app/eso/hmi/lsd/jars/AppDevelopment.jar (not a zip?); nothing changed`.** The jar is a valid zip. On the unit `lseek` from the QNX 6.5 std port fails with `EINVAL` (an on-unit probe: `seek 185611: Err(Os { code: 22 … "Invalid argument" })`, even for small jars), so the owned-classes guard's seek-and-read zip reader could not list any stock jar. | fixed 649ed8d (reads the whole jar, no seek; the refusal now carries the reader's error; 674 host tests) |
 | P3-F3 | A fixed mibpkg with the same version cannot replace the running one: `install-file` says `mibpkg 0.8.0 is already installed`, and a self-update keeps no previous version (`no earlier version of mibpkg is kept`), so a rollback round-trip is impossible. The fixed build went on as `0.8.0+bench.1` (package version only; the binary is 0.8.0 at 649ed8d and reports `supervisor 0.8.0`). | bench-only version tag |
 | P3-F4 | mibpkg's web log tail (`GET /api/logs/<id>`) also seeks (`src/web/api.rs`), so it returns nothing on the unit for the same reason as P3-F2. Not exercised here. | open |
-| P3-F5 | The old install predates the UI: its `sdk.properties` had no `ui.enabled=true` and the live list had the stock `HMICar=` line. The `mibsdk` 0.1.0 package is UI-enabled, so after the adoption the live list differs from the Step 1 copy in exactly the `HMICar=` line (`de.audi.tghu.car.hmi.Activator` → `mibsdk.adapter.hqc.ui.SdkCarActivator`). Expected for this package. | recorded |
+| P3-F5 | The old install predates the UI: its `sdk.properties` had no `ui.enabled=true` and the live list had the stock `HMICar=` line. The `mibsdk` 0.1.0 package is UI-enabled, so after the adoption the live list differs from the Step 1 copy in exactly the `HMICar=` line (`de.audi.tghu.car.hmi.Activator` → `mibsdk.adapter.hqc.ui.car.SdkCarActivator`). Expected for this package. | recorded |
 | P3-F6 | Between the adoption and the restart, `mibpkg sdk status` said `running: no` while the old runtime was still running (known deferred minor: `running:` uses the package state, not the log). | recorded |
 | P3-F7 | `mibsdk-dev restart` reset the whole unit again (F3); one `keypanel up` (DHCP kick) brought it back after ~10 min. | recorded |
 
@@ -727,10 +727,10 @@ finished.**
 ### Step 6: reinstall (pass, after the P3-F12 power cycle)
 
 - `mibsdk-dev install` (feat/ui build; adapter 95805 bytes on the unit = `dist/build/dist`): `installed mibsdk
-  0.1.0; reboot the unit (or restart the HMI) to start it`; live `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator`.
+  0.1.0; reboot the unit (or restart the HMI) to start it`; live `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator`.
 - `mibsdk-dev restart` at 12:44 → the unit did not come back until the power cycle (P3-F12).
 - After the power cycle, `/tmp/mibpkg status` reported `supervisor 0.8.1 … (running)` and `/mnt/app` was mounted
-  (qnx6). `/tmp/mibpkg sdk status` printed `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator`, `sdk: 0.1.0`,
+  (qnx6). `/tmp/mibpkg sdk status` printed `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator`, `sdk: 0.1.0`,
   `hmi: … (supported)`, `running: yes`, `reboot needed: no`, `ledger: 0 override(s)`, `runtime started …
   safeMode=false`, `ui car=sdk`. There was no safe mode and no wrap latch (`wrapBoots=0`, `wrapLoop=false`).
 - `mibsdk-dev install-plugin` with `--approve` installed each package, and each ended with

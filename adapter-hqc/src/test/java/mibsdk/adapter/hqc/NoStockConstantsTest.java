@@ -110,7 +110,7 @@ class NoStockConstantsTest {
         assertEquals(1, uiStockConstantRefs("import static de.audi.Foo.TYPE_X;\nclass A { int a = TYPE_X; }").size());
         assertEquals(1, uiStockConstantRefs("import de.audi.*;\nclass A { int a = Foo.TYPE_X; }").size());
         assertEquals(new ArrayList<String>(), uiStockConstantRefs("package mibsdk.adapter.hqc.ui;\n"
-                + "import mibsdk.platform.UiInput;\nimport de.audi.Foo;\n"
+                + "import mibsdk.platform.ui.UiInput;\nimport de.audi.Foo;\n"
                 + "class A { int a = HqcUiIds.TEXT_BASE; int b = UiInput.ROW_SELECTED; int c = Thread.NORM_PRIORITY;\n"
                 + "  int d = java.lang.Integer.MAX_VALUE; Foo f = new Foo(); int e = Foo.lowerCase;\n"
                 + "  String s = \"Foo.TYPE_X\"; // Foo.TYPE_Y\n /* Foo.TYPE_Z */ }\n"));

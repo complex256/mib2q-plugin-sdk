@@ -5,14 +5,25 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-import mibsdk.adapter.hqc.ui.BuiltinIcons;
-import mibsdk.adapter.hqc.ui.HqcUiIds;
-import mibsdk.adapter.hqc.ui.UiApplier;
+import mibsdk.adapter.hqc.boot.ChainingConfigurator;
+import mibsdk.adapter.hqc.boot.HqcVersion;
+import mibsdk.adapter.hqc.boot.SdkBoot;
+import mibsdk.adapter.hqc.boot.SdkGlobals;
+import mibsdk.adapter.hqc.bridge.IgnitionBridge;
+import mibsdk.adapter.hqc.bridge.ParkingBridge;
+import mibsdk.adapter.hqc.bridge.WifiBridge;
+import mibsdk.adapter.hqc.dsi.DsiServiceProxy;
+import mibsdk.adapter.hqc.dsi.EventPump;
+import mibsdk.adapter.hqc.dsi.RawServices;
+import mibsdk.adapter.hqc.dsi.ServiceWaiter;
+import mibsdk.adapter.hqc.ui.icon.BuiltinIcons;
+import mibsdk.adapter.hqc.ui.ids.HqcUiIds;
+import mibsdk.adapter.hqc.ui.page.UiApplier;
 import mibsdk.api.Features;
-import mibsdk.platform.ParkingIo;
+import mibsdk.platform.io.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
-import mibsdk.platform.WifiIo;
+import mibsdk.platform.io.WifiIo;
 import mibsdk.runtime.util.Clock;
 import org.dsi.ifc.carparkingsystem.DSICarParkingSystem;
 import org.dsi.ifc.networking.DSIWLAN;
@@ -32,7 +43,7 @@ public final class HqcPlatform implements PlatformAdapter {
     public static final String SUPPORTED = HqcVersion.SUPPORTED;
     static final String ID = "hqc-nar-g22-c10";
     /** Fast retry period of the service wait. */
-    static final long RETRY_MS = 200;
+    public static final long RETRY_MS = 200;
     private static final int EVENT_QUEUE = 64;
     /** The OSGi service the UI waits for: the HMI framework (system models; {@code getHmiServiceApp()}). */
     static final String FRAMEWORK_ACCESS = "de.audi.atip.base.IFrameworkAccess";
@@ -67,17 +78,17 @@ public final class HqcPlatform implements PlatformAdapter {
     }
 
     /** {@code clock} only times the service waits for the log; null is fine. */
-    HqcPlatform(BundleContext ctx, Clock clock) {
+    public HqcPlatform(BundleContext ctx, Clock clock) {
         this(ctx, clock, HqcUiIds.STATUS_MAX_CHARS);
     }
 
     /** {@code statusMaxChars}: {@code ui.status.max.chars} for the popup-65 status line. No built-in icons. */
-    HqcPlatform(BundleContext ctx, Clock clock, int statusMaxChars) {
+    public HqcPlatform(BundleContext ctx, Clock clock, int statusMaxChars) {
         this(ctx, clock, statusMaxChars, null);
     }
 
     /** {@code sdkIconDir}: the installed built-in icon set ({@code RuntimeConfig.sdkIconDir()}); null for none. */
-    HqcPlatform(BundleContext ctx, Clock clock, int statusMaxChars, File sdkIconDir) {
+    public HqcPlatform(BundleContext ctx, Clock clock, int statusMaxChars, File sdkIconDir) {
         this.ctx = ctx;
         this.clock = clock;
         this.statusMaxChars = statusMaxChars;

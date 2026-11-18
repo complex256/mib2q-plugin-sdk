@@ -586,11 +586,11 @@ class SdkRuntimeBootTest {
                 inner.stop();
             }
 
-            public mibsdk.platform.ParkingIo parking() {
+            public mibsdk.platform.io.ParkingIo parking() {
                 return inner.parking();
             }
 
-            public mibsdk.platform.WifiIo wifi() {
+            public mibsdk.platform.io.WifiIo wifi() {
                 return inner.wifi();
             }
         };

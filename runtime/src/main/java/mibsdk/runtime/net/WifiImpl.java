@@ -11,7 +11,7 @@ import mibsdk.api.net.Wifi;
 import mibsdk.api.net.WifiChanged;
 import mibsdk.api.net.WifiNetwork;
 import mibsdk.api.net.WifiStatus;
-import mibsdk.platform.WifiIo;
+import mibsdk.platform.io.WifiIo;
 import mibsdk.runtime.event.EventBus;
 import mibsdk.runtime.plugin.PluginContextImpl;
 import mibsdk.runtime.plugin.Registrations;

@@ -31,7 +31,7 @@ class SystemTakeoverSourceTest {
             "\\s*final\\s+(int|long|short|byte|char|boolean|float|double|String)\\s+[A-Z][A-Z0-9_]*\\s*");
 
     private static String code(String name) throws IOException {
-        Path p = Paths.get("src/main/java/mibsdk/adapter/hqc/ui/" + name + ".java");
+        Path p = mibsdk.adapter.hqc.Sources.find(name);
         assertTrue(Files.isRegularFile(p), "run from the adapter-hqc project dir: " + p.toAbsolutePath());
         String s = new String(Files.readAllBytes(p), StandardCharsets.UTF_8);
         return s.replaceAll("//[^\\n]*|/\\*[\\s\\S]*?\\*/|\"(?:\\\\.|[^\"\\\\])*\"", "\"\""); // code, no literals

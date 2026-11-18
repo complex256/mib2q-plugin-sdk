@@ -31,13 +31,13 @@ import mibsdk.api.Subscription;
 import mibsdk.api.ui.Ui;
 import mibsdk.api.ui.UiAction;
 import mibsdk.platform.HookTable;
-import mibsdk.platform.ParkingIo;
+import mibsdk.platform.io.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
-import mibsdk.platform.UiDialog;
-import mibsdk.platform.UiInput;
-import mibsdk.platform.UiPage;
-import mibsdk.platform.UiTable;
+import mibsdk.platform.ui.UiDialog;
+import mibsdk.platform.ui.UiInput;
+import mibsdk.platform.ui.UiPage;
+import mibsdk.platform.ui.UiTable;
 import mibsdk.runtime.event.EventBus;
 import mibsdk.runtime.health.BootGuard;
 import mibsdk.runtime.health.DevChannel;
@@ -357,7 +357,7 @@ public final class SdkRuntime {
 
     /** What plugin contexts ask for the adapter's Wi-Fi I/O, on their first {@code wifi()} call. */
     private final PluginContextImpl.WifiSource wifiSource = new PluginContextImpl.WifiSource() {
-        public mibsdk.platform.WifiIo wifiIo() {
+        public mibsdk.platform.io.WifiIo wifiIo() {
             return SdkRuntime.this.wifiIo();
         }
     };
@@ -493,7 +493,7 @@ public final class SdkRuntime {
         }
         if (adapterStarted) {
             wifiManager = new WifiManager(cfg.wifiFile(), cfg.wifiStatusFile(), new WifiManager.Source() {
-                public mibsdk.platform.WifiIo io() {
+                public mibsdk.platform.io.WifiIo io() {
                     return wifiIo();
                 }
             }, log, clock, new Runnable() {
@@ -1471,7 +1471,7 @@ public final class SdkRuntime {
         }
     }
 
-    private mibsdk.platform.WifiIo wifiIo() {
+    private mibsdk.platform.io.WifiIo wifiIo() {
         try {
             return features.has(Features.WIFI) ? platform.wifi() : null;
         } catch (Throwable t) {

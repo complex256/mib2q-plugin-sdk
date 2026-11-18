@@ -21,7 +21,7 @@ public class SpikeSystemActivator extends AbstractHMIActivator {
         try {
             boolean seen = false;
             try {
-                seen = mibsdk.adapter.hqc.SdkGlobals.configuratorSeen;
+                seen = mibsdk.adapter.hqc.boot.SdkGlobals.configuratorSeen;
             } catch (Throwable t) {
                 // adapter missing: report false
             }

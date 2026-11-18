@@ -18,9 +18,9 @@ import java.util.Map;
 import java.util.Set;
 import mibsdk.api.vehicle.OverrideScope;
 import mibsdk.api.net.WifiStatus;
-import mibsdk.platform.UiEntry;
-import mibsdk.platform.UiInput;
-import mibsdk.platform.UiPage;
+import mibsdk.platform.ui.UiEntry;
+import mibsdk.platform.ui.UiInput;
+import mibsdk.platform.ui.UiPage;
 import mibsdk.runtime.SdkState;
 import mibsdk.runtime.net.WifiConfig;
 import mibsdk.runtime.net.WifiView;
@@ -408,7 +408,7 @@ class PluginsMenuTest {
     private static List<String> lines(UiPage p) {
         List<String> out = new ArrayList<String>();
         for (UiEntry e : p.entries()) {
-            out.add(mibsdk.platform.UiPageText.line(e));
+            out.add(mibsdk.platform.ui.UiPageText.line(e));
         }
         return out;
     }

@@ -24,14 +24,14 @@ import mibsdk.api.Scheduler;
 import mibsdk.api.Subscription;
 import mibsdk.api.ui.UiAction;
 import mibsdk.api.ui.UiColor;
-import mibsdk.platform.UiEntry;
-import mibsdk.platform.UiIcon;
-import mibsdk.platform.UiInput;
-import mibsdk.platform.UiPage;
-import mibsdk.platform.UiRow;
-import mibsdk.platform.UiSnapshot;
-import mibsdk.platform.UiStatusPart;
-import mibsdk.platform.UiTable;
+import mibsdk.platform.ui.UiEntry;
+import mibsdk.platform.ui.UiIcon;
+import mibsdk.platform.ui.UiInput;
+import mibsdk.platform.ui.UiPage;
+import mibsdk.platform.ui.UiRow;
+import mibsdk.platform.ui.UiSnapshot;
+import mibsdk.platform.ui.UiStatusPart;
+import mibsdk.platform.ui.UiTable;
 import mibsdk.runtime.LiveFeatures;
 import mibsdk.runtime.SdkRuntime;
 import mibsdk.runtime.UiTestRuntime;
@@ -1151,14 +1151,14 @@ class UiHubTest {
     }
 
     private static long confirm(UiHub hub, String text, Actions a, SerialExecutor exec) {
-        return hub.requestDialog("p", mibsdk.platform.UiDialog.CONFIRM, "Reset?", text, null, null, 0, a, exec);
+        return hub.requestDialog("p", mibsdk.platform.ui.UiDialog.CONFIRM, "Reset?", text, null, null, 0, a, exec);
     }
 
     private static UiInput done(long seq, int value, String text) {
         return new UiInput(UiInput.DIALOG_DONE, "p/main", String.valueOf(seq), false, value, text);
     }
 
-    private mibsdk.platform.UiDialog publishedDialog(UiHub hub) {
+    private mibsdk.platform.ui.UiDialog publishedDialog(UiHub hub) {
         hub.publishNow();
         return table.snapshot().dialog();
     }
@@ -1190,10 +1190,10 @@ class UiHubTest {
         SerialExecutor exec = executor("plugin-p");
         UiHub hub = shownHub(a, exec);
         long seq = confirm(hub, "Sure?", a, exec);
-        mibsdk.platform.UiDialog d = publishedDialog(hub);
+        mibsdk.platform.ui.UiDialog d = publishedDialog(hub);
         assertNotNull(d);
         assertEquals(seq, d.seq());
-        assertEquals(mibsdk.platform.UiDialog.CONFIRM, d.kind());
+        assertEquals(mibsdk.platform.ui.UiDialog.CONFIRM, d.kind());
         assertEquals("p/main", d.ownerPageKey());
         assertEquals("Reset?", d.title());
         assertEquals("Sure?", d.text());
@@ -1263,7 +1263,7 @@ class UiHubTest {
         SerialExecutor exec = executor("plugin-p");
         UiHub hub = shownHub(a, exec);
         long seq = confirm(hub, "First?", a, exec);
-        hub.requestDialog("p", mibsdk.platform.UiDialog.SPELLER, "Name", "abc", null, null, 8, a, exec);
+        hub.requestDialog("p", mibsdk.platform.ui.UiDialog.SPELLER, "Name", "abc", null, null, 8, a, exec);
         List<UiAction> got = a.drained(exec);
         assertEquals(1, got.size());
         assertNull(got.get(0).text(), "the speller never showed");
@@ -1292,14 +1292,14 @@ class UiHubTest {
         Actions a = new Actions();
         SerialExecutor exec = executor("plugin-p");
         UiHub hub = shownHub(a, exec);
-        long seq = hub.requestDialog("p", mibsdk.platform.UiDialog.SPELLER, "Name", "  initial\ttext that is long ",
+        long seq = hub.requestDialog("p", mibsdk.platform.ui.UiDialog.SPELLER, "Name", "  initial\ttext that is long ",
                 null, null, 9, a, exec);
-        mibsdk.platform.UiDialog d = publishedDialog(hub);
-        assertEquals(mibsdk.platform.UiDialog.SPELLER, d.kind());
+        mibsdk.platform.ui.UiDialog d = publishedDialog(hub);
+        assertEquals(mibsdk.platform.ui.UiDialog.SPELLER, d.kind());
         assertEquals(9, d.maxLen());
         assertEquals("initial t", d.text(), "a plain cut, no \"...\"");
         hub.dispatch(done(seq, 0, d.text())); // BACK with no typing: the initial text comes back as it was
-        seq = hub.requestDialog("p", mibsdk.platform.UiDialog.SPELLER, "Name", "", null, null, 8, a, exec);
+        seq = hub.requestDialog("p", mibsdk.platform.ui.UiDialog.SPELLER, "Name", "", null, null, 8, a, exec);
         hub.dispatch(done(seq, 0, "Bob\u0001  Smith-Jones"));
         List<UiAction> got = a.drained(exec);
         assertEquals(2, got.size());
@@ -1330,7 +1330,7 @@ class UiHubTest {
         assertEquals("main", got.get(0).pageId());
         assertEquals(Integer.valueOf(0), got.get(0).value());
 
-        long qseq = hub.requestDialog("q", mibsdk.platform.UiDialog.SPELLER, "Name", "abc", null, null, 8, qa,
+        long qseq = hub.requestDialog("q", mibsdk.platform.ui.UiDialog.SPELLER, "Name", "abc", null, null, 8, qa,
                 qexec);
         assertTrue(qseq > 0, "the slot is free: q's speller shows");
         assertEquals("q/main", publishedDialog(hub).ownerPageKey());
@@ -1366,7 +1366,7 @@ class UiHubTest {
         Actions a = new Actions();
         SerialExecutor exec = executor("plugin-p");
         UiHub hub = shownHub(a, exec);
-        hub.requestDialog("p", mibsdk.platform.UiDialog.SPELLER, "Name", "abc", null, null, 8, a, exec);
+        hub.requestDialog("p", mibsdk.platform.ui.UiDialog.SPELLER, "Name", "abc", null, null, 8, a, exec);
         hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "q/main", null, false)); // another page: nothing
         assertNotNull(publishedDialog(hub));
         hub.dispatch(new UiInput(UiInput.PAGE_CLOSED, "p/main", null, false));
@@ -1388,7 +1388,7 @@ class UiHubTest {
         assertNull(table.snapshot().toast());
         hub.showToast("p", "Saved", null);
         hub.publishNow();
-        mibsdk.platform.UiToast t1 = table.snapshot().toast();
+        mibsdk.platform.ui.UiToast t1 = table.snapshot().toast();
         assertEquals("Saved", t1.text());
         assertNull(t1.icon());
         UiIcon check = UiIcon.stock(mibsdk.api.ui.StockIcons.CHECK);
@@ -1396,7 +1396,7 @@ class UiHubTest {
         hub.showToast("q", " \t ", check); // empty: ignored
         hub.showToast("q", null, check);
         hub.publishNow();
-        mibsdk.platform.UiToast t2 = table.snapshot().toast();
+        mibsdk.platform.ui.UiToast t2 = table.snapshot().toast();
         assertTrue(t2.seq() > t1.seq());
         assertEquals(mibsdk.api.ui.Ui.MAX_TOAST, t2.text().length());
         assertEquals("A rather long toa...", t2.text());

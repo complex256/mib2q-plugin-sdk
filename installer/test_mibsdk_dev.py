@@ -467,8 +467,8 @@ class SdkVerbTest(FakeUnitTestCase):
 
     def test_status_is_mibpkg_sdk_status_alone(self):
         write(os.path.join(self.u.tmp, "mibsdk.log"), b"1 STATUS hello ENABLED ok\n")
-        lines = ("HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator\n"
-                 "HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator\nsdk: 0.1.0")
+        lines = ("HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator\n"
+                 "HMISystem=mibsdk.adapter.hqc.ui.car.SdkSystemActivator\nsdk: 0.1.0")
         r = self.ok(self.u.run("status", status_out=lines))
         self.assertEqual(lines.encode() + b"\n", r.stdout)
         self.assertEqual([["sdk", "status"]], self.u.calls())

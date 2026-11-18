@@ -5,7 +5,7 @@ import java.util.Collections;
 import java.util.List;
 import mibsdk.api.net.WifiNetwork;
 import mibsdk.api.net.WifiStatus;
-import mibsdk.platform.WifiIo;
+import mibsdk.platform.io.WifiIo;
 import mibsdk.runtime.SdkRuntime;
 import mibsdk.runtime.health.RingLog;
 import mibsdk.runtime.util.Clock;

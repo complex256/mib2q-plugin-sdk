@@ -10,7 +10,7 @@ import mibsdk.api.hooks.HookPoint;
 import mibsdk.api.vehicle.IgnitionChanged;
 import mibsdk.api.vehicle.ParkingSoundChanged;
 import mibsdk.api.vehicle.SoundDirections;
-import mibsdk.platform.ParkingIo;
+import mibsdk.platform.io.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
 import mibsdk.platform.SdkRoots;
@@ -109,7 +109,7 @@ public final class FakePlatform implements PlatformAdapter {
     }
 
     @Override
-    public mibsdk.platform.WifiIo wifi() {
+    public mibsdk.platform.io.WifiIo wifi() {
         return null;
     }
 

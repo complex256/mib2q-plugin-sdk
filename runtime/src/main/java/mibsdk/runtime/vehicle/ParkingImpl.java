@@ -8,7 +8,7 @@ import mibsdk.api.Permissions;
 import mibsdk.api.vehicle.SoundDirections;
 import mibsdk.api.Subscription;
 import mibsdk.api.vehicle.VehicleOverride;
-import mibsdk.platform.ParkingIo;
+import mibsdk.platform.io.ParkingIo;
 import mibsdk.runtime.permission.UndeclaredPermissionException;
 import mibsdk.runtime.plugin.Registrations;
 

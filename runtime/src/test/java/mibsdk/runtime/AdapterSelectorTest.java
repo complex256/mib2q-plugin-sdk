@@ -12,7 +12,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import mibsdk.adapter.fake.FakePlatform;
-import mibsdk.platform.ParkingIo;
+import mibsdk.platform.io.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
 import org.junit.jupiter.api.Test;
@@ -114,7 +114,7 @@ class AdapterSelectorTest {
                 return null;
             }
 
-            public mibsdk.platform.WifiIo wifi() {
+            public mibsdk.platform.io.WifiIo wifi() {
                 return null;
             }
         };

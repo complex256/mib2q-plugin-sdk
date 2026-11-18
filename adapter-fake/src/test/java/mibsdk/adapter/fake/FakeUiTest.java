@@ -8,14 +8,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
-import mibsdk.platform.UiEntry;
-import mibsdk.platform.UiIcon;
-import mibsdk.platform.UiInput;
-import mibsdk.platform.UiPage;
-import mibsdk.platform.UiRow;
-import mibsdk.platform.UiSnapshot;
-import mibsdk.platform.UiStatusPart;
-import mibsdk.platform.UiTable;
+import mibsdk.platform.ui.UiEntry;
+import mibsdk.platform.ui.UiIcon;
+import mibsdk.platform.ui.UiInput;
+import mibsdk.platform.ui.UiPage;
+import mibsdk.platform.ui.UiRow;
+import mibsdk.platform.ui.UiSnapshot;
+import mibsdk.platform.ui.UiStatusPart;
+import mibsdk.platform.ui.UiTable;
 import org.junit.jupiter.api.Test;
 
 class FakeUiTest {
@@ -351,7 +351,7 @@ class FakeUiTest {
 
     // ---- dialogs and toasts (api 5) ----
 
-    private void publishDialog(long version, mibsdk.platform.UiDialog d, mibsdk.platform.UiToast t) {
+    private void publishDialog(long version, mibsdk.platform.ui.UiDialog d, mibsdk.platform.ui.UiToast t) {
         table.publish(new UiSnapshot(version, null, "", new HashMap<String, UiPage>(), 0, null, null, d, t));
     }
 
@@ -374,8 +374,8 @@ class FakeUiTest {
         ui.leave();
         assertTrue(dialogInputs().isEmpty());
 
-        publishDialog(1, new mibsdk.platform.UiDialog(4, mibsdk.platform.UiDialog.CONFIRM, "p/main", "Reset?", "a\nb",
-                "Yes", "No", 0), new mibsdk.platform.UiToast(2, "Saved", UiIcon.stock("check")));
+        publishDialog(1, new mibsdk.platform.ui.UiDialog(4, mibsdk.platform.ui.UiDialog.CONFIRM, "p/main", "Reset?", "a\nb",
+                "Yes", "No", 0), new mibsdk.platform.ui.UiToast(2, "Saved", UiIcon.stock("check")));
         assertEquals("confirm:Reset?|a\nb|Yes|No", ui.dialog());
         assertEquals("[check] Saved", ui.toast());
         assertEquals(2, ui.toastSeq());
@@ -384,14 +384,14 @@ class FakeUiTest {
         ui.answer(1); // once per dialog
         assertEquals(Arrays.asList(UiInput.DIALOG_DONE + ":p/main:4:1:null"), dialogInputs());
 
-        publishDialog(2, new mibsdk.platform.UiDialog(5, mibsdk.platform.UiDialog.CONFIRM, "p/main", "T", "x", "Ja",
+        publishDialog(2, new mibsdk.platform.ui.UiDialog(5, mibsdk.platform.ui.UiDialog.CONFIRM, "p/main", "T", "x", "Ja",
                 "Nein", 0), null);
         assertNull(ui.toast());
         assertEquals(0, ui.toastSeq(), "no toast");
         ui.leave(); // BACK on a confirm is No
         assertEquals(Arrays.asList(UiInput.DIALOG_DONE + ":p/main:5:0:null"), dialogInputs());
 
-        publishDialog(3, new mibsdk.platform.UiDialog(6, mibsdk.platform.UiDialog.SPELLER, "p/main", "Name", "Bo", null,
+        publishDialog(3, new mibsdk.platform.ui.UiDialog(6, mibsdk.platform.ui.UiDialog.SPELLER, "p/main", "Name", "Bo", null,
                 null, 8), null);
         assertEquals("speller:Name|Bo", ui.dialog());
         ui.answer(1); // not a confirm: nothing
@@ -401,7 +401,7 @@ class FakeUiTest {
         assertNull(ui.dialog());
         assertEquals(Arrays.asList(UiInput.DIALOG_DONE + ":p/main:6:0:Bob"), dialogInputs());
 
-        publishDialog(4, new mibsdk.platform.UiDialog(7, mibsdk.platform.UiDialog.SPELLER, "p/main", "Name", "Al", null,
+        publishDialog(4, new mibsdk.platform.ui.UiDialog(7, mibsdk.platform.ui.UiDialog.SPELLER, "p/main", "Name", "Al", null,
                 null, 8), null);
         assertEquals("speller:Name|Al", ui.dialog(), "typed text does not carry to the next speller");
         ui.leave();

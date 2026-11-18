@@ -71,8 +71,8 @@ The rest are specific to this plan:
 - **Log**: `/tmp/mibsdk.log`. Dev channel polls every `dev.poll.ms` (default 2000). Ack lines: `dev channel: reload requested for <id>` and `STATUS <id> <STATE> <reason>`.
 
 **Values moved out of `gen_bundles.py` / `mibsdk-dev` (exact)**
-- configurator `mibsdk.adapter.hqc.ChainingConfigurator`; bundle line `MibSdk=mibsdk.adapter.hqc.SdkBundleActivator`; tracer configurator `de.audi.tghu.dsitrace.TraceConfigurator`; tracer bundle name `DSITracer`.
-- `HMICar=` stock line `HMICar=de.audi.tghu.car.hmi.Activator`; SDK line `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator`.
+- configurator `mibsdk.adapter.hqc.boot.ChainingConfigurator`; bundle line `MibSdk=mibsdk.adapter.hqc.boot.SdkBundleActivator`; tracer configurator `de.audi.tghu.dsitrace.TraceConfigurator`; tracer bundle name `DSITracer`.
+- `HMICar=` stock line `HMICar=de.audi.tghu.car.hmi.Activator`; SDK line `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator`.
 - `sdk.properties` lines after the optional `chain.configurator=`: `hook.services=org.dsi.ifc.carparkingsystem.DSICarParkingSystem`, `ui.enabled=true`.
 - Owned class prefixes (sole-owner rule): `de/audi/tghu/car/hmi/`, `de/audi/atip/model/CarModelBank`.
 - Spike jars: `lsd/jars/mibsdk-spike-*.jar`.
@@ -648,7 +648,7 @@ mib2q-plugin-sdk/  (feat/ui)
     api = <p.api>
     permissions = [<"p", …>]
     ```
-  - `MpkStage.sdkManifest(String version) -> String`: `[package] name="mibsdk"`, `[compat] units=["MHI2Q"]`, and `[sdk]` with `api = 2`, `min_api = 1` (from `PluginJson.MAX_API`/`MIN_API`), `hmi = ["HMI_AU_MIB2_HQC_NAR_G22_C10_180803"]`, `jars = ["mibsdk-runtime.jar","mibsdk-adapter-hqc.jar","mibsdk-rt-retrotranslator.jar"]`, `stamp = "mibsdk-unit.stamp"`, `configurator`, `bundle`, `tracer_configurator`, `hmicar_stock = "de.audi.tghu.car.hmi.Activator"`, `hmicar = "mibsdk.adapter.hqc.ui.SdkCarActivator"`, `owned = ["de/audi/tghu/car/hmi/","de/audi/atip/model/CarModelBank"]`, `properties = ["hook.services=org.dsi.ifc.carparkingsystem.DSICarParkingSystem","ui.enabled=true"]`, `permissions = "permissions.json"` (Global Constraints values; they move here from `gen_bundles.py` and `mibsdk-dev`). TOML strings escaped.
+  - `MpkStage.sdkManifest(String version) -> String`: `[package] name="mibsdk"`, `[compat] units=["MHI2Q"]`, and `[sdk]` with `api = 2`, `min_api = 1` (from `PluginJson.MAX_API`/`MIN_API`), `hmi = ["HMI_AU_MIB2_HQC_NAR_G22_C10_180803"]`, `jars = ["mibsdk-runtime.jar","mibsdk-adapter-hqc.jar","mibsdk-rt-retrotranslator.jar"]`, `stamp = "mibsdk-unit.stamp"`, `configurator`, `bundle`, `tracer_configurator`, `hmicar_stock = "de.audi.tghu.car.hmi.Activator"`, `hmicar = "mibsdk.adapter.hqc.ui.car.SdkCarActivator"`, `owned = ["de/audi/tghu/car/hmi/","de/audi/atip/model/CarModelBank"]`, `properties = ["hook.services=org.dsi.ifc.carparkingsystem.DSICarParkingSystem","ui.enabled=true"]`, `permissions = "permissions.json"` (Global Constraints values; they move here from `gen_bundles.py` and `mibsdk-dev`). TOML strings escaped.
   - `mibPackage` (plugins): stage `build/mibpkg-stage/` = `manifest.toml` + `<id>.jar` + `<id>.jar.stamp` (from `build/mibsdk/`), run `<mibpkg> build <stage> build/mibsdk/` → `build/mibsdk/<id>-<version>.mpk`.
   - `:dist:mibpkgPackage`: stage the three jars, `mibsdk-unit.stamp` as is, `permissions.json` and `manifest.toml`; deletes older `build/dist/mibsdk-*.mpk` first; output `dist/build/dist/mibsdk-<version>.mpk`.
   - `MibpkgBuildTask` (cacheable; inputs: the stage dir and the binary path) fails with "host mibpkg not found: build it (cargo build --release in the mibpkg repo) and pass -Pmibsdk.mibpkg=<path>" when the binary is missing.
@@ -727,14 +727,14 @@ mib2q-plugin-sdk/  (feat/ui)
 - [ ] **Step 1: Baseline.**
   - `SSH /tmp/mibpkg status` (note the version), `SSH ls -l /mnt/app/eso/hmi/lsd /mnt/app/eso/hmi/lsd/jars /mnt/app/eso/hmi/lsd/mibsdk /mnt/app/eso/hmi/lsd/mibsdk/stock /mnt/app/eso/hmi/lsd/mibsdk/plugins`, `SSH cat /mnt/persist/mibsdk/ledger.properties /mnt/persist/mibsdk/plugins.properties`.
   - Save local copies of `mibsdk/stock/bundles_dsitracer_enabled.properties` (stock reference) and the live bundles file.
-  - Expected: SDK installed by the old `mibsdk-dev` (`stock/tracer.was` = `true`); live and stock `HMICar=de.audi.tghu.car.hmi.Activator` (the bench's old `mibsdk-dev` install predates the SDK `HMICar=` entry; if the live line is already `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator`, record it: the adoption accepts either); no spike jar; record which plugins are pushed and any ledger lines.
+  - Expected: SDK installed by the old `mibsdk-dev` (`stock/tracer.was` = `true`); live and stock `HMICar=de.audi.tghu.car.hmi.Activator` (the bench's old `mibsdk-dev` install predates the SDK `HMICar=` entry; if the live line is already `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator`, record it: the adoption accepts either); no spike jar; record which plugins are pushed and any ledger lines.
 - [ ] **Step 2: Update mibpkg to 0.8.0 and let the supervisor restart.**
   - Upload `mibpkg-0.8.0.mpk` to `/tmp/mibpkg.upload.<uid>.mpk` (`<uid>` 32 hex) and run `SSH /tmp/mibpkg install-file mibpkg <uid> -`.
   - Wait until the 0.7 supervisor is gone and 0.8.0 supervises (`SSH /tmp/mibpkg status` reports 0.8.0) **before Step 3**: a 0.7 supervisor doesn't honour holders.
   - `SSH /tmp/mibpkg sdk status`. Expected: exit 0; `sdk: not installed`; `running: yes`; the live `HMICar=` line recorded in Step 1; the pushed plugins listed as `pushed`.
 - [ ] **Step 3: Adopt the SDK as a package.**
   - `installer/mibsdk-dev install`. Expected: "installed mibsdk 0.1.0; reboot the unit (or restart the HMI) to start it"; `mibsdk/stock/` gone.
-  - The mibpkg backup `SSH cat '/mnt/app/root/mibpkg/state/backups/mnt%app%eso%hmi%lsd%bundles_dsitracer_enabled.properties'` equals the Step 1 stock copy; the live bundles file equals the Step 1 live copy except the `HMICar=` line, now `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator` (byte-equal if Step 1 already had it).
+  - The mibpkg backup `SSH cat '/mnt/app/root/mibpkg/state/backups/mnt%app%eso%hmi%lsd%bundles_dsitracer_enabled.properties'` equals the Step 1 stock copy; the live bundles file equals the Step 1 live copy except the `HMICar=` line, now `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator` (byte-equal if Step 1 already had it).
   - `mibsdk-dev restart`; after 4–5 minutes `mibsdk-dev status`. Expected: `boot healthy`, the pushed plugins `ENABLED` again, keypanel `bridge_connected:true`, the Car menu shows the SDK rows.
 - [ ] **Step 4: Commit.** `docs(e2e): Plan 3 deploy: mibpkg 0.8.0 adopts the mibsdk-dev SDK install`
 

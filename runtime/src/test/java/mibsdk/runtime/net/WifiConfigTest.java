@@ -13,7 +13,7 @@ import java.util.Arrays;
 import java.util.List;
 import mibsdk.api.net.WifiNetwork;
 import mibsdk.api.net.WifiStatus;
-import mibsdk.platform.WifiIo;
+import mibsdk.platform.io.WifiIo;
 import mibsdk.runtime.health.RingLog;
 import mibsdk.runtime.util.FakeClock;
 import org.junit.jupiter.api.Test;

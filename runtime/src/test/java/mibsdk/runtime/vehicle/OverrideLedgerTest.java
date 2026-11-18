@@ -27,7 +27,7 @@ import mibsdk.api.vehicle.OverrideScope;
 import mibsdk.api.vehicle.SoundDirections;
 import mibsdk.api.vehicle.VehicleOverride;
 import mibsdk.platform.HookTable;
-import mibsdk.platform.ParkingIo;
+import mibsdk.platform.io.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
 import mibsdk.runtime.PluginJars;
@@ -1900,7 +1900,7 @@ public class OverrideLedgerTest {
             };
         }
 
-        public mibsdk.platform.WifiIo wifi() {
+        public mibsdk.platform.io.WifiIo wifi() {
             return inner.wifi();
         }
     }

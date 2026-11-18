@@ -2,18 +2,18 @@ package mibsdk.adapter.fake;
 
 import java.util.ArrayList;
 import java.util.List;
-import mibsdk.platform.PageStack;
-import mibsdk.platform.UiDialog;
-import mibsdk.platform.UiEntry;
-import mibsdk.platform.UiIcon;
-import mibsdk.platform.UiInput;
-import mibsdk.platform.UiPage;
-import mibsdk.platform.UiPageText;
-import mibsdk.platform.UiRow;
-import mibsdk.platform.UiSnapshot;
-import mibsdk.platform.UiStatusPart;
-import mibsdk.platform.UiTable;
-import mibsdk.platform.UiToast;
+import mibsdk.platform.ui.PageStack;
+import mibsdk.platform.ui.UiDialog;
+import mibsdk.platform.ui.UiEntry;
+import mibsdk.platform.ui.UiIcon;
+import mibsdk.platform.ui.UiInput;
+import mibsdk.platform.ui.UiPage;
+import mibsdk.platform.ui.UiPageText;
+import mibsdk.platform.ui.UiRow;
+import mibsdk.platform.ui.UiSnapshot;
+import mibsdk.platform.ui.UiStatusPart;
+import mibsdk.platform.ui.UiTable;
+import mibsdk.platform.ui.UiToast;
 
 /** Host-side renderer and driver for the UI snapshot: lets plugins and the runtime be tested without the car. */
 public final class FakeUi {

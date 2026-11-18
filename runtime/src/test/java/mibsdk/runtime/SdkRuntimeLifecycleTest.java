@@ -21,7 +21,7 @@ import java.util.Set;
 import mibsdk.adapter.fake.FakePlatform;
 import mibsdk.api.Features;
 import mibsdk.platform.HookTable;
-import mibsdk.platform.ParkingIo;
+import mibsdk.platform.io.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
 import mibsdk.platform.SdkRoots;
@@ -529,7 +529,7 @@ class SdkRuntimeLifecycleTest {
                 return null;
             }
 
-            public mibsdk.platform.WifiIo wifi() {
+            public mibsdk.platform.io.WifiIo wifi() {
                 return null;
             }
         };

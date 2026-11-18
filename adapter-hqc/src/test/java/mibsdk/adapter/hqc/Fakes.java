@@ -14,15 +14,15 @@ import mibsdk.platform.HookTable;
 import mibsdk.platform.PlatformHost;
 
 /** java.lang.reflect.Proxy fakes for stock interfaces (only the host-repaired stock jar is on the test classpath). */
-final class Fakes {
+public final class Fakes {
 
     private Fakes() {
     }
 
     /** One recorded call. */
-    static final class Call {
-        final String method;
-        final Object[] args;
+    public static final class Call {
+        public final String method;
+        public final Object[] args;
 
         Call(String method, Object[] args) {
             this.method = method;
@@ -31,10 +31,10 @@ final class Fakes {
     }
 
     /** Records every non-Object call; optionally throws or answers. Object methods behave like Object's. */
-    static class Recorder implements InvocationHandler {
-        final List<Call> calls = Collections.synchronizedList(new ArrayList<>());
-        volatile Throwable toThrow;
-        volatile Object answer;
+    public static class Recorder implements InvocationHandler {
+        public final List<Call> calls = Collections.synchronizedList(new ArrayList<>());
+        public volatile Throwable toThrow;
+        public volatile Object answer;
 
         @Override
         public Object invoke(Object proxy, Method m, Object[] args) throws Throwable {
@@ -55,7 +55,7 @@ final class Fakes {
             return answer;
         }
 
-        List<Call> named(String method) {
+        public List<Call> named(String method) {
             List<Call> out = new ArrayList<>();
             synchronized (calls) {
                 for (Call c : calls) {
@@ -69,13 +69,13 @@ final class Fakes {
     }
 
     /** A PlatformHost recording each published event and the thread that published it. */
-    static final class RecordingHost implements PlatformHost {
+    public static final class RecordingHost implements PlatformHost {
         final List<Object> events = Collections.synchronizedList(new ArrayList<>());
-        final List<String> threads = Collections.synchronizedList(new ArrayList<>());
-        final List<String> logs = Collections.synchronizedList(new ArrayList<>());
+        public final List<String> threads = Collections.synchronizedList(new ArrayList<>());
+        public final List<String> logs = Collections.synchronizedList(new ArrayList<>());
         final HookTable hooks = new HookTable(16);
         /** If set, publish blocks until it is opened (simulates a slow subscriber). */
-        volatile CountDownLatch gate;
+        public volatile CountDownLatch gate;
         final AtomicInteger featuresChanged = new AtomicInteger();
 
         @Override
@@ -107,7 +107,7 @@ final class Fakes {
             logs.add(t == null ? msg : msg + ": " + t);
         }
 
-        List<Object> snapshot() {
+        public List<Object> snapshot() {
             synchronized (events) {
                 return new ArrayList<>(events);
             }
@@ -115,7 +115,7 @@ final class Fakes {
     }
 
     /** Polls {@code cond} every 5 ms for up to {@code ms}; true once it holds. */
-    static boolean eventually(long ms, BooleanSupplier cond) throws InterruptedException {
+    public static boolean eventually(long ms, BooleanSupplier cond) throws InterruptedException {
         long end = System.currentTimeMillis() + ms;
         while (System.currentTimeMillis() < end) {
             if (cond.getAsBoolean()) {
@@ -127,7 +127,7 @@ final class Fakes {
     }
 
     @SuppressWarnings("unchecked")
-    static <T> T fake(Class<T> iface, Recorder r) {
+    public static <T> T fake(Class<T> iface, Recorder r) {
         return (T) Proxy.newProxyInstance(Fakes.class.getClassLoader(), new Class<?>[] {iface}, r);
     }
 }

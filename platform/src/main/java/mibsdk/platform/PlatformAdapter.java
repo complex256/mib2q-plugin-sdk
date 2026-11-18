@@ -1,6 +1,8 @@
 package mibsdk.platform;
 
 import java.util.Set;
+import mibsdk.platform.io.ParkingIo;
+import mibsdk.platform.io.WifiIo;
 
 /** A firmware-specific implementation of the platform features. One adapter is selected per HMI version. */
 public interface PlatformAdapter {

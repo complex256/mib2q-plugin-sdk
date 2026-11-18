@@ -35,7 +35,7 @@ class StockThreadCodeTest {
     // mibsdk.runtime.health.RingLog is allowed: the one way stock-thread code may log (PageScreens).
 
     private static String source(String name) throws IOException {
-        Path p = Paths.get("src/main/java/mibsdk/adapter/hqc/ui/" + name + ".java");
+        Path p = mibsdk.adapter.hqc.Sources.find(name);
         assertTrue(Files.isRegularFile(p), "run from the adapter-hqc project dir: " + p.toAbsolutePath());
         String s = new String(Files.readAllBytes(p), StandardCharsets.UTF_8);
         return s.replaceAll("//[^\\n]*|/\\*[\\s\\S]*?\\*/", " "); // code only

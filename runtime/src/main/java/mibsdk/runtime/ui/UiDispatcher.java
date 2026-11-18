@@ -1,7 +1,7 @@
 package mibsdk.runtime.ui;
 
-import mibsdk.platform.UiInput;
-import mibsdk.platform.UiTable;
+import mibsdk.platform.ui.UiInput;
+import mibsdk.platform.ui.UiTable;
 
 /**
  * The thread {@code mibsdk-ui-input}: takes user input from the {@link UiTable} (queued by the adapter on

@@ -1,0 +1,237 @@
+package mibsdk.adapter.hqc.ui.status;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import mibsdk.adapter.hqc.ui.hmi.HmiPoster;
+import mibsdk.platform.ui.UiStatusPart;
+import mibsdk.api.ui.HmiContext;
+import mibsdk.runtime.util.Clock;
+import mibsdk.runtime.health.RingLog;
+import mibsdk.runtime.ui.StatusBarConfig;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/** Review Focus 4: the SDK popup while it works, popup 65 only as the fallback; a switch hides what was shown. */
+public class StatusSinksTest {
+
+    @TempDir
+    File tmp;
+
+    public static final class RecordingSink implements StatusLineSink {
+        public final List<String> calls = new ArrayList<String>();
+
+        public void show(List<UiStatusPart> parts, String textLine) {
+            calls.add("show " + textLine);
+        }
+
+        public void hide() {
+            calls.add("hide");
+        }
+    }
+
+    /** An SDK popup whose models are unavailable or whose writes fail: every call throws. */
+    static final class ThrowingSink implements StatusLineSink {
+        public final List<String> calls = new ArrayList<String>();
+        boolean throwing = true;
+
+        public void show(List<UiStatusPart> parts, String textLine) {
+            calls.add("show " + textLine);
+            if (throwing) {
+                throw new IllegalStateException("status popup models unavailable (no SDK Car bank)");
+            }
+        }
+
+        public void hide() {
+            calls.add("hide");
+            if (throwing) {
+                throw new IllegalStateException("status popup models unavailable (no SDK Car bank)");
+            }
+        }
+    }
+
+    static List<UiStatusPart> parts(String text) {
+        return Collections.singletonList(new UiStatusPart(text, null, false));
+    }
+
+    @Test
+    void fallsBackToPopup65WhenThePopupFailsAndNeverWritesItOtherwise() {
+        RecordingSink sdk = new RecordingSink();
+        RecordingSink p65 = new RecordingSink();
+        int[] state = {1};
+        StatusSinks s = new StatusSinks(sdk, p65, () -> state[0]);
+        s.show(parts("TS up"), "TS up");
+        assertEquals(Arrays.asList("show TS up"), sdk.calls);
+        assertTrue(p65.calls.isEmpty());
+        state[0] = -1;
+        s.show(parts("TS up"), "TS up");
+        assertEquals(Arrays.asList("show TS up"), p65.calls);
+        assertEquals(Arrays.asList("show TS up", "hide"), sdk.calls);
+        state[0] = 2; // the state never goes back from -1 in production; even if it did, 609600 still works here
+        s.show(parts("TS dn"), "TS dn");
+        assertEquals(Arrays.asList("show TS up", "hide", "show TS dn"), sdk.calls);
+        assertEquals(Arrays.asList("show TS up", "hide"), p65.calls, "popup 65 is never written while 609600 works");
+    }
+
+    @Test
+    void aThrowingSdkPopupFallsBackToPopup65InTheSameCallForTheBoot() {
+        ThrowingSink sdk = new ThrowingSink();
+        RecordingSink p65 = new RecordingSink();
+        RingLog log = new RingLog(16);
+        int[] state = {2};
+        StatusSinks s = new StatusSinks(sdk, p65, () -> state[0], log);
+        assertEquals(1, s.active());
+        s.show(parts("SAFE PDC R OFF"), "SAFE PDC R OFF"); // must not throw
+        assertEquals(Arrays.asList("show SAFE PDC R OFF"), p65.calls, "the same call reaches popup 65");
+        assertEquals(0, s.active(), "the SDK sink is failed for the boot, though the state is still 2");
+
+        sdk.throwing = false; // sticky: even a popup that would work now is not used again this boot
+        s.show(parts("SAFE"), "SAFE");
+        assertEquals(Arrays.asList("show SAFE PDC R OFF", "show SAFE"), p65.calls);
+        assertEquals(Arrays.asList("show SAFE PDC R OFF"), sdk.calls, "never shown on again");
+        s.hide();
+        assertEquals("hide", p65.calls.get(p65.calls.size() - 1));
+
+        s.show(parts("A"), "A");
+        int logged = 0;
+        for (String line : log.snapshot()) {
+            if (line.contains("status popup")) {
+                logged++;
+            }
+        }
+        assertEquals(1, logged, "logged once: " + log.snapshot());
+    }
+
+    @Test
+    void aThrowingSdkPopupThatWasShownIsHiddenQuietlyOnTheSwitch() {
+        ThrowingSink sdk = new ThrowingSink();
+        sdk.throwing = false;
+        RecordingSink p65 = new RecordingSink();
+        int[] state = {1};
+        StatusSinks s = new StatusSinks(sdk, p65, () -> state[0]);
+        s.show(parts("A"), "A");
+        sdk.throwing = true; // a later model write fails
+        s.show(parts("B"), "B");
+        assertEquals(Arrays.asList("show B"), p65.calls);
+        s.hide(); // the failed SDK sink is not hidden again, and nothing throws
+        assertEquals(Arrays.asList("show B", "hide"), p65.calls);
+    }
+
+    @Test
+    void bootWindowShowsOnPopup65ThenTheSwitchHidesIt() {
+        RecordingSink sdk = new RecordingSink();
+        RecordingSink p65 = new RecordingSink();
+        int[] state = {0};
+        StatusSinks s = new StatusSinks(sdk, p65, () -> state[0]);
+        assertEquals(0, s.active());
+        s.show(parts("A"), "A");
+        state[0] = 1;
+        assertEquals(1, s.active());
+        s.show(parts("A"), "A");
+        state[0] = 2;
+        s.show(parts("B"), "B");
+        assertEquals(Arrays.asList("show A", "hide"), p65.calls);
+        assertEquals(Arrays.asList("show A", "show B"), sdk.calls, "1 and 2 are both the SDK popup");
+    }
+
+    /**
+     * Regression: the old show() only called the bar when available(), but only the bar's show() posts the attach job,
+     * so the bar could never attach. It is now tried every show: an unattached bar throws and the popup carries the line.
+     */
+    @Test
+    void anUnattachedBarIsTriedOnEveryShowAndFallsBackToThePopup() {
+        RecordingSink sdk = new RecordingSink();
+        RecordingSink p65 = new RecordingSink();
+        final List<Runnable> posted = new ArrayList<Runnable>();
+        HmiPoster poster = new HmiPoster(new HmiPoster.Sink() {
+            public void post(Runnable r) {
+                posted.add(r);
+            }
+        }, null, new Clock() {
+            public long uptimeMs() {
+                return 0L;
+            }
+        }, HmiPoster.PENDING_DEADLINE_MS);
+        BarStatusLine bar = new BarStatusLine(new Object(), poster, null, null, null);
+        StatusSinks s = new StatusSinks(bar, sdk, p65, () -> 1, null);
+
+        s.show(parts("A"), "A");
+        assertEquals(Arrays.asList("show A"), sdk.calls, "the same call falls back while the bar is unattached");
+        assertEquals(1, posted.size(), "the bar posts its attach job");
+        posted.get(0).run(); // no framework here: the job fails, the bar stays unattached
+
+        s.show(parts("B"), "B");
+        assertEquals(Arrays.asList("show A", "show B"), sdk.calls);
+        assertEquals(2, posted.size(), "the next show retries the attach");
+    }
+
+    /** The user's Status bar switch off: the popup carries the line and the bar is never asked to attach. */
+    @Test
+    void aDisabledBarFallsBackToThePopupWithoutAttaching() throws Exception {
+        File f = new File(tmp, "statusbar.properties");
+        new StatusBarConfig(true, 5000, 300, Collections.<String>emptyList()).withEnabled(false).save(f);
+        RecordingSink sdk = new RecordingSink();
+        RecordingSink p65 = new RecordingSink();
+        final List<Runnable> posted = new ArrayList<Runnable>();
+        HmiPoster poster = new HmiPoster(new HmiPoster.Sink() {
+            public void post(Runnable r) {
+                posted.add(r);
+            }
+        }, null, new Clock() {
+            public long uptimeMs() {
+                return 0L;
+            }
+        }, HmiPoster.PENDING_DEADLINE_MS);
+        BarStatusLine bar = new BarStatusLine(new Object(), poster, null, null, null, f);
+        StatusSinks s = new StatusSinks(bar, sdk, p65, () -> 1, null);
+
+        s.show(parts("A"), "A");
+        assertEquals(Arrays.asList("show A"), sdk.calls);
+        assertEquals(0, posted.size(), "the bar is switched off: no attach job");
+        assertEquals(1, s.active(), "active() reports the SDK popup, not the bar");
+    }
+
+    /** The bar's context filter: the indicator always, an item by its mask; an unknown context hides nothing. */
+    @Test
+    void visiblePartsKeepsTheIndicatorAndFiltersByContext() {
+        List<UiStatusPart> parts = Arrays.asList(
+                new UiStatusPart("SAFE", null, true),
+                new UiStatusPart("Car", null, false, null, "Car", 1L << HmiContext.CAR),
+                new UiStatusPart("Media", null, false, null, "Media", 1L << HmiContext.MEDIA),
+                new UiStatusPart("All", null, false, null, "All", 0L));
+        assertEquals(Arrays.asList("SAFE", "Car", "All"), texts(BarStatusLine.visibleParts(parts, HmiContext.CAR)));
+        assertEquals(Arrays.asList("SAFE", "Media", "All"), texts(BarStatusLine.visibleParts(parts, HmiContext.MEDIA)));
+        assertEquals(Arrays.asList("SAFE", "Car", "Media", "All"), texts(BarStatusLine.visibleParts(parts, -1)),
+                "unknown context: no filtering");
+    }
+
+    private static List<String> texts(List<UiStatusPart> parts) {
+        List<String> out = new ArrayList<String>();
+        for (UiStatusPart p : parts) {
+            out.add(p.text());
+        }
+        return out;
+    }
+
+    @Test
+    void aSinkTheSdkNeverShowedIsNeverHidden() {
+        RecordingSink sdk = new RecordingSink();
+        RecordingSink p65 = new RecordingSink();
+        int[] state = {0};
+        StatusSinks s = new StatusSinks(sdk, p65, () -> state[0]);
+        s.show(parts("A"), "A");
+        s.hide();
+        state[0] = 2;
+        s.show(parts("B"), "B");
+        assertEquals(Arrays.asList("show A", "hide"), p65.calls, "hidden once, not again at the switch");
+        assertEquals(Arrays.asList("show B"), sdk.calls);
+        s.hide();
+        assertEquals(Arrays.asList("show B", "hide"), sdk.calls);
+        assertEquals(2, p65.calls.size());
+    }
+}

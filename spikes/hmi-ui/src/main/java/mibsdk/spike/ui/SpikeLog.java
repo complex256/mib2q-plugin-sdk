@@ -1,6 +1,6 @@
 package mibsdk.spike.ui;
 
-import mibsdk.adapter.hqc.SdkGlobals;
+import mibsdk.adapter.hqc.boot.SdkGlobals;
 
 /** Every spike line goes to the SDK ring log (written to /tmp/mibsdk.log by the runtime), tagged "spike.ui". */
 final class SpikeLog {

@@ -25,7 +25,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import mibsdk.adapter.hqc.Fakes.Recorder;
 import mibsdk.adapter.hqc.Fakes.RecordingHost;
-import mibsdk.adapter.hqc.ui.HqcUiIds;
+import mibsdk.adapter.hqc.boot.HqcVersion;
+import mibsdk.adapter.hqc.boot.SdkBoot;
+import mibsdk.adapter.hqc.boot.SdkBundleActivator;
+import mibsdk.adapter.hqc.boot.SdkGlobals;
+import mibsdk.adapter.hqc.dsi.DsiConstants;
+import mibsdk.adapter.hqc.dsi.RawServices;
+import mibsdk.adapter.hqc.ui.ids.HqcUiIds;
 import mibsdk.api.Features;
 import mibsdk.api.vehicle.IgnitionChanged;
 import mibsdk.api.vehicle.ParkingSoundChanged;
@@ -243,7 +249,7 @@ class HqcPlatformTest {
     @Test
     void startReadsTheBuiltinIcons() throws Exception {
         boolean ui = SdkGlobals.uiEnabled;
-        mibsdk.adapter.hqc.ui.BuiltinIcons before = SdkGlobals.builtinIcons;
+        mibsdk.adapter.hqc.ui.icon.BuiltinIcons before = SdkGlobals.builtinIcons;
         try {
             File icons = new File(dir, "icons-sdk");
             icons.mkdirs();
@@ -329,7 +335,7 @@ class HqcPlatformTest {
         List<String> calls = Collections.synchronizedList(new ArrayList<>());
         try {
             SdkGlobals.uiEnabled = true;
-            SdkGlobals.UI.publish(new mibsdk.platform.UiSnapshot(System.nanoTime(), null, "Hello", null, 0, null));
+            SdkGlobals.UI.publish(new mibsdk.platform.ui.UiSnapshot(System.nanoTime(), null, "Hello", null, 0, null));
             Ctx c = new Ctx();
             HqcPlatform p = new HqcPlatform(c.context(), () -> 0L);
             p.start(new RecordingHost());
@@ -345,7 +351,7 @@ class HqcPlatformTest {
         } finally {
             SdkGlobals.uiEnabled = ui;
             SdkGlobals.uiDown = false;
-            SdkGlobals.UI.publish(mibsdk.platform.UiSnapshot.EMPTY);
+            SdkGlobals.UI.publish(mibsdk.platform.ui.UiSnapshot.EMPTY);
         }
     }
 
