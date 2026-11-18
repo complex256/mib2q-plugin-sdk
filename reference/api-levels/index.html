@@ -1128,6 +1128,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#api-9-package-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API 9 package layout
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1746,6 +1757,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#api-9-package-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API 9 package layout
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1820,67 +1842,74 @@ it still loads.</p>
 <td>SDK 0.8.0</td>
 <td><code>PageSpec.ring</code> with <code>PageSpec.ring()</code>; <code>PageSpec.link(…, Icon)</code>; the <code>StockIcons</code> ring set (<code>CAR</code> … <code>SMARTPHONE</code>)</td>
 </tr>
+<tr>
+<td>9</td>
+<td>SDK 0.9.0</td>
+<td>No new members. The api classes moved into <code>mibsdk.api.ui</code>, <code>.vehicle</code>, <code>.hooks</code> and <code>.net</code>; see <a href="#api-9-package-layout">the package layout</a></td>
+</tr>
 </tbody>
 </table>
-<p>The current SDK implements api 1–8.</p>
+<p>The current SDK implements api 9 only.</p>
 <h2 id="rules">Rules<a class="headerlink" href="#rules" title="Permanent link">&para;</a></h2>
-<p><strong>Levels are additive.</strong> A newer SDK runs older plugins unchanged. SDK 0.8.0 loads api 1–8.</p>
-<p><strong>Declare the lowest level that covers what you use.</strong> The build enforces it: a call to an api 5 member
-while the manifest declares api 4 fails with the call site:</p>
+<p><strong>Levels are additive, except across api 9.</strong> Up to api 8 a newer SDK ran older plugins unchanged. Api 9 moved
+classes between packages, so a plugin built for api 8 or lower does not link against it. SDK 0.9.0 loads api 9
+only; rebuild older plugins against it and set <code>"api": 9</code>. The next level that adds members will make the
+"lowest level" rule below meaningful again.</p>
+<p><strong>Declare the lowest level that covers what you use.</strong> Today that is always 9. The build enforces the rule, and
+it bites again once a level above 9 adds members: a call to an api 10 member while the manifest declares api 9
+fails with the call site, as a call to an api 5 member under a declared api 4 did before:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>permissionScan: ...CoffeeTimerPlugin.spec -&gt; PageSpec.slider needs api 5; plugin.json declares api 4
 </code></pre></div>
 <p>Compile-time constants such as <code>PageSpec.MAX_OPTIONS</code> are inlined by the compiler, so they leave no call
 site and are not checked.</p>
 <p><strong>mibpkg checks the range.</strong> It installs a plugin only when <code>sdk.min_api &lt;= plugin.api &lt;= sdk.api</code> for
-the SDK on the unit. An api-7 plugin needs SDK 0.6.2 or later.</p>
+the SDK on the unit. An api-9 plugin needs SDK 0.9.0 or later.</p>
 <p><strong>Features are separate.</strong> An api level says what the API <em>has</em>. <code>ctx.has(Features.X)</code> says what <em>this
 unit</em> can draw at <em>this boot</em>. A missing feature makes the matching handle inert, not failing. Check the
 feature when the difference matters.</p>
 <h2 id="choosing-a-level">Choosing a level<a class="headerlink" href="#choosing-a-level" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>If you use</th>
-<th>Declare</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Only lifecycle, storage, timers, events, vehicle</td>
-<td>1</td>
-</tr>
-<tr>
-<td>Any page, Car row, status item or network query</td>
-<td>2</td>
-</tr>
-<tr>
-<td>Your own PNG icons or a built-in icon</td>
-<td>3</td>
-</tr>
-<tr>
-<td><code>Icon.OWN_COLOURS</code></td>
-<td>4</td>
-</tr>
-<tr>
-<td>A slider, dropdown, choice, progress, toast, confirm or speller</td>
-<td>5</td>
-</tr>
-<tr>
-<td>Status-item colour, per-context visibility or icon-only items</td>
-<td>6</td>
-</tr>
-<tr>
-<td>The Wi-Fi uplink or a masked text field</td>
-<td>7</td>
-</tr>
-</tbody>
-</table>
+<p>Declare 9. It is the only level SDK 0.9.0 loads, and every member of api 1–8 is part of it. The "arrived in"
+column above tells you the oldest SDK that has a given member, which matters only if you build against an older
+SDK.</p>
 <h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../plugin-manifest/">plugin.json</a></li>
 <li><a href="../compatibility/">Java compatibility</a></li>
 <li><a href="../../guides/pages-and-inputs/">Features</a></li>
 </ul>
+<h2 id="api-9-package-layout">API 9 package layout<a class="headerlink" href="#api-9-package-layout" title="Permanent link">&para;</a></h2>
+<p>The classes of <code>mibsdk.api</code> are grouped by capability. The core types stay where they were.</p>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Types</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mibsdk.api</code></td>
+<td><code>MibPlugin</code>, <code>PluginContext</code>, <code>SdkInfo</code>, <code>Features</code>, <code>Log</code>, <code>Storage</code>, <code>Scheduler</code>, <code>Events</code>, <code>Listener</code>, <code>Subscription</code>, <code>Permissions</code>, <code>PermissionDeniedException</code></td>
+</tr>
+<tr>
+<td><code>mibsdk.api.ui</code></td>
+<td><code>Ui</code>, <code>UiAction</code>, <code>UiColor</code>, <code>Icon</code>, <code>StockIcons</code>, <code>Page</code>, <code>PageSpec</code>, <code>StatusItem</code>, <code>HmiContext</code></td>
+</tr>
+<tr>
+<td><code>mibsdk.api.vehicle</code></td>
+<td><code>Vehicle</code>, <code>Parking</code>, <code>SoundDirections</code>, <code>IgnitionChanged</code>, <code>ParkingSoundChanged</code>, <code>TrailerHitchedChanged</code>, <code>VehicleOverride</code>, <code>OverrideScope</code>, <code>OverrideConflictException</code></td>
+</tr>
+<tr>
+<td><code>mibsdk.api.hooks</code></td>
+<td><code>Hooks</code>, <code>HookPoint</code>, <code>HookObserved</code>, <code>Veto</code></td>
+</tr>
+<tr>
+<td><code>mibsdk.api.net</code></td>
+<td><code>Net</code>, <code>Wifi</code>, <code>WifiNetwork</code>, <code>WifiStatus</code>, <code>WifiChanged</code></td>
+</tr>
+</tbody>
+</table>
+<p>To migrate, change the imports and rebuild. No signature changed.</p>
 
 
 

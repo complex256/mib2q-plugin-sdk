@@ -2184,7 +2184,9 @@ against the class file with <code>javap</code> or at runtime.</p>
 </tr>
 </tbody>
 </table>
-<p>The HQC adapter's classes are the reference for each row:</p>
+<p>The HQC adapter's classes are the reference for each row. The bundle, configurator and the two HMI activators
+(<code>SdkBundleActivator</code>, <code>ChainingConfigurator</code>, <code>ui/SdkCarActivator</code>, <code>ui/SdkSystemActivator</code>) keep their packages on
+purpose: their names are written into the unit's <code>lsd/bundles*.properties</code> and mibpkg compares them on every update.</p>
 <table>
 <thead>
 <tr>
@@ -2194,7 +2196,7 @@ against the class file with <code>javap</code> or at runtime.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>HqcVersion</code></td>
+<td><code>boot/HqcVersion</code></td>
 <td>Exact version match</td>
 </tr>
 <tr>
@@ -2202,7 +2204,7 @@ against the class file with <code>javap</code> or at runtime.</p>
 <td>Bundle entry point and lifecycle</td>
 </tr>
 <tr>
-<td><code>ConfiguratorCore</code>, <code>ChainingConfigurator</code></td>
+<td><code>boot/ConfiguratorCore</code>, <code>ChainingConfigurator</code></td>
 <td>Hooking the stock configurator chain</td>
 </tr>
 <tr>
@@ -2210,47 +2212,47 @@ against the class file with <code>javap</code> or at runtime.</p>
 <td><code>PlatformAdapter</code> implementation and feature set</td>
 </tr>
 <tr>
-<td><code>SdkBoot</code>, <code>SdkGlobals</code>, <code>SdkFiles</code></td>
+<td><code>boot/SdkBoot</code>, <code>boot/SdkGlobals</code>, <code>boot/SdkFiles</code></td>
 <td>Runtime boot and on-unit paths</td>
 </tr>
 <tr>
-<td><code>ServiceWaiter</code>, <code>RawServices</code></td>
+<td><code>dsi/ServiceWaiter</code>, <code>dsi/RawServices</code></td>
 <td>Waiting for late stock services</td>
 </tr>
 <tr>
-<td><code>DsiServiceProxy</code>, <code>DsiConstants</code>, <code>BridgeListener</code></td>
+<td><code>dsi/DsiServiceProxy</code>, <code>dsi/DsiConstants</code>, <code>bridge/BridgeListener</code></td>
 <td>DSI proxies and event pumps</td>
 </tr>
 <tr>
-<td><code>IgnitionBridge</code>, <code>ParkingBridge</code>, <code>HookBindings</code></td>
+<td><code>bridge/IgnitionBridge</code>, <code>bridge/ParkingBridge</code>, <code>dsi/HookBindings</code></td>
 <td>Events, parking and hooks</td>
 </tr>
 <tr>
-<td><code>ui/HqcUiIds</code>, <code>ui/TextIds</code>, <code>ui/InputTextIds</code></td>
+<td><code>ui/ids/HqcUiIds</code>, <code>ui/ids/TextIds</code>, <code>ui/ids/InputTextIds</code></td>
 <td>Stock id tables</td>
 </tr>
 <tr>
-<td><code>ui/SdkCarActivator</code>, <code>ui/SdkCarScreenFactory</code>, <code>ui/SdkCarModelBank</code></td>
+<td><code>ui/SdkCarActivator</code>, <code>ui/car/SdkCarScreenFactory</code>, <code>ui/car/SdkCarModelBank</code></td>
 <td>Car drawer and screens</td>
 </tr>
 <tr>
-<td><code>ui/SdkSystemActivator</code>, <code>ui/SdkSystemScreenFactory</code></td>
+<td><code>ui/SdkSystemActivator</code>, <code>ui/car/SdkSystemScreenFactory</code></td>
 <td>Plugins menu and status bar</td>
 </tr>
 <tr>
-<td><code>ui/PageScreens</code>, <code>ui/PageRenderer</code>, <code>ui/PageWidgets</code></td>
+<td><code>ui/page/PageScreens</code>, <code>ui/page/PageRenderer</code>, <code>ui/page/PageWidgets</code></td>
 <td>Page rendering</td>
 </tr>
 <tr>
-<td><code>ui/BarStatusLine</code>, <code>ui/StatusSinks</code>, <code>ui/StatusPopupController</code></td>
+<td><code>ui/status/BarStatusLine</code>, <code>ui/status/StatusSinks</code>, <code>ui/popup/StatusPopupController</code></td>
 <td>Status-line and popup paths</td>
 </tr>
 <tr>
-<td><code>ui/ConfirmScreen</code>, <code>ui/SliderScreen</code>, <code>ui/SpellerScreen</code></td>
+<td><code>ui/screen/ConfirmScreen</code>, <code>ui/screen/SliderScreen</code>, <code>ui/screen/SpellerScreen</code></td>
 <td>Dialogs and inputs</td>
 </tr>
 <tr>
-<td><code>ui/UiApplier</code>, <code>ui/UiInputs</code>, <code>ui/HmiPoster</code></td>
+<td><code>ui/page/UiApplier</code>, <code>ui/page/UiInputs</code>, <code>ui/hmi/HmiPoster</code></td>
 <td>Applying snapshots and input</td>
 </tr>
 </tbody>

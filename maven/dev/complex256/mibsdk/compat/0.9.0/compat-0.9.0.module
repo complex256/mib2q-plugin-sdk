@@ -1,0 +1,80 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "dev.complex256.mibsdk",
+    "module": "compat",
+    "version": "0.9.0",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 4,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "files": [
+        {
+          "name": "compat-0.9.0.jar",
+          "url": "compat-0.9.0.jar",
+          "size": 11237,
+          "sha512": "577325ba86b714db6d4fc1c08c73500e942634ede4fd23f96ccde4af5bf3b059c711e82a46798406a0f7d5c5cc908ec550daaa375fa29075a395d96b75d24249",
+          "sha256": "65d526c564ec0bf998342a72bdc2c8a217470ce8b86996ff5d34d9b3f2c728b1",
+          "sha1": "c6c7b9be1b96303e4f026fa4e518e30ae879500c",
+          "md5": "a044867af54fb0ad6e3e015aba12c562"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 4,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "compat-0.9.0.jar",
+          "url": "compat-0.9.0.jar",
+          "size": 11237,
+          "sha512": "577325ba86b714db6d4fc1c08c73500e942634ede4fd23f96ccde4af5bf3b059c711e82a46798406a0f7d5c5cc908ec550daaa375fa29075a395d96b75d24249",
+          "sha256": "65d526c564ec0bf998342a72bdc2c8a217470ce8b86996ff5d34d9b3f2c728b1",
+          "sha1": "c6c7b9be1b96303e4f026fa4e518e30ae879500c",
+          "md5": "a044867af54fb0ad6e3e015aba12c562"
+        }
+      ]
+    },
+    {
+      "name": "sourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "compat-0.9.0-sources.jar",
+          "url": "compat-0.9.0-sources.jar",
+          "size": 8848,
+          "sha512": "953607c06c3a45808821d3ae8741e646f4147b86cbb7220fc26473c1ddf686814f3130e6191fcc74bc6bb66cf6687c11548666777237584cf10dac607b54d275",
+          "sha256": "058c8769232ac5810ddf96c533cfe42e8e0eeaff41cf9624b123b7e75dc555b7",
+          "sha1": "af638dbb933c7f5fabf2364ca8aa0b68c8d3e82f",
+          "md5": "ea07b7ba33bd13cfebd8198e916f9239"
+        }
+      ]
+    }
+  ]
+}

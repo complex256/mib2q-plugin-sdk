@@ -1,0 +1,69 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "dev.complex256.mibsdk",
+    "module": "mibsdk-gradle-plugin",
+    "version": "0.9.0",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 11,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "files": [
+        {
+          "name": "mibsdk-gradle-plugin-0.9.0.jar",
+          "url": "mibsdk-gradle-plugin-0.9.0.jar",
+          "size": 178040,
+          "sha512": "8666fb9cef2155a967b98de1d257244780e770bd53216dc42565842618f1e4a853e51563f3dc00b279daee975a2428a5840a8b6119ab13e2ec82fc1ac2cc408c",
+          "sha256": "90d2cb636e4dca4efe1115011714f219ff33b4ff15c49eed51619db2cf5ad6a4",
+          "sha1": "f7ded3818bd0ce2feb12dcca1318ff6cb53bbd02",
+          "md5": "5de37630bdb9fa5b60b4d8113b8a798e"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 11,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "org.ow2.asm",
+          "module": "asm",
+          "version": {
+            "requires": "9.7"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "mibsdk-gradle-plugin-0.9.0.jar",
+          "url": "mibsdk-gradle-plugin-0.9.0.jar",
+          "size": 178040,
+          "sha512": "8666fb9cef2155a967b98de1d257244780e770bd53216dc42565842618f1e4a853e51563f3dc00b279daee975a2428a5840a8b6119ab13e2ec82fc1ac2cc408c",
+          "sha256": "90d2cb636e4dca4efe1115011714f219ff33b4ff15c49eed51619db2cf5ad6a4",
+          "sha1": "f7ded3818bd0ce2feb12dcca1318ff6cb53bbd02",
+          "md5": "5de37630bdb9fa5b60b4d8113b8a798e"
+        }
+      ]
+    }
+  ]
+}

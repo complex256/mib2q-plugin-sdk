@@ -1905,7 +1905,7 @@
 <p>The output is <code>build/mibsdk/&lt;id&gt;-&lt;version&gt;.mpk</code>. It contains the stamped jar, your icons, their generated
 reflections and a <code>manifest.toml</code> that mibpkg reads. Inspect the staged files in
 <code>build/mibpkg-stage/</code> if a package looks wrong.</p>
-<p>A plugin with <code>"api": 6</code> needs SDK 0.4.x. mibpkg refuses it on an older SDK.</p>
+<p>A plugin with <code>"api": 9</code> needs SDK 0.9.0 or later. mibpkg refuses it on an older SDK, and refuses a plugin built for api 8 or lower on SDK 0.9.0.</p>
 <h2 id="install-the-package">Install the package<a class="headerlink" href="#install-the-package" title="Permanent link">&para;</a></h2>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">mibpkg web interface</label><label for="__tabbed_1_2">mibsdk-dev</label></div>
 <div class="tabbed-content">
@@ -1941,7 +1941,7 @@ needed.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>installer/mibsdk-dev<span class="w"> </span>log<span class="w"> </span>&lt;unit-ip&gt;
 </code></pre></div>
 <p>The log also contains the SDK's own <code>STATUS</code> lines, for example:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>STATUS coffee-timer FAILED mibsdk.runtime.UndeclaredPermissionException: permission not declared in plugin.json: ui.slot.carmenu at ...
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>STATUS coffee-timer FAILED mibsdk.runtime.permission.UndeclaredPermissionException: permission not declared in plugin.json: ui.slot.carmenu at ...
 </code></pre></div>
 <p>In a host test, <code>h.log()</code> returns the same lines and <code>h.await</code> prints them when a test fails.</p>
 <h2 id="plugin-states">Plugin states<a class="headerlink" href="#plugin-states" title="Permanent link">&para;</a></h2>

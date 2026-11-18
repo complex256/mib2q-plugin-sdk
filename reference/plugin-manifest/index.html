@@ -1874,7 +1874,7 @@ runtime reads the copy at the jar root.</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Coffee Timer"</span><span class="p">,</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1.0.0"</span><span class="p">,</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">"author"</span><span class="p">:</span><span class="w"> </span><span class="s2">"your-name"</span><span class="p">,</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">"api"</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">"api"</span><span class="p">:</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">"main"</span><span class="p">:</span><span class="w"> </span><span class="s2">"tutorial.coffeetimer.CoffeeTimerPlugin"</span><span class="p">,</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">"permissions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"ui.slot.carmenu"</span><span class="p">,</span><span class="w"> </span><span class="s2">"ui.slot.statusbar"</span><span class="p">],</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="nt">"icons"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"cup"</span><span class="p">,</span><span class="w"> </span><span class="s2">"cup-20"</span><span class="p">]</span>
@@ -1913,7 +1913,7 @@ runtime reads the copy at the jar root.</p>
 <tr>
 <td><code>api</code></td>
 <td>Yes</td>
-<td>Integer 1–7: the newest plugin API your code uses</td>
+<td>Integer: the newest plugin API your code uses. Currently 9, the only level this SDK loads</td>
 </tr>
 <tr>
 <td><code>main</code></td>
@@ -1928,7 +1928,7 @@ runtime reads the copy at the jar root.</p>
 <tr>
 <td><code>icons</code></td>
 <td>No</td>
-<td>Array of icon names, <code>[a-z0-9-]{1,32}</code>, at most 8. Needs <code>"api": 3</code> or higher. Each needs <code>src/main/icons/&lt;name&gt;.png</code></td>
+<td>Array of icon names, <code>[a-z0-9-]{1,32}</code>, at most 8. Each needs <code>src/main/icons/&lt;name&gt;.png</code></td>
 </tr>
 <tr>
 <td><code>dependencies</code></td>
@@ -1944,10 +1944,9 @@ runtime reads the copy at the jar root.</p>
 <li>missing <code>id</code>, <code>name</code>, <code>version</code>, <code>main</code>;</li>
 <li>an id outside the rule above, or <code>mibsdk</code>;</li>
 <li>a version that is not semver;</li>
-<li>an <code>api</code> outside 1–7, or a non-integer;</li>
+<li>an <code>api</code> other than the one this SDK implements (see <a href="../api-levels/">API levels</a>), or a non-integer;</li>
 <li>an unknown permission, with a "did you mean" hint;</li>
 <li>an invalid, duplicate or excessive icon name;</li>
-<li><code>"icons"</code> with an api below 3;</li>
 <li>a missing icon PNG, or a PNG that fails the format rules.</li>
 </ul>
 <p>The package also carries a generated <code>requires.toml</code>:</p>
