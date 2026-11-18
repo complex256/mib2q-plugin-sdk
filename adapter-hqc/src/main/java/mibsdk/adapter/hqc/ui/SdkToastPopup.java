@@ -54,7 +54,7 @@ final class SdkToastPopup {
     }
 
     /** Where the models come from; null while they cannot be had (no SDK bank). */
-    interface Source {
+    public interface Source {
         Models get();
     }
 

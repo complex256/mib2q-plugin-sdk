@@ -2,7 +2,7 @@ package mibsdk.adapter.hqc.ui;
 
 import de.audi.atip.hmi.event.RunnableEvent;
 import de.audi.atip.hmi.model.AbstractModelBank;
-import mibsdk.runtime.Clock;
+import mibsdk.runtime.util.Clock;
 
 /**
  * Posts SDK jobs to HMIEvent with at most one pending: {@link #post} returns false while a job is queued or running.

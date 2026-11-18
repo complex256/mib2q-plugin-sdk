@@ -274,7 +274,7 @@ class StatusLayoutTest {
 
     /** The icon cell is the runtime's ICON_CHARS wide (StatusLine is package-private there: read reflectively). */    @Test
     void iconCellIsTheRuntimesIconChars() throws Exception {
-        Field f = Class.forName("mibsdk.runtime.StatusLine").getDeclaredField("ICON_CHARS");
+        Field f = Class.forName("mibsdk.runtime.ui.StatusLine").getDeclaredField("ICON_CHARS");
         f.setAccessible(true);
         assertEquals(f.getInt(null), HqcUiIds.STATUS_ICON_CHARS);
         assertEquals(20, HqcUiIds.STATUS_ICON_PX);

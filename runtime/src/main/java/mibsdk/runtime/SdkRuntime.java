@@ -38,6 +38,45 @@ import mibsdk.platform.UiDialog;
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiTable;
+import mibsdk.runtime.event.EventBus;
+import mibsdk.runtime.health.BootGuard;
+import mibsdk.runtime.health.DevChannel;
+import mibsdk.runtime.health.FailureTracker;
+import mibsdk.runtime.health.HeapWatch;
+import mibsdk.runtime.health.RingLog;
+import mibsdk.runtime.net.WifiManager;
+import mibsdk.runtime.net.WifiView;
+import mibsdk.runtime.permission.Grants;
+import mibsdk.runtime.pkg.PackageCatalog;
+import mibsdk.runtime.pkg.PackageOps;
+import mibsdk.runtime.plugin.PluginContextImpl;
+import mibsdk.runtime.plugin.PluginHost;
+import mibsdk.runtime.plugin.PluginScheduler;
+import mibsdk.runtime.plugin.PluginState;
+import mibsdk.runtime.plugin.PluginStatus;
+import mibsdk.runtime.plugin.PluginStorage;
+import mibsdk.runtime.plugin.Registrations;
+import mibsdk.runtime.plugin.StorageQuota;
+import mibsdk.runtime.plugin.UserToggles;
+import mibsdk.runtime.plugin.loading.FilteringParentLoader;
+import mibsdk.runtime.plugin.loading.PluginClassLoaders;
+import mibsdk.runtime.plugin.loading.PluginJarCache;
+import mibsdk.runtime.plugin.manifest.ManifestException;
+import mibsdk.runtime.plugin.manifest.ManifestParser;
+import mibsdk.runtime.plugin.manifest.PluginManifest;
+import mibsdk.runtime.ui.PluginsMenu;
+import mibsdk.runtime.ui.StatusBarConfig;
+import mibsdk.runtime.ui.StatusLine;
+import mibsdk.runtime.ui.UiDispatcher;
+import mibsdk.runtime.ui.UiHub;
+import mibsdk.runtime.util.Clock;
+import mibsdk.runtime.util.DurableFiles;
+import mibsdk.runtime.util.SerialExecutor;
+import mibsdk.runtime.vehicle.ActiveOverride;
+import mibsdk.runtime.vehicle.HookDispatcher;
+import mibsdk.runtime.vehicle.HooksImpl;
+import mibsdk.runtime.vehicle.OverrideLedger;
+import mibsdk.runtime.vehicle.ParkingImpl;
 
 /**
  * Discovers, orders, enables and contains plugins.
@@ -142,7 +181,7 @@ public final class SdkRuntime {
     static volatile EnableHook testEnableHook;
 
     /** Test hook: runs on the control thread in stop() just before {@code ledger.beginShutdown()}. */
-    static volatile Runnable testBeforeLedgerShutdown;
+    public static volatile Runnable testBeforeLedgerShutdown;
 
     /** Test hook: simulates an SDK-side failure at the start of the initial plugin load. */
     static volatile Runnable testBeforeLoadAll;
@@ -742,7 +781,7 @@ public final class SdkRuntime {
      * down the control thread, the dev channel and the hook dispatcher. No plugin is disabled, nothing is
      * drained, the adapter is not stopped and no file is written.
      */
-    void haltForTest() {
+    public void haltForTest() {
         SerialExecutor c = beginStop();
         if (c == null) {
             return;
@@ -811,7 +850,7 @@ public final class SdkRuntime {
     }
 
     /** Disables one plugin with the given reason. Blocks. (Package-private until the Plugins menu needs it.) */
-    void disable(final String pluginId, final String reason) {
+    public void disable(final String pluginId, final String reason) {
         runOnControl(control(), "disable:" + pluginId, new Runnable() {
             public void run() {
                 PluginHost h = findHost(pluginId);
@@ -833,7 +872,7 @@ public final class SdkRuntime {
     }
 
     /** Test hook: true while the UI input thread is alive. */
-    boolean uiDispatcherRunning() {
+    public boolean uiDispatcherRunning() {
         UiDispatcher ud;
         synchronized (this) {
             ud = uiDispatcher;
@@ -861,7 +900,7 @@ public final class SdkRuntime {
     }
 
     /** The override ledger ({@code restorePendingOnBoot} runs on it at a safe-mode start). */
-    OverrideLedger ledger() {
+    public OverrideLedger ledger() {
         return ledger;
     }
 
@@ -2231,7 +2270,7 @@ public final class SdkRuntime {
     }
 
     /** One-line description of a throwable, with its cause and top frame. Never throws. */
-    static String describe(Throwable t) {
+    public static String describe(Throwable t) {
         try {
             String s = String.valueOf(t);
             Throwable cause = t.getCause();

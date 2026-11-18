@@ -13,7 +13,7 @@ import mibsdk.platform.ParkingIo;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.PlatformHost;
 import mibsdk.platform.WifiIo;
-import mibsdk.runtime.Clock;
+import mibsdk.runtime.util.Clock;
 import org.dsi.ifc.carparkingsystem.DSICarParkingSystem;
 import org.dsi.ifc.networking.DSIWLAN;
 import org.dsi.ifc.powermanagement.DSIPowerManagement;

@@ -18,8 +18,8 @@ import mibsdk.platform.UiSnapshot;
 import mibsdk.platform.UiStatusPart;
 import mibsdk.platform.UiTable;
 import mibsdk.platform.UiToast;
-import mibsdk.runtime.Clock;
-import mibsdk.runtime.RingLog;
+import mibsdk.runtime.util.Clock;
+import mibsdk.runtime.health.RingLog;
 
 /**
  * Applies the runtime's UI snapshots to the HMI on the SDK thread {@code mibsdk-ui}: Car drawer slots and row

@@ -185,7 +185,7 @@ class SdkSystemActivatorTest {
     void sdkClassesMissingGiveTheStockFactory() throws Exception {
         URL[] urls = {locationOf(SdkSystemActivator.class), locationOf(SystemScreenFactory.class)};
         try (URLClassLoader l = new URLClassLoader(urls, ClassLoader.getPlatformClassLoader())) {
-            assertThrows(ClassNotFoundException.class, () -> l.loadClass("mibsdk.runtime.RingLog"));
+            assertThrows(ClassNotFoundException.class, () -> l.loadClass("mibsdk.runtime.health.RingLog"));
             Class<?> cls = Class.forName(SdkSystemActivator.class.getName(), true, l);
             Object a = cls.getConstructor().newInstance();
             giveFramework(a, l);

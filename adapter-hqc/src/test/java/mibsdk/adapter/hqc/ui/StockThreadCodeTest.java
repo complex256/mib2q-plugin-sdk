@@ -30,9 +30,9 @@ class StockThreadCodeTest {
 
     private static final Pattern FORBIDDEN = Pattern.compile("java\\.io\\.|java\\.nio\\.|java\\.net\\.|\\bnew Thread\\b"
             + "|\\bThread\\.sleep\\b|\\.start\\(\\)|\\.join\\(|\\.wait\\(|\\bnew Timer\\b|System\\.(out|err)"
-            + "|mibsdk\\.api\\.|mibsdk\\.runtime\\.(?!Clock;|RingLog;)|\\bawaitNewer\\b|\\.poll\\(");
-    // mibsdk.runtime.Clock is allowed: HmiPoster reads the monotonic clock (one short monitor), never runtime code.
-    // mibsdk.runtime.RingLog is allowed: the one way stock-thread code may log (PageScreens).
+            + "|mibsdk\\.api\\.|mibsdk\\.runtime\\.(?!util\\.Clock;|health\\.RingLog;)|\\bawaitNewer\\b|\\.poll\\(");
+    // mibsdk.runtime.util.Clock is allowed: HmiPoster reads the monotonic clock (one short monitor), never runtime code.
+    // mibsdk.runtime.health.RingLog is allowed: the one way stock-thread code may log (PageScreens).
 
     private static String source(String name) throws IOException {
         Path p = Paths.get("src/main/java/mibsdk/adapter/hqc/ui/" + name + ".java");

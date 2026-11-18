@@ -477,7 +477,7 @@ class SdkCarScreenFactoryTest {
             mibsdk.platform.PageStack stack = new mibsdk.platform.PageStack(new PageEvents(table));
             HmiPoster poster = new HmiPoster(new HmiPosterTest.HeldSink(), null, () -> 0L,
                     HmiPoster.PENDING_DEADLINE_MS);
-            PageScreens pages = new PageScreens(hmi, stack, table, poster, new mibsdk.runtime.RingLog(10));
+            PageScreens pages = new PageScreens(hmi, stack, table, poster, new mibsdk.runtime.health.RingLog(10));
             UiInputs.clock = () -> 0L;
             UiInputs.userPressed();
             mibsdk.platform.UiPage p = new mibsdk.platform.UiPage("a/p", "Alpha", java.util.Arrays.asList(

@@ -58,7 +58,7 @@ installer/mibsdk-dev log <unit-ip>
 The log also contains the SDK's own `STATUS` lines, for example:
 
 ```text
-STATUS coffee-timer FAILED mibsdk.runtime.UndeclaredPermissionException: permission not declared in plugin.json: ui.slot.carmenu at ...
+STATUS coffee-timer FAILED mibsdk.runtime.permission.UndeclaredPermissionException: permission not declared in plugin.json: ui.slot.carmenu at ...
 ```
 
 In a host test, `h.log()` returns the same lines and `h.await` prints them when a test fails.

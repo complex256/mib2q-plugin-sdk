@@ -22,7 +22,7 @@ import mibsdk.platform.UiInput;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiSnapshot;
 import mibsdk.platform.UiTable;
-import mibsdk.runtime.RingLog;
+import mibsdk.runtime.health.RingLog;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

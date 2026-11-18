@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import mibsdk.runtime.Clock;
+import mibsdk.runtime.util.Clock;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceReference;
 import org.junit.jupiter.api.Test;

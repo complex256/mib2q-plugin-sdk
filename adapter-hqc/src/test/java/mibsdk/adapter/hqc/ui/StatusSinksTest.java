@@ -10,9 +10,9 @@ import java.util.Collections;
 import java.util.List;
 import mibsdk.platform.UiStatusPart;
 import mibsdk.api.ui.HmiContext;
-import mibsdk.runtime.Clock;
-import mibsdk.runtime.RingLog;
-import mibsdk.runtime.StatusBarConfig;
+import mibsdk.runtime.util.Clock;
+import mibsdk.runtime.health.RingLog;
+import mibsdk.runtime.ui.StatusBarConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

@@ -2,7 +2,7 @@ package mibsdk.adapter.hqc.ui;
 
 import mibsdk.platform.UiInput;
 import mibsdk.platform.UiTable;
-import mibsdk.runtime.Clock;
+import mibsdk.runtime.util.Clock;
 
 /**
  * User input from stock threads (HMIEvent): only ever dropped into {@link UiTable}'s ring, plus the monotonic time of

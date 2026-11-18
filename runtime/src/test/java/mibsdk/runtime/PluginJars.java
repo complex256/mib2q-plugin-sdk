@@ -19,12 +19,12 @@ import mibsdk.api.MibPlugin;
  * Builds fixture plugin jars in-test: compiles one {@code fx.Main extends MibPlugin} from source strings
  * against the api classes and packs it with a {@code plugin.json} at the jar root.
  */
-final class PluginJars {
+public final class PluginJars {
 
     private final File workDir;
     private int counter;
 
-    PluginJars(File workDir) {
+    public PluginJars(File workDir) {
         this.workDir = workDir;
     }
 
@@ -32,13 +32,13 @@ final class PluginJars {
      * Writes {@code pluginsDir/<id>.jar}. {@code onEnableBody} sees {@code ctx} (also stored in field
      * {@code ctx}); {@code members} adds fields/methods to the class. onDisable logs {@code "disabled"}.
      */
-    File write(File pluginsDir, String id, String version, String[] dependencies, String[] permissions,
+    public File write(File pluginsDir, String id, String version, String[] dependencies, String[] permissions,
             String onEnableBody, String members) throws IOException {
         return write(pluginsDir, id, version, dependencies, permissions, onEnableBody, members, "");
     }
 
     /** As above; {@code onDisableBody} runs in onDisable after it logs {@code "disabled"}. */
-    File write(File pluginsDir, String id, String version, String[] dependencies, String[] permissions,
+    public File write(File pluginsDir, String id, String version, String[] dependencies, String[] permissions,
             String onEnableBody, String members, String onDisableBody) throws IOException {
         String source = "package fx;\n"
                 + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"

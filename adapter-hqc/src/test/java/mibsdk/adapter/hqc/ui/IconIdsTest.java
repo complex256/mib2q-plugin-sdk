@@ -11,7 +11,7 @@ import java.lang.reflect.Proxy;
 import mibsdk.adapter.hqc.HqcPlatform;
 import mibsdk.adapter.hqc.SdkGlobals;
 import mibsdk.platform.PlatformHost;
-import mibsdk.runtime.RingLog;
+import mibsdk.runtime.health.RingLog;
 import org.junit.jupiter.api.Test;
 import org.osgi.framework.BundleContext;
 

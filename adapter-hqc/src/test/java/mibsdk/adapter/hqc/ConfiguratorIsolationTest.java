@@ -25,7 +25,7 @@ import java.util.Dictionary;
 import java.util.List;
 import mibsdk.api.hooks.HookPoint;
 import mibsdk.platform.HookTable;
-import mibsdk.runtime.RingLog;
+import mibsdk.runtime.health.RingLog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

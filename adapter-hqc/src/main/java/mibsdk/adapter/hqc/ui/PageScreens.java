@@ -13,7 +13,7 @@ import mibsdk.platform.UiPage;
 import mibsdk.platform.UiPageText;
 import mibsdk.platform.UiSnapshot;
 import mibsdk.platform.UiTable;
-import mibsdk.runtime.RingLog;
+import mibsdk.runtime.health.RingLog;
 
 /**
  * SDK pages as native screens (spike B, {@link HqcUiIds#PAGE_PATH} = SHOW_SCREEN), with SDK-owned navigation. This

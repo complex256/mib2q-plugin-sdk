@@ -22,25 +22,30 @@ import mibsdk.platform.UiEntry;
 import mibsdk.platform.UiPage;
 import mibsdk.platform.UiSnapshot;
 import mibsdk.platform.UiTable;
+import mibsdk.runtime.health.RingLog;
+import mibsdk.runtime.plugin.PluginState;
+import mibsdk.runtime.plugin.PluginStatus;
+import mibsdk.runtime.util.FakeClock;
+import mibsdk.runtime.util.SerialExecutor;
 
 /** A real {@link SdkRuntime} on a {@link FakePlatform} with the UI features, for the UI hub tests. */
-final class UiTestRuntime {
+public final class UiTestRuntime {
 
-    static final Set<String> UI_FEATURES = new HashSet<String>(
+    public static final Set<String> UI_FEATURES = new HashSet<String>(
             Arrays.asList(Features.SLOT_CAR_MENU, Features.SLOT_STATUS_BAR, Features.UI_PAGES));
 
     final FakeClock clock = new FakeClock();
-    final UiTable table = new UiTable(64);
-    final FakePlatform fake;
+    public final UiTable table = new UiTable(64);
+    public final FakePlatform fake;
     private final File base;
     private final File plugins;
     private final SdkRoots roots;
     private final File tmp;
     private final PluginJars jars;
     private final Map<String, String[]> grants = new LinkedHashMap<String, String[]>();
-    SdkRuntime rt;
+    public SdkRuntime rt;
 
-    UiTestRuntime(File tmp, Set<String> features) {
+    public UiTestRuntime(File tmp, Set<String> features) {
         this.tmp = tmp;
         this.fake = new FakePlatform("HMI_TEST", features);
         this.roots = FakePlatform.roots(tmp);
@@ -51,12 +56,12 @@ final class UiTestRuntime {
     }
 
     /** {@code fx.Main} whose onEnable runs {@code onEnableBody}; manifest name {@code name}; all perms granted. */
-    void plugin(String id, String name, String[] perms, String onEnableBody, String members) throws IOException {
+    public void plugin(String id, String name, String[] perms, String onEnableBody, String members) throws IOException {
         plugin(id, name, perms, onEnableBody, members, new String[0]);
     }
 
     /** As above, with dependencies on other plugin ids. */
-    void plugin(String id, String name, String[] perms, String onEnableBody, String members, String[] deps)
+    public void plugin(String id, String name, String[] perms, String onEnableBody, String members, String[] deps)
             throws IOException {
         String source = "package fx;\n"
                 + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
@@ -85,7 +90,7 @@ final class UiTestRuntime {
     }
 
     /** Forces safe mode at the next start. */
-    void safeModeMarker() throws IOException {
+    public void safeModeMarker() throws IOException {
         write(new File(base, "SAFE_MODE"), "");
     }
 
@@ -104,7 +109,7 @@ final class UiTestRuntime {
         write(new File(roots.persist(), "boot.state"), text);
     }
 
-    SdkRuntime start() throws IOException {
+    public SdkRuntime start() throws IOException {
         SerialExecutor.watchdogPeriodMs = 10;
         write(new File(base, "sdk.properties"), "plugin.start.delay.ms=0\nheap.low.bytes=0\nui.publish.min.ms=0\n"
                 + "log.file=" + new File(tmp, "mibsdk.log").getPath() + "\n");
@@ -124,7 +129,7 @@ final class UiTestRuntime {
     }
 
     /** Stops the runtime off-thread so a wedged runtime fails rather than hangs; resets the watchdog period. */
-    void stop() throws InterruptedException {
+    public void stop() throws InterruptedException {
         try {
             if (rt != null) {
                 final SdkRuntime r = rt;
@@ -142,7 +147,7 @@ final class UiTestRuntime {
         }
     }
 
-    UiSnapshot await(Predicate<UiSnapshot> p, String what) throws InterruptedException {
+    public UiSnapshot await(Predicate<UiSnapshot> p, String what) throws InterruptedException {
         for (int i = 0; i < 500; i++) {
             UiSnapshot s = table.snapshot();
             if (p.test(s)) {
@@ -154,7 +159,7 @@ final class UiTestRuntime {
         return null;
     }
 
-    void awaitState(String id, PluginState state) throws InterruptedException {
+    public void awaitState(String id, PluginState state) throws InterruptedException {
         for (int i = 0; i < 500; i++) {
             for (PluginStatus s : rt.statuses()) {
                 if (s.id().equals(id) && s.state() == state) {
@@ -167,7 +172,7 @@ final class UiTestRuntime {
     }
 
     /** Log lines from {@code source} ending with {@code msg}. */
-    int count(String source, String msg) {
+    public int count(String source, String msg) {
         int n = 0;
         for (String line : rt.log().snapshot()) {
             if (line.endsWith(" " + source + " " + msg)) {
@@ -177,7 +182,7 @@ final class UiTestRuntime {
         return n;
     }
 
-    void awaitCount(String source, String msg, int n) throws InterruptedException {
+    public void awaitCount(String source, String msg, int n) throws InterruptedException {
         for (int i = 0; i < 500; i++) {
             if (count(source, msg) >= n) {
                 return;
@@ -188,7 +193,7 @@ final class UiTestRuntime {
     }
 
     /** True if any entry label or title in the snapshot contains {@code s}. */
-    static boolean mentions(UiSnapshot snap, String s) {
+    public static boolean mentions(UiSnapshot snap, String s) {
         for (UiPage p : snap.pages().values()) {
             if (p.title() != null && p.title().indexOf(s) >= 0) {
                 return true;

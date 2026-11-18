@@ -7,7 +7,7 @@ import mibsdk.adapter.hqc.ui.IconIds;
 import mibsdk.adapter.hqc.ui.RowModels;
 import mibsdk.platform.HookTable;
 import mibsdk.platform.UiTable;
-import mibsdk.runtime.RingLog;
+import mibsdk.runtime.health.RingLog;
 
 /**
  * State shared by the configurator (created by LSD before any bundle starts) and the runtime (started later by

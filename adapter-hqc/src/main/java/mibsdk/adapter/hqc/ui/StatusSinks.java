@@ -2,7 +2,7 @@ package mibsdk.adapter.hqc.ui;
 
 import java.util.List;
 import mibsdk.platform.UiStatusPart;
-import mibsdk.runtime.RingLog;
+import mibsdk.runtime.health.RingLog;
 
 /**
  * Picks where the status line goes: the SDK popup {@link HqcUiIds#POPUP_SDK_STATUS} (icons and text) while its state

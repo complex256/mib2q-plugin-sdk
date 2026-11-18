@@ -24,8 +24,8 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import mibsdk.platform.UiStatusPart;
-import mibsdk.runtime.RingLog;
-import mibsdk.runtime.StatusBarConfig;
+import mibsdk.runtime.health.RingLog;
+import mibsdk.runtime.ui.StatusBarConfig;
 
 /**
  * Renders the SDK status line in the built-in car status bar (right group), one item per row in a clipped viewport. It

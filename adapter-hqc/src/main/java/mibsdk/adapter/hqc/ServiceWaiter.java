@@ -1,6 +1,6 @@
 package mibsdk.adapter.hqc;
 
-import mibsdk.runtime.Clock;
+import mibsdk.runtime.util.Clock;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceReference;
 

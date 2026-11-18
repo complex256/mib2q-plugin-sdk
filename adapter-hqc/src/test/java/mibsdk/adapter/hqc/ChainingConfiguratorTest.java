@@ -582,16 +582,16 @@ class ChainingConfiguratorTest {
         assertFalse(SdkGlobals.wrappingEnabled);
         assertTrue(text(state).contains("wrapBoots=1\n"), text(state));
 
-        mibsdk.runtime.BootGuard g = new mibsdk.runtime.BootGuard(state, new File(base, "SAFE_MODE"), 3);
+        mibsdk.runtime.health.BootGuard g = new mibsdk.runtime.health.BootGuard(state, new File(base, "SAFE_MODE"), 3);
         java.lang.reflect.Method loading =
-                mibsdk.runtime.BootGuard.class.getDeclaredMethod("markPluginsLoading", boolean.class);
+                mibsdk.runtime.health.BootGuard.class.getDeclaredMethod("markPluginsLoading", boolean.class);
         loading.setAccessible(true); // package-private: the runtime's call, made here as SdkRuntime makes it
         loading.invoke(g, Boolean.TRUE);
         assertTrue(text(state).contains("wrapBoots=0\n"), text(state));
 
         init();
         assertTrue(text(state).contains("wrapBoots=1\n"), text(state));
-        new mibsdk.runtime.BootGuard(state, new File(base, "SAFE_MODE"), 3).markHmiHealthy();
+        new mibsdk.runtime.health.BootGuard(state, new File(base, "SAFE_MODE"), 3).markHmiHealthy();
         assertTrue(text(state).contains("wrapBoots=0\n"), text(state));
     }
 

@@ -4,7 +4,7 @@ import java.io.File;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.SdkRoots;
 import mibsdk.runtime.AdapterSelector;
-import mibsdk.runtime.MonotonicClock;
+import mibsdk.runtime.util.MonotonicClock;
 import mibsdk.runtime.RuntimeConfig;
 import mibsdk.runtime.SdkRuntime;
 import org.dsi.ifc.carparkingsystem.DSICarParkingSystem;

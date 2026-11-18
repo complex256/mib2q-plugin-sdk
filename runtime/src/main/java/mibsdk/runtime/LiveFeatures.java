@@ -9,15 +9,15 @@ import java.util.Set;
  * registration and {@code vehicle().parking()} read it at call time, so a feature the adapter learns after the
  * plugin load reaches plugins that are already running. Immutable snapshots behind a volatile reference.
  */
-final class LiveFeatures {
+public final class LiveFeatures {
 
     private volatile Set<String> current;
 
-    LiveFeatures(Set<String> initial) {
+    public LiveFeatures(Set<String> initial) {
         current = copy(initial);
     }
 
-    boolean has(String feature) {
+    public boolean has(String feature) {
         return feature != null && current.contains(feature);
     }
 

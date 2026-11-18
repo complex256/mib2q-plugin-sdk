@@ -14,8 +14,8 @@ import java.util.List;
 import mibsdk.platform.HookTable;
 import mibsdk.platform.SdkRoots;
 import mibsdk.runtime.AdapterSelector;
-import mibsdk.runtime.BootGuard;
-import mibsdk.runtime.RingLog;
+import mibsdk.runtime.health.BootGuard;
+import mibsdk.runtime.health.RingLog;
 import mibsdk.runtime.RuntimeConfig;
 import org.osgi.framework.ServiceRegistration;
 
