@@ -325,7 +325,7 @@ final class LiveFeatures {
     boolean set(java.util.Set<String> next);          // true if it changed
 }
 // PluginContextImpl constructor: Set<String> features → LiveFeatures features; ParkingIo parkingIo → ParkingSource parking
-interface ParkingSource { mibsdk.platform.io.ParkingIo parkingIo(); }   // nested in PluginContextImpl; SdkRuntime::parkingIo
+interface ParkingSource { mibsdk.platform.ParkingIo parkingIo(); }   // nested in PluginContextImpl; SdkRuntime::parkingIo
 // HooksImpl constructor: Set<String> features → LiveFeatures features
 // FakePlatform
 public void setFeatures(java.util.Set<String> features);              // then host.featuresChanged() if started

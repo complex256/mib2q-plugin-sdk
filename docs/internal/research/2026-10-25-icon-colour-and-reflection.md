@@ -240,10 +240,10 @@ takes the same `Color` (kzb binding), so a coloured icon's reflection is coloure
 ### 5.1 API: an additive runtime choice, not a manifest field
 
 ```java
-// mibsdk.api.ui.Icon (constants only; the interface stays empty of methods)
+// mibsdk.api.Icon (constants only; the interface stays empty of methods)
 int TINTED = 0;       // drawn in the app colour like stock icons (white glyphs); the default
 int OWN_COLOURS = 1;  // drawn in the PNG's own colours
-// mibsdk.api.ui.Ui
+// mibsdk.api.Ui
 Icon icon(String name, int colour);   // icon(name) == icon(name, Icon.TINTED)
 ```
 
@@ -260,7 +260,7 @@ Icon icon(String name, int colour);   // icon(name) == icon(name, Icon.TINTED)
 
 1. **Runtime:** `UiImpl.icon(name, colour)` (next to `UiImpl.java:190`) caches a handle per (name, colour), so it
    wraps `UiIcon u.withOwnColours(colour == OWN_COLOURS)`.
-2. **`mibsdk.platform.ui.UiIcon`:** add `boolean ownColours` with `ownColours()` and `withOwnColours(boolean)`. Include
+2. **`mibsdk.platform.UiIcon`:** add `boolean ownColours` with `ownColours()` and `withOwnColours(boolean)`. Include
    it in `equals`/`hashCode` and `toString`, so a change shows up as a snapshot change. It stays **out** of the
    `IconIds` key (owner/sha16): the same file keeps the same id, and colour is not content.
 3. **Snapshot:** `UiRow.icon()` and `UiStatusPart.icon()` already carry the `UiIcon`, so nothing new is needed.

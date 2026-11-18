@@ -37,7 +37,7 @@ from the `HMICar=` line of the bundle list.
 
 **The SDK already owns that bundle list** (its installer writes `bundles_dsitracer_enabled.properties`). So
 instead of shadowing the activator, the installer points `HMICar=` at a **new SDK class**
-(`mibsdk.adapter.hqc.ui.car.SdkCarActivator extends AbstractHMIActivator`) that mirrors the stock activator and
+(`mibsdk.adapter.hqc.ui.SdkCarActivator extends AbstractHMIActivator`) that mirrors the stock activator and
 substitutes subclasses of `CarModelBank` and `CarScreenFactory`. This is the Tone pattern with **no shadowed
 stock class**: a missing or failing SDK class can only affect the Car app, and the uninstall restores the
 original line byte for byte.

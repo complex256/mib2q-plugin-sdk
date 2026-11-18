@@ -306,7 +306,7 @@
 - Produces:
   - `PluginJson.read` fails for an unknown permission: `mibsdk.plugin: <file>: unknown permission "ui.slot.statusbr" (did you mean "ui.slot.statusbar"?); known: <comma list>`. The hint is the catalog id at Levenshtein distance ≤ 3, else omitted.
   - `ApiPermissions.required(String owner, String name, String desc)` → permission id or null. It keys on owner + name (any descriptor):
-    `mibsdk/api/ui/Ui.carMenuRow`→`ui.slot.carmenu`; `Ui.statusItem`, `Ui.toast`→`ui.slot.statusbar`; `mibsdk/api/PluginContext.net`→`network`; `PluginContext.vehicle`→`vehicle.read`; `mibsdk/api/vehicle/Parking.overrideSoundDirections`→`vehicle.parking.write`; `PluginContext.hooks`→`hooks.parking`.
+    `mibsdk/api/Ui.carMenuRow`→`ui.slot.carmenu`; `Ui.statusItem`, `Ui.toast`→`ui.slot.statusbar`; `mibsdk/api/PluginContext.net`→`network`; `PluginContext.vehicle`→`vehicle.read`; `mibsdk/api/Parking.overrideSoundDirections`→`vehicle.parking.write`; `PluginContext.hooks`→`hooks.parking`.
   - `PermissionScan.Result.permissionSites()` → sorted `Map<String,String>` of `owner.method -> Ui.carMenuRow` → permission. `PermissionScanTask.getDeclaredPermissions()` (`ListProperty<String>`). The task fails when a needed permission is undeclared, listing each site: `<site> needs "ui.slot.carmenu": declare it in plugin.json "permissions"`. This applies even with `platform.unrestricted`. The library default is an empty check (report only).
   - `UndeclaredPermissionException extends PermissionDeniedException` (runtime, Java 1.4 API), overriding `getMessage()` with `permission not declared in plugin.json: <p>`. The runtime throws it when `p` is not in the manifest's permissions. A declared-but-ungranted `p` keeps `permission not granted: <p>` (the owner did not approve it).
 
@@ -340,7 +340,7 @@
   Exact descriptors come from `javap -s` on `api/build/classes/java/main`.
 
 - [ ] **Step 1: Write the failing tests**
-  - `ApiLevelsTest.api2And3Members`: `since("mibsdk/api/ui/Ui","statusItem","(Ljava/lang/String;)Lmibsdk/api/StatusItem;") == 2`; `since("mibsdk/api/ui/Ui","stockIcon","(Ljava/lang/String;)Lmibsdk/api/Icon;") == 3`; `since("mibsdk/api/net/Net","query",<desc>) == 2`.
+  - `ApiLevelsTest.api2And3Members`: `since("mibsdk/api/Ui","statusItem","(Ljava/lang/String;)Lmibsdk/api/StatusItem;") == 2`; `since("mibsdk/api/Ui","stockIcon","(Ljava/lang/String;)Lmibsdk/api/Icon;") == 3`; `since("mibsdk/api/Net","query",<desc>) == 2`.
   - `ApiLevelsTest.everySinceTagHasAnEntry`: scan `<repoRoot>/api/src/main/java/mibsdk/api/*.java` for `@since api N` (N ≥ 2). Take the member name from the first following non-comment line, the identifier before `(` (or the constant name for an enum constant). Assert some table entry with that owner simple name and member name has level N. Skip compile-time constants: `static final` primitives/strings are inlined, as the `ApiLevels` class comment says.
   - `PermissionScanTest.daemonStatusAtApi1IsRefused`: the daemon-status classes (fixture copy) with declared api 1 give `tooNew(1)` entries for `Ui.statusItem` (api 2) and `Ui.stockIcon` (api 3).
 

@@ -79,7 +79,7 @@ instead of `HMICar=`, and that changes the risk (§2.3).
 
 ### 2.1 Route: `HMISystem=` takeover, the same pattern as `HMICar=`
 
-- The installer points `HMISystem=` at `mibsdk.adapter.hqc.ui.car.SdkSystemActivator extends AbstractHMIActivator`. It
+- The installer points `HMISystem=` at `mibsdk.adapter.hqc.ui.SdkSystemActivator extends AbstractHMIActivator`. It
   copies the stock activator: `super(0, "System", skin, new SystemModelBank())`, the same condition bank, and
   `SdkSystemScreenFactory extends SystemScreenFactory`. On any `Throwable`, or when `SdkGlobals.uiEnabled` is false,
   it falls back to exactly the stock factory, as `SdkCarActivator` does.
@@ -336,7 +336,7 @@ after the boot is driven by command files, without a restart.
   - 609110/609111/609120 20×20;
   - p20.png 20×20 and p30.png 30×30.
 - **`run.sh`** (Spike C needs changes, because mibpkg removed `mibsdk/stock/`):
-  - expected live lines: `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator` and
+  - expected live lines: `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator` and
     `HMISystem=de.audi.tghu.system.hmi.Activator`;
   - `install` first saves a byte copy of the live bundles file to `/mnt/persist/mibsdk-spike/bundles.before`
     (persist survives the unit reset);
@@ -523,7 +523,7 @@ Log: the second section of `ui-spike-c-log.txt`. Frames: `ui-spike-c-b-*.jpg`, `
 - `/mnt/app` was read-only afterwards.
 - 16:48:50: restart. The first `keypanel up` (17:00, DHCP kick) brought the unit back, and the bridge connected at
   17:00:56.
-- `mibsdk-dev status`: `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator`, running, `ui car=sdk`, 5 plugins ENABLED.
+- `mibsdk-dev status`: `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator`, running, `ui car=sdk`, 5 plugins ENABLED.
 - `run.sh status`: the stock `HMISystem=` line, no jar, no icons.
 - The Car drawer ends with Plugins, Bike rack and Hello, and the MENU ring ends at Settings (stock). Frames
   `ui-spike-c-after-uninstall-drawer.jpg`, `-after-uninstall-ring.jpg`.

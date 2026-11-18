@@ -17,7 +17,7 @@
 - **The runtime** (`mibsdk.runtime`) is firmware-neutral. It loads each plugin in a filtered class loader and runs all plugin code on SDK-owned threads.
 - **The adapter** reaches the HMI only through the `mibsdk.platform` SPI. The HQC adapter is the only code that touches stock classes.
 - **Bootstrap path:**
-  1. An on-disk `bundles_dsitracer_enabled.properties` names `mibsdk.adapter.hqc.boot.ChainingConfigurator` as the service-delegate configurator. It wraps allow-listed DSI services in place, then chains to `TraceConfigurator` when DSITracer was active.
+  1. An on-disk `bundles_dsitracer_enabled.properties` names `mibsdk.adapter.hqc.ChainingConfigurator` as the service-delegate configurator. It wraps allow-listed DSI services in place, then chains to `TraceConfigurator` when DSITracer was active.
   2. A `MibSdk` autostart bundle then starts the runtime.
 
 **Tech Stack:**
@@ -739,9 +739,9 @@ The bridges obtain the real services through `ServiceWaiter` using `BundleContex
 
 **Interfaces:**
 - `gen_bundles.py generate --stock <stock.properties> --tracer-active <true|false> --out <file>` produces the stock file with exactly these changes:
-  - the line `de.audi.tghu.serviceDelegateConfigurator=…` (commented or not) becomes `de.audi.tghu.serviceDelegateConfigurator=mibsdk.adapter.hqc.boot.ChainingConfigurator`;
+  - the line `de.audi.tghu.serviceDelegateConfigurator=…` (commented or not) becomes `de.audi.tghu.serviceDelegateConfigurator=mibsdk.adapter.hqc.ChainingConfigurator`;
   - `Bundle.Startup.Autostart` becomes `DSITracer,MibSdk,<stock rest without DSITracer>` if tracer-active, else `MibSdk,<stock rest without DSITracer>`;
-  - one line `MibSdk=mibsdk.adapter.hqc.boot.SdkBundleActivator` is appended;
+  - one line `MibSdk=mibsdk.adapter.hqc.SdkBundleActivator` is appended;
   - every other line is byte-identical.
 - `gen_bundles.py sdkprops --tracer-active <bool> --out <file>` writes `chain.configurator=de.audi.tghu.dsitrace.TraceConfigurator` (only if tracer-active) and `hook.services=org.dsi.ifc.carparkingsystem.DSICarParkingSystem`.
 - `mibsdk-dev <cmd> [host]` (host defaults to `10.20.0.23`; uses the Global Constraints SSH options):

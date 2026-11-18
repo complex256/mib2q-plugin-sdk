@@ -92,7 +92,7 @@ repository the build's `settings.gradle.kts` names. `templates/plugin` is a read
 ## 3. One exact firmware build is supported (blocker, by design)
 
 - **Where:** README "Supported units and firmware". `HqcVersion.SUPPORTED`
-  (`adapter-hqc/src/main/java/mibsdk/adapter/hqc/HqcVersion.java:7`) and `MpkStage.HMI`
+  (`adapter-hqc/src/main/java/mibsdk/adapter/hqc/boot/HqcVersion.java:7`) and `MpkStage.HMI`
   (`build-logic/src/main/java/mibsdk/build/MpkStage.java:17`).
 - **What happens:** the SDK runs only on `HMI_AU_MIB2_HQC_NAR_G22_C10_180803`. Anyone with another MHI2Q build gets
   "the SDK stays off". This is a deliberate v1 decision (spec G3), but it is the first question every newcomer
@@ -138,8 +138,8 @@ problem as found.
 
 - **Where:** §2. `PluginJson.read` copies `"permissions"` without checking them
   (`build-logic/src/main/java/mibsdk/build/PluginJson.java:101-110`). The runtime check is `UiImpl.requirePermission`
-  (`runtime/src/main/java/mibsdk/runtime/UiImpl.java:480`) and `PluginContextImpl.requirePermission`
-  (`runtime/src/main/java/mibsdk/runtime/PluginContextImpl.java:284`).
+  (`runtime/src/main/java/mibsdk/runtime/ui/UiImpl.java:480`) and `PluginContextImpl.requirePermission`
+  (`runtime/src/main/java/mibsdk/runtime/plugin/PluginContextImpl.java:284`).
 - **What happens:**
   - `"permissions": ["ui.slot.statusbr"]` (a typo) builds **and packages** with `mibPackage`.
   - A plugin that calls `carMenuRow` without declaring `ui.slot.carmenu` builds too. At runtime `onEnable` throws,
@@ -270,8 +270,8 @@ now names. The description below is the problem as found.
 
 - **Where:** §4.3, §4.5 and §10.
   - `UiImpl.MAX_PAGES = 8`, `MAX_CAR_ROWS = 2` and `MAX_STATUS_ITEMS = 1`
-    (`runtime/src/main/java/mibsdk/runtime/UiImpl.java:67-69`) are package-private. `Ui.carMenuRow`
-    (`api/src/main/java/mibsdk/api/Ui.java:56`) and `Ui.page` (`Ui.java:50`) do not mention them.
+    (`runtime/src/main/java/mibsdk/runtime/ui/UiImpl.java:67-69`) are package-private. `Ui.carMenuRow`
+    (`api/src/main/java/mibsdk/api/ui/Ui.java:56`) and `Ui.page` (`Ui.java:50`) do not mention them.
   - The status and toast icon limit (20 px), the item icon limit (24 px) and the 12-character status text are in
     the API, but they are checked **only at runtime** (`UiImpl.java:496-500`).
 - **What happens:**
@@ -310,7 +310,7 @@ predates this fix.
   - `Permissions`, `Log`, `Events`, `Vehicle` and `HookPoint` have no class or member docs.
   - **The most useful guarantee is not in the API at all.** Everything a plugin runs (`onEnable`, actions, timers,
     events, answers) runs serially on one worker per plugin. That is in `SerialExecutor` and `PluginScheduler`
-    (`runtime/src/main/java/mibsdk/runtime/PluginScheduler.java:5-7`). `Scheduler`'s Javadoc
+    (`runtime/src/main/java/mibsdk/runtime/plugin/PluginScheduler.java:5-7`). `Scheduler`'s Javadoc
     (`api/src/main/java/mibsdk/api/Scheduler.java:3`) says "SDK-owned daemon threads", plural, which suggests you
     need locks.
   - The slow-callback and hung-callback thresholds (5 s and 30 s), and the quarantine rule (3 failures in 60 s),
@@ -431,7 +431,7 @@ Javadoc gives the key format. `inputs-demo`'s test uses it. The description belo
 ## 20. Events need no permission, but the approval text says otherwise (nit)
 
 - **Where:** `api/permissions.json:2` (`"Read vehicle state: ignition, gear, parking sensors"`) and
-  `PluginContextImpl.events()` (`runtime/src/main/java/mibsdk/runtime/PluginContextImpl.java:241`), which has no
+  `PluginContextImpl.events()` (`runtime/src/main/java/mibsdk/runtime/plugin/PluginContextImpl.java:241`), which has no
   check.
 - **What happens:** any plugin can subscribe to `IgnitionChanged`, `ParkingSoundChanged` and
   `TrailerHitchedChanged` without `vehicle.read`. Only `events().on(HookObserved.class)` is gated. The text the

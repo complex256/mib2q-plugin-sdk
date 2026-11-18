@@ -66,7 +66,7 @@
   - the forced-failure switch says `factory`;
   - any Throwable while building the SDK factory.
 - **Zero shadowed classes.** mibpkg:
-  - writes `HMISystem=mibsdk.adapter.hqc.ui.car.SdkSystemActivator` only if the stock line reads exactly `HMISystem=de.audi.tghu.system.hmi.Activator` (CRLF kept);
+  - writes `HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator` only if the stock line reads exactly `HMISystem=de.audi.tghu.system.hmi.Activator` (CRLF kept);
   - restores the file byte for byte on uninstall;
   - refuses unknown HMI builds;
   - refuses an uninstall after a firmware change unless `--force`.
@@ -767,7 +767,7 @@ git commit -m "feat(adapter-hqc): Plugins opens from the MENU ring; the Car-draw
 #[test]
 fn hmisystem_substituted_once_keeping_crlf_and_fixed_point() {
     let out = gen_with(&stock(), spec_system(), true);
-    assert_eq!(count(&out, b"HMISystem=mibsdk.adapter.hqc.ui.car.SdkSystemActivator\r\n"), 1);
+    assert_eq!(count(&out, b"HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator\r\n"), 1);
     assert_eq!(count(&out, b"HMISystem=de.audi.tghu.system.hmi.Activator"), 0);
     assert_eq!(gen_with(&out, spec_system(), true), out);
 }
@@ -906,7 +906,7 @@ git -c user.name=complex256 -c user.email=me@complex256.dev commit -m "feat(sdk)
   - `MpkStage.sdkManifest(String version, List<String> icons)` (it gains the icon list; `dist/build.gradle.kts` passes the names of `dist/icons/*.png`, sorted). The staged SDK manifest has:
     - `api = 3`;
     - `hmisystem_stock = "de.audi.tghu.system.hmi.Activator"`;
-    - `hmisystem = "mibsdk.adapter.hqc.ui.car.SdkSystemActivator"`;
+    - `hmisystem = "mibsdk.adapter.hqc.ui.SdkSystemActivator"`;
     - `owned = ["de/audi/tghu/car/hmi/", "de/audi/atip/model/CarModelBank", "de/audi/tghu/system/hmi/"]`;
     - `icons = [<the 24 built-in names, sorted>]`, with the files staged as `icons/<name>.png`.
   - A plugin package stages `plugin.json`'s `icons` as `[plugin] icons` and `icons/<name>.png`, taken from `src/main/icons/` and checked with `PngCheck` at stage time.
@@ -974,7 +974,7 @@ git -c user.name=complex256 -c user.email=me@complex256.dev commit -m "feat(sdk)
   - install `mibsdk` (Task 10), `hello-menu` and `daemon-status` (Task 11) through mibpkg. hello-menu's update asks for the new `ui.slot.statusbar` permission: approve it, as `docs/bench-e2e-ui.md` describes for approvals, and check that `mibpkg sdk status` lists the grant.
 
   Check:
-  - `mibpkg sdk status` shows `HMICar=…SdkCarActivator`, `HMISystem=mibsdk.adapter.hqc.ui.car.SdkSystemActivator` and `api: 1..3`;
+  - `mibpkg sdk status` shows `HMICar=…SdkCarActivator`, `HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator` and `api: 1..3`;
   - `cmp` of the live list against `bundles.pre.properties` differs only in the `HMISystem=` line;
   - `ls /mnt/app/eso/hmi/lsd/mibsdk/icons/hello-menu/ /mnt/app/eso/hmi/lsd/mibsdk/icons-sdk/` shows the `<sha16>.png` files and an `index.properties`.
 
