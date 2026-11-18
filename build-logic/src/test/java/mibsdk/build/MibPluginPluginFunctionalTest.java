@@ -19,6 +19,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+import mibsdk.build.check.CheckStamp;
+import mibsdk.build.check.PngCheck;
+import mibsdk.build.check.Reflection;
 import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.TaskOutcome;
@@ -202,7 +205,7 @@ class MibPluginPluginFunctionalTest {
                 + "}\n");
         write("plugins/kt/src/main/resources/plugin.json", manifest("kt", "sample.kt.KtPlugin", "[]"));
         write("plugins/kt/src/main/kotlin/sample/kt/KtPlugin.kt", "package sample.kt\n"
-                + "import mibsdk.api.IgnitionChanged\n"
+                + "import mibsdk.api.vehicle.IgnitionChanged\n"
                 + "import mibsdk.api.MibPlugin\n"
                 + "import mibsdk.api.PluginContext\n"
                 + "class KtPlugin : MibPlugin() {\n"
@@ -712,7 +715,7 @@ class MibPluginPluginFunctionalTest {
                 .getBytes(StandardCharsets.UTF_8));
         Path java = Files.createDirectories(alone.resolve("src/main/java/sample/alone"));
         Files.write(java.resolve("AlonePlugin.java"), ("package sample.alone;\n"
-                + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
+                + "import mibsdk.api.*;\n"
                 + "public class AlonePlugin extends MibPlugin {\n"
                 + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
                 + "}\n").getBytes(StandardCharsets.UTF_8));

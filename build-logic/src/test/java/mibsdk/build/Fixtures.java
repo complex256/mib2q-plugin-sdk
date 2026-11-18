@@ -23,11 +23,11 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 
 /** Test helpers: tiny fake car JCL, in-test javac, and v48 rewriting by ASM. */
-final class Fixtures {
+public final class Fixtures {
     private Fixtures() {}
 
     /** A fake car JCL: only what the fixtures need. No AutoCloseable, no regex, no Map.merge. */
-    static File stubJcl(Path dir) throws IOException {
+    public static File stubJcl(Path dir) throws IOException {
         stub(dir, "java/lang/Object", null, false, "<init>()V", "hashCode()I", "toString()Ljava/lang/String;");
         stub(dir, "java/lang/String", "java/lang/Object", false, "<init>()V");
         stub(dir, "java/lang/StringBuffer", "java/lang/Object", false,
@@ -63,7 +63,7 @@ final class Fixtures {
      * Compiles {@code sources} (fully qualified class name to source text) with {@code javac --release 8}
      * into {@code out}, then rewrites every class file as v48. Extra classpath entries are optional.
      */
-    static File compileV48(Path out, Map<String, String> sources, File... classpath) throws IOException {
+    public static File compileV48(Path out, Map<String, String> sources, File... classpath) throws IOException {
         Path src = Files.createTempDirectory(out.getParent(), "src");
         Files.createDirectories(out);
         List<String> args = new ArrayList<>(Arrays.asList("--release", "8", "-proc:none", "-nowarn", "-Xlint:-options", "-d", out.toString()));
@@ -71,7 +71,16 @@ final class Fixtures {
             args.add("-classpath");
             args.add(Arrays.stream(classpath).map(File::getPath).collect(Collectors.joining(File.pathSeparator)));
         }
-        for (Map.Entry<String, String> e : sources.entrySet()) {
+        Map<String, String> all = new java.util.LinkedHashMap<>(sources);
+        if (all.values().stream().anyMatch(s -> s.contains("import mibsdk.api.ui.*;"))) {
+            // Stub fixtures wildcard-import every api package; a wildcard import of an empty package does not compile.
+            for (String p : new String[] {"mibsdk.api", "mibsdk.api.ui", "mibsdk.api.vehicle", "mibsdk.api.hooks", "mibsdk.api.net"}) {
+                if (all.keySet().stream().noneMatch(k -> k.startsWith(p + ".") && k.indexOf('.', p.length() + 1) < 0)) {
+                    all.put(p + ".Placeholder_", "package " + p + "; final class Placeholder_ {}");
+                }
+            }
+        }
+        for (Map.Entry<String, String> e : all.entrySet()) {
             Path f = src.resolve(e.getKey().replace('.', '/') + ".java");
             Files.createDirectories(f.getParent());
             Files.write(f, e.getValue().getBytes(StandardCharsets.UTF_8));
@@ -98,7 +107,7 @@ final class Fixtures {
         return out.toFile();
     }
 
-    static File jar(Path jar, File classesDir) throws IOException {
+    public static File jar(Path jar, File classesDir) throws IOException {
         try (OutputStream o = Files.newOutputStream(jar);
              JarOutputStream j = new JarOutputStream(o);
              Stream<Path> s = Files.walk(classesDir.toPath())) {

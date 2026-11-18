@@ -1,4 +1,4 @@
-import mibsdk.build.NewPluginTask
+import mibsdk.build.tasks.NewPluginTask
 import org.gradle.api.GradleException
 
 // Root project: shared tasks (carJcl) are registered here by the mibsdk.car-library plugin.

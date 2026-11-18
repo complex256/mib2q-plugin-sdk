@@ -4,6 +4,20 @@ All notable changes to the SDK package and the plugin API. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver as mibpkg compares them.
 Bench builds carried a `+bench.N` tag and are not releases.
 
+## Unreleased
+
+### Changed
+
+- **Breaking: `mibsdk.api` is split into packages by capability.** `MibPlugin`, `PluginContext`, `Log`, `Storage`,
+  `Scheduler`, `Events`, `Features`, `Permissions` and the other core types stay in `mibsdk.api`. The rest move:
+  `mibsdk.api.ui` (`Ui`, `UiAction`, `UiColor`, `Icon`, `StockIcons`, `Page`, `PageSpec`, `StatusItem`, `HmiContext`),
+  `mibsdk.api.vehicle` (`Vehicle`, `Parking`, `SoundDirections`, the vehicle events, `VehicleOverride`,
+  `OverrideScope`, `OverrideConflictException`), `mibsdk.api.hooks` (`Hooks`, `HookPoint`, `HookObserved`, `Veto`)
+  and `mibsdk.api.net` (`Net`, `Wifi`, `WifiNetwork`, `WifiStatus`, `WifiChanged`). Update your imports and rebuild;
+  a plugin jar built against the old layout will not link.
+- The internal modules (`runtime`, `platform`, `adapter-hqc`, `build-logic`) are organised into sub-packages. No
+  behaviour change.
+
 ## 0.8.0 — 2026-11-09
 
 ### Added

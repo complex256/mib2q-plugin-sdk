@@ -1,4 +1,4 @@
-import mibsdk.build.HostStockJarTask
+import mibsdk.build.tasks.HostStockJarTask
 import mibsdk.build.Toolchain
 
 plugins {

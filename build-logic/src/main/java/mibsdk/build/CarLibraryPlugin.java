@@ -1,6 +1,15 @@
 package mibsdk.build;
 
 import java.io.File;
+import mibsdk.build.check.CarJclSignatures;
+import mibsdk.build.model.MpkStage;
+import mibsdk.build.model.PluginJson;
+import mibsdk.build.tasks.BackportTask;
+import mibsdk.build.tasks.CarJclSignaturesTask;
+import mibsdk.build.tasks.CarJclTask;
+import mibsdk.build.tasks.ClassVersionCheckTask;
+import mibsdk.build.tasks.LinkCheckTask;
+import mibsdk.build.tasks.PermissionScanTask;
 import org.gradle.api.JavaVersion;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;

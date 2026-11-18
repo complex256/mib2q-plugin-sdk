@@ -1,7 +1,7 @@
-import mibsdk.build.CheckStampTask
-import mibsdk.build.ClassVersionCheckTask
-import mibsdk.build.LinkCheckTask
-import mibsdk.build.MibpkgBuildTask
+import mibsdk.build.tasks.CheckStampTask
+import mibsdk.build.tasks.ClassVersionCheckTask
+import mibsdk.build.tasks.LinkCheckTask
+import mibsdk.build.tasks.MibpkgBuildTask
 import mibsdk.build.Toolchain
 
 plugins {
@@ -79,14 +79,14 @@ val distClassVersionCheck = tasks.register<ClassVersionCheckTask>("distClassVers
         retrotranslatorJar.map { zipTree(distDir.get().file("mibsdk-rt-retrotranslator.jar")) })
 }
 
-// Hashes (not signs) the three jars once distLinkCheck has passed; format in mibsdk.build.CheckStamp.
+// Hashes (not signs) the three jars once distLinkCheck has passed; format in mibsdk.build.check.CheckStamp.
 val unitStamp = tasks.register<CheckStampTask>("unitStamp") {
     description = "build/dist/mibsdk-unit.stamp: SHA-256 of the three unit jars, written after the dist checks."
     group = "verification"
     dependsOn(distLinkCheck, distClassVersionCheck)
     doFirst {
         stamp.get().asFile.delete()
-        mibsdk.build.CheckStamp.requireRan(this, listOf(distClassVersionCheck.get(), distLinkCheck.get()))
+        mibsdk.build.check.CheckStamp.requireRan(this, listOf(distClassVersionCheck.get(), distLinkCheck.get()))
     }
     jars.from(runtimeJar.flatMap { it.archiveFile }, adapterJar.flatMap { it.archiveFile },
         retrotranslatorJar.map { distDir.get().file("mibsdk-rt-retrotranslator.jar") })
@@ -136,9 +136,9 @@ val mibpkgStage = tasks.register<Sync>("mibpkgStage") {
         }
     }
     doLast {
-        val icons = mibsdk.build.MpkStage.iconNames(sdkIconsDir.asFile)
-        mibsdk.build.MpkStage.stageIcons(icons, sdkIconsDir.asFile, sdkStageDir.get().asFile, false) // reflect: no; the built-ins ship -72r
-        sdkStageDir.get().file("manifest.toml").asFile.writeText(mibsdk.build.MpkStage.sdkManifest(sdkVersion, icons))
+        val icons = mibsdk.build.model.MpkStage.iconNames(sdkIconsDir.asFile)
+        mibsdk.build.model.MpkStage.stageIcons(icons, sdkIconsDir.asFile, sdkStageDir.get().asFile, false) // reflect: no; the built-ins ship -72r
+        sdkStageDir.get().file("manifest.toml").asFile.writeText(mibsdk.build.model.MpkStage.sdkManifest(sdkVersion, icons))
     }
 }
 

@@ -115,7 +115,7 @@ toolchain table. The description below is the problem as found.
   `Library/Java/JavaVirtualMachines/corretto-1.8.0_372/Contents/Home` and `projects/audi-mib2/...` under the home
   directory.
 - **What happens:**
-  - A wrong `lsd.jar` path fails as Gradle's input-validation problem, `Type 'mibsdk.build.CarJclTask' property
+  - A wrong `lsd.jar` path fails as Gradle's input-validation problem, `Type 'mibsdk.build.tasks.CarJclTask' property
     'stockLsdJar' specifies file '...' which doesn't exist`, followed by Gradle's generic "possible solutions". It
     does not name the `mibsdk.stockLsdJar` property or say what `lsd.jar` is.
   - A wrong JDK 8 path fails in `:compat:compileJava` with `The configured executable does not exist
