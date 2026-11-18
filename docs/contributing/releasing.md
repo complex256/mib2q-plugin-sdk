@@ -74,7 +74,7 @@ The plugin artifacts do not need the stock jars and are published by CI.
 
 ## API changes
 
-- Additive only. A newer SDK runs every older plugin unchanged.
+- Additive only, with one recorded exception: api 9 moved classes between packages and raised `MIN_API_VERSION` to 9 (SDK 0.9.0). A newer SDK otherwise runs every older plugin unchanged.
 - Every new public member gets `@since api N`.
 - `ApiLevels` in build-logic must know the member, or `permissionScan` cannot enforce the declared level.
 - `SdkInfo.API_VERSION` and `MIN_API_VERSION` move only with a documented compatibility decision.
