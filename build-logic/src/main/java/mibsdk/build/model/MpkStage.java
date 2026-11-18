@@ -66,13 +66,16 @@ public final class MpkStage {
                 + "hmi = [" + str(HMI) + "]\n"
                 + "jars = " + array(SDK_JARS) + "\n"
                 + "stamp = " + str(UNIT_STAMP) + "\n"
-                + "configurator = " + str("mibsdk.adapter.hqc.boot.ChainingConfigurator") + "\n"
-                + "bundle = " + str("MibSdk=mibsdk.adapter.hqc.boot.SdkBundleActivator") + "\n"
+                // These four class names are written into the unit's lsd/bundles*.properties and compared by mibpkg on
+                // every update (it refuses a line that is neither stock nor the new package's own). Renaming or moving
+                // one strands every installed SDK: keep them where they are, whatever the package layout does.
+                + "configurator = " + str("mibsdk.adapter.hqc.ChainingConfigurator") + "\n"
+                + "bundle = " + str("MibSdk=mibsdk.adapter.hqc.SdkBundleActivator") + "\n"
                 + "tracer_configurator = " + str("de.audi.tghu.dsitrace.TraceConfigurator") + "\n"
                 + "hmicar_stock = " + str("de.audi.tghu.car.hmi.Activator") + "\n"
-                + "hmicar = " + str("mibsdk.adapter.hqc.ui.car.SdkCarActivator") + "\n"
+                + "hmicar = " + str("mibsdk.adapter.hqc.ui.SdkCarActivator") + "\n"
                 + "hmisystem_stock = " + str("de.audi.tghu.system.hmi.Activator") + "\n"
-                + "hmisystem = " + str("mibsdk.adapter.hqc.ui.car.SdkSystemActivator") + "\n"
+                + "hmisystem = " + str("mibsdk.adapter.hqc.ui.SdkSystemActivator") + "\n"
                 + "owned = " + array(List.of("de/audi/tghu/car/hmi/", "de/audi/atip/model/CarModelBank",
                         "de/audi/tghu/system/hmi/")) + "\n"
                 + "properties = " + array(List.of(

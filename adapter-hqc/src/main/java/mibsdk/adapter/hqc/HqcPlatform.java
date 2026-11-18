@@ -5,7 +5,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-import mibsdk.adapter.hqc.boot.ChainingConfigurator;
 import mibsdk.adapter.hqc.boot.HqcVersion;
 import mibsdk.adapter.hqc.boot.SdkBoot;
 import mibsdk.adapter.hqc.boot.SdkGlobals;

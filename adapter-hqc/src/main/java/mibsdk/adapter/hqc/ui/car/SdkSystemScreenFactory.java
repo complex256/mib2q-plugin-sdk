@@ -8,6 +8,7 @@ import de.esolutions.hmi.widgets.audi.evo.widgets.MainWizardController;
 import de.esolutions.hmi.widgets.audi.evo.widgets.menu.MenuItemController;
 import java.util.List;
 import mibsdk.adapter.hqc.boot.SdkGlobals;
+import mibsdk.adapter.hqc.ui.SdkSystemActivator;
 import mibsdk.adapter.hqc.ui.ids.HqcUiIds;
 
 /**
@@ -25,7 +26,7 @@ public final class SdkSystemScreenFactory extends SystemScreenFactory {
     private static final String SOURCE = "mibsdk";
     private static final String DEFAULT_LABEL = "Plugins";
 
-    SdkSystemScreenFactory(IFrameworkAccess fw) {
+    public SdkSystemScreenFactory(IFrameworkAccess fw) {
         super(fw);
     }
 

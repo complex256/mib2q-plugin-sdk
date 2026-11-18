@@ -1,4 +1,4 @@
-package mibsdk.adapter.hqc.ui.car;
+package mibsdk.adapter.hqc.ui;
 
 import de.audi.atip.activator.AbstractHMIActivator;
 import de.audi.atip.hmi.HMIConditionBank;
@@ -7,6 +7,7 @@ import de.audi.atip.model.SystemModelBank;
 import de.audi.tghu.system.hmi.evohigh.SystemConditionBank;
 import de.audi.tghu.system.hmi.evohigh.SystemScreenFactory;
 import mibsdk.adapter.hqc.boot.SdkGlobals;
+import mibsdk.adapter.hqc.ui.car.SdkSystemScreenFactory;
 import mibsdk.adapter.hqc.ui.ids.HqcUiIds;
 
 /**
@@ -69,7 +70,7 @@ public class SdkSystemActivator extends AbstractHMIActivator {
     }
 
     /** Tests: runs the lazy choice and returns the factory. */
-    AbstractScreenFactory factoryForTests() {
+    public AbstractScreenFactory factoryForTests() {
         return getScreenFactory();
     }
 

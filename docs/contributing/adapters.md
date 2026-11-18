@@ -94,25 +94,27 @@ Write down evidence as you go. A table like this is worth more than a memory of 
 | How does input arrive? | `KbdListener`, `KeyEventDistributorEvo` | Key codes, focus path |
 | How is parking exposed? | `org.dsi.ifc.*parking*`, `ParkingBridge` in HQC | Service name, methods |
 
-The HQC adapter's classes are the reference for each row:
+The HQC adapter's classes are the reference for each row. The bundle, configurator and the two HMI activators
+(`SdkBundleActivator`, `ChainingConfigurator`, `ui/SdkCarActivator`, `ui/SdkSystemActivator`) keep their packages on
+purpose: their names are written into the unit's `lsd/bundles*.properties` and mibpkg compares them on every update.
 
 | HQC class | Pattern to copy |
 |---|---|
-| `HqcVersion` | Exact version match |
+| `boot/HqcVersion` | Exact version match |
 | `SdkBundleActivator` | Bundle entry point and lifecycle |
-| `ConfiguratorCore`, `ChainingConfigurator` | Hooking the stock configurator chain |
+| `boot/ConfiguratorCore`, `ChainingConfigurator` | Hooking the stock configurator chain |
 | `HqcPlatform` | `PlatformAdapter` implementation and feature set |
-| `SdkBoot`, `SdkGlobals`, `SdkFiles` | Runtime boot and on-unit paths |
-| `ServiceWaiter`, `RawServices` | Waiting for late stock services |
-| `DsiServiceProxy`, `DsiConstants`, `BridgeListener` | DSI proxies and event pumps |
-| `IgnitionBridge`, `ParkingBridge`, `HookBindings` | Events, parking and hooks |
-| `ui/HqcUiIds`, `ui/TextIds`, `ui/InputTextIds` | Stock id tables |
-| `ui/SdkCarActivator`, `ui/SdkCarScreenFactory`, `ui/SdkCarModelBank` | Car drawer and screens |
-| `ui/SdkSystemActivator`, `ui/SdkSystemScreenFactory` | Plugins menu and status bar |
-| `ui/PageScreens`, `ui/PageRenderer`, `ui/PageWidgets` | Page rendering |
-| `ui/BarStatusLine`, `ui/StatusSinks`, `ui/StatusPopupController` | Status-line and popup paths |
-| `ui/ConfirmScreen`, `ui/SliderScreen`, `ui/SpellerScreen` | Dialogs and inputs |
-| `ui/UiApplier`, `ui/UiInputs`, `ui/HmiPoster` | Applying snapshots and input |
+| `boot/SdkBoot`, `boot/SdkGlobals`, `boot/SdkFiles` | Runtime boot and on-unit paths |
+| `dsi/ServiceWaiter`, `dsi/RawServices` | Waiting for late stock services |
+| `dsi/DsiServiceProxy`, `dsi/DsiConstants`, `bridge/BridgeListener` | DSI proxies and event pumps |
+| `bridge/IgnitionBridge`, `bridge/ParkingBridge`, `dsi/HookBindings` | Events, parking and hooks |
+| `ui/ids/HqcUiIds`, `ui/ids/TextIds`, `ui/ids/InputTextIds` | Stock id tables |
+| `ui/SdkCarActivator`, `ui/car/SdkCarScreenFactory`, `ui/car/SdkCarModelBank` | Car drawer and screens |
+| `ui/SdkSystemActivator`, `ui/car/SdkSystemScreenFactory` | Plugins menu and status bar |
+| `ui/page/PageScreens`, `ui/page/PageRenderer`, `ui/page/PageWidgets` | Page rendering |
+| `ui/status/BarStatusLine`, `ui/status/StatusSinks`, `ui/popup/StatusPopupController` | Status-line and popup paths |
+| `ui/screen/ConfirmScreen`, `ui/screen/SliderScreen`, `ui/screen/SpellerScreen` | Dialogs and inputs |
+| `ui/page/UiApplier`, `ui/page/UiInputs`, `ui/hmi/HmiPoster` | Applying snapshots and input |
 
 ### How to find a class you only know by behaviour
 

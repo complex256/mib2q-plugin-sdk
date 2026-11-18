@@ -337,8 +337,8 @@ remount, but it is small, so keep only small files there.
 
 - **I1. Install mibsdk 0.3.0.** `MIBSDK_MPK=$P/mibsdk-0.3.0.mpk $D install <ip>`.
   - Expect `installed mibsdk 0.3.0; reboot …`.
-  - The live bundles lines should now be `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator`,
-    `HMISystem=mibsdk.adapter.hqc.ui.car.SdkSystemActivator` and the `MibSdk` bundle.
+  - The live bundles lines should now be `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator`,
+    `HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator` and the `MibSdk` bundle.
   - `dsitracer_activated` now exists. mibpkg records it as "absent" in its backups.
   - `sdk.properties` has no `chain.configurator`.
 - **I2. Plugins:**

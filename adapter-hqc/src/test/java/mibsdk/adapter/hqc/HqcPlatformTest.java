@@ -27,7 +27,6 @@ import mibsdk.adapter.hqc.Fakes.Recorder;
 import mibsdk.adapter.hqc.Fakes.RecordingHost;
 import mibsdk.adapter.hqc.boot.HqcVersion;
 import mibsdk.adapter.hqc.boot.SdkBoot;
-import mibsdk.adapter.hqc.boot.SdkBundleActivator;
 import mibsdk.adapter.hqc.boot.SdkGlobals;
 import mibsdk.adapter.hqc.dsi.DsiConstants;
 import mibsdk.adapter.hqc.dsi.RawServices;

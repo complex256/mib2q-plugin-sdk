@@ -70,7 +70,7 @@ because its manifest declares it. `./gradlew check` passed. Commit b68b8c0.
 
 - `/tmp/mibpkg list`: `bike-rack 1.0.0`, `crashy 1.0.0` (then 1.1.0), `daemon-status 1.0.0`, `hello 1.0.0`,
   `hello-menu 1.0.0`, `mibpkg 0.8.1`, `mibsdk 0.1.0` (then 0.1.0+bench.1), and `carmqtt 0.2.2` after its deploy.
-- `/tmp/mibpkg sdk status`: `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator`, `api: 1..2`, `hmi: … (supported)`. The
+- `/tmp/mibpkg sdk status`: `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator`, `api: 1..2`, `hmi: … (supported)`. The
   grants match the brief: `hello-menu=ui.slot.carmenu`, `daemon-status=network,ui.slot.statusbar`,
   `bike-rack=ui.slot.carmenu,ui.slot.statusbar,vehicle.parking.write,vehicle.read`, and after the update
   `crashy=ui.slot.statusbar`. Also `ledger: 0 override(s)`.

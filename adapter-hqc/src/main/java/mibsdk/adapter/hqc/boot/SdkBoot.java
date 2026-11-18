@@ -2,6 +2,7 @@ package mibsdk.adapter.hqc.boot;
 
 import java.io.File;
 import mibsdk.adapter.hqc.HqcPlatform;
+import mibsdk.adapter.hqc.SdkBundleActivator;
 import mibsdk.adapter.hqc.dsi.RawServices;
 import mibsdk.platform.PlatformAdapter;
 import mibsdk.platform.SdkRoots;
@@ -27,7 +28,7 @@ public final class SdkBoot {
     }
 
     /** Builds everything; starts nothing except the clock's ticker. */
-    static SdkBoot create(BundleContext ctx, File installDir, File persistDir, File ramDir, File versionInfo) {
+    public static SdkBoot create(BundleContext ctx, File installDir, File persistDir, File ramDir, File versionInfo) {
         RuntimeConfig cfg = RuntimeConfig.load(new SdkRoots(installDir, persistDir, ramDir));
         String hmi = AdapterSelector.readHmiVersion(versionInfo);
         MonotonicClock clock = new MonotonicClock(new MonotonicClock.WallSource() {
@@ -60,12 +61,12 @@ public final class SdkBoot {
     }
 
     /** {@link SdkRuntime#start()}: may block up to about 2 x hungMs. */
-    void start() {
+    public void start() {
         runtime.start();
     }
 
     /** {@link SdkRuntime#stop()} (may block up to about 2 x hungMs), then the clock. */
-    void stop() {
+    public void stop() {
         try {
             runtime.stop();
         } finally {
@@ -74,7 +75,7 @@ public final class SdkBoot {
     }
 
     /** Built but never started: only the clock runs. */
-    void discard() {
+    public void discard() {
         clock.stop();
     }
 }

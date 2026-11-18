@@ -43,7 +43,7 @@ Run 2026-10-24 on the bench MHI2Q (10.20.0.23, `HMI_AU_MIB2_HQC_NAR_G22_C10_1808
   - `mibpkg --root <fake> install-file mibsdk` (0.1.0+bench.3): `updated mibsdk 0.1.0+bench.2 -> 0.1.0+bench.3`.
     png_check accepted all **24** SDK icons (`icons-sdk/index.properties`: 8 names × `-20`/`-72`/`-72r`).
   - The bundles file differed from the pre copy only in line 62: `HMISystem=de.audi.tghu.system.hmi.Activator\r` →
-    `HMISystem=mibsdk.adapter.hqc.ui.car.SdkSystemActivator\r`. CR count 266 before and after, mode 0777.
+    `HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator\r`. CR count 266 before and after, mode 0777.
   - hello-menu: exit 3 with `approve with: --approve=ui.slot.statusbar`, then updated. Its icons are
     `hello=e95717048223f737,72,72` and `hello-20=270d239ac4deaad9,20,20`. daemon-status updated (no package icons).
   - Uninstall: `remove mibsdk` first refuses (`remove these plugins first`). After the 5 plugins were removed, it gave
@@ -64,8 +64,8 @@ Run 2026-10-24 on the bench MHI2Q (10.20.0.23, `HMI_AU_MIB2_HQC_NAR_G22_C10_1808
   - Before the restart both plugins reported `loaded: BLOCKED_INVALID … unsupported api 3, this SDK implements api
     1..2`. The running runtime was still bench.2, as expected.
 - **Pre-R1 checks:**
-  - `mibpkg sdk status`: `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator`,
-    `HMISystem=mibsdk.adapter.hqc.ui.car.SdkSystemActivator`, `sdk: 0.1.0+bench.3`, `api: 1..3`; grants
+  - `mibpkg sdk status`: `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator`,
+    `HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator`, `sdk: 0.1.0+bench.3`, `api: 1..3`; grants
     `hello-menu=ui.slot.carmenu,ui.slot.statusbar`.
   - The live list differs from `bundles.pre.properties` only in line 62.
   - `icons/hello-menu/` has two `<sha16>.png` files and `index.properties`, and `icons-sdk/` has 24 files and
@@ -177,8 +177,8 @@ Log `menu-icons-log-r3.txt`: `safeMode=false`, `ui system=sdk`, `ui car=sdk`, 5 
   - `hello-menu 1.0.1-bench.1` and `daemon-status 1.0.1-bench.1`;
   - `hello`, `bike-rack`, `crashy 1.1.0` and `carmqtt 0.2.2`.
 - All 5 plugins are ENABLED with their grants; the ledger is empty.
-- The takeover is ACTIVE: `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator` and
-  `HMISystem=mibsdk.adapter.hqc.ui.car.SdkSystemActivator`. The ring has Plugins with the wrench.
+- The takeover is ACTIVE: `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator` and
+  `HMISystem=mibsdk.adapter.hqc.ui.SdkSystemActivator`. The ring has Plugins with the wrench.
 - Safe mode is off (no SAFE_MODE marker), and `ui.forcefail` is absent.
 - `/mnt/app` is read-only (`touch` gives "Read-only file system").
 - The unit is on its home screen (Vehicle: Audi drive select, Dynamic; `menu-icons-r3-final-home.jpg`).

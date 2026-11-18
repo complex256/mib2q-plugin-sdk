@@ -1,9 +1,11 @@
-package mibsdk.adapter.hqc.boot;
+package mibsdk.adapter.hqc;
 
 import de.dreisoft.lsd.IServiceDelegateConfigurator;
 import de.dreisoft.lsd.IServiceDelegator;
 import java.io.File;
 import java.util.Dictionary;
+import mibsdk.adapter.hqc.boot.ConfiguratorCore;
+import mibsdk.adapter.hqc.boot.SdkFiles;
 import org.osgi.framework.ServiceRegistration;
 
 /**

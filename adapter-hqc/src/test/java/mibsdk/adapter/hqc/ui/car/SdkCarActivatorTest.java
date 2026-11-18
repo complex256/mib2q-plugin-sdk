@@ -14,6 +14,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import mibsdk.adapter.hqc.boot.SdkGlobals;
+import mibsdk.adapter.hqc.ui.SdkCarActivator;
 import mibsdk.adapter.hqc.ui.ids.HqcUiIds;
 import mibsdk.adapter.hqc.ui.page.RowModels;
 import mibsdk.adapter.hqc.ui.status.SdkPopupStatusLine;

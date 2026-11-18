@@ -1,5 +1,6 @@
 package mibsdk.adapter.hqc.boot;
 
+import mibsdk.adapter.hqc.ChainingConfigurator;
 import mibsdk.adapter.hqc.ui.icon.BuiltinIcons;
 import mibsdk.adapter.hqc.ui.car.DrawerAssignment;
 import mibsdk.adapter.hqc.ui.ids.HqcUiIds;

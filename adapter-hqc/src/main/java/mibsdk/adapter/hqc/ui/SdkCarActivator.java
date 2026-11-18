@@ -1,4 +1,4 @@
-package mibsdk.adapter.hqc.ui.car;
+package mibsdk.adapter.hqc.ui;
 
 import de.audi.atip.activator.AbstractHMIActivator;
 import de.audi.atip.hmi.HMIConditionBank;
@@ -7,6 +7,8 @@ import de.audi.atip.model.CarModelBank;
 import de.audi.tghu.car.hmi.evohigh.CarConditionBank;
 import de.audi.tghu.car.hmi.evohigh.CarScreenFactory;
 import mibsdk.adapter.hqc.boot.SdkGlobals;
+import mibsdk.adapter.hqc.ui.car.SdkCarModelBank;
+import mibsdk.adapter.hqc.ui.car.SdkCarScreenFactory;
 import mibsdk.adapter.hqc.ui.ids.HqcUiIds;
 
 /**

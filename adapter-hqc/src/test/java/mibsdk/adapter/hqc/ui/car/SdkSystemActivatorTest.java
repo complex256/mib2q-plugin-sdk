@@ -16,6 +16,7 @@ import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.List;
 import mibsdk.adapter.hqc.boot.SdkGlobals;
+import mibsdk.adapter.hqc.ui.SdkSystemActivator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,7 +26,7 @@ import org.junit.jupiter.api.Test;
  * swdl, with the UI off, under the forced failure "factory" and when the SDK factory cannot be built; the SDK factory
  * (and {@code mainMenu = PENDING}) otherwise. Static SdkGlobals and system properties: sequential.
  */
-class SdkSystemActivatorTest {
+public class SdkSystemActivatorTest {
 
     @BeforeEach
     void reset() {
@@ -44,7 +45,7 @@ class SdkSystemActivatorTest {
     }
 
     /** A framework whose every call answers a default: a fake for interfaces, English, "" for strings, 0 / false. */
-    static Object deep(ClassLoader l, Class<?> iface) {
+    public static Object deep(ClassLoader l, Class<?> iface) {
         return Proxy.newProxyInstance(l, new Class<?>[] {iface}, (p, m, a) -> {
             Class<?> r = m.getReturnType();
             if (m.getName().equals("hashCode")) {

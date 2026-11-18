@@ -11,6 +11,7 @@ import java.util.Dictionary;
 import java.util.Enumeration;
 import java.util.Hashtable;
 import java.util.List;
+import mibsdk.adapter.hqc.ChainingConfigurator;
 import mibsdk.adapter.hqc.dsi.DsiServiceProxy;
 import mibsdk.adapter.hqc.dsi.HookBindings;
 import mibsdk.adapter.hqc.dsi.RawServices;
@@ -64,7 +65,7 @@ public final class ConfiguratorCore {
      * Decides whether to wrap this boot and loads the chain. Throws only if the SDK classes themselves cannot be
      * loaded (the caller catches that); everything after is caught here.
      */
-    static ConfiguratorCore init(File installDir, File persistDir, File ramDir, File versionInfo) {
+    public static ConfiguratorCore init(File installDir, File persistDir, File ramDir, File versionInfo) {
         ConfiguratorCore c = new ConfiguratorCore();
         c.configure(new SdkRoots(installDir, persistDir, ramDir), versionInfo);
         return c;
@@ -142,7 +143,7 @@ public final class ConfiguratorCore {
      * null. Any Throwable while reading this developer-only file is "no forced failure" with one log line: it never
      * reaches {@code configure}'s catch, which would turn the SDK off for the boot.
      */
-    static String readForceFail(File f) {
+    public static String readForceFail(File f) {
         BufferedReader r = null;
         try {
             if (!f.isFile()) {
@@ -194,7 +195,7 @@ public final class ConfiguratorCore {
         }
     }
 
-    ServiceRegistration getServiceRegistration(IServiceDelegator d, String[] names, Object service,
+    public ServiceRegistration getServiceRegistration(IServiceDelegator d, String[] names, Object service,
             Dictionary props) {
         String iface = null;
         Object wrapped = service;
@@ -323,7 +324,7 @@ public final class ConfiguratorCore {
     }
 
     /** {@code [a, b]}: J9's unmodifiable list has no useful toString (it prints the class and hash). */
-    static String join(String[] items) {
+    public static String join(String[] items) {
         StringBuffer b = new StringBuffer("[");
         for (int i = 0; i < items.length; i++) {
             if (i > 0) {

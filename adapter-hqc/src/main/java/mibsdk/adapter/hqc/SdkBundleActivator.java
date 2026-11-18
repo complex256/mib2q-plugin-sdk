@@ -1,7 +1,9 @@
-package mibsdk.adapter.hqc.boot;
+package mibsdk.adapter.hqc;
 
 import java.io.File;
-import mibsdk.adapter.hqc.HqcPlatform;
+import mibsdk.adapter.hqc.boot.SdkBoot;
+import mibsdk.adapter.hqc.boot.SdkFiles;
+import mibsdk.adapter.hqc.boot.SdkGlobals;
 import org.osgi.framework.BundleActivator;
 import org.osgi.framework.BundleContext;
 

@@ -37,7 +37,7 @@ probe sequence no longer runs by itself; `SpikeProbes` polls command files `/tmp
 ## Spike C: row icons, SDK status popup, glyphs, main menu
 
 Plan: `docs/research/2026-10-24-main-menu-and-icons.md` §8. `run.sh` now works on a unit whose SDK was installed by
-mibpkg (there is no `mibsdk/stock/` any more): it expects `HMICar=mibsdk.adapter.hqc.ui.car.SdkCarActivator` and the stock
+mibpkg (there is no `mibsdk/stock/` any more): it expects `HMICar=mibsdk.adapter.hqc.ui.SdkCarActivator` and the stock
 `HMISystem=` line, saves a byte copy of the live bundles file to `/mnt/persist/mibsdk-spike/bundles.before`, and
 `uninstall` writes that copy back (`cmp`-checked).
 After the main-menu feature (`2026-10-24-menu-and-icons`), `run.sh install` refuses by design on a unit with the SDK

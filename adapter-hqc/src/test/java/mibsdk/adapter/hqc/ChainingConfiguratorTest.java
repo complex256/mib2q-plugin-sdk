@@ -1,4 +1,4 @@
-package mibsdk.adapter.hqc.boot;
+package mibsdk.adapter.hqc;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -21,7 +21,10 @@ import java.util.Hashtable;
 import java.util.List;
 import mibsdk.adapter.hqc.Fakes.Call;
 import mibsdk.adapter.hqc.Fakes.Recorder;
-import mibsdk.adapter.hqc.Fakes;
+import mibsdk.adapter.hqc.boot.ConfiguratorCore;
+import mibsdk.adapter.hqc.boot.HqcVersion;
+import mibsdk.adapter.hqc.boot.SdkBoot;
+import mibsdk.adapter.hqc.boot.SdkGlobals;
 import mibsdk.adapter.hqc.dsi.DsiServiceProxy;
 import mibsdk.adapter.hqc.dsi.HookBindings;
 import mibsdk.adapter.hqc.dsi.RawServices;
