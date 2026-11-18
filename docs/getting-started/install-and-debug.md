@@ -10,7 +10,7 @@ The output is `build/mibsdk/<id>-<version>.mpk`. It contains the stamped jar, yo
 reflections and a `manifest.toml` that mibpkg reads. Inspect the staged files in
 `build/mibpkg-stage/` if a package looks wrong.
 
-A plugin with `"api": 6` needs SDK 0.4.x. mibpkg refuses it on an older SDK.
+A plugin with `"api": 9` needs SDK 0.9.0 or later. mibpkg refuses it on an older SDK, and refuses a plugin built for api 8 or lower on SDK 0.9.0.
 
 ## Install the package
 

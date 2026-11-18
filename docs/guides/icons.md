@@ -9,7 +9,7 @@ Add the names to `plugin.json`:
 
 ```json
 {
-  "api": 3,
+  "api": 9,
   "icons": ["cup", "cup-20"]
 }
 ```

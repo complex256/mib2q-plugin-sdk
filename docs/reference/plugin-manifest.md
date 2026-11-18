@@ -9,7 +9,7 @@ runtime reads the copy at the jar root.
   "name": "Coffee Timer",
   "version": "1.0.0",
   "author": "your-name",
-  "api": 5,
+  "api": 9,
   "main": "tutorial.coffeetimer.CoffeeTimerPlugin",
   "permissions": ["ui.slot.carmenu", "ui.slot.statusbar"],
   "icons": ["cup", "cup-20"]
@@ -24,10 +24,10 @@ runtime reads the copy at the jar root.
 | `name` | Yes | Free text shown in the Plugins menu and in mibpkg |
 | `version` | Yes | Semver: `1.2.3` or `1.2.3-beta.1`. mibpkg uses it to order updates |
 | `author` | Yes | Free text. Read by the runtime; ignored by the build |
-| `api` | Yes | Integer 1–7: the newest plugin API your code uses |
+| `api` | Yes | Integer: the newest plugin API your code uses. Currently 9, the only level this SDK loads |
 | `main` | Yes | Fully qualified class that extends `mibsdk.api.MibPlugin` |
 | `permissions` | No | Array of permission ids from [`api/permissions.json`](https://github.com/complex256/mib2q-plugin-sdk/blob/main/api/permissions.json) |
-| `icons` | No | Array of icon names, `[a-z0-9-]{1,32}`, at most 8. Needs `"api": 3` or higher. Each needs `src/main/icons/<name>.png` |
+| `icons` | No | Array of icon names, `[a-z0-9-]{1,32}`, at most 8. Each needs `src/main/icons/<name>.png` |
 | `dependencies` | No | Array of plugin ids that must be enabled first. Read by the runtime; not checked by the build |
 
 ## Validation
@@ -39,10 +39,9 @@ runtime reads the copy at the jar root.
 - missing `id`, `name`, `version`, `main`;
 - an id outside the rule above, or `mibsdk`;
 - a version that is not semver;
-- an `api` outside 1–7, or a non-integer;
+- an `api` other than the one this SDK implements (see [API levels](api-levels.md)), or a non-integer;
 - an unknown permission, with a "did you mean" hint;
 - an invalid, duplicate or excessive icon name;
-- `"icons"` with an api below 3;
 - a missing icon PNG, or a PNG that fails the format rules.
 
 The package also carries a generated `requires.toml`:

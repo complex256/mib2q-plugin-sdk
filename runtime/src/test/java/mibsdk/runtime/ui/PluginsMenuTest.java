@@ -212,7 +212,7 @@ class PluginsMenuTest {
         UiPage sdk = page(pages, "mibsdk/sdk");
         assertEquals("Settings", sdk.title());
         List<String> info = labels(sdk, UiEntry.INFO);
-        assertEquals("API 8 · adapter hqc", info.get(0));
+        assertEquals("API 9 · adapter hqc", info.get(0));
         assertEquals("Safe mode: on (unhealthy-boots)", info.get(1));
         assertEquals("Boot guard: inert", info.get(2));
         assertTrue(info.contains("Override: parking.soundDirections=F1R0L1X1 by pdc (PERSISTENT, restoring)"), info.toString());

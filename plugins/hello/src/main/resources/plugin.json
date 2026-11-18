@@ -3,7 +3,7 @@
   "name": "Hello",
   "version": "1.0.0",
   "author": "complex256",
-  "api": 1,
+  "api": 9,
   "main": "sample.hello.HelloPlugin",
   "permissions": ["vehicle.read"]
 }

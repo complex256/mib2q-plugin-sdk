@@ -477,7 +477,7 @@ class SdkRuntimeLifecycleTest {
     void sdkSideFailureWhileEnablingFailsOnlyThatPlugin() throws Exception {
         plugin("boom", "1", null, LOG_IGNITION);
         jars.writeRaw(new File(plugins, "no-main.jar"), "package fx; class Other {}",
-                "{\"id\":\"no-main\",\"api\":1,\"main\":\"fx.Main\"}");
+                "{\"id\":\"no-main\",\"api\":9,\"main\":\"fx.Main\"}");
         plugin("good", "1", null, LOG_IGNITION);
         SdkRuntime.testEnableHook = new SdkRuntime.EnableHook() {
             public void afterResources(String pluginId) {

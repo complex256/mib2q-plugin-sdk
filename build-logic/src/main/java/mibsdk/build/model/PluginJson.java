@@ -39,8 +39,8 @@ public final class PluginJson {
 
     // Mirrors mibsdk.api.SdkInfo.MIN_API_VERSION / API_VERSION (build-logic cannot depend on :api); the runtime's
     // ManifestParser enforces the same range and wording.
-    static final int MIN_API = 1;
-    public static final int MAX_API = 8;
+    static final int MIN_API = 9;
+    public static final int MAX_API = 9;
     // Mirrors the runtime's ManifestParser: icons arrived with api 3; at most 8 per plugin.
     static final int ICONS_API = 3;
     static final int MAX_ICONS = 8;
@@ -79,7 +79,9 @@ public final class PluginJson {
         if (api instanceof Long || (Integer) api < MIN_API || (Integer) api > MAX_API) {
             throw new GradleException("mibsdk.plugin: " + file + ": unsupported api "
                     + (api instanceof Long ? "(out of range)" : api.toString())
-                    + ", this SDK implements api " + MIN_API + ".." + MAX_API);
+                    + ", this SDK implements api " + MIN_API + ".." + MAX_API
+                    + (api instanceof Integer && (Integer) api < MIN_API && (Integer) api > 0
+                            ? "; set \"api\" to " + MIN_API + " and rebuild against this SDK" : ""));
         }
         return (Integer) api;
     }

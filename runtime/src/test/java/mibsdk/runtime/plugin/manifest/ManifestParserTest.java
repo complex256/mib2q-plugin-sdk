@@ -21,13 +21,13 @@ class ManifestParserTest {
 
     @Test
     void parsesFullManifest() throws Exception {
-        PluginManifest m = ManifestParser.parse(manifest("bike-rack", "1",
+        PluginManifest m = ManifestParser.parse(manifest("bike-rack", "9",
                 ",\"permissions\":[\"vehicle.read\",\"parking.write\"],\"dependencies\":[\"other-plugin\"]"));
         assertEquals("bike-rack", m.id());
         assertEquals("Bike Rack", m.name());
         assertEquals("1.0.0", m.version());
         assertEquals("complex256", m.author());
-        assertEquals(1, m.api());
+        assertEquals(9, m.api());
         assertEquals("dev.example.Main", m.main());
         assertEquals(Arrays.asList("vehicle.read", "parking.write"), m.permissions());
         assertEquals(Arrays.asList("other-plugin"), m.dependencies());
@@ -36,88 +36,82 @@ class ManifestParserTest {
     @Test
     void rejectsBadId() {
         ManifestException e = assertThrows(ManifestException.class,
-                () -> ManifestParser.parse(manifest("Bike_Rack", "1", "")));
+                () -> ManifestParser.parse(manifest("Bike_Rack", "9", "")));
         assertTrue(e.getMessage().contains("id"), e.getMessage());
         for (String bad : new String[] {"a", "-ab", "ab_c", "Ab", "", "a b",
             "abcdefghijabcdefghijabcdefghijabcdefghijab" /* 42 chars */}) {
-            assertThrows(ManifestException.class, () -> ManifestParser.parse(manifest(bad, "1", "")), bad);
+            assertThrows(ManifestException.class, () -> ManifestParser.parse(manifest(bad, "9", "")), bad);
         }
     }
 
     @Test
     void acceptsIdBoundaries() throws Exception {
-        assertEquals("ab", ManifestParser.parse(manifest("ab", "1", "")).id());
-        assertEquals("0-", ManifestParser.parse(manifest("0-", "1", "")).id());
+        assertEquals("ab", ManifestParser.parse(manifest("ab", "9", "")).id());
+        assertEquals("0-", ManifestParser.parse(manifest("0-", "9", "")).id());
         String max = "abcdefghijabcdefghijabcdefghijabcdefghija"; // 41 chars
         assertEquals(41, max.length());
-        assertEquals(max, ManifestParser.parse(manifest(max, "1", "")).id());
+        assertEquals(max, ManifestParser.parse(manifest(max, "9", "")).id());
     }
 
     @Test
-    void acceptsApi1To5AndIconsOnlyWithApi3() throws Exception {
-        for (int api = 1; api <= 5; api++) {
-            assertEquals(api, ManifestParser.parse(manifest("bike-rack", String.valueOf(api), "")).api());
-        }
+    void acceptsTheCurrentApiAndValidatesIcons() throws Exception {
+        assertEquals(9, ManifestParser.parse(manifest("bike-rack", "9", "")).api());
         assertEquals(Arrays.asList("hello"),
-                ManifestParser.parse(manifest("bike-rack", "5", ",\"icons\":[\"hello\"]")).icons());
+                ManifestParser.parse(manifest("bike-rack", "9", ",\"icons\":[\"hello\"]")).icons());
 
-        assertEquals(Collections.emptyList(), ManifestParser.parse(manifest("bike-rack", "3", "")).icons());
-        assertEquals(Collections.emptyList(), ManifestParser.parse(manifest("bike-rack", "2", "")).icons());
+        assertEquals(Collections.emptyList(), ManifestParser.parse(manifest("bike-rack", "9", "")).icons());
         assertEquals(Arrays.asList("hello", "hello-20"),
-                ManifestParser.parse(manifest("bike-rack", "3", ",\"icons\":[\"hello\",\"hello-20\"]")).icons());
+                ManifestParser.parse(manifest("bike-rack", "9", ",\"icons\":[\"hello\",\"hello-20\"]")).icons());
         String max = "abcdefghijabcdefghijabcdefghij-2"; // 32 characters
         assertEquals(Arrays.asList(max),
-                ManifestParser.parse(manifest("bike-rack", "3", ",\"icons\":[\"" + max + "\"]")).icons());
-        assertEquals(8, ManifestParser.parse(manifest("bike-rack", "3",
+                ManifestParser.parse(manifest("bike-rack", "9", ",\"icons\":[\"" + max + "\"]")).icons());
+        assertEquals(8, ManifestParser.parse(manifest("bike-rack", "9",
                 ",\"icons\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\"]")).icons().size());
 
         ManifestException e = assertThrows(ManifestException.class,
-                () -> ManifestParser.parse(manifest("bike-rack", "2", ",\"icons\":[\"hello\"]")));
-        assertEquals("icons need api 3", e.getMessage());
-        e = assertThrows(ManifestException.class,
-                () -> ManifestParser.parse(manifest("bike-rack", "3", ",\"icons\":[\"hello\",\"hello\"]")));
+                () -> ManifestParser.parse(manifest("bike-rack", "9", ",\"icons\":[\"hello\",\"hello\"]")));
         assertEquals("duplicate icon 'hello'", e.getMessage());
-        e = assertThrows(ManifestException.class, () -> ManifestParser.parse(manifest("bike-rack", "3",
+        e = assertThrows(ManifestException.class, () -> ManifestParser.parse(manifest("bike-rack", "9",
                 ",\"icons\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]")));
         assertEquals("at most 8 icons", e.getMessage());
         for (String bad : new String[] {"", "Hello", "a_b", "a.png", max + "x"}) {
             e = assertThrows(ManifestException.class, () -> ManifestParser.parse(
-                    manifest("bike-rack", "3", ",\"icons\":[\"" + bad + "\"]")), bad);
+                    manifest("bike-rack", "9", ",\"icons\":[\"" + bad + "\"]")), bad);
             assertEquals("invalid icon name '" + bad + "': must match [a-z0-9-]{1,32}", e.getMessage());
         }
         for (String bad : new String[] {"\"hello\"", "[1]", "[null]"}) {
             e = assertThrows(ManifestException.class,
-                    () -> ManifestParser.parse(manifest("bike-rack", "3", ",\"icons\":" + bad)), bad);
+                    () -> ManifestParser.parse(manifest("bike-rack", "9", ",\"icons\":" + bad)), bad);
             assertEquals("icons must be an array of strings", e.getMessage());
         }
     }
 
     @Test
-    void apiAboveTheNewestIsRefused() {
-        for (String bad : new String[] {"9", "0", "-1"}) {
+    void apiOutsideTheSupportedRangeIsRefused() {
+        for (String bad : new String[] {"10", "8", "1", "0", "-1"}) {
             ManifestException e = assertThrows(ManifestException.class,
                     () -> ManifestParser.parse(manifest("bike-rack", bad, "")), bad);
-            assertEquals("unsupported api " + bad + ", this SDK implements api 1..8", e.getMessage());
+            assertTrue(e.getMessage().startsWith("unsupported api " + bad + ", this SDK implements api 9..9"), e.getMessage());
         }
     }
 
     @Test
     void rejectsReservedIdMibsdk() {
         ManifestException e = assertThrows(ManifestException.class,
-                () -> ManifestParser.parse(manifest("mibsdk", "1", "")));
+                () -> ManifestParser.parse(manifest("mibsdk", "9", "")));
         assertEquals("reserved plugin id 'mibsdk'", e.getMessage());
     }
 
     @Test
     void rejectsEmptyOrMissingMain() {
         assertThrows(ManifestException.class, () -> ManifestParser.parse(
-                "{\"id\":\"bike-rack\",\"api\":1,\"main\":\"\"}"));
-        assertThrows(ManifestException.class, () -> ManifestParser.parse("{\"id\":\"bike-rack\",\"api\":1}"));
+                "{\"id\":\"bike-rack\",\"api\":9,\"main\":\"\"}"));
+        assertThrows(ManifestException.class, () -> ManifestParser.parse("{\"id\":\"bike-rack\",\"api\":9}"));
     }
 
     @Test
     void defaultsOptionalLists() throws Exception {
-        PluginManifest m = ManifestParser.parse(manifest("bike-rack", "1", ""));
+        PluginManifest m = ManifestParser.parse(manifest("bike-rack", "9", ""));
         assertEquals(Collections.emptyList(), m.permissions());
         assertEquals(Collections.emptyList(), m.dependencies());
     }

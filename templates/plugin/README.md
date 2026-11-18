@@ -48,7 +48,7 @@ Add the permissions the page and row need:
 ## Add an icon
 
 1. Put a 72×72 8-bit RGBA PNG at `src/main/icons/my-icon.png`.
-2. Add `"my-icon"` to `"icons"` in `plugin.json` and set `"api": 3`.
+2. Add `"my-icon"` to `"icons"` in `plugin.json`.
 
 ## Package
 

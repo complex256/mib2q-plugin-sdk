@@ -112,7 +112,7 @@ rootProject.name = "my-plugin"
   "name": "My Plugin",
   "version": "1.0.0",
   "author": "Your Name",
-  "api": 1,
+  "api": 9,
   "main": "example.myplugin.MyPlugin",
   "permissions": []
 }

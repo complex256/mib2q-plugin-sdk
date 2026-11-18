@@ -45,7 +45,8 @@ public final class ManifestParser {
         long api = ((Long) apiVal).longValue();
         if (api < SdkInfo.MIN_API_VERSION || api > SdkInfo.API_VERSION) {
             throw new ManifestException("unsupported api " + api + ", this SDK implements api "
-                    + SdkInfo.MIN_API_VERSION + ".." + SdkInfo.API_VERSION);
+                    + SdkInfo.MIN_API_VERSION + ".." + SdkInfo.API_VERSION
+                    + (api < SdkInfo.MIN_API_VERSION && api > 0 ? "; rebuild the plugin against this SDK" : ""));
         }
 
         String main = requireString(m, "main");

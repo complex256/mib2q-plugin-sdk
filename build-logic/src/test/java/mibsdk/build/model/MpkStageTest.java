@@ -36,7 +36,7 @@ class MpkStageTest {
 
     @Test
     void pluginManifestIsExactAndEscaped() throws IOException {
-        PluginJson p = plugin("\"Bike \\\"Rack\\\" \\\\ v2\"", 2, "[\"vehicle.read\",\"network\"]");
+        PluginJson p = plugin("\"Bike \\\"Rack\\\" \\\\ v2\"", 9, "[\"vehicle.read\",\"network\"]");
         assertEquals("[package]\n"
                 + "name = \"bike-rack\"\n"
                 + "version = \"1.2.3\"\n"
@@ -47,14 +47,14 @@ class MpkStageTest {
                 + "\n"
                 + "[plugin]\n"
                 + "jar = \"bike-rack.jar\"\n"
-                + "api = 2\n"
+                + "api = 9\n"
                 + "permissions = [\"vehicle.read\", \"network\"]\n", MpkStage.pluginManifest(p));
     }
 
     @Test
     void pluginManifestWithNoPermissionsHasAnEmptyList() throws IOException {
-        String m = MpkStage.pluginManifest(plugin("\"Hello\"", 1, "[]"));
-        assertTrue(m.contains("api = 1\npermissions = []\n"), m);
+        String m = MpkStage.pluginManifest(plugin("\"Hello\"", 9, "[]"));
+        assertTrue(m.contains("api = 9\npermissions = []\n"), m);
     }
 
     /** The SDK's built-in set: dist/icons/*.png, by name, sorted. */
@@ -80,8 +80,8 @@ class MpkStageTest {
                 + "units = [\"MHI2Q\"]\n"
                 + "\n"
                 + "[sdk]\n"
-                + "api = 8\n"
-                + "min_api = 1\n"
+                + "api = 9\n"
+                + "min_api = 9\n"
                 + "hmi = [\"HMI_AU_MIB2_HQC_NAR_G22_C10_180803\"]\n"
                 + "jars = [\"mibsdk-runtime.jar\", \"mibsdk-adapter-hqc.jar\", \"mibsdk-rt-retrotranslator.jar\"]\n"
                 + "stamp = \"mibsdk-unit.stamp\"\n"
@@ -108,10 +108,10 @@ class MpkStageTest {
     void pluginPackageStagesDeclaredIcons() throws IOException {
         Path f = dir.resolve("plugin.json");
         Files.write(f, ("{\"id\":\"bike-rack\",\"name\":\"Bike\",\"version\":\"1.2.3\",\"author\":\"a\","
-                + "\"api\":3,\"main\":\"x.Y\",\"permissions\":[],\"icons\":[\"row\",\"status\"]}")
+                + "\"api\":9,\"main\":\"x.Y\",\"permissions\":[],\"icons\":[\"row\",\"status\"]}")
                 .getBytes(StandardCharsets.UTF_8));
         PluginJson p = PluginJson.read(f.toFile());
-        assertTrue(MpkStage.pluginManifest(p).endsWith("api = 3\npermissions = []\nicons = [\"row\", \"status\"]\n"),
+        assertTrue(MpkStage.pluginManifest(p).endsWith("api = 9\npermissions = []\nicons = [\"row\", \"status\"]\n"),
                 MpkStage.pluginManifest(p));
 
         File src = dir.resolve("src").toFile();
@@ -141,7 +141,7 @@ class MpkStageTest {
     void pluginStageWritesReflectionsForDrawerSizedIconsOnly() throws IOException {
         Path f = dir.resolve("plugin.json");
         Files.write(f, ("{\"id\":\"bike-rack\",\"name\":\"Bike\",\"version\":\"1.2.3\",\"author\":\"a\","
-                + "\"api\":3,\"main\":\"x.Y\",\"permissions\":[],\"icons\":[\"hello\",\"hello-20\"]}")
+                + "\"api\":9,\"main\":\"x.Y\",\"permissions\":[],\"icons\":[\"hello\",\"hello-20\"]}")
                 .getBytes(StandardCharsets.UTF_8));
         PluginJson p = PluginJson.read(f.toFile());
         String manifest = MpkStage.pluginManifest(p);
@@ -184,7 +184,7 @@ class MpkStageTest {
 
     @Test
     void pluginManifestWithoutIconsHasNoIconsKey() throws IOException {
-        assertFalse(MpkStage.pluginManifest(plugin("\"Hello\"", 3, "[]")).contains("icons"));
+        assertFalse(MpkStage.pluginManifest(plugin("\"Hello\"", 9, "[]")).contains("icons"));
     }
 
     private static byte[] fixture(String name) throws IOException {

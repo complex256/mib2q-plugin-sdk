@@ -52,7 +52,7 @@ public final class PluginJars {
                 + "  protected void onDisable() throws Exception { ctx.log().info(\"disabled\");\n"
                 + onDisableBody + "\n  }\n"
                 + "}\n";
-        String json = "{\"id\":\"" + id + "\",\"version\":\"" + version + "\",\"api\":1,\"main\":\"fx.Main\""
+        String json = "{\"id\":\"" + id + "\",\"version\":\"" + version + "\",\"api\":9,\"main\":\"fx.Main\""
                 + ",\"permissions\":" + array(permissions) + ",\"dependencies\":" + array(dependencies) + "}";
         return writeRaw(new File(pluginsDir, id + ".jar"), source, json);
     }

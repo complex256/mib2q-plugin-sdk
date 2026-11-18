@@ -30,7 +30,7 @@ class PluginJsonTest {
     }
 
     private String fail(String id, String version) throws IOException {
-        File f = manifest(id, version, 2);
+        File f = manifest(id, version, 9);
         return assertThrows(GradleException.class, () -> PluginJson.read(f)).getMessage();
     }
 
@@ -47,9 +47,9 @@ class PluginJsonTest {
         assertTrue(fail(longId, "1.0.0").contains("mibpkg package names are at most 40 characters"));
         assertTrue(fail("hello", "1.0").contains("\"version\" must be semver like 1.0.0 (mibpkg compares versions)"));
         assertTrue(fail("mibsdk", "1.0.0").contains("reserved for the SDK package"));
-        PluginJson.read(manifest("a" + "b".repeat(39), "1.0.0", 2)); // 40 characters
-        PluginJson.read(manifest("hello", "1.0.0", 1));
-        PluginJson.read(manifest("hello", "1.2.3-rc.1", 2));
+        PluginJson.read(manifest("a" + "b".repeat(39), "1.0.0", 9)); // 40 characters
+        PluginJson.read(manifest("hello", "1.0.0", 9));
+        PluginJson.read(manifest("hello", "1.2.3-rc.1", 9));
     }
 
     @Test
@@ -63,17 +63,17 @@ class PluginJsonTest {
         File huge = manifest("hello", "1.0.0", "18446744073709551618"); // 2^64 + 2: must not wrap to 2
         assertTrue(assertThrows(GradleException.class, () -> PluginJson.read(huge)).getMessage()
                 .contains("unsupported api"));
-        assertEquals(2, PluginJson.read(manifest("hello", "1.0.0", "2")).api);
+        assertEquals(9, PluginJson.read(manifest("hello", "1.0.0", "9")).api);
     }
 
     @Test
     void exposesNameVersionApi() throws IOException {
-        PluginJson p = PluginJson.read(manifest("hello", "1.0.0", 1));
+        PluginJson p = PluginJson.read(manifest("hello", "1.0.0", 9));
         assertEquals("Hello Name", p.name);
         assertEquals("1.0.0", p.version);
-        assertEquals(1, p.api);
-        assertEquals(1, PluginJson.MIN_API);
-        assertEquals(8, PluginJson.MAX_API);
+        assertEquals(9, p.api);
+        assertEquals(9, PluginJson.MIN_API);
+        assertEquals(9, PluginJson.MAX_API);
         assertEquals(java.util.Collections.emptyList(), p.icons);
     }
 
@@ -91,40 +91,37 @@ class PluginJsonTest {
     }
 
     @Test
-    void maxApiIs6AndIconNamesAreChecked() throws IOException {
-        assertEquals(8, PluginJson.MAX_API);
-        assertEquals(3, PluginJson.read(manifest("hello", "1.0.0", 3)).api);
-        assertEquals(4, PluginJson.read(manifest("hello", "1.0.0", 4)).api);
-        assertEquals(5, PluginJson.read(manifest("hello", "1.0.0", 5)).api);
-        assertEquals(6, PluginJson.read(manifest("hello", "1.0.0", 6)).api);
-        assertTrue(fail8().contains("this SDK implements api 1..8"));
+    void apiRangeAndIconNamesAreChecked() throws IOException {
+        assertEquals(9, PluginJson.MAX_API);
+        assertTrue(failNewer().contains("this SDK implements api 9..9"));
+        String tooOld = assertThrows(GradleException.class, () -> PluginJson.read(manifest("hello", "1.0.0", 8))).getMessage();
+        assertTrue(tooOld.contains("this SDK implements api 9..9") && tooOld.contains("set \"api\" to 9"), tooOld);
 
         assertEquals(java.util.Arrays.asList("hello", "hello-20"),
-                PluginJson.read(withIcons(3, "[\"hello\",\"hello-20\"]")).icons);
+                PluginJson.read(withIcons(9, "[\"hello\",\"hello-20\"]")).icons);
         String max = "abcdefghijabcdefghijabcdefghij-2"; // 32 characters
-        assertEquals(java.util.Arrays.asList(max), PluginJson.read(withIcons(3, "[\"" + max + "\"]")).icons);
-        assertEquals(8, PluginJson.read(withIcons(3, "[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\"]")).icons.size());
+        assertEquals(java.util.Arrays.asList(max), PluginJson.read(withIcons(9, "[\"" + max + "\"]")).icons);
+        assertEquals(8, PluginJson.read(withIcons(9, "[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\"]")).icons.size());
 
-        assertTrue(iconFail(2, "[\"hello\"]").contains("\"icons\" needs \"api\": 3"));
-        assertTrue(iconFail(3, "[\"hello\",\"hello\"]").contains("duplicate icon 'hello'"));
-        assertTrue(iconFail(3, "[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]").contains("at most 8 icons"));
-        assertTrue(iconFail(3, "\"hello\"").contains("\"icons\" must be an array"));
+        assertTrue(iconFail(9, "[\"hello\",\"hello\"]").contains("duplicate icon 'hello'"));
+        assertTrue(iconFail(9, "[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]").contains("at most 8 icons"));
+        assertTrue(iconFail(9, "\"hello\"").contains("\"icons\" must be an array"));
         for (String bad : new String[] {"\"\"", "\"Hello\"", "\"a_b\"", "\"a.png\"", "\"" + max + "x\"", "1",
                 "null"}) {
-            String msg = iconFail(3, "[" + bad + "]");
+            String msg = iconFail(9, "[" + bad + "]");
             assertTrue(msg.contains("must match [a-z0-9-]{1,32}"), bad + ": " + msg);
         }
     }
 
-    private String fail8() throws IOException {
-        File f = manifest("hello", "1.0.0", 9);
+    private String failNewer() throws IOException {
+        File f = manifest("hello", "1.0.0", 10);
         return assertThrows(GradleException.class, () -> PluginJson.read(f)).getMessage();
     }
 
     private String permissionFail(String permissionsJson) throws IOException {
         File f = dir.resolve("plugin.json").toFile();
         Files.write(f.toPath(), ("{\"id\":\"hello\",\"name\":\"Hello\",\"version\":\"1.0.0\",\"author\":\"a\","
-                + "\"api\":1,\"main\":\"x.Y\",\"permissions\":" + permissionsJson + "}")
+                + "\"api\":9,\"main\":\"x.Y\",\"permissions\":" + permissionsJson + "}")
                 .getBytes(StandardCharsets.UTF_8));
         return assertThrows(GradleException.class, () -> PluginJson.read(f), permissionsJson).getMessage();
     }

@@ -90,8 +90,8 @@ def check_versions():
         if not re.search(rf"^\|\s*{api_level}\s*\|", levels, re.MULTILINE):
             fail(f"docs/reference/api-levels.md: no row for the current api level {api_level}")
         readme = read(ROOT / "README.md")
-        if f"1 through {api_level}" not in readme and f"api 1–{api_level}" not in readme:
-            fail(f"README.md: does not state the current api range 1..{api_level}")
+        if not re.search(rf"\|\s*Plugin API\s*\|\s*{api_level}\b", readme):
+            fail(f"README.md: the Plugin API row does not state the current api level {api_level}")
 
 
 def check_internal_links():

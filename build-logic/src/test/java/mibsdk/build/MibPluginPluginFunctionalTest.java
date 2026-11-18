@@ -55,7 +55,7 @@ class MibPluginPluginFunctionalTest {
         repo = new File(System.getProperty("mibsdk.repoRoot")).getCanonicalFile();
         String r = repo.getPath().replace('\\', '/');
         write("settings.gradle.kts", "rootProject.name = \"tk\"\n"
-                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:undeclared\", \"plugins:badperm\", \"plugins:kt\", \"plugins:api2\", \"plugins:api0\", \"plugins:api9\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:colour3\", \"plugins:colour4\", \"plugins:inputs4\", \"plugins:inputs5\", \"plugins:tested\", \"plugins:regex\", \"plugins:lambdaop\", \"plugin-test\")\n"
+                + "include(\"compat\", \"api\", \"plugins:hello\", \"plugins:refl\", \"plugins:unrestricted\", \"plugins:undeclared\", \"plugins:badperm\", \"plugins:kt\", \"plugins:api8\", \"plugins:api0\", \"plugins:api10\", \"plugins:apifrac\", \"plugins:icons\", \"plugins:badicon\", \"plugins:noicon\", \"plugins:tested\", \"plugins:regex\", \"plugins:lambdaop\", \"plugin-test\")\n"
                 + "project(\":compat\").projectDir = file(\"" + r + "/compat\")\n"
                 + "project(\":api\").projectDir = file(\"" + r + "/api\")\n"
                 + "project(\":plugins:hello\").projectDir = file(\"" + r + "/plugins/hello\")\n"
@@ -82,10 +82,8 @@ class MibPluginPluginFunctionalTest {
                 + "    ctx.ui().statusItem(\"x\");\n"
                 + "  }\n"
                 + "}\n", "[\"platform.unrestricted\"]");
-        // ctx.net() and ctx.ui() are api 2.
         write("plugins/undeclared/src/main/resources/plugin.json",
-                manifest("undeclared", "sample.undeclared.UndeclaredPlugin", "[\"platform.unrestricted\"]")
-                        .replace("\"api\":1", "\"api\":2"));
+                manifest("undeclared", "sample.undeclared.UndeclaredPlugin", "[\"platform.unrestricted\"]"));
         javaPlugin("badperm", "sample.refl.ReflPlugin", "package sample.refl;\n"
                 + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                 + "public class ReflPlugin extends MibPlugin {\n"
@@ -101,14 +99,14 @@ class MibPluginPluginFunctionalTest {
                 + "  }\n"
                 + "}\n", "[]");
 
-        for (String[] a : new String[][] {{"api2", "2"}, {"api0", "0"}, {"api9", "9"}, {"apifrac", "1.5"}}) {
+        for (String[] a : new String[][] {{"api8", "8"}, {"api0", "0"}, {"api10", "10"}, {"apifrac", "1.5"}}) {
             javaPlugin(a[0], "sample.refl.ReflPlugin", "package sample.refl;\n"
                     + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
                     + "public class ReflPlugin extends MibPlugin {\n"
                     + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
                     + "}\n", "[]");
             write("plugins/" + a[0] + "/src/main/resources/plugin.json",
-                    manifest(a[0], "sample.refl.ReflPlugin", "[]").replace("\"api\":1", "\"api\":" + a[1]));
+                    manifest(a[0], "sample.refl.ReflPlugin", "[]").replace("\"api\":9", "\"api\":" + a[1]));
         }
 
         // Icons (api 3): a valid one, a refused one (a shared PNG vector), and one declared without its file.
@@ -119,7 +117,7 @@ class MibPluginPluginFunctionalTest {
                     + "  protected void onEnable(PluginContext ctx) throws Exception { }\n"
                     + "}\n", "[]");
             write("plugins/" + id + "/src/main/resources/plugin.json", manifest(id, "sample.refl.ReflPlugin", "[]")
-                    .replace("\"api\":1", "\"api\":3,\"icons\":[\"row\",\"status\"]"));
+                    .replace("\"api\":9", "\"api\":9,\"icons\":[\"row\",\"status\"]"));
         }
         copyFixture("ok-72.png", "plugins/icons/src/main/icons/row.png");
         copyFixture("ok-20.png", "plugins/icons/src/main/icons/status.png");
@@ -138,34 +136,6 @@ class MibPluginPluginFunctionalTest {
                 + "    ctx.log().info(\"sum=\" + add.apply(1, 2));\n"
                 + "  }\n"
                 + "}\n", "[]");
-
-        // Ui.icon(String, int) is api 4: the same plugin declaring api 3 and api 4.
-        for (String[] a : new String[][] {{"colour3", "3"}, {"colour4", "4"}}) {
-            javaPlugin(a[0], "sample.colour.ColourPlugin", "package sample.colour;\n"
-                    + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
-                    + "public class ColourPlugin extends MibPlugin {\n"
-                    + "  protected void onEnable(PluginContext ctx) throws Exception {\n"
-                    + "    ctx.ui().statusItem(\"x\", ctx.ui().icon(\"status\", Icon.OWN_COLOURS));\n"
-                    + "  }\n"
-                    + "}\n", "[]");
-            write("plugins/" + a[0] + "/src/main/resources/plugin.json",
-                    manifest(a[0], "sample.colour.ColourPlugin", "[\"ui.slot.statusbar\"]")
-                            .replace("\"api\":1", "\"api\":" + a[1] + ",\"icons\":[\"status\"]"));
-            copyFixture("ok-20.png", "plugins/" + a[0] + "/src/main/icons/status.png");
-        }
-
-        // PageSpec.slider is api 5: the same plugin declaring api 4 and api 5.
-        for (String[] a : new String[][] {{"inputs4", "4"}, {"inputs5", "5"}}) {
-            javaPlugin(a[0], "sample.inputs.InputsPlugin", "package sample.inputs;\n"
-                    + "import mibsdk.api.*; import mibsdk.api.ui.*; import mibsdk.api.vehicle.*; import mibsdk.api.hooks.*; import mibsdk.api.net.*;\n"
-                    + "public class InputsPlugin extends MibPlugin {\n"
-                    + "  protected void onEnable(PluginContext ctx) throws Exception {\n"
-                    + "    ctx.ui().page(PageSpec.of(\"main\", \"Inputs\").slider(\"bass\", \"Bass\", -6, 6, 1, 0, true), null);\n"
-                    + "  }\n"
-                    + "}\n", "[]");
-            write("plugins/" + a[0] + "/src/main/resources/plugin.json",
-                    manifest(a[0], "sample.inputs.InputsPlugin", "[]").replace("\"api\":1", "\"api\":" + a[1]));
-        }
 
         // The convention depends on the project :plugin-test; a stub stands in for the real harness module here.
         write("plugin-test/build.gradle.kts", "plugins {\n    `java-library`\n}\n"
@@ -225,7 +195,7 @@ class MibPluginPluginFunctionalTest {
 
     private static String manifest(String id, String main, String permissions) {
         return "{\"id\":\"" + id + "\",\"name\":\"" + id + "\",\"version\":\"1.0.0\",\"author\":\"complex256\","
-                + "\"api\":1,\"main\":\"" + main + "\",\"permissions\":" + permissions + ",\"dependencies\":[]}\n";
+                + "\"api\":9,\"main\":\"" + main + "\",\"permissions\":" + permissions + ",\"dependencies\":[]}\n";
     }
 
     private static void copyFixture(String name, String rel) throws IOException {
@@ -552,57 +522,12 @@ class MibPluginPluginFunctionalTest {
     }
 
     @Test
-    void apiTwoManifestBuilds() throws Exception {
-        assertSucceeded(runner(":plugins:api2:mibPluginJar").build(), ":plugins:api2:mibPluginJar");
-    }
-
-    @Test
     void apiOutOfRangeOrNonIntegerFailsBuild() {
-        for (String id : new String[] {"api0", "api9", "apifrac"}) {
+        for (String id : new String[] {"api8", "api0", "api10", "apifrac"}) {
             String out = runner(":plugins:" + id + ":mibPluginJar").buildAndFail().getOutput();
             String want = id.equals("apifrac") ? "api must be an integer" : "unsupported api";
             assertTrue(out.contains(want), id + ": " + out);
         }
-    }
-
-    @Test
-    void colourOverloadNeedsApi4() throws Exception {
-        Path fake = root.resolve("fake-mibpkg-colour.sh");
-        Files.write(fake, "#!/bin/sh\n: > \"$3/colour4-1.0.0.mpk\"\n".getBytes(StandardCharsets.UTF_8));
-        assertTrue(fake.toFile().setExecutable(true));
-        String prop = "-Pmibsdk.mibpkg=" + fake;
-
-        BuildResult refused = runner(":plugins:colour3:mibpkgPackage", prop).buildAndFail();
-        assertTrue(refused.getOutput().contains(
-                "sample/colour/ColourPlugin.onEnable -> Ui.icon(String,int) needs api 4; plugin.json declares api 3"),
-                refused.getOutput());
-        assertEquals(TaskOutcome.FAILED, refused.task(":plugins:colour3:permissionScan").getOutcome());
-        String report = new String(Files.readAllBytes(
-                root.resolve("out/plugins_colour3/reports/mibsdk/permissions.txt")), StandardCharsets.UTF_8);
-        assertEquals("sample/colour/ColourPlugin.onEnable -> Ui.icon(String,int) needs api 4;"
-                + " plugin.json declares api 3\n", report);
-
-        assertSucceeded(runner(":plugins:colour4:mibpkgPackage", prop).build(), ":plugins:colour4:mibpkgPackage");
-    }
-
-    @Test
-    void inputsNeedApi5() throws Exception {
-        Path fake = root.resolve("fake-mibpkg-inputs.sh");
-        Files.write(fake, "#!/bin/sh\n: > \"$3/inputs5-1.0.0.mpk\"\n".getBytes(StandardCharsets.UTF_8));
-        assertTrue(fake.toFile().setExecutable(true));
-        String prop = "-Pmibsdk.mibpkg=" + fake;
-
-        BuildResult refused = runner(":plugins:inputs4:mibpkgPackage", prop).buildAndFail();
-        assertTrue(refused.getOutput().contains(
-                "sample/inputs/InputsPlugin.onEnable -> PageSpec.slider needs api 5; plugin.json declares api 4"),
-                refused.getOutput());
-        assertEquals(TaskOutcome.FAILED, refused.task(":plugins:inputs4:permissionScan").getOutcome());
-        String report = new String(Files.readAllBytes(
-                root.resolve("out/plugins_inputs4/reports/mibsdk/permissions.txt")), StandardCharsets.UTF_8);
-        assertEquals("sample/inputs/InputsPlugin.onEnable -> PageSpec.slider needs api 5;"
-                + " plugin.json declares api 4\n", report);
-
-        assertSucceeded(runner(":plugins:inputs5:mibpkgPackage", prop).build(), ":plugins:inputs5:mibpkgPackage");
     }
 
     @Test

@@ -83,7 +83,7 @@ public final class UiTestRuntime {
             d.append(i > 0 ? "," : "").append('"').append(deps[i]).append('"');
         }
         d.append(']');
-        String json = "{\"id\":\"" + id + "\",\"name\":\"" + name + "\",\"version\":\"1\",\"api\":2,"
+        String json = "{\"id\":\"" + id + "\",\"name\":\"" + name + "\",\"version\":\"1\",\"api\":9,"
                 + "\"main\":\"fx.Main\",\"permissions\":" + p + ",\"dependencies\":" + d + "}";
         jars.writeRaw(new File(plugins, id + ".jar"), source, json);
         grants.put(id, perms);

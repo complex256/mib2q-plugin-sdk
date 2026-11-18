@@ -63,7 +63,7 @@ coffee-timer/
   "name": "Coffee Timer",
   "version": "1.0.0",
   "author": "your-name",
-  "api": 5,
+  "api": 9,
   "main": "tutorial.coffeetimer.CoffeeTimerPlugin",
   "permissions": ["ui.slot.carmenu", "ui.slot.statusbar"],
   "icons": ["cup", "cup-20"]

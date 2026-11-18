@@ -8,6 +8,10 @@ Bench builds carried a `+bench.N` tag and are not releases.
 
 ### Changed
 
+- **Plugin API 9, and `min_api` is now 9.** The package split below is binary-incompatible, so SDK 0.9.0 loads api 9
+  only: mibpkg and the runtime refuse a plugin built for api 8 or lower, and `mibsdk.plugin` refuses to build a
+  manifest that declares less than 9. Api 9 adds no members. Rebuild your plugin against the new SDK and set
+  `"api": 9`.
 - **Breaking: `mibsdk.api` is split into packages by capability.** `MibPlugin`, `PluginContext`, `Log`, `Storage`,
   `Scheduler`, `Events`, `Features`, `Permissions` and the other core types stay in `mibsdk.api`. The rest move:
   `mibsdk.api.ui` (`Ui`, `UiAction`, `UiColor`, `Icon`, `StockIcons`, `Page`, `PageSpec`, `StatusItem`, `HmiContext`),
